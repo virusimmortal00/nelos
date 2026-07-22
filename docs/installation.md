@@ -2,8 +2,9 @@
 
 This document records the complete trust, recovery, and verification model for
 Fraktik's transactional installer, the read-only `fraktik doctor`
-diagnostic, and the distribution verifier. For the short install path, see
-[Install From Source](../README.md#install-from-source) in the README.
+diagnostic, and the distribution verifier. For the normal Codex installation,
+see [Install in Codex](../README.md#install-in-codex); this document covers the
+maintainer-oriented source distribution path.
 
 ## The unified installer
 

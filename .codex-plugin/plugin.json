@@ -1,10 +1,12 @@
 {
   "name": "fraktik",
-  "version": "0.1.0",
-  "description": "Plan and coordinate dependency-aware task webs for complex development work.",
+  "version": "0.1.1",
+  "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
-    "name": "Fraktik Maintainers"
+    "name": "Fraktik Maintainers",
+    "url": "https://github.com/virusimmortal00"
   },
+  "homepage": "https://github.com/virusimmortal00/fraktik",
   "repository": "https://github.com/virusimmortal00/fraktik",
   "license": "MIT",
   "keywords": [
@@ -15,8 +17,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Fraktik",
-    "shortDescription": "Coordinate dependency-aware task webs",
-    "longDescription": "Plan, route, and coordinate nested task webs with explicit lifecycle evidence.",
+    "shortDescription": "Turn complex work into safe parallel Codex tasks",
+    "longDescription": "Plan, route, and coordinate dependency-aware task webs with explicit lifecycle evidence.",
     "developerName": "Fraktik Maintainers",
     "category": "Developer Tools",
     "capabilities": [
@@ -24,6 +26,9 @@
       "Write"
     ],
     "brandColor": "#111111",
+    "composerIcon": "./assets/fraktik-spider-icon.png",
+    "logo": "./assets/fraktik-spider-icon.png",
+    "logoDark": "./assets/fraktik-spider-icon-dark.png",
     "defaultPrompt": [
       "Use Fraktik to plan this feature into safe parallel slices.",
       "Create durable spinoffs only where they need independent lifecycle.",

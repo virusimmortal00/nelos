@@ -49,6 +49,7 @@ export const MANAGED_CLI_COMMANDS = Object.freeze(Object.keys(MANAGED_CLI_BINS))
 export const DISTRIBUTION_ENTRIES = [
   ".codex-plugin",
   "README.md",
+  "assets",
   "bin",
   "completions",
   "docs",

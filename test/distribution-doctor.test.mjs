@@ -39,6 +39,7 @@ async function createDoctorFixture(root) {
   );
   for (const directory of [
     join(releasePath, ".codex-plugin"),
+    join(releasePath, "assets"),
     join(releasePath, "bin"),
     join(releasePath, "completions"),
     join(releasePath, "docs"),

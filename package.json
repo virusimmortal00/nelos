@@ -1,6 +1,6 @@
 {
   "name": "fraktik",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {
@@ -15,6 +15,7 @@
   },
   "files": [
     ".codex-plugin/",
+    "assets/",
     "distribution-provenance.json",
     "bin/",
     "completions/",

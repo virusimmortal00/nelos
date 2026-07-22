@@ -4,66 +4,62 @@
 
 # Fraktik
 
-**A smart parallelization router for Codex: it splits high-level work across
-built-in subagents and durable tasks, routes every slice through reviewed
-model-and-reasoning guidance, and keeps the whole web of work tracked and
-inspectable.**
+**Plan complex Codex work into safe, dependency-aware parallel slices.**
 
-Codex with GPT-5.6 Ultra reasoning is already excellent at fanning out bounded
-subagents. Two gaps remain. Spinning up **durable task agents** — work that
-needs its own stable identity, working directory, dependency gates, and later
-turns — is still manual, one chat at a time. And every task forces a
-model-and-reasoning choice that is taxing to make by hand each time, even with
-published guidance.
-
-Fraktik is a plugin, skill, and CLI that close both gaps together. A
-**queen** task decomposes an objective into bounded slices; the planner turns
-them into dependency-safe parallel waves and routes each slice — native
-subagent or durable **spinoff** — to a reviewed model/reasoning profile; the
-**web** keeps every member visible and inspectable from the sidebar. The same
-pattern recurs at every scale: any spinoff can coordinate a nested web of its
-own.
+Fraktik helps you turn a large development task into a visible web of focused
+subagents and durable tasks. It keeps dependencies explicit, suggests
+model-and-reasoning profiles, and gives the coordinating task the evidence it
+needs to decide when a later wave may start.
 
 Fraktik is an independent open-source project. It integrates with Codex but is
 not sponsored, endorsed, or maintained by OpenAI.
 
-## Quickstart
+## Install in Codex
 
-Supported platforms are macOS and Linux with Node.js 20 or newer. The fastest
-non-destructive check validates the shipped CLI, task-management skill, local
-state, and transactional installer — it needs no running Codex host and makes
-no model calls:
+In the Codex app, open **Plugins**, add a GitHub marketplace source for
+`virusimmortal00/fraktik`, then install **Fraktik** from the **Fraktik** source.
+The repository includes the catalog and plugin manifest, so no manual
+copying or distribution installer is needed.
 
-```bash
-npm ci
-npm run check
-npm test
-```
-
-All suites should pass. For a fast deterministic proof of Fraktik's
-acceptance-gate behavior, run the demo (no model calls or
-Codex host required):
+The equivalent terminal commands are:
 
 ```bash
-npm run demo:acceptance-gates
+codex plugin marketplace add virusimmortal00/fraktik --ref main
+codex plugin add fraktik@fraktik
 ```
 
-It shows a completed upstream result held behind queen acceptance, a dependent
-released only after that decision is persisted, restart-safe reconstruction of
-the same release, same-task recovery, and an accepted-only synthesis.
+Start a fresh Codex task after installing so it can discover the bundled skill.
+Fraktik runs its CLI through Node.js, so use Node.js 20 or newer on macOS or
+Linux when asking it to run Fraktik commands. The current distribution does
+not support Windows.
 
-To try the plugin interactively, follow
-[Install From Source](#install-from-source), start a fresh Codex task, and ask:
+## Start here
+
+Ask Codex:
 
 ```text
-Help me plan and route this high-level task into safe parallel slices.
+Use Fraktik to plan this feature into safe parallel slices.
 ```
 
-Codex will decompose the objective into dependency-safe slices and route each
-one to a model/reasoning profile.
+Fraktik will help decide which work is a short-lived built-in subagent and
+which needs a durable, independently inspectable task. It can then organize
+the work into waves, keep dependencies visible, and pause before advancing
+until the coordinating task accepts the needed results.
 
-The installer currently rejects Windows because it relies on POSIX permissions,
-symbolic links, and a Unix-domain app-server control socket.
+Use a durable Fraktik task when a workstream needs its own working directory,
+later turns, a handoff, or a dependency gate. Use a built-in subagent for a
+bounded investigation or review that returns directly to the current task.
+
+## What Fraktik adds
+
+- A clear plan of bounded work slices and their dependencies.
+- Parallel waves that launch only when accepted upstream work is ready.
+- Reviewed model-and-reasoning recommendations for each slice.
+- A lightweight task web that makes task relationships easier to inspect.
+
+For a short conceptual overview, Fraktik calls the coordinating task the
+**queen**, independently managed tasks **spinoffs**, and the connected set a
+**web**. The details are below when you need them.
 
 ## Why Fraktik?
 
@@ -327,7 +323,9 @@ work. A queen still owns dependency ordering, integration, final verification,
 and conflict resolution. For Git-writing work, give every concurrent writer a
 separate, pre-provisioned worktree.
 
-## Install From Source
+## For contributors and maintainers
+
+### Install from source
 
 Requires Node.js 20 or newer. A running local Codex app server is optional, but
 lets the installer activate the new plugin for fresh tasks without restarting
@@ -358,20 +356,23 @@ changing installation state. The complete trust model — locking, path safety,
 forced installs, host refresh ordering, and recovery semantics — is documented
 in [Installation and Distribution Trust](docs/installation.md).
 
-## Repository Components
+### Repository components
 
 - `bin/` contains the command-line interfaces for people, scripts, hooks, and
   CI.
 - `src/` contains the shared app-server transport, task and web models,
   persistence, compatibility checks, and orchestration behavior.
-- `.codex-plugin/` defines the skill-only plugin manifest.
+- `.agents/plugins/marketplace.json` exposes this repository as a GitHub
+  marketplace source for the Codex app.
+- `.codex-plugin/` defines the plugin manifest and its presentation metadata.
+- `assets/` contains the spider icon used in the Codex plugin UI.
 - `skills/` contains the reusable task-management workflow bundled with the
   plugin.
 - `completions/` contains Bash, Zsh, and Fish tab-completion for
   `fraktik`; see [docs/fraktik-completions.md](docs/fraktik-completions.md) for
   install and regeneration instructions.
 
-## Design Principles
+### Design principles
 
 - Keep human and agent interfaces behaviorally consistent.
 - Separate observation from task mutation at the permission boundary.
@@ -379,7 +380,7 @@ in [Installation and Distribution Trust](docs/installation.md).
 - Isolate Codex protocol changes behind versioned transport adapters.
 - Treat worktree ownership and concurrent writers as explicit concerns.
 
-## Development
+### Development
 
 Standalone/source use requires one compatible Codex CLI and a reachable app
 server. Start the developer launcher described in
