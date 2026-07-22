@@ -115,8 +115,8 @@ explicit symlinked ancestry when verifying production path-safety rejection.
 The GitHub Actions verification runs from a clean install with an isolated
 `CODEX_HOME`; it does not read or update a user's Codex state.
 
-Editing any distributed surface — including `README.md`, `docs/`, `bin/`,
-`src/`, `skills/`, `completions/`, `.codex-plugin/`, or `package.json` —
+Editing any distributed surface — including `README.md`, `assets/`, `docs/`,
+`bin/`, `src/`, `skills/`, `completions/`, `.codex-plugin/`, or `package.json` —
 invalidates the `integrity` digest in `distribution-provenance.json`. Update
 the record's `integrity` with `computeDistributionIntegrity` from
 `src/distribution-provenance.mjs` (and `skillIntegrity` with
