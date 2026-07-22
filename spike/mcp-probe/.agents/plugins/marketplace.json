@@ -1,0 +1,20 @@
+{
+  "name": "fraktik-mcp-probe",
+  "interface": {
+    "displayName": "Fraktik MCP Probe"
+  },
+  "plugins": [
+    {
+      "name": "fraktik-mcp-probe",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

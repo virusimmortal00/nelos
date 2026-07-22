@@ -9,6 +9,37 @@ work. Order future slices by their evidence and acceptance gates.
 
 ## Next
 
+### Self-sufficient marketplace install (MCP tool surface)
+
+Close the packaging gap where a marketplace install ships the skill but not
+the `fraktik` executable the skill invokes. Expose the skill's only CLI
+dependencies — the offline slice planner, the intelligence router, and
+runtime-intelligence verification — as a bundled, socket-free MCP server, per
+[Socket-free MCP tool surface](mcp-tool-surface.md). Launch mechanics are
+pinned to verified `codex-cli 0.144.6` behavior (no `${PLUGIN_ROOT}`
+substitution; inline self-locating bootstrap) with a recorded retirement
+condition and a filed upstream report.
+
+Delivery slices:
+
+- [ ] add the newline-framed stdio MCP server exposing `fraktik_plan_slices`,
+  `fraktik_intelligence_route`, and `fraktik_intelligence_verify`, reusing the
+  CLI's modules with no behavioral fork;
+- [ ] generate `.mcp.json` with the baked release version and inline
+  bootstrap; verify freshness and version consistency in tests;
+- [ ] migrate the skill's two CLI invocations to the named tools, keeping the
+  one-desktop-path protocol unchanged, and assert in compliance tests that the
+  installed skill references no shell `fraktik` commands;
+- [ ] update install documentation with the required `config.toml` enablement
+  block and teach diagnostics to recognize installed-but-disabled servers.
+
+Acceptance criteria: a fresh marketplace install plus the documented
+enablement block yields a task where the skill completes plan → launch →
+verify using only bundled tools and native task controls; the MCP server
+opens no sockets and performs no writes; provenance and hermetic release
+gates cover the new surfaces; and the CLI remains fully supported for
+developers without being a skill dependency.
+
 ### Durable execution foundation
 
 Make the shipped golden loop resumable and deterministic by introducing the
@@ -104,6 +135,9 @@ permission design, confirmation path, and audit model.
   collection, traceable synthesis readiness, and a twice-run verifier.
 - Retire the MCP/UI prototype from the repository and distributed plugin; retain
   its future host requirements in [Future Host Integration](mcp-web-ui.md).
+  (The retired surface was live-state UI; the later socket-free tool surface in
+  [Socket-free MCP tool surface](mcp-tool-surface.md) is a different scope and
+  does not reverse this.)
 - Add deterministic, overridable Sol/Terra/Luna intelligence routing with a
   versioned reviewed catalog, lowest-sufficient effort policy, and explicit
   Ultra guardrails.

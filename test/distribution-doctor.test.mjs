@@ -54,6 +54,7 @@ async function createDoctorFixture(root) {
   }
   await Promise.all([
     writeFile(join(releasePath, "README.md"), "trusted release\n"),
+    writeFile(join(releasePath, ".mcp.json"), '{"fraktik":{}}\n'),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
   ]);
