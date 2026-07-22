@@ -1,0 +1,348 @@
+#!/usr/bin/env node
+
+import { createHash, randomUUID } from "node:crypto";
+import {
+  link,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  assertNoSymlinkComponents,
+  ensureCanonicalDirectory,
+  pathInfo,
+} from "../src/path-safety.mjs";
+import {
+  normalizedProcessIdentity,
+  processMayOwnLease,
+  readProcessIdentity,
+} from "../src/process-liveness.mjs";
+import {
+  MANAGED_SKILL_FILES,
+  skillFingerprint,
+} from "../src/skill-installation.mjs";
+
+const TRANSACTION_FILENAME = ".manage-fraktik-tasks-install-transaction.json";
+const LEGACY_TRANSACTION_ACTIVE_WINDOW_MS = 5 * 60 * 1_000;
+const TRANSACTION_HEARTBEAT_INTERVAL_MS = 1_000;
+const TRANSACTION_STALE_AFTER_MS = 30_000;
+
+function printUsage() {
+  process.stdout.write(`Usage:
+  fraktik-install-skill [--force]
+
+Development-only escape hatch that installs the bundled manage-fraktik-tasks
+skill under CODEX_HOME without updating the CLI or plugin.
+Use --force to replace the entire existing skill directory, including extras.
+`);
+}
+
+async function createJsonExclusively(path, value) {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
+    await link(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+function validateTransaction(transaction, target) {
+  const intendedFiles = Object.keys(transaction?.files ?? {}).toSorted();
+  const startedAtMs = Date.parse(transaction?.startedAt ?? "");
+  const recordedIdentity = normalizedProcessIdentity(transaction?.processIdentity);
+  if (
+    transaction?.schemaVersion !== 1 ||
+    !/^[A-Za-z0-9-]+$/.test(transaction?.id ?? "") ||
+    !Number.isInteger(transaction?.pid) ||
+    transaction.pid <= 0 ||
+    !Number.isFinite(startedAtMs) ||
+    startedAtMs > Date.now() + 60_000 ||
+    (transaction.processIdentity !== undefined &&
+      Object.keys(recordedIdentity).length === 0) ||
+    intendedFiles.length !== MANAGED_SKILL_FILES.length ||
+    intendedFiles.some((name, index) => name !== MANAGED_SKILL_FILES[index]) ||
+    intendedFiles.some(
+      (name) => !/^sha256:[a-f0-9]{64}$/.test(transaction.files[name]),
+    ) ||
+    resolve(transaction?.target ?? "") !== resolve(target) ||
+    resolve(transaction?.temporary ?? "") !==
+      resolve(`${target}.${transaction.id}.tmp`) ||
+    resolve(transaction?.backup ?? "") !==
+      resolve(`${target}.${transaction.id}.backup`)
+  ) {
+    throw new Error("invalid manage-fraktik-tasks install transaction");
+  }
+}
+
+async function directoryMatches(target, files) {
+  const info = await pathInfo(target);
+  if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+  const names = (await readdir(target)).toSorted();
+  if (names.length !== files.length) return false;
+  for (const [name, contents] of files) {
+    if (!names.includes(name)) return false;
+    const info = await pathInfo(join(target, name));
+    if (!info?.isFile() || info.isSymbolicLink()) return false;
+    if ((await readFile(join(target, name), "utf8").catch(() => null)) !== contents) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function contentsDigest(contents) {
+  return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+async function directoryMatchesDigests(target, expectedFiles) {
+  const info = await pathInfo(target);
+  if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+  const names = (await readdir(target)).toSorted();
+  const expectedNames = Object.keys(expectedFiles).toSorted();
+  if (
+    names.length !== expectedNames.length ||
+    names.some((name, index) => name !== expectedNames[index])
+  ) {
+    return false;
+  }
+  for (const name of expectedNames) {
+    const info = await pathInfo(join(target, name));
+    if (!info?.isFile() || info.isSymbolicLink()) return false;
+    const contents = await readFile(join(target, name)).catch(() => null);
+    if (contents === null || contentsDigest(contents) !== expectedFiles[name]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function recoverReplacement(target, { ownedId = null } = {}) {
+  const transactionPath = join(dirname(target), TRANSACTION_FILENAME);
+  let transaction;
+  try {
+    transaction = JSON.parse(await readFile(transactionPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  validateTransaction(transaction, target);
+  const transactionAge = Math.max(
+    0,
+    Date.now() - Date.parse(transaction.startedAt),
+  );
+  const transactionInfo = await pathInfo(transactionPath);
+  const leaseIsFresh =
+    transaction.processIdentity === undefined
+      ? transactionAge <= LEGACY_TRANSACTION_ACTIVE_WINDOW_MS
+      : transactionInfo !== null &&
+        Date.now() - transactionInfo.mtimeMs <= TRANSACTION_STALE_AFTER_MS;
+  const activeIdentity =
+    transaction.id === ownedId
+      ? null
+      : await readProcessIdentity(transaction.pid);
+  if (
+    transaction.id !== ownedId &&
+    processMayOwnLease(
+      transaction.processIdentity,
+      activeIdentity,
+      leaseIsFresh,
+    )
+  ) {
+    throw new Error(
+      `another manage-fraktik-tasks skill installation is active (pid ${transaction.pid})`,
+    );
+  }
+  await ensureCanonicalDirectory(dirname(target), "skill root");
+  const targetInfo = await pathInfo(target);
+  const backupInfo = await pathInfo(transaction.backup);
+  for (const [path, info] of [
+    [target, targetInfo],
+    [transaction.backup, backupInfo],
+    [transaction.temporary, await pathInfo(transaction.temporary)],
+  ]) {
+    if (info?.isSymbolicLink()) {
+      throw new Error(`refusing symlinked transaction path: ${path}`);
+    }
+    if (info && !info.isDirectory()) {
+      throw new Error(`transaction path is not a directory: ${path}`);
+    }
+  }
+  if (backupInfo) {
+    if (
+      targetInfo &&
+      (await directoryMatchesDigests(target, transaction.files))
+    ) {
+      await rm(transaction.backup, { recursive: true, force: true });
+    } else {
+      await rm(target, { recursive: true, force: true });
+      await rename(transaction.backup, target);
+    }
+  }
+  await rm(transaction.temporary, { recursive: true, force: true });
+  await rm(transactionPath, { force: true });
+}
+
+async function replaceDirectoryTransactionally(
+  files,
+  target,
+  expectedFingerprint,
+) {
+  const transactionId = randomUUID();
+  const temporary = `${target}.${transactionId}.tmp`;
+  const backup = `${target}.${transactionId}.backup`;
+  const transactionPath = join(dirname(target), TRANSACTION_FILENAME);
+  let transactionOwned = false;
+  let transactionHeartbeat = null;
+  try {
+    await mkdir(temporary, { mode: 0o700 });
+    for (const [name, contents] of files) {
+      await writeFile(join(temporary, name), contents, { mode: 0o600 });
+    }
+    const existing = await pathInfo(target);
+    if ((await skillFingerprint(target)) !== expectedFingerprint) {
+      throw new Error(`skill changed during preflight: ${target}`);
+    }
+    if (existing?.isSymbolicLink()) {
+      throw new Error(`refusing to replace symlinked skill directory at ${target}`);
+    }
+    if (existing && !existing.isDirectory()) {
+      throw new Error(`skill destination is not a directory: ${target}`);
+    }
+    const installerIdentity = await readProcessIdentity(process.pid);
+    if (!installerIdentity) {
+      throw new Error("could not establish the skill installer process identity");
+    }
+    await createJsonExclusively(transactionPath, {
+      schemaVersion: 1,
+      id: transactionId,
+      pid: process.pid,
+      processIdentity: installerIdentity,
+      startedAt: new Date().toISOString(),
+      files: Object.fromEntries(
+        files.map(([name, contents]) => [name, contentsDigest(contents)]),
+      ),
+      target,
+      temporary,
+      backup,
+    });
+    transactionOwned = true;
+    transactionHeartbeat = setInterval(() => {
+      const timestamp = new Date();
+      void utimes(transactionPath, timestamp, timestamp).catch(() => {});
+    }, TRANSACTION_HEARTBEAT_INTERVAL_MS);
+    transactionHeartbeat.unref();
+    await ensureCanonicalDirectory(dirname(target), "skill root");
+    if ((await skillFingerprint(target)) !== expectedFingerprint) {
+      throw new Error(`skill changed after preflight: ${target}`);
+    }
+    if (existing) {
+      await rename(target, backup);
+    }
+    await ensureCanonicalDirectory(dirname(target), "skill root");
+    await rename(temporary, target);
+    await rm(backup, { recursive: true, force: true });
+    await rm(transactionPath, { force: true });
+  } catch (error) {
+    if (transactionOwned) {
+      try {
+        await recoverReplacement(target, { ownedId: transactionId });
+      } catch (recoveryError) {
+        throw new AggregateError(
+          [error, recoveryError],
+          `skill installation failed and recovery was incomplete at ${transactionPath}`,
+        );
+      }
+    } else if (error.code === "EEXIST") {
+      throw new Error("another manage-fraktik-tasks skill installation is active");
+    }
+    throw error;
+  } finally {
+    if (transactionHeartbeat) clearInterval(transactionHeartbeat);
+    if (!transactionOwned || !(await pathInfo(transactionPath))) {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes("-h") || args.includes("--help")) {
+    printUsage();
+    return;
+  }
+  for (const argument of args) {
+    if (argument !== "--force") throw new Error(`unknown option: ${argument}`);
+  }
+
+  const source = fileURLToPath(
+    new URL("../skills/manage-fraktik-tasks/SKILL.md", import.meta.url),
+  );
+  const provenanceSource = fileURLToPath(
+    new URL("../distribution-provenance.json", import.meta.url),
+  );
+  const codexHome = resolve(
+    process.env.CODEX_HOME || join(homedir(), ".codex"),
+  );
+  const target = join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md");
+  const targetDirectory = dirname(target);
+  const skillRoot = dirname(targetDirectory);
+  const sourceContents = await readFile(source, "utf8");
+  const sourceIntegrity = `sha256:${createHash("sha256").update(sourceContents).digest("hex")}`;
+  const sourceProvenance = JSON.parse(await readFile(provenanceSource, "utf8"));
+  const provenanceContents = `${JSON.stringify(
+    { ...sourceProvenance, skillIntegrity: sourceIntegrity },
+    null,
+    2,
+  )}\n`;
+  const sourceFiles = [
+    ["SKILL.md", sourceContents],
+    ["distribution-provenance.json", provenanceContents],
+  ];
+  await ensureCanonicalDirectory(codexHome, "CODEX_HOME", {
+    enforceMode: true,
+  });
+  await ensureCanonicalDirectory(skillRoot, "skill root", {
+    enforceMode: true,
+  });
+  await assertNoSymlinkComponents(targetDirectory, "skill destination");
+  await recoverReplacement(targetDirectory);
+  const installedFingerprint = await skillFingerprint(targetDirectory);
+  const installedDirectory = await pathInfo(targetDirectory);
+
+  if (await directoryMatches(targetDirectory, sourceFiles)) {
+    process.stdout.write(`${target} is already up to date\n`);
+    return;
+  }
+  if (
+    installedDirectory !== null &&
+    !args.includes("--force")
+  ) {
+    throw new Error(
+      `a different skill installation already exists at ${target}; rerun with --force to replace it`,
+    );
+  }
+
+  await replaceDirectoryTransactionally(
+    sourceFiles,
+    targetDirectory,
+    installedFingerprint,
+  );
+  process.stdout.write(`installed manage-fraktik-tasks at ${target}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`fraktik-install-skill: ${error.message}\n`);
+  process.exitCode = 1;
+});

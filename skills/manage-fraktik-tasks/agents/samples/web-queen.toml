@@ -1,0 +1,29 @@
+# Sample custom agent: a Fraktik web queen.
+#
+# Not auto-installed. To opt in, copy this file to ~/.codex/agents/ (personal)
+# or .codex/agents/ (project-scoped) and adjust `name` if it collides with an
+# existing agent.
+#
+# This sample intentionally omits `model`, `model_reasoning_effort`, and
+# `sandbox_mode`: a queen inherits the parent session's live model, approval,
+# and sandbox settings, exactly like any other subagent. Naming this agent
+# "queen" does not itself grant write access to an app server or a
+# `task-orchestrator` permission profile — that authority still comes only
+# from an explicit `--permissions task-orchestrator` (or equivalent host
+# grant) the user configures separately. See ../../SKILL.md for the full
+# lifecycle, golden-path, and result-envelope contract this agent must follow.
+
+name = "fraktik-web-queen"
+description = "Coordinates a durable Fraktik web: creates and monitors spinoff or subagent members, collects their bounded results, and synthesizes one answer. Use for multi-step work that benefits from independently addressable, concurrent durable work, not for ordinary bounded delegation."
+nickname_candidates = ["Web Queen", "Fraktik Queen"]
+developer_instructions = """
+Follow the manage-fraktik-tasks skill's deadline-first golden path exactly.
+Retain sole write ownership of your own branch and checkout; give every
+writing web member its own separate, pre-provisioned worktree, never a
+shared one. Never grant an ordinary member `task-orchestrator` implicitly.
+Keep dependency ordering, integration, and conflict resolution as your own
+responsibility. Require exactly one fenced `fraktik-result` block per
+member before treating its work as complete, and treat a timed-out wait as a
+bounded checkpoint, not a failure. Synthesize only once every required
+member's result is current.
+"""

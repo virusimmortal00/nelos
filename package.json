@@ -1,0 +1,46 @@
+{
+  "name": "fraktik",
+  "version": "0.1.0",
+  "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
+  "type": "module",
+  "bin": {
+    "fraktik": "bin/fraktik",
+    "fraktik-title": "bin/fraktik-title",
+    "fraktik-install-skill": "bin/fraktik-install-skill",
+    "fraktik-install-distribution": "bin/fraktik-install-distribution",
+    "fraktik-verify-distribution": "bin/fraktik-verify-distribution"
+  },
+  "exports": {
+    ".": "./src/app-server-client.mjs"
+  },
+  "files": [
+    ".codex-plugin/",
+    "distribution-provenance.json",
+    "bin/",
+    "completions/",
+    "docs/",
+    "skills/",
+    "src/"
+  ],
+  "scripts": {
+    "check": "node --check bin/fraktik && node --check bin/fraktik-title && node --check bin/fraktik-install-skill && node --check bin/fraktik-install-distribution && node --check bin/fraktik-verify-distribution && node --check scripts/check-model-catalog.mjs && node --check scripts/dev-app-server.mjs && node --check scripts/test-bootstrap.mjs && node --check scripts/verify-app-server.mjs && node --check scripts/verify-golden-loop.mjs && node --check src/app-server-client.mjs && node --check src/control-endpoint.mjs && node --check src/distribution-doctor.mjs && node --check src/distribution-install.mjs && node --check src/distribution-provenance.mjs && node --check src/execution-reconciliation.mjs && node --check src/execution-store.mjs && node --check src/intelligence-profile-catalog.mjs && node --check src/intelligence-profile-router.mjs && node --check src/model-catalog-freshness.mjs && node --check src/next-action.mjs && node --check src/path-safety.mjs && node --check src/personal-marketplace.mjs && node --check src/process-liveness.mjs && node --check src/queen-acceptance.mjs && node --check src/runtime-intelligence-verification.mjs && node --check src/skill-compliance.mjs && node --check src/skill-installation.mjs && node --check src/slice-planner.mjs && node --check src/task-state.mjs && node --check src/task-web.mjs && node --check src/web-orchestration.mjs && node --check src/work-result.mjs && node --check src/worktree-integration.mjs && node --check src/worktree-provisioning.mjs",
+    "check:model-catalog": "node scripts/check-model-catalog.mjs",
+    "dev:app-server": "node scripts/dev-app-server.mjs",
+    "install:distribution": "node bin/fraktik-install-distribution",
+    "install:skill": "node bin/fraktik-install-skill",
+    "test": "node --import ./scripts/test-bootstrap.mjs --test",
+    "verify:app-server": "node scripts/verify-app-server.mjs",
+    "verify:app-server:live": "node scripts/verify-app-server.mjs --live",
+    "verify:golden-loop": "node scripts/verify-golden-loop.mjs",
+    "demo:acceptance-gates": "node scripts/verify-golden-loop.mjs --iterations 1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/virusimmortal00/fraktik.git"
+  },
+  "license": "MIT",
+  "dependencies": {}
+}

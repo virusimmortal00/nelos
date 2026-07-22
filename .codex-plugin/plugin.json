@@ -1,0 +1,33 @@
+{
+  "name": "fraktik",
+  "version": "0.1.0",
+  "description": "Plan and coordinate dependency-aware task webs for complex development work.",
+  "author": {
+    "name": "Fraktik Maintainers"
+  },
+  "repository": "https://github.com/virusimmortal00/fraktik",
+  "license": "MIT",
+  "keywords": [
+    "orchestration",
+    "tasks",
+    "coordination"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fraktik",
+    "shortDescription": "Coordinate dependency-aware task webs",
+    "longDescription": "Plan, route, and coordinate nested task webs with explicit lifecycle evidence.",
+    "developerName": "Fraktik Maintainers",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "brandColor": "#111111",
+    "defaultPrompt": [
+      "Use Fraktik to plan this feature into safe parallel slices.",
+      "Create durable spinoffs only where they need independent lifecycle.",
+      "Show me the native evidence and topology for this task web."
+    ]
+  }
+}

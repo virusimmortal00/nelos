@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "type": "cli-command",
+      "command": "spinoff",
+      "args": ["--socket", "/tmp/dev.sock"]
+    },
+    {
+      "type": "cli-output",
+      "output": {
+        "command": "web begin",
+        "nextAction": {
+          "schemaVersion": 1,
+          "kind": "native-set-title",
+          "threadId": "queen-1",
+          "title": "🕷️ A1 · Release",
+          "verify": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+import { evaluateSkillTraceV1 } from "../src/skill-compliance.mjs";
+
+async function fixture(name) {
+  return JSON.parse(
+    await readFile(new URL(`./fixtures/skill-compliance/${name}.json`, import.meta.url), "utf8"),
+  );
+}
+
+test("native desktop fixture follows every machine-generated next action", async () => {
+  assert.deepEqual(evaluateSkillTraceV1(await fixture("native-desktop")), []);
+});
+
+test("compliance eval rejects socket transport and skipped machine actions", async () => {
+  assert.deepEqual(evaluateSkillTraceV1(await fixture("noncompliant")), [
+    { code: "standalone_transport", index: 0 },
+    { code: "next_action_not_executed", index: 1, kind: "native-set-title" },
+  ]);
+});
+
+test("compliance eval rejects a launch whose effective route was not verified", () => {
+  const nextAction = {
+    schemaVersion: 1,
+    kind: "launch-wave",
+    waveIndex: 1,
+    members: [
+      {
+        sliceId: "worker",
+        lifecycle: "spinoff",
+        title: "Worker",
+        workspaceMode: "isolated-write",
+        nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+        routeEnforcement: {
+          mode: "exact",
+          onUnavailable: "stop",
+          verifyAfterLaunch: true,
+        },
+        prompt: "Do bounded work.",
+      },
+    ],
+    settleBeforeWaveIndex: 2,
+    remainingWaveCount: 0,
+  };
+  const launch = {
+    type: "native-launch",
+    threadId: "member-1",
+    lifecycle: "spinoff",
+    title: "Worker",
+    workspaceMode: "isolated-write",
+    nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+    routeEnforcement: nextAction.members[0].routeEnforcement,
+    prompt: "Do bounded work.",
+  };
+  assert.deepEqual(
+    evaluateSkillTraceV1({
+      schemaVersion: 1,
+      events: [{ type: "cli-output", output: { nextAction } }, launch],
+    }),
+    [{ code: "next_action_not_executed", index: 0, kind: "launch-wave" }],
+  );
+});

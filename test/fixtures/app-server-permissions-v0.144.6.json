@@ -1,0 +1,27 @@
+{
+  "source": "codex-cli 0.144.6: codex app-server generate-json-schema --experimental",
+  "profileId": "task-orchestrator",
+  "initializeCapabilities": {
+    "experimentalApi": true
+  },
+  "profileList": {
+    "method": "permissionProfile/list",
+    "result": {
+      "data": [
+        {
+          "id": "task-orchestrator"
+        }
+      ]
+    }
+  },
+  "threadStart": {
+    "permissionsField": "permissions",
+    "permissionsType": "string",
+    "forbiddenField": "sandbox"
+  },
+  "turnStart": {
+    "permissionsField": "permissions",
+    "permissionsType": "string",
+    "forbiddenField": "sandboxPolicy"
+  }
+}

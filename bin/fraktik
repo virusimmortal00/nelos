@@ -1,0 +1,2674 @@
+#!/usr/bin/env node
+
+import { readFile, stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
+import {
+  DEFAULT_TIMEOUT_MS,
+  allocateWebId,
+  assertWebId,
+  codexTaskUrl,
+  openAppServerClient,
+  parsePositiveInteger,
+  parseWebTitle,
+  renderWebTitle,
+  resolveThreadId,
+} from "../src/app-server-client.mjs";
+import {
+  listTaskRegistryRecords as listRegistryRecords,
+  listWebRecords,
+  patchTaskRegistryRecord as patchRegistryRecord,
+  patchWebRecord,
+  readTaskRegistryRecord as readRegistryRecord,
+  readWebRecord,
+  withQueenSpinoffLock,
+  withWebRegistryLock,
+  writeTaskRegistryRecord as writeRegistryRecord,
+  writeWebRecord,
+} from "../src/task-state.mjs";
+import { readRequiredProvenance } from "../src/distribution-provenance.mjs";
+import { routeIntelligenceProfile } from "../src/intelligence-profile-router.mjs";
+import { verifyRuntimeIntelligenceV1 } from "../src/runtime-intelligence-verification.mjs";
+import { MAX_PLAN_BYTES, planWorkSlices } from "../src/slice-planner.mjs";
+import { withNextAction } from "../src/next-action.mjs";
+import {
+  collectWebResults,
+  preserveWebCollectionEvidence,
+  timeoutWebCollection,
+} from "../src/work-result.mjs";
+import { diagnoseDistribution } from "../src/distribution-doctor.mjs";
+import {
+  ExecutionStoreV1,
+  createWorkUnitSpecV1,
+} from "../src/execution-store.mjs";
+import {
+  QueenAcceptanceStoreV1,
+  createQueenAcceptanceV1,
+  deriveWebReadinessV1,
+  queenAcceptanceIdV1,
+} from "../src/queen-acceptance.mjs";
+import {
+  assessIntegrationReadinessV1,
+  deriveWorktreeTargetV1,
+} from "../src/worktree-integration.mjs";
+import {
+  WorktreeReceiptStoreV1,
+  inspectWorktreeReceiptV1,
+  provisionWorktreeV1,
+} from "../src/worktree-provisioning.mjs";
+
+const DEFAULT_POLL_MS = 2_000;
+const DEFAULT_MAX_WAIT_MS = 30 * 60 * 1_000;
+const DEFAULT_TURN_LIMIT = 5;
+const LIFECYCLE_OBSERVATION_LEASE_MS = 30_000;
+const LIFECYCLE_OBSERVATION_SCHEMA_VERSION = 1;
+const SOURCE_KINDS = [
+  "cli",
+  "vscode",
+  "exec",
+  "appServer",
+  "subAgent",
+  "subAgentReview",
+  "subAgentCompact",
+  "subAgentThreadSpawn",
+  "subAgentOther",
+  "unknown",
+];
+const INTELLIGENCE_ACTIONS = Object.freeze(["route", "verify"]);
+
+const VALUE_OPTIONS = new Map([
+  ["--thread-id", "threadId"],
+  ["--turn-id", "turnId"],
+  ["--title", "title"],
+  ["--prompt", "prompt"],
+  ["--prompt-file", "promptFile"],
+  ["--cwd", "cwd"],
+  ["--model", "model"],
+  ["--effort", "effort"],
+  ["--sandbox", "sandbox"],
+  ["--permissions", "permissions"],
+  ["--approval", "approvalPolicy"],
+  ["--socket", "socketPath"],
+  ["--timeout-ms", "timeoutMs"],
+  ["--codex", "codexCommand"],
+  ["--poll-ms", "pollMs"],
+  ["--max-wait-ms", "maxWaitMs"],
+  ["--turns", "turnLimit"],
+  ["--limit", "limit"],
+  ["--search", "searchTerm"],
+  ["--id", "webId"],
+  ["--web-id", "webId"],
+  ["--queen-thread-id", "queenThreadId"],
+  ["--task-shape", "taskShape"],
+  ["--profile", "profileOverride"],
+  ["--spec-file", "specFile"],
+  ["--action-id", "actionId"],
+  ["--work-unit-id", "workUnitId"],
+  ["--owner-task-id", "ownerTaskId"],
+  ["--source", "sourcePath"],
+  ["--worktree-path", "worktreePath"],
+  ["--branch", "branch"],
+  ["--base", "baseRevision"],
+  ["--operation", "worktreeOperation"],
+  ["--worktree-root", "worktreeRoot"],
+  ["--spec-revision", "specRevision"],
+  ["--attempt", "attempt"],
+  ["--work-unit-spec", "workUnitSpec"],
+  ["--result-file", "resultFile"],
+  ["--member-thread-id", "memberThreadId"],
+  ["--source-turn-id", "sourceTurnId"],
+  ["--decision", "decision"],
+  ["--summary", "decisionSummary"],
+]);
+
+function printUsage() {
+  process.stdout.write(`Usage:
+  fraktik start --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
+  fraktik spinoff --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
+  fraktik send [THREAD_ID] (--prompt TEXT | --prompt-file PATH) [options]
+  fraktik status [THREAD_ID] [options]
+  fraktik read [THREAD_ID] [--turns N] [options]
+  fraktik watch [THREAD_ID] [options]
+  fraktik list [--limit N] [--all] [options]
+  fraktik archive [THREAD_ID] [--detach|--restore-detached] [options]
+  fraktik title set TITLE [options]
+  fraktik title get [options]
+  fraktik web begin [--title TITLE] [--registry-only] [options]
+  fraktik web join --id WEB_ID --title TITLE [--registry-only] [options]
+  fraktik web collect [--id WEB_ID] [--queen-thread-id ID] [--wait] [options]
+  fraktik web readiness [--id WEB_ID] [--queen-thread-id ID]
+  fraktik web accept --work-unit-id ID --member-thread-id ID --source-turn-id ID --result-file PATH [--decision accepted|rejected] [--summary TEXT]
+  fraktik plan slices --spec-file PATH
+  fraktik worktree plan --web-id WEB_ID --work-unit-id ID --spec-revision N --attempt N --worktree-root PATH
+  fraktik worktree provision --action-id ID --work-unit-id ID --owner-task-id ID --source PATH --worktree-path PATH --branch NAME --base REVISION [--operation create|adopt]
+  fraktik worktree inspect --action-id ID
+  fraktik worktree launch --work-unit-spec PATH (--prompt TEXT | --prompt-file PATH) --source PATH --worktree-root PATH --base REVISION [options]
+  fraktik worktree integration --queen-thread-id ID [options]
+  fraktik intelligence route [--task-shape SHAPE] [model/reasoning options]
+  fraktik intelligence verify --thread-id ID --model MODEL --effort LEVEL [--turn-id ID]
+  fraktik doctor [--codex PATH] [--socket PATH]
+
+Start options:
+  --cwd PATH          Workspace directory (default: current directory)
+  --prompt-file PATH  Read the prompt from PATH; use - for standard input
+  --model MODEL       Model override
+  --effort LEVEL      Reasoning effort override
+  --sandbox MODE      read-only, workspace-write (default), or danger-full-access
+  --permissions NAME  Named permission profile; cannot be combined with --sandbox
+  --approval POLICY   never (default), on-request, or untrusted
+  --wait              Wait for an initial turn, or for web members to settle
+
+Spinoff and web options:
+  --queen-thread-id ID  Queen task (defaults to CODEX_THREAD_ID)
+  --id WEB_ID           Web ID for web join
+  --registry-only       Update local web topology; sync the returned title natively
+
+List options:
+  --all               Query the live app server across every source kind (cli,
+                       vscode, exec, appServer, subAgent, etc.) instead of the
+                       default. Without --all, list shows only tasks recorded in
+                       this machine's local fraktik registry (i.e. tasks
+                       started by this CLI on this machine); tasks created from
+                       Codex Desktop, VS Code, or another machine are excluded.
+
+Archive options:
+  Archival is an app-server effect. The local lifecycle cache is updated only
+  from the app server's successful response or a later live observation.
+  --detach              Explicitly hide a migrated local task/topology record without
+                         contacting an app server. Records an auditable local-only
+                         detachment; it never claims the upstream task was archived.
+  --restore-detached    Restore records hidden by --detach. This is local-only and
+                         never unarchives or otherwise changes an upstream task.
+
+Monitoring options:
+  --poll-ms N         Poll interval for watch/--wait (default: 2000)
+  --max-wait-ms N     Maximum watch time (default: 1800000)
+  --turns N           Turns returned by read (default: 5)
+
+Intelligence routing options:
+  --task-shape SHAPE  complex/open-ended, everyday, or clear/repeatable
+  --profile PROFILE   Explicit Sol, Terra, or Luna profile override
+  --model MODEL       Explicit catalog model override
+  --effort LEVEL      Explicit supported reasoning-effort override
+  --allow-native-fanout  Permit an explicit Ultra effort override
+  Model and effort may be selected independently. An omitted dimension inherits
+  the host default. The JSON route includes native model/thinking launch options.
+  intelligence verify reads only bounded local turn-context metadata and fails
+  closed unless the observed model and effort exactly match the expected route.
+
+Slice planning options:
+  --spec-file PATH    Validate and route a queen-authored slice-plan JSON file;
+                      use - for standard input. Output is dependency-safe waves.
+
+Worktree provisioning options:
+  --action-id ID      Stable effect receipt ID; replays are verified, never repeated
+  --work-unit-id ID   Durable work-unit that owns the requested workspace
+  --owner-task-id ID  Queen/task responsible for the workspace ownership
+  --source PATH       Existing clean Git worktree to use as the repository source
+  --worktree-path PATH  Absolute path for the member worktree
+  --branch NAME       New or adopted branch name
+  --base REVISION     Commit-ish to resolve before provisioning or adoption
+  --operation MODE    create (default) or adopt; adoption must already be clean
+  --worktree-root PATH  Parent directory used for deterministic writer worktrees
+  --spec-revision N   Work-unit specification revision for deterministic planning
+  --attempt N         Work-unit attempt for deterministic planning
+  --work-unit-spec PATH  Initial WorkUnitSpecV1 JSON for a receipt-aware launch
+
+Acceptance options:
+  --result-file PATH     Current ResultEnvelopeV1 JSON produced at a queen checkpoint
+  --member-thread-id ID  Durable member task that supplied the result
+  --source-turn-id ID    Completed member turn that supplied the result
+  --decision STATE       accepted (default) or rejected
+  --summary TEXT         Bounded queen decision note
+
+Common options:
+  --thread-id ID      Task ID (defaults to CODEX_THREAD_ID where applicable)
+  --socket PATH       Active app-server control socket
+  --timeout-ms N      Per-request timeout (default: 15000)
+  -h, --help          Show this help
+
+Every successful command response is JSON and includes a machine-readable
+nextAction. Execute it directly when its kind is executable; only decide
+actions require model judgment.
+`);
+}
+
+function writeOutput(output) {
+  process.stdout.write(`${JSON.stringify(withNextAction(output), null, 2)}\n`);
+}
+
+function parseArgs(argv) {
+  const args = [...argv];
+  if (args.length === 0 || args[0] === "-h" || args[0] === "--help") {
+    return { help: true };
+  }
+
+  const options = { command: args.shift(), positionals: [] };
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "-h" || argument === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (
+      argument === "--wait" ||
+      argument === "--all" ||
+      argument === "--allow-native-fanout" ||
+      argument === "--registry-only" ||
+      argument === "--detach" ||
+      argument === "--restore-detached"
+    ) {
+      options[
+        argument === "--wait"
+          ? "wait"
+          : argument === "--all"
+            ? "all"
+            : argument === "--allow-native-fanout"
+              ? "nativeFanoutAllowed"
+              : argument === "--registry-only"
+                ? "registryOnly"
+                : argument === "--detach"
+                  ? "detach"
+                  : "restoreDetached"
+      ] = true;
+      continue;
+    }
+    const property = VALUE_OPTIONS.get(argument);
+    if (property) {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error(`missing value for ${argument}`);
+      options[property] = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) throw new Error(`unknown option: ${argument}`);
+    options.positionals.push(argument);
+  }
+  return options;
+}
+
+function assertNoPositionals(options) {
+  if (options.positionals.length > 0) {
+    throw new Error(`unexpected argument: ${options.positionals[0]}`);
+  }
+}
+
+function assertOnlyOptions(options, allowedProperties, command) {
+  for (const [optionName, property] of VALUE_OPTIONS) {
+    if (Object.hasOwn(options, property) && !allowedProperties.has(property)) {
+      throw new Error(`${command} does not accept ${optionName}`);
+    }
+  }
+  for (const [property, optionName] of [
+    ["wait", "--wait"],
+    ["all", "--all"],
+    ["nativeFanoutAllowed", "--allow-native-fanout"],
+    ["registryOnly", "--registry-only"],
+    ["detach", "--detach"],
+    ["restoreDetached", "--restore-detached"],
+  ]) {
+    if (Object.hasOwn(options, property) && !allowedProperties.has(property)) {
+      throw new Error(`${command} does not accept ${optionName}`);
+    }
+  }
+}
+
+async function runIntelligence(options) {
+  const action = options.positionals.shift();
+  if (!INTELLIGENCE_ACTIONS.includes(action)) {
+    throw new Error("intelligence requires route or verify");
+  }
+  if (action === "route") {
+    assertNoPositionals(options);
+    assertOnlyOptions(
+      options,
+      new Set([
+        "taskShape",
+        "profileOverride",
+        "model",
+        "effort",
+        "nativeFanoutAllowed",
+      ]),
+      "intelligence route",
+    );
+    const input = {};
+    if (options.taskShape !== undefined) input.taskShape = options.taskShape;
+    if (options.profileOverride !== undefined) {
+      input.profileOverride = options.profileOverride.toLowerCase();
+    }
+    if (options.model !== undefined) input.modelOverride = options.model;
+    if (options.effort !== undefined) input.effortOverride = options.effort;
+    if (options.nativeFanoutAllowed === true) input.nativeFanoutAllowed = true;
+    return { command: "intelligence route", route: routeIntelligenceProfile(input) };
+  }
+  if (action === "verify") {
+    assertNoPositionals(options);
+    assertOnlyOptions(
+      options,
+      new Set(["threadId", "turnId", "model", "effort"]),
+      "intelligence verify",
+    );
+    requireOptionPairs("intelligence verify", [
+      ["--thread-id", options.threadId],
+      ["--model", options.model],
+      ["--effort", options.effort],
+    ]);
+    return {
+      command: "intelligence verify",
+      ...(await verifyRuntimeIntelligenceV1({
+        threadId: options.threadId,
+        turnId: options.turnId ?? null,
+        model: options.model,
+        effort: options.effort,
+      })),
+    };
+  }
+  throw new Error(`unsupported intelligence action: ${action}`);
+}
+
+async function readBoundedInput(path, maximumBytes, label = "input") {
+  let input;
+  if (path === "-") {
+    const chunks = [];
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (bytes > maximumBytes) {
+        throw new Error(`${label} exceeds ${maximumBytes} bytes`);
+      }
+      chunks.push(buffer);
+    }
+    input = Buffer.concat(chunks).toString("utf8");
+  } else {
+    const pathInfo = await stat(resolve(path)).catch(() => null);
+    if (!pathInfo?.isFile()) throw new Error(`${label} is not a file: ${path}`);
+    if (pathInfo.size > maximumBytes) {
+      throw new Error(`${label} exceeds ${maximumBytes} bytes`);
+    }
+    input = await readFile(resolve(path), "utf8");
+  }
+  return input;
+}
+
+async function runPlan(options) {
+  const action = options.positionals.shift();
+  if (action !== "slices") throw new Error("plan requires slices");
+  assertNoPositionals(options);
+  assertOnlyOptions(options, new Set(["specFile"]), "plan slices");
+  if (!options.specFile) throw new Error("plan slices requires --spec-file");
+  const input = await readBoundedInput(options.specFile, MAX_PLAN_BYTES, "slice plan");
+  let spec;
+  try {
+    spec = JSON.parse(input);
+  } catch (error) {
+    throw new Error(`plan slices requires valid JSON: ${error.message}`);
+  }
+  return { command: "plan slices", plan: planWorkSlices(spec) };
+}
+
+function requireOptionPairs(command, pairs) {
+  for (const [optionName, value] of pairs) {
+    if (!value) throw new Error(`${command} requires ${optionName}`);
+  }
+}
+
+function worktreeTargetFromOptions(options) {
+  requireOptionPairs("worktree plan", [
+    ["--web-id", options.webId],
+    ["--work-unit-id", options.workUnitId],
+    ["--spec-revision", options.specRevision],
+    ["--attempt", options.attempt],
+    ["--worktree-root", options.worktreeRoot],
+  ]);
+  return deriveWorktreeTargetV1({
+    webId: options.webId,
+    workUnitId: options.workUnitId,
+    specRevision: parsePositiveInteger(options.specRevision, "--spec-revision"),
+    attempt: parsePositiveInteger(options.attempt, "--attempt"),
+    worktreeRoot: options.worktreeRoot,
+  });
+}
+
+function sameInitialWorkUnitContract(current, requested) {
+  for (const field of [
+    "schemaVersion",
+    "webId",
+    "queenThreadId",
+    "workUnitId",
+    "specRevision",
+    "attempt",
+    "memberKind",
+    "capabilities",
+    "title",
+    "objectiveSummary",
+    "deliverable",
+    "acceptanceCriteria",
+    "dependencies",
+    "required",
+    "policy",
+  ]) {
+    if (JSON.stringify(current[field]) !== JSON.stringify(requested[field])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function loadInitialWorkUnitSpec(path) {
+  const input = await readBoundedInput(path, 64 * 1024, "work-unit spec");
+  let parsed;
+  try {
+    parsed = JSON.parse(input);
+  } catch (error) {
+    throw new Error(`work-unit spec requires valid JSON: ${error.message}`);
+  }
+  return createWorkUnitSpecV1(parsed);
+}
+
+async function loadResultEnvelope(path) {
+  const input = await readBoundedInput(path, 16 * 1024, "result envelope");
+  try {
+    return JSON.parse(input);
+  } catch (error) {
+    throw new Error(`result envelope requires valid JSON: ${error.message}`);
+  }
+}
+
+async function runWebReadiness(options) {
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set(["webId", "queenThreadId", "threadId"]),
+    "web readiness",
+  );
+  if (options.queenThreadId && options.threadId) {
+    throw new Error(
+      "supply the queen task ID with --queen-thread-id or --thread-id, not both",
+    );
+  }
+  const queenThreadId =
+    options.queenThreadId?.trim() || options.threadId?.trim() || process.env.CODEX_THREAD_ID || null;
+  const executionStore = new ExecutionStoreV1();
+  const allWorkUnits = await executionStore.list();
+  const workUnits = allWorkUnits.filter(
+    (workUnit) =>
+      (options.webId === undefined || workUnit.webId === options.webId) &&
+      (queenThreadId === null || workUnit.queenThreadId === queenThreadId),
+  );
+  if (workUnits.length === 0) {
+    throw new Error("no durable work units found for the requested web/queen");
+  }
+  const webIds = new Set(workUnits.map((workUnit) => workUnit.webId));
+  const queens = new Set(workUnits.map((workUnit) => workUnit.queenThreadId));
+  if (webIds.size !== 1 || queens.size !== 1) {
+    throw new Error("web readiness requires exactly one web and queen");
+  }
+  const acceptanceStore = new QueenAcceptanceStoreV1();
+  const decisions = await acceptanceStore.list({
+    webId: workUnits[0].webId,
+    queenThreadId: workUnits[0].queenThreadId,
+  });
+  return {
+    command: "web readiness",
+    ...deriveWebReadinessV1({ workUnits, decisions }),
+  };
+}
+
+async function runWebAccept(options) {
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set([
+      "webId",
+      "queenThreadId",
+      "threadId",
+      "workUnitId",
+      "memberThreadId",
+      "sourceTurnId",
+      "resultFile",
+      "decision",
+      "decisionSummary",
+    ]),
+    "web accept",
+  );
+  if (options.queenThreadId && options.threadId) {
+    throw new Error(
+      "supply the queen task ID with --queen-thread-id or --thread-id, not both",
+    );
+  }
+  requireOptionPairs("web accept", [
+    ["--work-unit-id", options.workUnitId],
+    ["--member-thread-id", options.memberThreadId],
+    ["--source-turn-id", options.sourceTurnId],
+    ["--result-file", options.resultFile],
+  ]);
+  const executionStore = new ExecutionStoreV1();
+  const workUnit = await executionStore.read(options.workUnitId);
+  if (!workUnit) throw new Error(`work unit ${options.workUnitId} was not found`);
+  const requestedQueenThreadId =
+    options.queenThreadId?.trim() || options.threadId?.trim() || process.env.CODEX_THREAD_ID || null;
+  if (requestedQueenThreadId && requestedQueenThreadId !== workUnit.queenThreadId) {
+    throw new Error("only the work unit's queen may record an acceptance decision");
+  }
+  if (options.webId !== undefined && options.webId !== workUnit.webId) {
+    throw new Error("work unit does not belong to the requested web");
+  }
+  if (
+    workUnit.binding.state !== "bound" ||
+    workUnit.binding.memberThreadId !== options.memberThreadId
+  ) {
+    throw new Error("acceptance must reference the currently bound member task");
+  }
+  const result = await loadResultEnvelope(options.resultFile);
+  const decision = options.decision ?? "accepted";
+  const identity = {
+    webId: workUnit.webId,
+    workUnitId: workUnit.workUnitId,
+    specRevision: workUnit.specRevision,
+    attempt: workUnit.attempt,
+    memberThreadId: options.memberThreadId,
+    sourceTurnId: options.sourceTurnId,
+  };
+  const record = createQueenAcceptanceV1({
+    schemaVersion: 1,
+    decisionId: queenAcceptanceIdV1(identity),
+    webId: workUnit.webId,
+    queenThreadId: workUnit.queenThreadId,
+    workUnitId: workUnit.workUnitId,
+    specRevision: workUnit.specRevision,
+    attempt: workUnit.attempt,
+    memberThreadId: options.memberThreadId,
+    sourceTurnId: options.sourceTurnId,
+    decision,
+    decisionSummary:
+      options.decisionSummary ??
+      (decision === "accepted"
+        ? "Queen accepted the current bounded result."
+        : "Queen rejected the current bounded result."),
+    result,
+    recordedAt: new Date().toISOString(),
+  });
+  const stored = await new QueenAcceptanceStoreV1().record(record);
+  return {
+    command: "web accept",
+    decision: stored,
+    readiness: await runWebReadiness({
+      command: "web",
+      positionals: [],
+      webId: workUnit.webId,
+      queenThreadId: workUnit.queenThreadId,
+    }),
+  };
+}
+
+async function runWorktreeIntegration(options, client) {
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set(["queenThreadId", "threadId", "socketPath", "timeoutMs"]),
+    "worktree integration",
+  );
+  if (options.queenThreadId && options.threadId) {
+    throw new Error(
+      "supply the queen task ID with --queen-thread-id or --thread-id, not both",
+    );
+  }
+  const queenThreadId =
+    options.queenThreadId?.trim() || options.threadId?.trim() || process.env.CODEX_THREAD_ID;
+  if (!queenThreadId) throw new Error("worktree integration requires --queen-thread-id or CODEX_THREAD_ID");
+  const executionStore = new ExecutionStoreV1();
+  const workUnits = (await executionStore.list())
+    .filter((workUnit) => workUnit.queenThreadId === queenThreadId)
+    .sort((left, right) => left.workUnitId.localeCompare(right.workUnitId));
+  if (workUnits.length === 0) {
+    return {
+      command: "worktree integration",
+      queenThreadId,
+      count: 0,
+      readyCount: 0,
+      entries: [],
+    };
+  }
+  const webIds = new Set(workUnits.map((workUnit) => workUnit.webId));
+  if (webIds.size !== 1) {
+    throw new Error("queen work units must belong to one web for integration inspection");
+  }
+  const records = await listWebRecords();
+  const collection = await collectWebResults({
+    records,
+    webId: workUnits[0].webId,
+    queenThreadId,
+    loadMember: async (threadId) => {
+      const [threadResult, turns] = await Promise.all([
+        client.request("thread/read", { threadId, includeTurns: false }),
+        getTurnsForCollection(client, threadId),
+      ]);
+      if (!threadResult?.thread) throw new Error(`task not found: ${threadId}`);
+      return { thread: threadResult.thread, turns };
+    },
+  });
+  const members = new Map(collection.members.map((member) => [member.threadId, member]));
+  const receiptStore = new WorktreeReceiptStoreV1();
+  const entries = [];
+  for (const workUnit of workUnits) {
+    const member = workUnit.binding.memberThreadId
+      ? members.get(workUnit.binding.memberThreadId) ?? null
+      : null;
+    const actionId = workUnit.binding.launchActionId;
+    const receipt = actionId ? await receiptStore.read(actionId) : null;
+    if (!receipt) {
+      entries.push({
+        workUnitId: workUnit.workUnitId,
+        memberThreadId: workUnit.binding.memberThreadId,
+        actionId,
+        ready: false,
+        reasons: [
+          workUnit.binding.state !== "bound" ? "work_unit_not_bound" : "workspace_receipt_missing",
+        ],
+        workspace: null,
+        artifacts: null,
+        resultState: member?.resultState ?? "unknown",
+        workOutcome: member?.workOutcome ?? "unknown",
+      });
+      continue;
+    }
+    const readiness = await assessIntegrationReadinessV1({
+      receipt,
+      workUnit,
+      result: member?.result ?? null,
+    });
+    const liveReasons = [];
+    if (!member) {
+      liveReasons.push("member_not_in_active_web");
+    } else if (
+      member.transportStatus !== "completed" ||
+      member.sourceTurnId === null ||
+      member.sourceTurnId !== member.latestTurnId
+    ) {
+      liveReasons.push("result_not_current");
+    }
+    const reasons = [...new Set([...readiness.reasons, ...liveReasons])].sort();
+    entries.push({
+      workUnitId: workUnit.workUnitId,
+      memberThreadId: workUnit.binding.memberThreadId,
+      actionId,
+      ready: readiness.ready && liveReasons.length === 0,
+      reasons,
+      workspace: readiness.workspace,
+      artifacts: readiness.artifacts,
+      resultState: member?.resultState ?? "unknown",
+      workOutcome: member?.workOutcome ?? "unknown",
+    });
+  }
+  return {
+    command: "worktree integration",
+    queenThreadId,
+    webId: collection.webId,
+    collectedAt: collection.collectedAt,
+    count: entries.length,
+    readyCount: entries.filter((entry) => entry.ready).length,
+    entries,
+  };
+}
+
+async function runWorktreeLaunch(options, client) {
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set([
+      "workUnitSpec",
+      "prompt",
+      "promptFile",
+      "sourcePath",
+      "worktreeRoot",
+      "worktreePath",
+      "branch",
+      "baseRevision",
+      "model",
+      "effort",
+      "sandbox",
+      "permissions",
+      "approvalPolicy",
+      "socketPath",
+      "timeoutMs",
+      "wait",
+      "pollMs",
+      "maxWaitMs",
+    ]),
+    "worktree launch",
+  );
+  requireOptionPairs("worktree launch", [
+    ["--work-unit-spec", options.workUnitSpec],
+    ["--source", options.sourcePath],
+    ["--base", options.baseRevision],
+  ]);
+  if (!options.worktreeRoot && !options.worktreePath) {
+    throw new Error("worktree launch requires --worktree-root or --worktree-path");
+  }
+  const requested = await loadInitialWorkUnitSpec(options.workUnitSpec);
+  if (requested.memberKind !== "spinoff") {
+    throw new Error("worktree launch requires a spinoff work unit");
+  }
+  const executionStore = new ExecutionStoreV1();
+  let workUnit = await executionStore.read(requested.workUnitId);
+  if (!workUnit) {
+    workUnit = await executionStore.create(requested);
+  } else if (!sameInitialWorkUnitContract(workUnit, requested)) {
+    throw new Error("work-unit spec conflicts with the persisted durable contract");
+  }
+  const target = options.worktreePath || options.branch
+    ? {
+        ...deriveWorktreeTargetV1({
+          webId: workUnit.webId,
+          workUnitId: workUnit.workUnitId,
+          specRevision: workUnit.specRevision,
+          attempt: workUnit.attempt,
+          worktreeRoot: options.worktreeRoot || dirname(options.worktreePath),
+        }),
+        ...(options.worktreePath ? { worktreePath: resolve(options.worktreePath) } : {}),
+        ...(options.branch ? { branch: options.branch } : {}),
+      }
+    : deriveWorktreeTargetV1({
+        webId: workUnit.webId,
+        workUnitId: workUnit.workUnitId,
+        specRevision: workUnit.specRevision,
+        attempt: workUnit.attempt,
+        worktreeRoot: options.worktreeRoot,
+      });
+  if (workUnit.binding.state === "bound") {
+    if (workUnit.binding.launchActionId !== target.actionId) {
+      throw new Error("work unit is already bound to a different launch action");
+    }
+    return {
+      command: "worktree launch",
+      reused: true,
+      worktree: target,
+      binding: workUnit.binding,
+    };
+  }
+  if (workUnit.binding.state === "launch-pending") {
+    throw new Error("launch action is pending and requires queen attention before retrying");
+  }
+
+  const readiness = deriveWebReadinessV1({
+    workUnits: (await executionStore.list()).filter(
+      (candidate) =>
+        candidate.webId === workUnit.webId &&
+        candidate.queenThreadId === workUnit.queenThreadId,
+    ),
+    decisions: await new QueenAcceptanceStoreV1().list({
+      webId: workUnit.webId,
+      queenThreadId: workUnit.queenThreadId,
+    }),
+  });
+  const entry = readiness.entries.find(
+    (candidate) => candidate.workUnitId === workUnit.workUnitId,
+  );
+  if (!entry?.ready) {
+    throw new Error(
+      entry?.reason === "blocked_by_unaccepted_dependencies"
+        ? `work unit is blocked by unaccepted dependencies: ${entry.unacceptedDependencies.join(", ")}`
+        : "work unit is not ready to launch",
+    );
+  }
+
+  await executionStore.markLaunchPending({
+    workUnitId: workUnit.workUnitId,
+    specRevision: workUnit.specRevision,
+    launchActionId: target.actionId,
+  });
+  const provisioned = await provisionWorktreeV1({
+    actionId: target.actionId,
+    workUnitId: workUnit.workUnitId,
+    ownerTaskId: workUnit.queenThreadId,
+    sourcePath: options.sourcePath,
+    worktreePath: target.worktreePath,
+    branch: target.branch,
+    baseRevision: options.baseRevision,
+    operation: "create",
+  });
+  let started;
+  try {
+    started = await runSpinoff(
+      {
+        ...options,
+        positionals: [],
+        title: workUnit.title,
+        cwd: provisioned.receipt.worktreePath,
+        queenThreadId: workUnit.queenThreadId,
+      },
+      client,
+    );
+  } catch (error) {
+    throw new Error(
+      `launch action remains pending and requires queen attention: ${error.message}`,
+    );
+  }
+  let bound;
+  try {
+    bound = await executionStore.bind({
+      workUnitId: workUnit.workUnitId,
+      specRevision: workUnit.specRevision,
+      launchActionId: target.actionId,
+      memberThreadId: started.threadId,
+    });
+  } catch (error) {
+    throw new Error(
+      `task ${started.threadId} started but durable binding requires queen attention: ${error.message}`,
+    );
+  }
+  return {
+    command: "worktree launch",
+    reused: false,
+    worktree: target,
+    provisioning: provisioned,
+    binding: bound.binding,
+    task: started,
+  };
+}
+
+async function runWorktree(options, client = null) {
+  const action = options.positionals.shift();
+  if (!["plan", "provision", "inspect", "launch", "integration"].includes(action)) {
+    throw new Error("worktree requires plan, provision, inspect, launch, or integration");
+  }
+  if (action === "plan") {
+    assertNoPositionals(options);
+    assertOnlyOptions(
+      options,
+      new Set(["webId", "workUnitId", "specRevision", "attempt", "worktreeRoot"]),
+      "worktree plan",
+    );
+    return { command: "worktree plan", worktree: worktreeTargetFromOptions(options) };
+  }
+  if (action === "inspect") {
+    assertNoPositionals(options);
+    assertOnlyOptions(options, new Set(["actionId"]), "worktree inspect");
+    if (!options.actionId) throw new Error("worktree inspect requires --action-id");
+    const receipt = await new WorktreeReceiptStoreV1().read(options.actionId);
+    if (!receipt) throw new Error("worktree receipt not found");
+    return {
+      command: "worktree inspect",
+      receipt,
+      workspace: await inspectWorktreeReceiptV1(receipt),
+    };
+  }
+  if (action === "launch") {
+    if (!client) throw new Error("worktree launch requires an app-server connection");
+    return runWorktreeLaunch(options, client);
+  }
+  if (action === "integration") {
+    if (!client) throw new Error("worktree integration requires an app-server connection");
+    return runWorktreeIntegration(options, client);
+  }
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set([
+      "actionId",
+      "workUnitId",
+      "ownerTaskId",
+      "sourcePath",
+      "worktreePath",
+      "branch",
+      "baseRevision",
+      "worktreeOperation",
+    ]),
+    "worktree provision",
+  );
+  const ownerTaskId = options.ownerTaskId || process.env.CODEX_THREAD_ID;
+  for (const [optionName, value] of [
+    ["--action-id", options.actionId],
+    ["--work-unit-id", options.workUnitId],
+    ["--owner-task-id", ownerTaskId],
+    ["--source", options.sourcePath],
+    ["--worktree-path", options.worktreePath],
+    ["--branch", options.branch],
+    ["--base", options.baseRevision],
+  ]) {
+    if (!value) throw new Error(`worktree provision requires ${optionName}`);
+  }
+  const result = await provisionWorktreeV1({
+    actionId: options.actionId,
+    workUnitId: options.workUnitId,
+    ownerTaskId,
+    sourcePath: options.sourcePath,
+    worktreePath: options.worktreePath,
+    branch: options.branch,
+    baseRevision: options.baseRevision,
+    operation: options.worktreeOperation || "create",
+  });
+  return {
+    command: "worktree provision",
+    reused: result.reused,
+    recovered: result.recovered,
+    receipt: result.receipt,
+  };
+}
+
+function consumeThreadId(options) {
+  if (options.threadId && options.positionals.length > 0) {
+    throw new Error("supply the task ID positionally or with --thread-id, not both");
+  }
+  if (options.positionals.length > 1) {
+    throw new Error("supply only one task ID");
+  }
+  return resolveThreadId(options.threadId || options.positionals[0]);
+}
+
+function parseCommonOptions(options) {
+  return {
+    socketPath: options.socketPath,
+    timeoutMs: parsePositiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "--timeout-ms"),
+  };
+}
+
+function parsePollingOptions(options) {
+  return {
+    pollMs: parsePositiveInteger(options.pollMs ?? DEFAULT_POLL_MS, "--poll-ms"),
+    maxWaitMs: parsePositiveInteger(
+      options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS,
+      "--max-wait-ms",
+    ),
+  };
+}
+
+function assertOneOf(value, allowed, optionName) {
+  if (!allowed.includes(value)) {
+    throw new Error(`${optionName} must be one of: ${allowed.join(", ")}`);
+  }
+  return value;
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
+function toIso(timestampSeconds) {
+  return timestampSeconds ? new Date(timestampSeconds * 1_000).toISOString() : null;
+}
+
+function normalizedTurnStatus(value) {
+  if (value && typeof value === "object") return normalizedTurnStatus(value.type);
+  return String(value || "").replaceAll(/[_\s-]/g, "").toLowerCase();
+}
+
+function isTerminalTurnStatus(value) {
+  return [
+    "completed",
+    "complete",
+    "succeeded",
+    "failed",
+    "error",
+    "interrupted",
+    "cancelled",
+    "canceled",
+  ].includes(normalizedTurnStatus(value));
+}
+
+function normalizedThreadStatus(value) {
+  if (value && typeof value === "object") return normalizedThreadStatus(value.type);
+  return String(value || "").replaceAll(/[_\s-]/g, "").toLowerCase();
+}
+
+function isArchivedThread(thread) {
+  if (!thread || typeof thread !== "object") return false;
+  if (thread.archivedAt || thread.archived === true) return true;
+  return ["archived", "archive"].includes(normalizedThreadStatus(thread.status));
+}
+
+function lifecycleObservation(
+  thread,
+  observedAt = new Date(),
+  requestStartedAt = observedAt,
+) {
+  const observedAtIso = observedAt.toISOString();
+  return {
+    schemaVersion: LIFECYCLE_OBSERVATION_SCHEMA_VERSION,
+    source: "app-server",
+    disposition: isArchivedThread(thread) ? "archived" : "active",
+    requestStartedAt: requestStartedAt.toISOString(),
+    observedAt: observedAtIso,
+    freshUntil: new Date(
+      observedAt.getTime() + LIFECYCLE_OBSERVATION_LEASE_MS,
+    ).toISOString(),
+    sourceUpdatedAt: toIso(thread?.updatedAt),
+    threadStatus: normalizedThreadStatus(thread?.status) || "unknown",
+  };
+}
+
+function unobservedLifecycle() {
+  return {
+    schemaVersion: LIFECYCLE_OBSERVATION_SCHEMA_VERSION,
+    source: "unobserved",
+    disposition: "unknown",
+    requestStartedAt: null,
+    observedAt: null,
+    freshUntil: null,
+    sourceUpdatedAt: null,
+    threadStatus: "unknown",
+  };
+}
+
+function shouldApplyLifecycleObservation(current, incoming) {
+  const existing = current?.lifecycleObservation;
+  const currentEffectAt = existing?.sourceEffectAt;
+  if (
+    typeof currentEffectAt === "string" &&
+    typeof incoming.requestStartedAt === "string" &&
+    incoming.requestStartedAt.localeCompare(currentEffectAt) < 0
+  ) {
+    return false;
+  }
+  if (
+    typeof existing?.sourceUpdatedAt === "string" &&
+    typeof incoming.sourceUpdatedAt === "string" &&
+    incoming.sourceUpdatedAt !== existing.sourceUpdatedAt
+  ) {
+    return incoming.sourceUpdatedAt.localeCompare(existing.sourceUpdatedAt) > 0;
+  }
+  const currentObservedAt = existing?.observedAt;
+  return (
+    typeof currentObservedAt !== "string" ||
+    currentObservedAt.localeCompare(incoming.observedAt) <= 0
+  );
+}
+
+/**
+ * Persist only app-server evidence. The registry is a topology store plus a
+ * disposable last-observation cache: every CLI read gets fresh evidence before
+ * this function writes it, and an older in-flight response cannot regress it.
+ */
+async function reconcileLiveLifecycle(
+  threadId,
+  thread,
+  observedAt = new Date(),
+  requestStartedAt = observedAt,
+) {
+  const incoming = lifecycleObservation(thread, observedAt, requestStartedAt);
+  const archivedAt = incoming.disposition === "archived" ? incoming.observedAt : null;
+  await withWebRegistryLock(async () => {
+    const taskRecord = await readRegistryRecord(threadId);
+    if (taskRecord && shouldApplyLifecycleObservation(taskRecord, incoming)) {
+      await writeRegistryRecord({
+        ...taskRecord,
+        title: thread?.name ?? taskRecord.title,
+        archivedAt,
+        lifecycleObservation: incoming,
+      });
+    }
+
+    const webRecord = await readWebRecord(threadId);
+    if (webRecord && shouldApplyLifecycleObservation(webRecord, incoming)) {
+      await writeWebRecord({
+        ...webRecord,
+        archivedAt,
+        lifecycleObservation: incoming,
+      });
+    }
+  });
+  return incoming;
+}
+
+async function markLifecycleObservationUnavailable(threadId, attemptedAt = new Date()) {
+  const attemptedAtIso = attemptedAt.toISOString();
+  await withWebRegistryLock(async () => {
+    for (const [readRecord, writeRecord] of [
+      [readRegistryRecord, writeRegistryRecord],
+      [readWebRecord, writeWebRecord],
+    ]) {
+      const current = await readRecord(threadId);
+      if (!current) continue;
+      const prior = current.lifecycleObservation || unobservedLifecycle();
+      if (
+        (typeof prior.sourceEffectAt === "string" &&
+          prior.sourceEffectAt.localeCompare(attemptedAtIso) > 0) ||
+        (typeof prior.observedAt === "string" &&
+          prior.observedAt.localeCompare(attemptedAtIso) > 0)
+      ) {
+        continue;
+      }
+      await writeRecord({
+        ...current,
+        lifecycleObservation: {
+          ...prior,
+          freshUntil: attemptedAtIso,
+          lastUnavailableAt: attemptedAtIso,
+        },
+      });
+    }
+  });
+}
+
+async function recordConfirmedArchive(threadId, title = null, observedAt = new Date()) {
+  const incoming = {
+    schemaVersion: LIFECYCLE_OBSERVATION_SCHEMA_VERSION,
+    source: "app-server",
+    disposition: "archived",
+    requestStartedAt: observedAt.toISOString(),
+    observedAt: observedAt.toISOString(),
+    freshUntil: new Date(
+      observedAt.getTime() + LIFECYCLE_OBSERVATION_LEASE_MS,
+    ).toISOString(),
+    sourceUpdatedAt: null,
+    sourceEffectAt: observedAt.toISOString(),
+    threadStatus: "archived",
+  };
+  await withWebRegistryLock(async () => {
+    const taskRecord = await readRegistryRecord(threadId);
+    if (taskRecord && shouldApplyLifecycleObservation(taskRecord, incoming)) {
+      await writeRegistryRecord({
+        ...taskRecord,
+        ...(title === null ? {} : { title }),
+        archivedAt: incoming.observedAt,
+        lifecycleObservation: incoming,
+      });
+    }
+    const webRecord = await readWebRecord(threadId);
+    if (webRecord && shouldApplyLifecycleObservation(webRecord, incoming)) {
+      await writeWebRecord({
+        ...webRecord,
+        archivedAt: incoming.observedAt,
+        lifecycleObservation: incoming,
+      });
+    }
+  });
+  return incoming;
+}
+
+function summarizeTurn(turn) {
+  if (!turn) return null;
+  return {
+    id: turn.id,
+    status: turn.status,
+    error: turn.error ?? null,
+    startedAt: toIso(turn.startedAt),
+    completedAt: toIso(turn.completedAt),
+    durationMs: turn.durationMs ?? null,
+  };
+}
+
+function summarizeThread(thread, latestTurn = null) {
+  return {
+    threadId: thread.id,
+    sessionId: thread.sessionId,
+    title: thread.name ?? null,
+    preview: thread.preview ?? "",
+    status: thread.status,
+    parentThreadId: thread.parentThreadId ?? null,
+    forkedFromId: thread.forkedFromId ?? null,
+    cwd: thread.cwd,
+    source: thread.source,
+    threadSource: thread.threadSource ?? null,
+    createdAt: toIso(thread.createdAt),
+    updatedAt: toIso(thread.updatedAt),
+    latestTurn: summarizeTurn(latestTurn),
+    taskUrl: codexTaskUrl(thread.id),
+  };
+}
+
+function acknowledgedTurnThread(thread, turn, { title = null } = {}) {
+  return {
+    ...thread,
+    ...(title === null ? {} : { name: title }),
+    status: isTerminalTurnStatus(turn?.status)
+      ? { type: "idle" }
+      : { type: "active", activeFlags: [] },
+  };
+}
+
+function summarizeUserInput(content) {
+  return content
+    .map((item) => {
+      if (item.type === "text") return item.text;
+      if (item.type === "skill") return `[skill: ${item.name}]`;
+      if (item.type === "mention") return `[mention: ${item.name}]`;
+      if (item.type === "localImage") return `[local image: ${item.path}]`;
+      if (item.type === "image") return `[image: ${item.url}]`;
+      return `[${item.type}]`;
+    })
+    .join("\n");
+}
+
+function summarizeTurnItem(item) {
+  if (item.type === "userMessage") {
+    return { type: item.type, role: "user", text: summarizeUserInput(item.content) };
+  }
+  if (item.type === "agentMessage") {
+    return { type: item.type, role: "assistant", phase: item.phase ?? null, text: item.text };
+  }
+  if (item.type === "plan") return { type: item.type, text: item.text };
+  if (item.type === "commandExecution") {
+    return {
+      type: item.type,
+      command: item.command,
+      status: item.status,
+      exitCode: item.exitCode ?? null,
+      durationMs: item.durationMs ?? null,
+    };
+  }
+  if (item.type === "fileChange") {
+    return { type: item.type, status: item.status, changeCount: item.changes.length };
+  }
+  if (item.type === "mcpToolCall" || item.type === "dynamicToolCall") {
+    return { type: item.type, tool: item.tool, status: item.status };
+  }
+  if (item.type === "collabAgentToolCall") {
+    return {
+      type: item.type,
+      tool: item.tool,
+      status: item.status,
+      receiverThreadIds: item.receiverThreadIds,
+    };
+  }
+  if (item.type === "subAgentActivity") {
+    return {
+      type: item.type,
+      kind: item.kind,
+      agentThreadId: item.agentThreadId,
+    };
+  }
+  if (["reasoning", "hookPrompt"].includes(item.type)) return null;
+  return { type: item.type };
+}
+
+function summarizeTurnWithItems(turn) {
+  return {
+    ...summarizeTurn(turn),
+    items: (turn.items || []).map(summarizeTurnItem).filter(Boolean),
+  };
+}
+
+async function getTurns(client, threadId, { limit, itemsView }) {
+  try {
+    const result = await client.request("thread/turns/list", {
+      threadId,
+      limit,
+      sortDirection: "desc",
+      itemsView,
+    });
+    return assertTurnArray(result?.data, "thread/turns/list");
+  } catch {
+    const result = await client.request("thread/read", { threadId, includeTurns: true });
+    return assertTurnArray(result?.thread?.turns, "thread/read")
+      .toReversed()
+      .slice(0, limit);
+  }
+}
+
+function assertTurnArray(value, source, { maximum = null } = {}) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${source} returned no turn array`);
+  }
+  if (maximum != null && value.length > maximum) {
+    throw new Error(`${source} exceeded the ${maximum}-turn bound`);
+  }
+  if (value.some((turn) => !turn || typeof turn !== "object" || Array.isArray(turn))) {
+    throw new Error(`${source} returned an invalid turn`);
+  }
+  return value;
+}
+
+async function getTurnsForCollection(client, threadId, requestOptions) {
+  const maximum = 2;
+  const result = await client.request("thread/turns/list", {
+    threadId,
+    limit: maximum,
+    sortDirection: "desc",
+    itemsView: "full",
+  }, requestOptions);
+  return assertTurnArray(result?.data, "thread/turns/list", { maximum });
+}
+
+async function readStatus(client, threadId) {
+  const observationStartedAt = new Date();
+  let threadResult;
+  let turns;
+  try {
+    [threadResult, turns] = await Promise.all([
+      client.request("thread/read", { threadId, includeTurns: false }),
+      getTurns(client, threadId, { limit: 1, itemsView: "summary" }),
+    ]);
+  } catch (error) {
+    await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+    throw error;
+  }
+  if (!threadResult?.thread) {
+    await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+    throw new Error(`task not found: ${threadId}`);
+  }
+  await reconcileLiveLifecycle(
+    threadId,
+    threadResult.thread,
+    new Date(),
+    observationStartedAt,
+  );
+  return { thread: threadResult.thread, latestTurn: turns[0] ?? null };
+}
+
+async function setAndVerifyTitle(client, threadId, title) {
+  await client.request("thread/name/set", { threadId, name: title });
+  const result = await client.request("thread/read", {
+    threadId,
+    includeTurns: false,
+  });
+  if (result?.thread?.name !== title) {
+    throw new Error("the live app-server did not retain the requested title");
+  }
+  return result.thread;
+}
+
+function webMetadata(record) {
+  return {
+    queenThreadId: record.queenThreadId ?? null,
+    inboundWebId: record.inboundWebId ?? null,
+    outboundWebId: record.outboundWebId ?? null,
+  };
+}
+
+async function syncTaskRegistryWebRecord(record, lifecycle = null) {
+  await patchRegistryRecord(record.threadId, {
+    title: record.renderedTitle,
+    baseTitle: record.baseTitle,
+    web: webMetadata(record),
+    ...(lifecycle?.source === "app-server"
+      ? { archivedAt: null, lifecycleObservation: lifecycle }
+      : {}),
+  });
+}
+
+async function beginWeb(
+  client,
+  threadId,
+  requestedTitle = null,
+  { registryOnly = false } = {},
+) {
+  return withWebRegistryLock(async () => {
+    const stored = await readWebRecord(threadId);
+    const current = stored && !stored.archivedAt ? stored : null;
+    let liveResult = null;
+    if (!registryOnly) {
+      liveResult = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (!liveResult?.thread) throw new Error(`task not found: ${threadId}`);
+      if (isArchivedThread(liveResult.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot begin a web`);
+      }
+    }
+    const parsed = parseWebTitle(
+      liveResult?.thread?.name ||
+        liveResult?.thread?.preview ||
+        requestedTitle ||
+        current?.baseTitle ||
+        "",
+    );
+    const requestedBase = requestedTitle ? parseWebTitle(requestedTitle).baseTitle : null;
+    const baseTitle = (requestedBase || parsed.baseTitle || current?.baseTitle || "").trim();
+    if (!baseTitle) {
+      throw new Error("web begin requires --title when the current task has no title");
+    }
+
+    const parsedInboundWebId = stored?.archivedAt ? null : parsed.inboundWebId;
+    const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
+    const inboundWebId = current?.inboundWebId || parsedInboundWebId || null;
+    const existingOutboundWebId =
+      current?.outboundWebId || parsedOutboundWebId || null;
+    const outboundWebId =
+      existingOutboundWebId || allocateWebId(await listWebRecords(), inboundWebId);
+    const renderedTitle = renderWebTitle({
+      baseTitle,
+      inboundWebId,
+      outboundWebId,
+    });
+
+    if (!registryOnly) await setAndVerifyTitle(client, threadId, renderedTitle);
+    const timestamp = new Date().toISOString();
+    const record = {
+      threadId,
+      baseTitle,
+      inboundWebId,
+      outboundWebId,
+      queenThreadId: current?.queenThreadId ?? null,
+      renderedTitle,
+      createdAt: current?.createdAt || timestamp,
+      updatedAt: timestamp,
+      archivedAt: null,
+      lifecycleObservation: registryOnly
+        ? unobservedLifecycle()
+        : lifecycleObservation(liveResult.thread),
+    };
+    await writeWebRecord(record);
+    await syncTaskRegistryWebRecord(record, record.lifecycleObservation);
+
+    return {
+      ...record,
+      webId: outboundWebId,
+      reused: Boolean(existingOutboundWebId),
+      titleVerified: !registryOnly,
+    };
+  });
+}
+
+async function joinWeb(
+  client,
+  threadId,
+  {
+    webId,
+    requestedTitle = null,
+    queenThreadId = null,
+    registryOnly = false,
+  },
+) {
+  const inboundWebId = assertWebId(webId);
+  return withWebRegistryLock(async () => {
+    const stored = await readWebRecord(threadId);
+    const current = stored && !stored.archivedAt ? stored : null;
+    let liveResult = null;
+    if (!registryOnly) {
+      liveResult = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (!liveResult?.thread) throw new Error(`task not found: ${threadId}`);
+      if (isArchivedThread(liveResult.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot join a web`);
+      }
+    }
+    const parsed = parseWebTitle(
+      liveResult?.thread?.name ||
+        liveResult?.thread?.preview ||
+        requestedTitle ||
+        current?.baseTitle ||
+        "",
+    );
+    const parsedInboundWebId = stored?.archivedAt ? null : parsed.inboundWebId;
+    const existingInboundWebId = current?.inboundWebId || parsedInboundWebId || null;
+    if (existingInboundWebId && existingInboundWebId !== inboundWebId) {
+      throw new Error(
+        `task already belongs to web ${existingInboundWebId}; cannot join ${inboundWebId}`,
+      );
+    }
+
+    const requestedBase = requestedTitle ? parseWebTitle(requestedTitle).baseTitle : null;
+    const baseTitle = (requestedBase || parsed.baseTitle || current?.baseTitle || "").trim();
+    if (!baseTitle) throw new Error("web join requires --title when the task has no title");
+    const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
+    const outboundWebId = current?.outboundWebId || parsedOutboundWebId || null;
+    const renderedTitle = renderWebTitle({
+      baseTitle,
+      inboundWebId,
+      outboundWebId,
+    });
+
+    if (!registryOnly) await setAndVerifyTitle(client, threadId, renderedTitle);
+    const timestamp = new Date().toISOString();
+    const record = {
+      threadId,
+      baseTitle,
+      inboundWebId,
+      outboundWebId,
+      queenThreadId: queenThreadId || current?.queenThreadId || null,
+      renderedTitle,
+      createdAt: current?.createdAt || timestamp,
+      updatedAt: timestamp,
+      archivedAt: null,
+      lifecycleObservation: registryOnly
+        ? unobservedLifecycle()
+        : lifecycleObservation(liveResult.thread),
+    };
+    await writeWebRecord(record);
+    await syncTaskRegistryWebRecord(record, record.lifecycleObservation);
+
+    return {
+      ...record,
+      webId: inboundWebId,
+      reused: existingInboundWebId === inboundWebId,
+      titleVerified: !registryOnly,
+    };
+  });
+}
+
+async function rollbackNewWeb(client, web) {
+  return withWebRegistryLock(async () => {
+    const current = await readWebRecord(web.threadId);
+    if (!current || current.outboundWebId !== web.webId) return false;
+    const activeMemberExists = (await listWebRecords()).some(
+      (record) =>
+        record.threadId !== web.threadId &&
+        !record.archivedAt &&
+        (record.inboundWebId === web.webId ||
+          record.inboundWebId?.startsWith(`${web.webId}.`)),
+    );
+    if (activeMemberExists) return false;
+
+    const renderedTitle = renderWebTitle({
+      baseTitle: current.baseTitle,
+      inboundWebId: current.inboundWebId,
+      outboundWebId: null,
+    });
+    await setAndVerifyTitle(client, web.threadId, renderedTitle);
+    const restored = {
+      ...current,
+      outboundWebId: null,
+      renderedTitle,
+      updatedAt: new Date().toISOString(),
+    };
+    await writeWebRecord(restored);
+    await syncTaskRegistryWebRecord(restored, restored.lifecycleObservation);
+    return true;
+  });
+}
+
+async function waitForTurn(client, threadId, turnId, { pollMs, maxWaitMs }) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const turns = await getTurns(client, threadId, { limit: 20, itemsView: "summary" });
+    const turn = turnId ? turns.find((candidate) => candidate.id === turnId) : turns[0];
+    if (turn && isTerminalTurnStatus(turn.status)) return turn;
+    await sleep(pollMs);
+  }
+  throw new Error(
+    `task ${threadId} did not finish within ${maxWaitMs} ms; it may still be running`,
+  );
+}
+
+async function resolvePrompt(options, command) {
+  if (options.prompt && options.promptFile) {
+    throw new Error("supply --prompt or --prompt-file, not both");
+  }
+  let prompt = options.prompt;
+  if (options.promptFile) {
+    if (options.promptFile === "-") {
+      const chunks = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      prompt = Buffer.concat(chunks).toString("utf8");
+    } else {
+      prompt = await readFile(resolve(options.promptFile), "utf8");
+    }
+  }
+  if (!prompt?.trim()) throw new Error(`${command} requires --prompt or --prompt-file`);
+  return prompt;
+}
+
+async function resolveStartInput(options, command = "start") {
+  if (!options.title?.trim()) throw new Error(`${command} requires --title`);
+  const prompt = await resolvePrompt(options, command);
+
+  const cwd = resolve(options.cwd || process.cwd());
+  const cwdInfo = await stat(cwd).catch(() => null);
+  if (!cwdInfo?.isDirectory()) throw new Error(`--cwd is not a directory: ${cwd}`);
+
+  return { title: options.title, prompt, cwd };
+}
+
+function resolveStartConfiguration(options) {
+  const permissionProfileId = options.permissions?.trim() || null;
+  if (permissionProfileId && options.sandbox) {
+    throw new Error("--permissions cannot be combined with --sandbox");
+  }
+  // Current experimental app-server schemas accept the profile identifier
+  // itself. Sending the former { type: "profile", id } wrapper is rejected
+  // before a thread can be created.
+  const permissions = permissionProfileId || null;
+  const sandbox = permissions
+    ? null
+    : assertOneOf(
+        options.sandbox || "workspace-write",
+        ["read-only", "workspace-write", "danger-full-access"],
+        "--sandbox",
+      );
+  const approvalPolicy = assertOneOf(
+    options.approvalPolicy || "never",
+    ["never", "on-request", "untrusted"],
+    "--approval",
+  );
+  const polling = parsePollingOptions(options);
+  return { approvalPolicy, permissions, polling, sandbox };
+}
+
+async function assertPermissionProfileAvailable(client, permissionProfileId, cwd) {
+  if (!permissionProfileId) return;
+  const result = await client.request("permissionProfile/list", { cwd });
+  const profiles = result?.data;
+  if (!Array.isArray(profiles)) {
+    throw new Error("permissionProfile/list returned no profile array");
+  }
+  if (!profiles.some((profile) => profile?.id === permissionProfileId)) {
+    throw new Error(
+      `named permission profile is unavailable: ${permissionProfileId}; no task was created`,
+    );
+  }
+}
+
+async function runSend(options, client) {
+  const threadId = consumeThreadId(options);
+  const prompt = await resolvePrompt(options, "send");
+  const polling = parsePollingOptions(options);
+  const initial = await readStatus(client, threadId);
+  const threadStatus = normalizedThreadStatus(initial.thread.status);
+  if (!["idle", "notloaded"].includes(threadStatus)) {
+    throw new Error(
+      `task ${threadId} is not idle; its thread status is ${threadStatus || "unknown"}`,
+    );
+  }
+  if (initial.latestTurn && !isTerminalTurnStatus(initial.latestTurn.status)) {
+    throw new Error(
+      `task ${threadId} does not have a terminal latest turn; it may still be running`,
+    );
+  }
+  if (threadStatus === "notloaded") {
+    const resumed = await client.request("thread/resume", {
+      threadId,
+      excludeTurns: true,
+    });
+    if (normalizedThreadStatus(resumed?.thread?.status) !== "idle") {
+      throw new Error(`task ${threadId} did not become idle after resume`);
+    }
+  }
+
+  const turnParams = {
+    threadId,
+    input: [{ type: "text", text: prompt }],
+  };
+  if (options.model) turnParams.model = options.model;
+  if (options.effort) turnParams.effort = options.effort;
+  const turnResult = await client.request("turn/start", turnParams);
+  const turnId = turnResult?.turn?.id;
+  if (!turnId) throw new Error("turn/start returned no turn ID");
+  await patchRegistryRecord(threadId, { turnId });
+
+  if (options.wait) {
+    const completedTurn = await waitForTurn(client, threadId, turnId, polling);
+    const status = await readStatus(client, threadId);
+    const turns = await getTurns(client, threadId, { limit: 1, itemsView: "full" });
+    return {
+      command: "send",
+      detached: false,
+      ...summarizeThread(status.thread, completedTurn),
+      turn: summarizeTurnWithItems(
+        turns.find((candidate) => candidate.id === turnId) || completedTurn,
+      ),
+    };
+  }
+
+  const launchedTurn = turnResult.turn ?? { id: turnId, status: "inProgress" };
+  return {
+    command: "send",
+    detached: true,
+    ...summarizeThread(
+      acknowledgedTurnThread(initial.thread, launchedTurn),
+      launchedTurn,
+    ),
+    turnId,
+    monitor: {
+      status: `fraktik status ${threadId}`,
+      read: `fraktik read ${threadId}`,
+      watch: `fraktik watch ${threadId}`,
+    },
+  };
+}
+
+async function runStart(
+  options,
+  client,
+  {
+    configuration = null,
+    spinoff = null,
+    input = null,
+    permissionProfileValidated = false,
+  } = {},
+) {
+  assertNoPositionals(options);
+  const resolvedInput = input || (await resolveStartInput(options));
+  const baseTitle = parseWebTitle(resolvedInput.title).baseTitle;
+  const renderedTitle = spinoff
+    ? renderWebTitle({ baseTitle, inboundWebId: spinoff.webId })
+    : resolvedInput.title;
+  const { approvalPolicy, permissions, polling, sandbox } =
+    configuration || resolveStartConfiguration(options);
+  if (!permissionProfileValidated) {
+    await assertPermissionProfileAvailable(client, permissions, resolvedInput.cwd);
+  }
+  let threadId = null;
+  let turnId = null;
+  let startedThread = null;
+  let startedTurn = null;
+
+  try {
+    const startParams = {
+      cwd: resolvedInput.cwd,
+      approvalPolicy,
+      ephemeral: false,
+      serviceName: "fraktik",
+      threadSource: "fraktik-cli",
+    };
+    if (permissions) startParams.permissions = permissions;
+    else startParams.sandbox = sandbox;
+    if (options.model) startParams.model = options.model;
+    const threadResult = await client.request("thread/start", startParams);
+    threadId = threadResult?.thread?.id;
+    if (!threadId) throw new Error("thread/start returned no task ID");
+    startedThread = threadResult.thread;
+
+    await setAndVerifyTitle(client, threadId, renderedTitle);
+
+    await writeRegistryRecord({
+      threadId,
+      title: renderedTitle,
+      baseTitle,
+      cwd: resolvedInput.cwd,
+      createdAt: new Date().toISOString(),
+      turnId: null,
+      taskUrl: codexTaskUrl(threadId),
+      archivedAt: null,
+      web: spinoff
+        ? {
+            queenThreadId: spinoff.queenThreadId,
+            inboundWebId: spinoff.webId,
+            outboundWebId: null,
+          }
+        : null,
+    });
+
+    if (spinoff) {
+      const timestamp = new Date().toISOString();
+      await writeWebRecord({
+        threadId,
+        baseTitle,
+        inboundWebId: spinoff.webId,
+        outboundWebId: null,
+        queenThreadId: spinoff.queenThreadId,
+        renderedTitle,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        archivedAt: null,
+      });
+    }
+
+    const turnParams = {
+      threadId,
+      input: [{ type: "text", text: resolvedInput.prompt }],
+    };
+    if (permissions) turnParams.permissions = permissions;
+    if (options.model) turnParams.model = options.model;
+    if (options.effort) turnParams.effort = options.effort;
+    const turnResult = await client.request("turn/start", turnParams);
+    turnId = turnResult?.turn?.id;
+    if (!turnId) throw new Error("turn/start returned no turn ID");
+    startedTurn = turnResult.turn ?? { id: turnId, status: "inProgress" };
+    await patchRegistryRecord(threadId, { turnId });
+
+    if (options.wait) {
+      const completedTurn = await waitForTurn(client, threadId, turnId, polling);
+      const turns = await getTurns(client, threadId, { limit: 1, itemsView: "full" });
+      const status = await readStatus(client, threadId);
+      return {
+        command: spinoff ? "spinoff" : "start",
+        detached: false,
+        ...summarizeThread(status.thread, completedTurn),
+        turn: summarizeTurnWithItems(
+          turns.find((candidate) => candidate.id === turnId) || completedTurn,
+        ),
+        ...(spinoff ? { spinoff } : {}),
+      };
+    }
+
+    return {
+      command: spinoff ? "spinoff" : "start",
+      detached: true,
+      ...summarizeThread(
+        acknowledgedTurnThread(startedThread, startedTurn, {
+          title: renderedTitle,
+        }),
+        startedTurn,
+      ),
+      turnId,
+      monitor: {
+        status: `fraktik status ${threadId}`,
+        read: `fraktik read ${threadId}`,
+        watch: `fraktik watch ${threadId}`,
+      },
+      ...(spinoff ? { spinoff } : {}),
+    };
+  } catch (error) {
+    if (threadId && !turnId) {
+      try {
+        await client.request("thread/archive", { threadId });
+        await recordConfirmedArchive(threadId);
+      } catch {
+        // Preserve the original start error.
+      }
+    }
+    const suffix = threadId ? ` (task ${threadId})` : "";
+    throw new Error(`${error.message}${suffix}`);
+  }
+}
+
+async function runSpinoff(options, client) {
+  assertNoPositionals(options);
+  const input = await resolveStartInput(options, "spinoff");
+  const configuration = resolveStartConfiguration(options);
+  const queenThreadId =
+    options.queenThreadId?.trim() || process.env.CODEX_THREAD_ID;
+  if (!queenThreadId) {
+    throw new Error("spinoff requires --queen-thread-id or CODEX_THREAD_ID");
+  }
+  await assertPermissionProfileAvailable(client, configuration.permissions, input.cwd);
+
+  const shouldWait = Boolean(options.wait);
+  const startOptions = shouldWait ? { ...options, wait: false } : options;
+  const requestTimeout = parsePositiveInteger(
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    "--timeout-ms",
+  );
+  const started = await withQueenSpinoffLock(
+    queenThreadId,
+    async () => {
+      const web = await beginWeb(client, queenThreadId);
+      try {
+        return await runStart(startOptions, client, {
+          configuration,
+          input,
+          permissionProfileValidated: true,
+          spinoff: {
+            queenThreadId,
+            queenTitle: web.renderedTitle,
+            webId: web.webId,
+          },
+        });
+      } catch (error) {
+        if (!web.reused) {
+          try {
+            await rollbackNewWeb(client, web);
+          } catch {
+            // Preserve the spinoff failure; a later web begin can repair the title.
+          }
+        }
+        throw error;
+      }
+    },
+    Math.max(60_000, requestTimeout * 8),
+  );
+  if (!shouldWait) return started;
+
+  const completedTurn = await waitForTurn(
+    client,
+    started.threadId,
+    started.turnId,
+    configuration.polling,
+  );
+  const turns = await getTurns(client, started.threadId, {
+    limit: 1,
+    itemsView: "full",
+  });
+  const status = await readStatus(client, started.threadId);
+  return {
+    command: "spinoff",
+    detached: false,
+    ...summarizeThread(status.thread, completedTurn),
+    turn: summarizeTurnWithItems(
+      turns.find((candidate) => candidate.id === started.turnId) || completedTurn,
+    ),
+    spinoff: started.spinoff,
+  };
+}
+
+async function runWeb(options, client) {
+  const action = options.positionals.shift();
+  if (!["begin", "join", "collect", "readiness", "accept"].includes(action)) {
+    throw new Error("web requires begin, join, collect, readiness, or accept");
+  }
+  if (action === "readiness") {
+    return runWebReadiness(options);
+  }
+  if (action === "accept") {
+    return runWebAccept(options);
+  }
+
+  if (action === "collect") {
+    assertNoPositionals(options);
+    const allowed = new Set([
+      "command",
+      "positionals",
+      "queenThreadId",
+      "threadId",
+      "webId",
+      "socketPath",
+      "timeoutMs",
+      "wait",
+    ]);
+    if (options.wait) {
+      allowed.add("pollMs");
+      allowed.add("maxWaitMs");
+    }
+    assertOnlyOptions(
+      options,
+      allowed,
+      "web collect",
+    );
+    if (options.queenThreadId && options.threadId) {
+      throw new Error(
+        "supply the queen task ID with --queen-thread-id or --thread-id, not both",
+      );
+    }
+    const queenThreadId =
+      options.queenThreadId?.trim() ||
+      options.threadId?.trim() ||
+      process.env.CODEX_THREAD_ID ||
+      null;
+    const polling = options.wait ? parsePollingOptions(options) : null;
+    const records = await listWebRecords();
+    const waitStartedAt = polling ? performance.now() : null;
+    const deadline = polling ? waitStartedAt + polling.maxWaitMs : null;
+    const deadlineController = polling ? new AbortController() : null;
+    const deadlineTimer = polling
+      ? setTimeout(() => deadlineController.abort(), polling.maxWaitMs)
+      : null;
+    const collect = () =>
+      collectWebResults({
+        records,
+        webId: options.webId,
+        queenThreadId,
+        loadMember: async (threadId) => {
+          const observationStartedAt = new Date();
+          let requestOptions;
+          if (deadline !== null) {
+            const remainingMs = Math.ceil(deadline - performance.now());
+            if (deadlineController.signal.aborted || remainingMs <= 0) {
+              throw new Error("web collection deadline reached");
+            }
+            requestOptions = {
+              timeoutMs: Math.min(client.timeoutMs, remainingMs),
+              signal: deadlineController.signal,
+            };
+          }
+          let threadResult;
+          let turns;
+          try {
+            [threadResult, turns] = await Promise.all([
+              client.request(
+                "thread/read",
+                { threadId, includeTurns: false },
+                requestOptions,
+              ),
+              getTurnsForCollection(client, threadId, requestOptions),
+            ]);
+          } catch (error) {
+            await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+            throw error;
+          }
+          if (!threadResult?.thread) {
+            await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+            throw new Error(`task not found: ${threadId}`);
+          }
+          await reconcileLiveLifecycle(
+            threadId,
+            threadResult.thread,
+            new Date(),
+            observationStartedAt,
+          );
+          return {
+            thread: threadResult.thread,
+            turns,
+          };
+        },
+      });
+    if (!options.wait) return collect();
+
+    let previousCollection = null;
+    try {
+      while (true) {
+        const currentCollection = await collect();
+        if (
+          currentCollection.members.every((member) =>
+            ["completed", "failed"].includes(member.transportStatus),
+          )
+        ) {
+          return currentCollection;
+        }
+        const collection = preserveWebCollectionEvidence({
+          collection: currentCollection,
+          previousCollection,
+        });
+        if (deadlineController.signal.aborted || performance.now() >= deadline) {
+          return timeoutWebCollection({
+            collection,
+            maxWaitMs: polling.maxWaitMs,
+            elapsedMs: Math.min(
+              Number.MAX_SAFE_INTEGER,
+              Math.max(0, Math.ceil(performance.now() - waitStartedAt)),
+            ),
+          });
+        }
+        previousCollection = collection;
+        await sleep(
+          Math.min(
+            polling.pollMs,
+            Math.max(1, Math.ceil(deadline - performance.now())),
+          ),
+        );
+      }
+    } finally {
+      clearTimeout(deadlineTimer);
+    }
+  }
+  const threadId = resolveThreadId(options.threadId);
+
+  if (action === "begin") {
+    assertNoPositionals(options);
+    if (options.webId) throw new Error("web begin allocates its own ID");
+    assertOnlyOptions(
+      options,
+      new Set([
+        "command",
+        "positionals",
+        "threadId",
+        "title",
+        "socketPath",
+        "timeoutMs",
+        "registryOnly",
+      ]),
+      "web begin",
+    );
+    if (options.registryOnly && (options.socketPath || options.timeoutMs)) {
+      throw new Error("web begin --registry-only does not accept socket options");
+    }
+    const result = await beginWeb(client, threadId, options.title, {
+      registryOnly: options.registryOnly === true,
+    });
+    return {
+      command: "web begin",
+      threadId,
+      ...(options.registryOnly
+        ? {
+            renderedTitle: result.renderedTitle,
+            titleVerified: false,
+            requiresNativeTitleSync: true,
+          }
+        : { liveTitle: result.renderedTitle, titleVerified: true }),
+      baseTitle: result.baseTitle,
+      webId: result.webId,
+      inboundWebId: result.inboundWebId,
+      reused: result.reused,
+      webMemberTitlePrefix: `🕸️ ${result.webId} ·`,
+      joinCommand:
+        `fraktik web join --id ${result.webId} --title <TITLE> ` +
+        `--queen-thread-id ${threadId}` +
+        (options.registryOnly ? " --registry-only" : ""),
+    };
+  }
+
+  if (options.webId && options.positionals.length > 0) {
+    throw new Error("supply the web ID positionally or with --id, not both");
+  }
+  if (options.positionals.length > 1) throw new Error("supply only one web ID");
+  const webId = options.webId || options.positionals.shift();
+  if (!webId) throw new Error("web join requires --id");
+  assertOnlyOptions(
+    options,
+    new Set([
+      "command",
+      "positionals",
+      "threadId",
+      "title",
+      "queenThreadId",
+      "webId",
+      "socketPath",
+      "timeoutMs",
+      "registryOnly",
+    ]),
+    "web join",
+  );
+  if (options.registryOnly && (options.socketPath || options.timeoutMs)) {
+    throw new Error("web join --registry-only does not accept socket options");
+  }
+  const result = await joinWeb(client, threadId, {
+    webId,
+    requestedTitle: options.title,
+    queenThreadId: options.queenThreadId,
+    registryOnly: options.registryOnly === true,
+  });
+  return {
+    command: "web join",
+    threadId,
+    ...(options.registryOnly
+      ? {
+          renderedTitle: result.renderedTitle,
+          titleVerified: false,
+          requiresNativeTitleSync: true,
+        }
+      : { liveTitle: result.renderedTitle, titleVerified: true }),
+    baseTitle: result.baseTitle,
+    webId: result.webId,
+    outboundWebId: result.outboundWebId,
+    queenThreadId: result.queenThreadId,
+    reused: result.reused,
+  };
+}
+
+async function runStatus(options, client) {
+  const threadId = consumeThreadId(options);
+  const status = await readStatus(client, threadId);
+  return { command: "status", ...summarizeThread(status.thread, status.latestTurn) };
+}
+
+async function runRead(options, client) {
+  const threadId = consumeThreadId(options);
+  const limit = parsePositiveInteger(options.turnLimit ?? DEFAULT_TURN_LIMIT, "--turns");
+  const status = await readStatus(client, threadId);
+  const turns = await getTurns(client, threadId, { limit, itemsView: "full" });
+  return {
+    command: "read",
+    ...summarizeThread(status.thread, status.latestTurn),
+    turns: [...turns].reverse().map(summarizeTurnWithItems),
+  };
+}
+
+async function runWatch(options, client) {
+  const threadId = consumeThreadId(options);
+  const polling = parsePollingOptions(options);
+  const initial = await readStatus(client, threadId);
+  if (!initial.latestTurn) throw new Error(`task ${threadId} has no turns to watch`);
+  const completedTurn = await waitForTurn(
+    client,
+    threadId,
+    initial.latestTurn.id,
+    polling,
+  );
+  const status = await readStatus(client, threadId);
+  const turns = await getTurns(client, threadId, { limit: 1, itemsView: "full" });
+  return {
+    command: "watch",
+    ...summarizeThread(status.thread, completedTurn),
+    turn: summarizeTurnWithItems(
+      turns.find((candidate) => candidate.id === completedTurn.id) || completedTurn,
+    ),
+  };
+}
+
+async function runList(options, client) {
+  assertNoPositionals(options);
+  const limit = parsePositiveInteger(options.limit ?? 20, "--limit");
+  if (!options.all) {
+    let records = await listRegistryRecords();
+    records = records
+      .filter(
+        (record) =>
+          !options.searchTerm ||
+          (typeof record.title === "string" &&
+            record.title.toLowerCase().includes(options.searchTerm.toLowerCase())),
+      )
+      .sort((left, right) => {
+        const leftCreatedAt =
+          typeof left.createdAt === "string" ? left.createdAt : "";
+        const rightCreatedAt =
+          typeof right.createdAt === "string" ? right.createdAt : "";
+        return (
+          rightCreatedAt.localeCompare(leftCreatedAt) ||
+          String(left.threadId).localeCompare(String(right.threadId))
+        );
+      })
+      .slice(0, limit);
+
+    const tasks = [];
+    for (const record of records) {
+      try {
+        const status = await readStatus(client, record.threadId);
+        if (isArchivedThread(status.thread)) continue;
+        tasks.push({
+          ...summarizeThread(status.thread, status.latestTurn),
+          launchedTurnId: record.turnId,
+        });
+      } catch (error) {
+        tasks.push({
+          threadId: record.threadId,
+          title: record.title,
+          cwd: record.cwd,
+          taskUrl: record.taskUrl,
+          launchedTurnId: record.turnId,
+          status: { type: "unavailable", error: error.message },
+        });
+      }
+    }
+    return { command: "list", scope: "local-registry", count: tasks.length, tasks };
+  }
+
+  const listObservationStartedAt = new Date();
+  const result = await client.request("thread/list", {
+    limit,
+    sortKey: "updated_at",
+    sortDirection: "desc",
+    sourceKinds: options.all ? SOURCE_KINDS : ["appServer"],
+    archived: false,
+    searchTerm: options.searchTerm || null,
+    useStateDbOnly: true,
+  });
+  const threads = result?.data || [];
+  await Promise.all(
+    threads.map((thread) =>
+      reconcileLiveLifecycle(
+        thread.id,
+        thread,
+        new Date(),
+        listObservationStartedAt,
+      ),
+    ),
+  );
+  return {
+    command: "list",
+    scope: "all-sources",
+    count: threads.length,
+    tasks: threads.map((thread) => summarizeThread(thread)),
+  };
+}
+
+function archiveHistory(record) {
+  return Array.isArray(record?.archiveHistory) ? record.archiveHistory : [];
+}
+
+function isLocallyDetached(record) {
+  if (!record?.archivedAt) return false;
+  const latest = [...archiveHistory(record)]
+    .reverse()
+    .find((entry) => entry && typeof entry === "object" && typeof entry.action === "string");
+  return latest?.action === "local-detach";
+}
+
+function archiveRecordWithEvent(record, archivedAt, event) {
+  return {
+    ...record,
+    archivedAt,
+    archiveHistory: [...archiveHistory(record), event],
+  };
+}
+
+function assertLocalArchiveOptions(options, command) {
+  assertOnlyOptions(
+    options,
+    new Set([
+      "command",
+      "positionals",
+      "threadId",
+      "socketPath",
+      "timeoutMs",
+      "detach",
+      "restoreDetached",
+    ]),
+    command,
+  );
+  if (options.socketPath || options.timeoutMs) {
+    throw new Error(`${command} does not accept socket options`);
+  }
+}
+
+async function runLocalDetachArchive(options) {
+  assertLocalArchiveOptions(options, "archive --detach");
+  const threadId = consumeThreadId(options);
+  const result = await withWebRegistryLock(async () => {
+    const [taskRecord, webRecord] = await Promise.all([
+      readRegistryRecord(threadId),
+      readWebRecord(threadId),
+    ]);
+    const records = [taskRecord, webRecord].filter(Boolean);
+    if (records.length === 0) {
+      return { localRecordFound: false, alreadyDetached: false, archivedAt: null };
+    }
+    if (records.every(isLocallyDetached)) {
+      return {
+        localRecordFound: true,
+        alreadyDetached: true,
+        archivedAt: records[0].archivedAt,
+      };
+    }
+
+    const archivedAt = new Date().toISOString();
+    const event = {
+      action: "local-detach",
+      at: archivedAt,
+      upstreamArchive: "not-attempted",
+    };
+    if (taskRecord) {
+      await writeRegistryRecord(archiveRecordWithEvent(taskRecord, archivedAt, event));
+    }
+    if (webRecord) {
+      await writeWebRecord(archiveRecordWithEvent(webRecord, archivedAt, event));
+    }
+    return { localRecordFound: true, alreadyDetached: false, archivedAt };
+  });
+
+  return {
+    command: "archive",
+    threadId,
+    archived: result.localRecordFound,
+    localOnly: true,
+    localArchiveState: result.localRecordFound ? "detached" : "not-found",
+    serverArchived: false,
+    serverArchiveState: "not-attempted",
+    alreadyDetached: result.alreadyDetached,
+    archivedAt: result.archivedAt,
+  };
+}
+
+async function runRestoreDetachedArchive(options) {
+  assertLocalArchiveOptions(options, "archive --restore-detached");
+  const threadId = consumeThreadId(options);
+  const result = await withWebRegistryLock(async () => {
+    const [taskRecord, webRecord] = await Promise.all([
+      readRegistryRecord(threadId),
+      readWebRecord(threadId),
+    ]);
+    const detachedRecords = [taskRecord, webRecord].filter(isLocallyDetached);
+    if (detachedRecords.length === 0) {
+      return { localRecordFound: Boolean(taskRecord || webRecord), restored: false };
+    }
+
+    const restoredAt = new Date().toISOString();
+    const event = {
+      action: "local-restore",
+      at: restoredAt,
+      upstreamArchive: "not-attempted",
+    };
+    if (isLocallyDetached(taskRecord)) {
+      await writeRegistryRecord(archiveRecordWithEvent(taskRecord, null, event));
+    }
+    if (isLocallyDetached(webRecord)) {
+      await writeWebRecord(archiveRecordWithEvent(webRecord, null, event));
+    }
+    return { localRecordFound: true, restored: true, restoredAt };
+  });
+
+  return {
+    command: "archive",
+    threadId,
+    archived: false,
+    localOnly: true,
+    localArchiveState: result.restored ? "restored" : "not-detached",
+    serverArchived: false,
+    serverArchiveState: "not-attempted",
+    restored: result.restored,
+    ...(result.restored ? { restoredAt: result.restoredAt } : {}),
+  };
+}
+
+async function runArchive(options, client) {
+  const threadId = consumeThreadId(options);
+  const record = await readRegistryRecord(threadId);
+  let title = record?.title ?? null;
+  let serverArchiveState;
+  try {
+    const result = await client.request("thread/read", {
+      threadId,
+      includeTurns: false,
+    });
+    if (!result?.thread) throw new Error(`task not found: ${threadId}`);
+    title = result.thread.name ?? title;
+    if (normalizedThreadStatus(result.thread.status) === "archived") {
+      serverArchiveState = "already-archived";
+    } else {
+      await client.request("thread/archive", { threadId });
+      serverArchiveState = "archived";
+    }
+  } catch (error) {
+    throw new Error(
+      `app-server archive failed for ${threadId}: ${error.message}; no local records were changed. ` +
+      `Use \`fraktik archive ${threadId} --detach\` only to explicitly hide a migrated historical record.`,
+    );
+  }
+  const observation = await recordConfirmedArchive(threadId, title);
+  return {
+    command: "archive",
+    threadId,
+    title,
+    archived: true,
+    serverArchived: true,
+    lifecycleObservation: observation,
+    serverArchiveState,
+    alreadyArchived: serverArchiveState === "already-archived",
+  };
+}
+
+async function runTitle(options, client) {
+  const action = options.positionals.shift();
+  if (!['set', 'get'].includes(action)) throw new Error("title requires set or get");
+  let title = null;
+  if (action === "set") {
+    if (options.title && options.positionals.length) {
+      throw new Error("supply the title positionally or with --title, not both");
+    }
+    if (options.positionals.length > 1) throw new Error("title must be one quoted argument");
+    title = options.title || options.positionals.shift();
+    if (!title?.trim()) throw new Error("title set requires a non-empty title");
+  } else if (options.title || options.positionals.length) {
+    throw new Error("title get does not accept a title");
+  }
+  const threadId = resolveThreadId(options.threadId);
+  if (action === "set") {
+    const liveTitle = await withWebRegistryLock(async () => {
+      const webRecord = await readWebRecord(threadId);
+      const effectiveTitle =
+        webRecord &&
+        !webRecord.archivedAt &&
+        (webRecord.inboundWebId || webRecord.outboundWebId)
+          ? renderWebTitle({
+              baseTitle: title,
+              inboundWebId: webRecord.inboundWebId,
+              outboundWebId: webRecord.outboundWebId,
+            })
+          : title;
+      await client.request("thread/name/set", { threadId, name: effectiveTitle });
+      const result = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (result?.thread?.name !== effectiveTitle) {
+        throw new Error("title verification failed");
+      }
+      if (isArchivedThread(result.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot be renamed`);
+      }
+
+      const baseTitle = parseWebTitle(title).baseTitle;
+      const observation = lifecycleObservation(result.thread);
+      await patchRegistryRecord(threadId, {
+        title: effectiveTitle,
+        baseTitle,
+        archivedAt: null,
+        lifecycleObservation: observation,
+      });
+      if (webRecord) {
+        await writeWebRecord({
+          ...webRecord,
+          baseTitle,
+          renderedTitle: effectiveTitle,
+          updatedAt: new Date().toISOString(),
+          archivedAt: null,
+          lifecycleObservation: observation,
+        });
+      }
+      return effectiveTitle;
+    });
+    return {
+      command: "title set",
+      threadId,
+      liveTitle,
+      requestedTitle: title,
+      verified: true,
+    };
+  }
+
+  let result;
+  const observationStartedAt = new Date();
+  try {
+    result = await client.request("thread/read", { threadId, includeTurns: false });
+  } catch (error) {
+    await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+    throw error;
+  }
+  if (!result?.thread) {
+    await markLifecycleObservationUnavailable(threadId, observationStartedAt);
+    throw new Error(`task not found: ${threadId}`);
+  }
+  await reconcileLiveLifecycle(
+    threadId,
+    result.thread,
+    new Date(),
+    observationStartedAt,
+  );
+  const liveTitle = result?.thread?.name ?? null;
+  return {
+    command: "title get",
+    threadId,
+    liveTitle,
+  };
+}
+
+async function main() {
+  if (
+    process.argv.length === 3 &&
+    process.argv[2] === "--distribution-provenance"
+  ) {
+    const provenancePath = new URL(
+      "../distribution-provenance.json",
+      import.meta.url,
+    );
+    const provenance = await readRequiredProvenance(provenancePath);
+    process.stdout.write(`${JSON.stringify(provenance)}\n`);
+    return;
+  }
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printUsage();
+    return;
+  }
+
+  const supported = [
+    "start",
+    "spinoff",
+    "send",
+    "status",
+    "read",
+    "watch",
+    "list",
+    "archive",
+    "title",
+    "web",
+    "plan",
+    "worktree",
+    "intelligence",
+    "doctor",
+  ];
+  if (!supported.includes(options.command)) {
+    throw new Error(`unknown command: ${options.command}`);
+  }
+
+  if (options.command === "intelligence") {
+    const output = await runIntelligence(options);
+    writeOutput(output);
+    if (output.command === "intelligence verify" && !output.verified) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (options.command === "plan") {
+    writeOutput(await runPlan(options));
+    return;
+  }
+
+  if (
+    options.command === "worktree" &&
+    ["plan", "provision", "inspect"].includes(options.positionals[0])
+  ) {
+    writeOutput(await runWorktree(options));
+    return;
+  }
+
+  if (options.command === "doctor") {
+    assertNoPositionals(options);
+    assertOnlyOptions(options, new Set(["codexCommand", "socketPath"]), "doctor");
+    const output = await diagnoseDistribution({
+      codexCommand: options.codexCommand,
+      socketPath: options.socketPath,
+    });
+    writeOutput(output);
+    if (!output.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (options.command === "archive") {
+    if (options.registryOnly === true) {
+      throw new Error(
+        "archive --registry-only was retired: lifecycle cache updates require app-server evidence",
+      );
+    }
+    const localArchiveModes = [options.detach, options.restoreDetached].filter(
+      Boolean,
+    ).length;
+    if (localArchiveModes > 1) {
+      throw new Error(
+        "archive accepts only one of --detach or --restore-detached",
+      );
+    }
+    if (options.detach === true) {
+      const output = await runLocalDetachArchive(options);
+      writeOutput(output);
+      return;
+    }
+    if (options.restoreDetached === true) {
+      const output = await runRestoreDetachedArchive(options);
+      writeOutput(output);
+      return;
+    }
+  }
+
+  if (options.command === "web" && options.registryOnly === true) {
+    const output = await runWeb(options, null);
+    writeOutput(output);
+    return;
+  }
+
+  if (
+    options.command === "web" &&
+    ["readiness", "accept"].includes(options.positionals[0])
+  ) {
+    const output = await runWeb(options, null);
+    writeOutput(output);
+    return;
+  }
+
+  const common = parseCommonOptions(options);
+  const client = await openAppServerClient({
+    clientName: "fraktik",
+    clientTitle: "Fraktik CLI",
+    ...common,
+  });
+
+  try {
+    let output;
+    if (options.command === "start") output = await runStart(options, client);
+    if (options.command === "spinoff") output = await runSpinoff(options, client);
+    if (options.command === "send") output = await runSend(options, client);
+    if (options.command === "status") output = await runStatus(options, client);
+    if (options.command === "read") output = await runRead(options, client);
+    if (options.command === "watch") output = await runWatch(options, client);
+    if (options.command === "list") output = await runList(options, client);
+    if (options.command === "archive") output = await runArchive(options, client);
+    if (options.command === "title") output = await runTitle(options, client);
+    if (options.command === "web") output = await runWeb(options, client);
+    if (options.command === "worktree") output = await runWorktree(options, client);
+    output.serverIdentity = client.serverIdentity;
+    writeOutput(output);
+  } finally {
+    client.close();
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`fraktik: ${error.message}\n`);
+  process.exitCode = 1;
+});

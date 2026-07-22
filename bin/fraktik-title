@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+
+import {
+  DEFAULT_TIMEOUT_MS,
+  openAppServerClient,
+  parsePositiveInteger,
+  parseWebTitle,
+  renderWebTitle,
+  resolveThreadId,
+} from "../src/app-server-client.mjs";
+import {
+  patchTaskRegistryRecord,
+  readWebRecord,
+  withWebRegistryLock,
+  writeWebRecord,
+} from "../src/task-state.mjs";
+
+function printUsage() {
+  process.stdout.write(`Usage:
+  fraktik-title set TITLE [options]
+  fraktik-title get [options]
+
+Options:
+  --thread-id ID    Task ID (defaults to CODEX_THREAD_ID)
+  --socket PATH     Active app-server control socket
+  --timeout-ms N    Request timeout in milliseconds (default: 15000)
+  -h, --help        Show this help
+`);
+}
+
+function parseArgs(argv) {
+  const options = { positionals: [] };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "-h" || argument === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (argument === "set" || argument === "get") {
+      if (options.command) throw new Error("supply only one command");
+      options.command = argument;
+      continue;
+    }
+    if (["--title", "--thread-id", "--socket", "--timeout-ms"].includes(argument)) {
+      const value = argv[index + 1];
+      if (value === undefined) throw new Error(`missing value for ${argument}`);
+      index += 1;
+      if (argument === "--title") options.title = value;
+      if (argument === "--thread-id") options.threadId = value;
+      if (argument === "--socket") options.socketPath = value;
+      if (argument === "--timeout-ms") options.timeoutMs = value;
+      continue;
+    }
+    if (argument.startsWith("-")) throw new Error(`unknown option: ${argument}`);
+    options.positionals.push(argument);
+  }
+
+  if (options.help) return options;
+  options.command = options.command || (options.title || options.positionals.length ? "set" : null);
+  if (!options.command) throw new Error("a command is required: set or get");
+  if (options.command === "get" && (options.title || options.positionals.length)) {
+    throw new Error("get does not accept a title");
+  }
+  if (options.command === "set") {
+    if (options.title && options.positionals.length) {
+      throw new Error("supply the title either positionally or with --title, not both");
+    }
+    if (options.positionals.length > 1) throw new Error("title must be one quoted argument");
+    options.title = options.title || options.positionals[0];
+    if (!options.title?.trim()) throw new Error("set requires a non-empty title");
+  }
+  delete options.positionals;
+  return options;
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printUsage();
+    return;
+  }
+
+  const threadId = resolveThreadId(options.threadId);
+  const timeoutMs = parsePositiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "--timeout-ms");
+  const client = await openAppServerClient({
+    clientName: "fraktik-title",
+    clientTitle: "Fraktik Title CLI",
+    socketPath: options.socketPath,
+    timeoutMs,
+  });
+
+  try {
+    if (options.command === "get") {
+      const result = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      const liveTitle = result?.thread?.name ?? null;
+      process.stdout.write(`${JSON.stringify({ threadId, liveTitle })}\n`);
+      return;
+    }
+
+    const liveTitle = await withWebRegistryLock(async () => {
+      const webRecord = await readWebRecord(threadId);
+      const effectiveTitle =
+        webRecord &&
+        !webRecord.archivedAt &&
+        (webRecord.inboundWebId || webRecord.outboundWebId)
+          ? renderWebTitle({
+              baseTitle: options.title,
+              inboundWebId: webRecord.inboundWebId,
+              outboundWebId: webRecord.outboundWebId,
+            })
+          : options.title;
+      await client.request("thread/name/set", { threadId, name: effectiveTitle });
+      const result = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (result?.thread?.name !== effectiveTitle) {
+        throw new Error(
+          `title verification failed: requested ${JSON.stringify(effectiveTitle)}, received ${JSON.stringify(result?.thread?.name ?? null)}`,
+        );
+      }
+
+      const baseTitle = parseWebTitle(options.title).baseTitle;
+      await patchTaskRegistryRecord(threadId, { title: effectiveTitle, baseTitle });
+      if (webRecord) {
+        await writeWebRecord({
+          ...webRecord,
+          baseTitle,
+          renderedTitle: effectiveTitle,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return effectiveTitle;
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        threadId,
+        requestedTitle: options.title,
+        liveTitle,
+        verified: true,
+      })}\n`,
+    );
+  } finally {
+    client.close();
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`fraktik-title: ${error.message}\n`);
+  process.exitCode = 1;
+});

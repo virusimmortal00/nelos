@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { installDistribution } from "../src/distribution-install.mjs";
+
+function printUsage() {
+  process.stdout.write(`Usage:
+  fraktik-install-distribution [options]
+
+Installs the CLI, user-wide task-management skill, and configured local Codex
+plugin from one immutable distribution release. Existing foreign launchers or
+skills are preserved unless --force is supplied.
+
+Options:
+  --home PATH          User home used for defaults
+  --codex-home PATH    Codex state root (default: CODEX_HOME or ~/.codex)
+  --install-root PATH  Immutable release/state root under CODEX_HOME
+  --bin-dir PATH       Managed PATH directory (default: ~/.local/bin)
+  --plugin SELECTOR    Configured local plugin (default: fraktik@personal)
+  --plugin-source PATH Exact local source opt-in (default: ~/plugins/fraktik)
+  --marketplace PATH   Local marketplace.json used for live desktop activation
+  --socket PATH        Running Codex app-server control socket
+  --codex PATH         Trusted Codex CLI executable
+  --package-root PATH  Distribution source (default: this package)
+  --force              Replace foreign files at owned CLI/skill destinations
+  --json               Print only the final installation record
+  -h, --help           Show this help
+`);
+}
+
+function parseArgs(argv) {
+  const options = {};
+  const booleanOptions = new Map([
+    ["--force", "force"],
+    ["--json", "json"],
+  ]);
+  const valueOptions = new Map([
+    ["--home", "home"],
+    ["--codex-home", "codexHome"],
+    ["--install-root", "installRoot"],
+    ["--bin-dir", "binDir"],
+    ["--plugin", "pluginSelector"],
+    ["--plugin-source", "pluginSource"],
+    ["--marketplace", "marketplacePath"],
+    ["--socket", "appServerSocket"],
+    ["--codex", "codexCommand"],
+    ["--package-root", "packageRoot"],
+  ]);
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "-h" || argument === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (booleanOptions.has(argument)) {
+      const key = booleanOptions.get(argument);
+      options[key] = true;
+      continue;
+    }
+    const key = valueOptions.get(argument);
+    if (!key) throw new Error(`unknown option: ${argument}`);
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`${argument} requires a value`);
+    }
+    options[key] = value;
+    index += 1;
+  }
+  return options;
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printUsage();
+    return;
+  }
+  const packageRoot = options.packageRoot
+    ? resolve(options.packageRoot)
+    : dirname(dirname(fileURLToPath(import.meta.url)));
+  const messages = [];
+  const result = await installDistribution({
+    ...options,
+    packageRoot,
+    report: (message) => messages.push(message),
+  });
+  if (!options.json) {
+    for (const message of messages) process.stdout.write(`${message}\n`);
+  }
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+main().catch((error) => {
+  if (error instanceof AggregateError) {
+    for (const nested of error.errors) {
+      process.stderr.write(`fraktik-install-distribution: ${nested.message}\n`);
+    }
+  }
+  process.stderr.write(`fraktik-install-distribution: ${error.message}\n`);
+  process.exitCode = 1;
+});

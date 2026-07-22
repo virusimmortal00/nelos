@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "type": "cli-output",
+      "output": {
+        "command": "web begin",
+        "nextAction": {
+          "schemaVersion": 1,
+          "kind": "native-set-title",
+          "threadId": "queen-1",
+          "title": "🕷️ A1 · Release",
+          "verify": true
+        }
+      }
+    },
+    {
+      "type": "native-title",
+      "threadId": "queen-1",
+      "title": "🕷️ A1 · Release",
+      "verify": true
+    },
+    {
+      "type": "cli-output",
+      "output": {
+        "command": "plan slices",
+        "nextAction": {
+          "schemaVersion": 1,
+          "kind": "launch-wave",
+          "waveIndex": 1,
+          "members": [
+            {
+              "sliceId": "research",
+              "lifecycle": "subagent",
+              "title": "Research",
+              "workspaceMode": "shared-read-only",
+              "nativeTask": { "model": "gpt-5.6-sol", "thinking": "medium" },
+              "routeEnforcement": {
+                "mode": "exact",
+                "onUnavailable": "stop",
+                "verifyAfterLaunch": true
+              },
+              "prompt": "Research only; return a bounded result."
+            }
+          ],
+          "settleBeforeWaveIndex": 2,
+          "remainingWaveCount": 1
+        }
+      }
+    },
+    {
+      "type": "native-launch",
+      "lifecycle": "subagent",
+      "title": "Research",
+      "workspaceMode": "shared-read-only",
+      "nativeTask": { "model": "gpt-5.6-sol", "thinking": "medium" },
+      "routeEnforcement": {
+        "mode": "exact",
+        "onUnavailable": "stop",
+        "verifyAfterLaunch": true
+      },
+      "threadId": "member-1",
+      "prompt": "Research only; return a bounded result."
+    },
+    {
+      "type": "native-route-verification",
+      "threadId": "member-1",
+      "expected": { "model": "gpt-5.6-sol", "effort": "medium" },
+      "observed": [
+        {
+          "turnId": "turn-1",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "matches": true
+        }
+      ],
+      "verified": true
+    },
+    {
+      "type": "cli-output",
+      "output": {
+        "command": "web collect",
+        "nextAction": {
+          "schemaVersion": 1,
+          "kind": "native-wait",
+          "threadIds": ["member-1"],
+          "after": "web-collect",
+          "webId": "A1"
+        }
+      }
+    },
+    {
+      "type": "native-wait",
+      "threadIds": ["member-1"]
+    }
+  ]
+}

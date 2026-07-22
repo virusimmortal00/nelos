@@ -1,0 +1,508 @@
+#!/usr/bin/env node
+
+import { execFile } from "node:child_process";
+import { readFile, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import {
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+import {
+  DISTRIBUTION_NAME,
+  INSTALL_STATE_FILENAME,
+  MANAGED_CLI_COMMANDS,
+  PROVENANCE_FILENAME,
+  PLUGIN_NAME,
+  REQUIRED_CLI_COMMANDS,
+  compareProvenance,
+  computeDistributionIntegrity,
+  computeFileIntegrity,
+  currentDirectoryPathEntries,
+  findPluginProvenance,
+  inspectCliProvenance,
+  inspectProvenance,
+  listPathCommands,
+  readProvenance,
+  selectPluginProvenance,
+  sameStringSet,
+  validateProvenance,
+} from "../src/distribution-provenance.mjs";
+import { ensureCanonicalDirectory } from "../src/path-safety.mjs";
+
+const execFileAsync = promisify(execFile);
+
+function invalidateInspection(inspection, detail) {
+  if (!inspection) return;
+  inspection.provenance = null;
+  if (!["ambiguous", "missing"].includes(inspection.installed)) {
+    inspection.installed = "invalid";
+  }
+  inspection.error = inspection.error ? `${inspection.error}; ${detail}` : detail;
+}
+
+function printUsage() {
+  process.stdout.write(`Usage:
+  fraktik-verify-distribution [--home PATH] [--codex-home PATH] [--install-root PATH] [--codex PATH]
+
+Compares this distribution's provenance with the fraktik command on PATH,
+the user-wide manage-fraktik-tasks skill, and the cached fraktik plugin.
+The check is read-only and never executes the PATH-resolved fraktik command.
+Pass --codex with an explicitly trusted Codex executable to also verify the
+active plugin registry; install-state.json never authorizes code execution.
+CODEX_HOME defaults to ~/.codex.
+`);
+}
+
+function formatResult(result) {
+  const status = result.coherent ? "OK" : "MISMATCH";
+  const detail = result.detail ? ` detail=${result.detail}` : "";
+  return `${status} ${result.surface}: expected=${result.expected} installed=${result.installed} path=${result.path}${detail}\n`;
+}
+
+function assertPathWithin(path, root, label) {
+  const pathRelative = relative(resolve(root), resolve(path));
+  if (
+    pathRelative === "" ||
+    pathRelative.startsWith("..") ||
+    isAbsolute(pathRelative)
+  ) {
+    throw new Error(`${label} is outside its managed root: ${path}`);
+  }
+}
+
+function assertCanonicalDirectory(path, label) {
+  return ensureCanonicalDirectory(path, label, { create: false });
+}
+
+function safeInspectionPath(pathValue = "") {
+  const entries = pathValue.split(delimiter);
+  const unsafeEntries = currentDirectoryPathEntries(pathValue);
+  return {
+    pathValue: entries.filter((entry) => entry && isAbsolute(entry)).join(delimiter),
+    error:
+      unsafeEntries.length > 0
+        ? "PATH contains a relative or empty current-directory component; unsafe entries were excluded from verification"
+        : null,
+  };
+}
+
+async function validateInstallationPaths(installation, { codexHome, installRoot }) {
+  const selector = installation.plugin.selector;
+  const selectorSeparator = selector.lastIndexOf("@");
+  const pluginName = selectorSeparator > 0
+    ? selector.slice(0, selectorSeparator)
+    : "";
+  const marketplaceName = selectorSeparator > 0
+    ? selector.slice(selectorSeparator + 1)
+    : "";
+  if (
+    resolve(installation.installRoot ?? "") !== installRoot ||
+    resolve(installation.skillPath ?? "") !==
+      join(codexHome, "skills", "manage-fraktik-tasks") ||
+    !isAbsolute(installation.plugin?.sourcePath ?? "") ||
+    selectorSeparator <= 0 ||
+    selectorSeparator === selector.length - 1 ||
+    pluginName !== PLUGIN_NAME ||
+    !/^[A-Za-z0-9._-]+$/.test(marketplaceName)
+  ) {
+    throw new Error(`invalid managed paths in ${join(installRoot, INSTALL_STATE_FILENAME)}`);
+  }
+  const releasesRoot = join(installRoot, "releases");
+  const cacheRoot = join(
+    codexHome,
+    "plugins",
+    "cache",
+    marketplaceName,
+    PLUGIN_NAME,
+  );
+  assertPathWithin(installation.releasePath, releasesRoot, "recorded release");
+  assertPathWithin(
+    installation.plugin.installedPath,
+    cacheRoot,
+    "recorded plugin cache",
+  );
+  await Promise.all([
+    assertCanonicalDirectory(codexHome, "CODEX_HOME"),
+    assertCanonicalDirectory(installRoot, "distribution install root"),
+    assertCanonicalDirectory(installation.releasePath, "recorded release"),
+    assertCanonicalDirectory(installation.binDir, "managed bin directory"),
+    assertCanonicalDirectory(installation.skillPath, "user-wide skill"),
+    assertCanonicalDirectory(
+      installation.plugin.installedPath,
+      "recorded plugin cache",
+    ),
+  ]);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes("-h") || args.includes("--help")) {
+    printUsage();
+    return;
+  }
+  const options = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (
+      !["--home", "--codex-home", "--install-root", "--codex"].includes(
+        argument,
+      )
+    ) {
+      throw new Error(`unknown option: ${argument}`);
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value`);
+    const key =
+      argument === "--home"
+        ? "home"
+        : argument === "--codex-home"
+          ? "codexHome"
+          : argument === "--install-root"
+            ? "installRoot"
+            : "codexCommand";
+    options[key] = value;
+    index += 1;
+  }
+
+  const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+  const expectedPath = join(packageRoot, PROVENANCE_FILENAME);
+  const bundledExpected = await readProvenance(expectedPath);
+  if (!bundledExpected) throw new Error(`expected provenance is missing at ${expectedPath}`);
+
+  const home = resolve(options.home ?? homedir());
+  const codexHome = resolve(
+    options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex"),
+  );
+  const installRoot = resolve(
+    options.installRoot ??
+      process.env.FRAKTIK_INSTALL_ROOT ??
+      join(codexHome, "distributions", PLUGIN_NAME),
+  );
+  let installation = null;
+  let installationError = null;
+  try {
+    installation = JSON.parse(
+      await readFile(join(installRoot, INSTALL_STATE_FILENAME), "utf8"),
+    );
+    if (
+      installation?.schemaVersion !== 1 ||
+      installation?.distribution !== DISTRIBUTION_NAME ||
+      !isAbsolute(installation?.installRoot ?? "") ||
+      !isAbsolute(installation?.releasePath ?? "") ||
+      !isAbsolute(installation?.binDir ?? "") ||
+      !isAbsolute(installation?.skillPath ?? "") ||
+      !isAbsolute(installation?.plugin?.installedPath ?? "") ||
+      typeof installation?.plugin?.selector !== "string" ||
+      resolve(installation?.codexHome ?? "") !== codexHome ||
+      !isAbsolute(installation?.codexCommand ?? "")
+    ) {
+      throw new Error(`invalid install state at ${join(installRoot, INSTALL_STATE_FILENAME)}`);
+    }
+    validateProvenance(
+      installation.provenance,
+      join(installRoot, INSTALL_STATE_FILENAME),
+    );
+    await validateInstallationPaths(installation, { codexHome, installRoot });
+  } catch (error) {
+    if (error.code !== "ENOENT") installationError = error;
+    installation = null;
+  }
+  const bundledRoot = await realpath(packageRoot);
+  const installedRoot = installation
+    ? await realpath(installation.releasePath).catch(() => null)
+    : null;
+  const expected =
+    installedRoot === bundledRoot ? installation.provenance : bundledExpected;
+  const inspectionPath = safeInspectionPath(process.env.PATH);
+  const cliCandidates = await listPathCommands(
+    "fraktik",
+    inspectionPath.pathValue,
+  );
+  const cliPath = cliCandidates[0]?.path ?? null;
+  const skillProvenancePath = join(
+    codexHome,
+    "skills",
+    "manage-fraktik-tasks",
+    PROVENANCE_FILENAME,
+  );
+  const [inspectedCli, skillProvenance, pluginProvenances] = await Promise.all([
+    inspectCliProvenance(cliPath),
+    inspectProvenance(skillProvenancePath),
+    findPluginProvenance(codexHome),
+  ]);
+  const cliProvenance =
+    inspectedCli ??
+    (inspectionPath.error
+      ? {
+          path: cliPath ?? "not found on safe PATH",
+          provenance: null,
+          installed: "invalid",
+          error: null,
+        }
+      : null);
+  const cacheSelection = selectPluginProvenance(pluginProvenances);
+  const plugin =
+    cacheSelection?.installed === "ambiguous"
+      ? cacheSelection
+      : installation?.plugin?.installedPath
+        ? await inspectProvenance(
+            join(installation.plugin.installedPath, PROVENANCE_FILENAME),
+          )
+        : cacheSelection;
+
+  if (installationError) {
+    const detail = `invalid install state: ${installationError.message}`;
+    invalidateInspection(cliProvenance, detail);
+    invalidateInspection(skillProvenance, detail);
+    invalidateInspection(plugin, detail);
+  }
+  if (inspectionPath.error) {
+    invalidateInspection(cliProvenance, inspectionPath.error);
+  }
+
+  if (!installation) {
+    if (cliProvenance?.realPath) {
+      const commandChecks = await Promise.all(
+        MANAGED_CLI_COMMANDS.map(async (command) => {
+          const [candidates, expectedCliIntegrity] = await Promise.all([
+            listPathCommands(command, inspectionPath.pathValue),
+            computeFileIntegrity(join(packageRoot, "bin", command)),
+          ]);
+          const candidate = candidates[0] ?? null;
+          const actualCliIntegrity = candidate
+            ? await computeFileIntegrity(candidate.realPath).catch(() => null)
+            : null;
+          return { command, expectedCliIntegrity, actualCliIntegrity };
+        }),
+      );
+      for (const { command, expectedCliIntegrity, actualCliIntegrity } of commandChecks) {
+        if (actualCliIntegrity !== expectedCliIntegrity) {
+          invalidateInspection(
+            cliProvenance,
+            `${command} integrity/executability mismatch: expected ${expectedCliIntegrity} actual ${actualCliIntegrity ?? "unavailable"}`,
+          );
+        }
+      }
+      const actualCliDistributionIntegrity = await computeDistributionIntegrity(
+        cliProvenance.root,
+      ).catch(() => null);
+      if (actualCliDistributionIntegrity !== bundledExpected.integrity) {
+        invalidateInspection(
+          cliProvenance,
+          `distribution integrity mismatch: expected ${bundledExpected.integrity ?? "missing"} actual ${actualCliDistributionIntegrity ?? "unavailable"}`,
+        );
+      }
+    }
+    const actualSkillIntegrity = await computeFileIntegrity(
+      join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md"),
+    ).catch(() => null);
+    if (actualSkillIntegrity !== bundledExpected.skillIntegrity) {
+      invalidateInspection(
+        skillProvenance,
+        `skill integrity mismatch: expected ${bundledExpected.skillIntegrity ?? "missing"} actual ${actualSkillIntegrity ?? "unavailable"}`,
+      );
+    }
+    if (plugin && plugin.installed !== "ambiguous") {
+      const actualPluginIntegrity = await computeDistributionIntegrity(
+        dirname(plugin.path),
+      ).catch(() => null);
+      if (actualPluginIntegrity !== bundledExpected.integrity) {
+        invalidateInspection(
+          plugin,
+          `cached plugin integrity mismatch: expected ${bundledExpected.integrity ?? "missing"} actual ${actualPluginIntegrity ?? "unavailable"}`,
+        );
+      }
+    }
+  }
+
+  if (installation?.releasePath) {
+    const installedExpected = installation.provenance;
+    if (installation.plugin.cacheRepair) {
+      invalidateInspection(
+        plugin,
+        `plugin cache repair is ${installation.plugin.cacheRepair.status ?? "incomplete"}: ${installation.plugin.cacheRepair.reason ?? "reason unavailable"}`,
+      );
+    }
+    if (
+      !sameStringSet(
+        installedExpected.requiredCliCommands,
+        REQUIRED_CLI_COMMANDS,
+      )
+    ) {
+      const detail = "installed provenance does not declare the required CLI command surface";
+      invalidateInspection(cliProvenance, detail);
+    }
+    const actualIntegrity = await computeDistributionIntegrity(
+      installation.releasePath,
+    ).catch(() => null);
+    if (actualIntegrity !== installedExpected.integrity) {
+      invalidateInspection(
+        cliProvenance,
+        `release integrity mismatch: expected ${installedExpected.integrity} actual ${actualIntegrity ?? "unavailable"}`,
+      );
+    }
+    const expectedCliPath = await realpath(
+      join(installation.releasePath, "bin", "fraktik"),
+    ).catch(() => null);
+    if (cliProvenance?.realPath !== expectedCliPath) {
+      invalidateInspection(
+        cliProvenance,
+        `active CLI is not the recorded release executable ${expectedCliPath ?? "unavailable"}`,
+      );
+    }
+    const commandChecks = await Promise.all(
+      MANAGED_CLI_COMMANDS.map(async (command) => {
+        const [candidates, expectedCommand] = await Promise.all([
+          listPathCommands(command, inspectionPath.pathValue),
+          realpath(join(installation.releasePath, "bin", command)).catch(
+            () => null,
+          ),
+        ]);
+        return { command, candidate: candidates[0] ?? null, expectedCommand };
+      }),
+    );
+    for (const { command, candidate, expectedCommand } of commandChecks) {
+      if (
+        !candidate ||
+        candidate.realPath !== expectedCommand ||
+        dirname(candidate.path) !== resolve(installation.binDir)
+      ) {
+        invalidateInspection(
+          cliProvenance,
+          `${command} is not executable from the recorded managed release`,
+        );
+      }
+    }
+    const actualSkillIntegrity = await computeFileIntegrity(
+      join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md"),
+    ).catch(() => null);
+    if (actualSkillIntegrity !== installedExpected.skillIntegrity) {
+      invalidateInspection(
+        skillProvenance,
+        `skill integrity mismatch: expected ${installedExpected.skillIntegrity} actual ${actualSkillIntegrity ?? "unavailable"}`,
+      );
+    }
+    const actualPluginIntegrity = await computeDistributionIntegrity(
+      installation.plugin.installedPath,
+    ).catch(() => null);
+    if (actualPluginIntegrity !== installedExpected.integrity) {
+      invalidateInspection(
+        plugin,
+        `cached plugin integrity mismatch: expected ${installedExpected.integrity} actual ${actualPluginIntegrity ?? "unavailable"}`,
+      );
+    }
+    if (options.codexCommand) {
+      try {
+        const trustedCodex = await realpath(resolve(options.codexCommand));
+        const recordedCodex = await realpath(installation.codexCommand).catch(
+          () => null,
+        );
+        if (recordedCodex !== trustedCodex) {
+          invalidateInspection(
+            plugin,
+            "recorded Codex command does not match the explicitly trusted --codex executable",
+          );
+        } else {
+          const { stdout } = await execFileAsync(
+            trustedCodex,
+            ["plugin", "list", "--available", "--json"],
+            {
+              env: { ...process.env, CODEX_HOME: codexHome },
+              timeout: 10_000,
+              maxBuffer: 1024 * 1024,
+            },
+          );
+          const listing = JSON.parse(stdout);
+          const matches = (
+            Array.isArray(listing.installed) ? listing.installed : []
+          ).filter((entry) => entry.pluginId === installation.plugin.selector);
+          if (
+            matches.length !== 1 ||
+            matches[0].enabled === false ||
+            matches[0].version !== installedExpected.revision
+          ) {
+            invalidateInspection(
+              plugin,
+              `plugin is not installed and enabled at ${installedExpected.revision}`,
+            );
+          }
+        }
+      } catch (error) {
+        invalidateInspection(
+          plugin,
+          `could not verify active plugin state with --codex ${options.codexCommand}: ${error.message}`,
+        );
+      }
+    }
+  }
+
+  if (installation && !options.codexCommand) {
+    process.stdout.write(
+      "SKIP active plugin registry: pass --codex with an explicitly trusted executable\n",
+    );
+  }
+
+  const results = [];
+  results.push(
+    compareProvenance(
+      "PATH CLI",
+      expected,
+      cliProvenance,
+      cliPath ?? "not found on PATH",
+    ),
+  );
+  results.push(
+    compareProvenance(
+      "user-wide skill",
+      expected,
+      skillProvenance,
+    ),
+  );
+  results.push(
+    compareProvenance(
+      "cached plugin",
+      expected,
+      plugin,
+      installation?.plugin?.installedPath ??
+        (plugin
+          ? plugin.path
+          : join(
+              codexHome,
+              "plugins",
+              "cache",
+              "*",
+              PLUGIN_NAME,
+              "*",
+              PROVENANCE_FILENAME,
+            )),
+    ),
+  );
+
+  for (const result of results) {
+    const stream = result.coherent ? process.stdout : process.stderr;
+    stream.write(formatResult(result));
+  }
+  if (cliCandidates.length > 1) {
+    process.stdout.write(
+      `PATH candidates: ${cliCandidates.map(({ path }) => path).join(", ")}\n`,
+    );
+  }
+  if (results.some(({ coherent }) => !coherent)) {
+    process.stderr.write(
+      "Reinstall the CLI, user-wide skill, and cached plugin from the same distribution revision, then rerun this command.\n",
+    );
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`fraktik-verify-distribution: ${error.message}\n`);
+  process.exitCode = 1;
+});

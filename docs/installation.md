@@ -1,0 +1,134 @@
+# Installation and Distribution Trust
+
+This document records the complete trust, recovery, and verification model for
+Fraktik's transactional installer, the read-only `fraktik doctor`
+diagnostic, and the distribution verifier. For the short install path, see
+[Install From Source](../README.md#install-from-source) in the README.
+
+## The unified installer
+
+The unified installer copies one immutable release under `CODEX_HOME` and
+updates the CLI launchers, user-wide task-management skill,
+configured `fraktik@personal` plugin source, and Codex plugin cache
+from that release. It uses a lock, transaction journal, and backups so an
+interrupted install is recovered on the next run and a failed install restores
+the previous surfaces. Its lock combines process identity with a heartbeat so
+PID reuse and platforms without Linux `/proc` metadata cannot strand the
+installation permanently. When the host exposes no strong process-start
+identity, the 30-second heartbeat lease is the conservative fallback. Existing
+managed private directories are normalized to mode `0700`; the launcher
+directory is normalized to `0755`. The personal plugin is resolved from one
+absolute local marketplace path. On a clean home, the same command safely
+creates the exact personal marketplace entry and managed plugin source;
+rerunning it is idempotent. Existing foreign marketplace content is never
+merged or replaced.
+
+## Foreign files and forced installs
+
+Unknown executables that shadow the managed bin directory are never replaced.
+Existing foreign files at the managed launcher or skill destinations also stop
+the install; inspect them before explicitly using
+`npm run install:distribution -- --force`. The force option does not override
+an earlier PATH shadow. The installer owns
+`~/plugins/fraktik` by default and refuses to replace another local
+plugin source or a Git checkout. To deliberately adopt a different configured
+source, pass its exact path with `--plugin-source PATH`.
+An explicitly opted-in Git checkout is fingerprinted in full, including its
+`.git` metadata and hooks, across staging, activation, and rollback.
+
+## Execution trust boundaries
+
+The Codex CLI and managed launchers are execution trust boundaries. Installation
+filters relative and empty `PATH` components from its private environment and
+reports when it does so, so current-directory content cannot enter command
+discovery or final verification. Only absolute entries are used. Use
+`--codex PATH` to select a specific trusted Codex executable. Fix the shell's
+original `PATH` separately before running the doctor or verifier, which continue
+to report unsafe host `PATH` entries.
+
+## Transactional path ownership
+
+For transactional path ownership, the installer requires `HOME`, `CODEX_HOME`,
+the install root, managed bin directory, skill root, and plugin-cache root to
+have no symlinked path components. It validates existing parents before it
+creates anything, so a rejected path cannot redirect creation outside the
+declared roots. Use canonical paths for custom or isolated installations.
+
+## Host refresh ordering
+
+When the app-server control socket is reachable, the installer also
+uses the app-server's plugin install API and checks that the running process
+sees the expected local plugin version. The immutable
+on-disk transaction commits before this host refresh. That ordering is
+intentional: if a side-effecting app-server request times out and completes
+late, it can only reinstall the already committed release instead of racing a
+rollback. If a host refresh corrupts the committed plugin cache, the installer
+records the post-commit repair state before invoking Codex; an interrupted or
+failed repair is visible to the verifier and a subsequent install repairs it.
+If no app-server is running, installation still succeeds safely but
+reports `restart-required`; start or restart Codex before creating a fresh
+task. `--socket PATH` and `--marketplace PATH` select non-default app-server and
+local-marketplace locations.
+
+## The read-only doctor
+
+`fraktik doctor` is a strictly read-only JSON diagnostic. It fails closed
+when PATH cannot select one trusted canonical Codex executable and reports
+distribution coherence, personal-marketplace bootstrap state, host endpoint
+availability, and exact restart/fresh-task actions. It never executes a PATH
+candidate or prints environment values, endpoint credentials, prompts, or
+transcripts. Host endpoint injection remains proposed; current source use needs
+a compatible Codex CLI and a reachable app server or developer launcher.
+
+## Skill discovery and fresh tasks
+
+Codex discovers plugin skills when a task starts. Start a fresh task after
+installation before validating agent-visible behavior. A `registry-refreshed`
+result confirms the running host's plugin metadata, but a fresh-task smoke test
+remains the authoritative check for the task-management skill. A running
+Desktop session can retain a pre-upgrade cached skill locator even after plugin
+metadata refresh. If a fresh task says that its advertised
+versioned skill path is unavailable after a cache-busted update, restart Codex
+once and retry the fresh task; do not recreate or alias the obsolete cache
+directory.
+
+## Distribution provenance and the verifier
+
+Every distributed surface carries the same `distribution-provenance.json`
+record. Compare the candidate package with the CLI on `PATH`, user-wide skill,
+and cached plugin without changing any installation state:
+
+```bash
+fraktik-verify-distribution
+```
+
+The verifier never executes an untrusted `fraktik` found on `PATH`. It rejects
+relative or empty current-directory `PATH` components and excludes them from
+inspection, so cwd content cannot influence the trust report. It reads sidecar
+provenance, uses the installer's exact cached-plugin record when one is
+available, verifies immutable-release integrity when run from the installed
+release, and exits non-zero when a record is missing, ambiguous, invalid, or
+stale. Source distributions also carry their expected distribution and skill
+digests, so verification without install state hashes the complete PATH CLI and
+cached-plugin roots plus the installed skill instead of trusting version labels
+alone. It also never executes the `codexCommand` recorded in mutable install
+state. Pass `--codex PATH` to opt into the active-plugin registry check with an
+executable you explicitly trust; without it, that check is visibly reported as
+`SKIP`. Recorded release, skill, bin, and plugin-cache paths are revalidated for
+confinement and symlink-free ancestry before their contents are inspected. Set
+`CODEX_HOME` to check an isolated installation. The `revision` is
+the opaque release/build revision and must be updated once for all surfaces
+when producing a new distribution.
+
+## The skill-only development escape hatch
+
+`npm run install:skill` remains available only as a development escape hatch.
+It intentionally updates just the user-wide skill, so using it independently
+can make the distribution verifier report drift. It applies the same
+no-symlink ancestry rule to `CODEX_HOME` and the skill root, records the skill
+content digest, and recovers an interrupted directory replacement using the
+crashed transaction's recorded intent. A process-identity lease with a heartbeat
+prevents recovery from reclaiming a live long-running install. Because this
+standalone path has no external trust anchor for older provenance, any existing
+content drift—even a self-consistent older managed copy—requires `--force`, which
+replaces the whole skill directory including extra files.
