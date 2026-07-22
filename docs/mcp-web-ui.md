@@ -1,11 +1,23 @@
 # Future Host Integration
 
-Status: not implemented; no MCP server is shipped in the installed plugin.
+Status: not implemented; no live-state integration is shipped in the
+installed plugin.
 
 Fraktik's current product surface is the queen skill, the offline planner
 and router, the native Codex task lifecycle, and locally synchronized web
 topology. A visual dashboard would otherwise promise live Desktop state that
 the plugin cannot safely read on ordinary installations.
+
+## Scope: live host state, not tool transport
+
+This gate governs anything that reads **live host state** — Desktop threads,
+turns, or lifecycle — from the installed plugin. It does not govern MCP as a
+transport. The plugin ships a bundled MCP server whose tools are strictly
+socket-free (the offline planner, router, and bounded local
+runtime-intelligence verification); that surface is specified in
+[Socket-free MCP tool surface](mcp-tool-surface.md) and reads no live host
+state. Any tool that would contact an app server belongs to this gate, not to
+that surface.
 
 ## Host Capability Required
 
@@ -41,4 +53,7 @@ demonstrated on a fresh Desktop task:
    shutdown.
 
 The earlier prototype was intentionally removed from the source tree as well
-as the distributed plugin. Git history retains it for future reference.
+as the distributed plugin. Git history retains it for future reference. The
+later socket-free tool surface is not a reintroduction of that prototype: it
+exposes no live host state and passes none of the above gates, because it
+needs none of them.

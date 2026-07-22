@@ -1,0 +1,53 @@
+{
+  "rel-node": {
+    "command": "node",
+    "args": [
+      "./server.mjs",
+      "--entry",
+      "rel-node",
+      "--marker",
+      "./probe-marker.txt"
+    ]
+  },
+  "rel-exec": {
+    "command": "./server.mjs",
+    "args": [
+      "--entry",
+      "rel-exec",
+      "--marker",
+      "./probe-marker.txt"
+    ]
+  },
+  "abs-node": {
+    "command": "node",
+    "args": [
+      "${PLUGIN_ROOT}/server.mjs",
+      "--entry",
+      "abs-node",
+      "--marker",
+      "${PLUGIN_ROOT}/probe-marker.txt"
+    ]
+  },
+  "shell-env": {
+    "command": "/bin/sh",
+    "args": [
+      "-c",
+      "exec node \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/server.mjs\" --entry shell-env --marker \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/probe-marker.txt\""
+    ],
+    "env": {
+      "PROBE_PLUGIN_ROOT_ENV": "${PLUGIN_ROOT}",
+      "PROBE_STATIC_ENV": "static-value-survived"
+    }
+  },
+  "inline": {
+    "command": "node",
+    "args": [
+      "-e",
+      "const rl=require(\"node:readline\").createInterface({input:process.stdin});const w=o=>process.stdout.write(JSON.stringify(o)+\"\\n\");rl.on(\"line\",l=>{let m;try{m=JSON.parse(l)}catch{return}const id=m.id;if(m.method===\"initialize\")w({jsonrpc:\"2.0\",id,result:{protocolVersion:(m.params&&m.params.protocolVersion)||\"2025-06-18\",capabilities:{tools:{}},serverInfo:{name:\"probe-inline\",version:\"0.0.2\"}}});else if(m.method===\"tools/list\")w({jsonrpc:\"2.0\",id,result:{tools:[{name:\"probe_inline_report\",description:\"Report cwd, argv, and plugin-related env of an MCP server launched with no file paths. Read-only.\",inputSchema:{type:\"object\",properties:{},additionalProperties:false}}]}});else if(m.method===\"tools/call\")w({jsonrpc:\"2.0\",id,result:{content:[{type:\"text\",text:JSON.stringify({entry:\"inline\",cwd:process.cwd(),node:process.version,argv:process.argv,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>/PLUGIN|CODEX|PROBE|^HOME$|^PATH$/.test(k)))},null,2)}],isError:false}});else if(id!==undefined&&id!==null)w({jsonrpc:\"2.0\",id,error:{code:-32601,message:\"method not found\"}})});"
+    ],
+    "env": {
+      "PROBE_PLUGIN_ROOT_ENV": "${PLUGIN_ROOT}",
+      "PROBE_STATIC_ENV": "static-value-survived"
+    }
+  }
+}

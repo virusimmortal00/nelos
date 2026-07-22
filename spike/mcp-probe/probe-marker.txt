@@ -1,0 +1,2 @@
+If the probe can read this file via its --marker argument, ${PLUGIN_ROOT}
+expansion in .mcp.json args works and points at the installed plugin cache.

@@ -181,17 +181,22 @@ test("the provenance revision stays aligned with package and plugin releases", a
   );
 });
 
-test("the distributed plugin excludes dormant MCP runtime surfaces", async () => {
+test("the distributed plugin ships the active MCP tool surface and nothing dormant", async () => {
   const packageMetadata = JSON.parse(await readFile(packagePath, "utf8"));
-  assert.ok(!DISTRIBUTION_ENTRIES.includes(".mcp.json"));
+  // The socket-free tool surface (docs/mcp-tool-surface.md) is an active,
+  // provenance-covered distribution entry. The retired live-state prototype's
+  // built runtime surfaces stay excluded, and the server remains
+  // dependency-free by design.
+  assert.ok(DISTRIBUTION_ENTRIES.includes(".mcp.json"));
+  assert.ok(packageMetadata.files.includes(".mcp.json"));
   assert.ok(!DISTRIBUTION_ENTRIES.includes("dist"));
   assert.ok(!DISTRIBUTION_ENTRIES.includes("ui"));
-  assert.ok(!packageMetadata.files.includes(".mcp.json"));
   assert.ok(!packageMetadata.files.includes("dist/"));
   assert.ok(!packageMetadata.files.includes("ui/"));
   assert.equal(packageMetadata.scripts["build:mcp"], undefined);
   assert.equal(packageMetadata.scripts["verify:packed"], undefined);
   assert.equal(packageMetadata.dependencies["@modelcontextprotocol/sdk"], undefined);
+  assert.deepEqual(packageMetadata.dependencies ?? {}, {});
 });
 
 test("read-only verification detects a tampered PATH command without executing it", async () => {

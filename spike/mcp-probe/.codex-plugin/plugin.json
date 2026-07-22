@@ -1,0 +1,16 @@
+{
+  "name": "fraktik-mcp-probe",
+  "version": "0.0.2",
+  "description": "Throwaway spike: observe how Codex launches plugin-bundled MCP servers.",
+  "author": {
+    "name": "Fraktik Maintainers",
+    "url": "https://github.com/virusimmortal00"
+  },
+  "license": "MIT",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Fraktik MCP Probe",
+    "shortDescription": "Packaging spike probe; uninstall after testing",
+    "category": "Developer Tools"
+  }
+}
