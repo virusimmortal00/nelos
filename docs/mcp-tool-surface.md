@@ -49,8 +49,8 @@ rounds; repro and findings preserved with the draft upstream issue):
   paths resolve from the plugin root.
 - Bundled servers are **disabled by default**. Enabling requires a
   `~/.codex/config.toml` block keyed by plugin *and* marketplace:
-  `[plugins."nelos@nelos".mcp_servers."<server>"] enabled = true`. The
-  bare plugin key documented upstream is rejected.
+  `[plugins."nelos@nelos-marketplace".mcp_servers."<server>"] enabled = true`.
+  The bare plugin key documented upstream is rejected.
 - `${PLUGIN_ROOT}` is **not substituted anywhere** in `.mcp.json` (`command`,
   `args`, or `env` values pass through literally), and the server process
   receives no `PLUGIN_ROOT`/`PLUGIN_DATA`/`CLAUDE_PLUGIN_ROOT`/

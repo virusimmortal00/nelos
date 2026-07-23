@@ -3097,7 +3097,7 @@ test("missing rollouts and unavailable app-server tasks leave local archive reco
   }
 });
 
-test("archive --detach hides migrated local records with an audit trail and can restore them", async () => {
+test("archive --detach hides unavailable local records with an audit trail and can restore them", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-archive-detach-"));
   const stateHome = join(root, "state");
   const taskDirectory = join(stateHome, "nelos", "tasks");
@@ -3105,18 +3105,18 @@ test("archive --detach hides migrated local records with an audit trail and can 
   await mkdir(taskDirectory, { recursive: true });
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
-    join(taskDirectory, "migrated-member.json"),
+    join(taskDirectory, "unavailable-member.json"),
     JSON.stringify({
-      threadId: "migrated-member",
-      title: "🕸️ A1 · Migrated Member",
+      threadId: "unavailable-member",
+      title: "🕸️ A1 · Unavailable Member",
       web: { queenThreadId: "historical-queen", inboundWebId: "A1" },
     }),
   );
   await writeFile(
-    join(webDirectory, "migrated-member.json"),
+    join(webDirectory, "unavailable-member.json"),
     JSON.stringify({
-      threadId: "migrated-member",
-      baseTitle: "Migrated Member",
+      threadId: "unavailable-member",
+      baseTitle: "Unavailable Member",
       inboundWebId: "A1",
       outboundWebId: "A2",
       queenThreadId: "historical-queen",
@@ -3127,7 +3127,7 @@ test("archive --detach hides migrated local records with an audit trail and can 
   try {
     const detached = await runAsync(
       cli,
-      ["archive", "migrated-member", "--detach"],
+      ["archive", "unavailable-member", "--detach"],
       {
         XDG_STATE_HOME: stateHome,
         CODEX_HOME: join(root, "codex-home-without-a-socket"),
@@ -3141,10 +3141,10 @@ test("archive --detach hides migrated local records with an audit trail and can 
     assert.equal(detachOutput.serverArchiveState, "not-attempted");
 
     const detachedTask = JSON.parse(
-      await readFile(join(taskDirectory, "migrated-member.json"), "utf8"),
+      await readFile(join(taskDirectory, "unavailable-member.json"), "utf8"),
     );
     const detachedWeb = JSON.parse(
-      await readFile(join(webDirectory, "migrated-member.json"), "utf8"),
+      await readFile(join(webDirectory, "unavailable-member.json"), "utf8"),
     );
     assert.equal(detachedTask.archivedAt, detachedWeb.archivedAt);
     assert.equal(detachedTask.web.queenThreadId, "historical-queen");
@@ -3160,7 +3160,7 @@ test("archive --detach hides migrated local records with an audit trail and can 
 
     const restored = await runAsync(
       cli,
-      ["archive", "migrated-member", "--restore-detached"],
+      ["archive", "unavailable-member", "--restore-detached"],
       {
         XDG_STATE_HOME: stateHome,
         CODEX_HOME: join(root, "codex-home-without-a-socket"),
@@ -3173,10 +3173,10 @@ test("archive --detach hides migrated local records with an audit trail and can 
     assert.equal(restoreOutput.serverArchiveState, "not-attempted");
 
     const restoredTask = JSON.parse(
-      await readFile(join(taskDirectory, "migrated-member.json"), "utf8"),
+      await readFile(join(taskDirectory, "unavailable-member.json"), "utf8"),
     );
     const restoredWeb = JSON.parse(
-      await readFile(join(webDirectory, "migrated-member.json"), "utf8"),
+      await readFile(join(webDirectory, "unavailable-member.json"), "utf8"),
     );
     assert.equal(restoredTask.archivedAt, null);
     assert.equal(restoredWeb.archivedAt, null);

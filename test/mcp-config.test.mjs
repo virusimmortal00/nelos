@@ -143,3 +143,39 @@ test("the bootstrap fails closed with an actionable diagnostic", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("the bootstrap rejects duplicate cached plugin identities", async () => {
+  const home = await bootstrapFixture();
+  const first = join(
+    home,
+    ".codex",
+    "plugins",
+    "cache",
+    "a-marketplace",
+    "nelos",
+    pluginMetadata.version,
+  );
+  const duplicate = join(
+    home,
+    ".codex",
+    "plugins",
+    "cache",
+    "nelos-marketplace",
+    "nelos",
+    pluginMetadata.version,
+  );
+  try {
+    await mkdir(duplicate, { recursive: true });
+    await cp(join(first, "src"), join(duplicate, "src"), { recursive: true });
+    const { code, stderr } = await runBootstrap({
+      home,
+      version: pluginMetadata.version,
+      requests: [],
+    });
+    assert.equal(code, 1);
+    assert.match(stderr, /multiple cached nelos .* plugins found/);
+    assert.match(stderr, /keep exactly one installed nelos plugin copy/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

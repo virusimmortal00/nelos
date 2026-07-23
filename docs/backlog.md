@@ -28,7 +28,7 @@ Delivery slices:
   marketplace install of 0.2.0);
 - [x] generate `.mcp.json` with the baked release version and inline
   bootstrap; verify freshness and version consistency in tests;
-- [x] migrate the skill's two CLI invocations to the named tools, keeping the
+- [x] move the skill's two CLI invocations to the named tools, keeping the
   one-desktop-path protocol unchanged, and assert in compliance tests that the
   installed skill references no shell `nelos` commands;
 - [x] update install documentation with the required `config.toml` enablement
@@ -98,7 +98,7 @@ raw error content.
 Delivery slices:
 
 - benchmark live lookup latency and call counts for representative web sizes;
-- define the versioned SQLite schema, migrations, repository identity, WAL
+- define the versioned SQLite schema, schema updates, repository identity, WAL
   concurrency policy, retention rules, and current-state/event contracts;
 - dual-write lifecycle observations while preserving the existing registry
   and live-status behavior;
@@ -109,7 +109,7 @@ Delivery slices:
 
 Acceptance criteria: cached reads never silently override newer live state;
 stale writers cannot regress a task revision; crashes degrade to
-`stale`/`unknown`; isolated concurrent-writer and migration tests pass; and
+`stale`/`unknown`; isolated concurrent-writer and schema-update tests pass; and
 measured lookup results establish the performance improvement before the cache
 becomes the default read path. Begin this only after durable result handoff and
 crash-safe action receipts are proven.
