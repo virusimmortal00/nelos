@@ -7,7 +7,7 @@ import test from "node:test";
 import { verifyRuntimeIntelligenceV1 } from "../src/runtime-intelligence-verification.mjs";
 
 async function fixture(events) {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-route-verification-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-route-verification-"));
   const directory = join(root, "2026", "07", "21");
   await mkdir(directory, { recursive: true });
   const path = join(

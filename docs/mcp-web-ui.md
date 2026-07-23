@@ -3,7 +3,7 @@
 Status: not implemented; no live-state integration is shipped in the
 installed plugin.
 
-Fraktik's current product surface is the queen skill, the offline planner
+Nelos's current product surface is the queen skill, the offline planner
 and router, the native Codex task lifecycle, and locally synchronized web
 topology. A visual dashboard would otherwise promise live Desktop state that
 the plugin cannot safely read on ordinary installations.

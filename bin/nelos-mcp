@@ -2,7 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import { startFraktikMcpServer } from "../src/mcp-server.mjs";
+import { startNelosMcpServer } from "../src/mcp-server.mjs";
 
 // Development and test entry for the bundled MCP server. Installed plugins
 // launch the same module through the generated .mcp.json bootstrap; see
@@ -18,4 +18,4 @@ try {
   // A missing package manifest only affects the reported version.
 }
 
-startFraktikMcpServer({ serverVersion });
+startNelosMcpServer({ serverVersion });

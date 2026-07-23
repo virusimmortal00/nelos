@@ -18,11 +18,11 @@ import {
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
 
 test("pre-queen records retain lineage and rewrite to the current schema", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-state-migration-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-state-migration-"));
   const previousStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = root;
-  const taskDirectory = join(root, "fraktik", "tasks");
-  const webDirectory = join(root, "fraktik", "webs");
+  const taskDirectory = join(root, "nelos", "tasks");
+  const webDirectory = join(root, "nelos", "webs");
   const relationship = { [PRE_QUEEN_THREAD_ID_FIELD]: "queen-thread" };
 
   try {
@@ -77,7 +77,7 @@ test("pre-queen records retain lineage and rewrite to the current schema", async
 });
 
 test("repository provisioning locks accept only opaque repository identities", async (t) => {
-  const stateHome = await mkdtemp(join(tmpdir(), "fraktik-repository-lock-"));
+  const stateHome = await mkdtemp(join(tmpdir(), "nelos-repository-lock-"));
   const previousStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = stateHome;
   try {
@@ -109,7 +109,7 @@ test("state locks recover when a live PID belongs to a replacement process", asy
     return;
   }
 
-  const stateHome = await mkdtemp(join(tmpdir(), "fraktik-state-pid-reuse-"));
+  const stateHome = await mkdtemp(join(tmpdir(), "nelos-state-pid-reuse-"));
   const previousStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = stateHome;
   const threadId = "pid-reuse-fixture";

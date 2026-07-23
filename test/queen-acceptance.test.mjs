@@ -113,7 +113,7 @@ test("completion stays distinct from queen acceptance and dependency readiness",
 });
 
 test("acceptance is durable, exact-provenance idempotent, and restart-safe", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-acceptance-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-acceptance-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const upstream = boundWorkUnit();
   const accepted = createQueenAcceptanceV1(decision({ workUnit: upstream }));

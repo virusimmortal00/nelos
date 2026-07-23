@@ -1,6 +1,6 @@
 # Product Backlog
 
-This is the canonical running backlog for Fraktik. Keep slices small
+This is the canonical running backlog for Nelos. Keep slices small
 enough to implement, validate, and review independently. Move completed slices
 to **Done**, and revise **Next** before beginning new product work.
 
@@ -12,7 +12,7 @@ work. Order future slices by their evidence and acceptance gates.
 ### Self-sufficient marketplace install (MCP tool surface)
 
 Close the packaging gap where a marketplace install ships the skill but not
-the `fraktik` executable the skill invokes. Expose the skill's only CLI
+the `nelos` executable the skill invokes. Expose the skill's only CLI
 dependencies — the offline slice planner, the intelligence router, and
 runtime-intelligence verification — as a bundled, socket-free MCP server, per
 [Socket-free MCP tool surface](mcp-tool-surface.md). Launch mechanics are
@@ -22,18 +22,18 @@ condition and a filed upstream report.
 
 Delivery slices:
 
-- [x] add the newline-framed stdio MCP server exposing `fraktik_plan_slices`,
-  `fraktik_intelligence_route`, and `fraktik_intelligence_verify`, reusing the
+- [x] add the newline-framed stdio MCP server exposing `nelos_plan_slices`,
+  `nelos_intelligence_route`, and `nelos_intelligence_verify`, reusing the
   CLI's modules with no behavioral fork (live-smoke-tested on a real
   marketplace install of 0.2.0);
 - [x] generate `.mcp.json` with the baked release version and inline
   bootstrap; verify freshness and version consistency in tests;
 - [x] migrate the skill's two CLI invocations to the named tools, keeping the
   one-desktop-path protocol unchanged, and assert in compliance tests that the
-  installed skill references no shell `fraktik` commands;
+  installed skill references no shell `nelos` commands;
 - [x] update install documentation with the required `config.toml` enablement
   block;
-- [ ] teach `fraktik doctor` and the distribution verifier to recognize the
+- [ ] teach `nelos doctor` and the distribution verifier to recognize the
   installed-but-disabled server state and point at the enablement block.
 
 Acceptance criteria: a fresh marketplace install plus the documented

@@ -10,8 +10,8 @@
 # widen it. It still inherits the parent's live model and approval policy
 # unless the user overrides those separately.
 
-name = "fraktik-reviewer-explorer"
-description = "Reviews or explores a codebase or a Fraktik web without mutating anything: code review, architecture questions, or read-only status/health checks. Use when the task is purely investigative."
+name = "nelos-reviewer-explorer"
+description = "Reviews or explores a codebase or a Nelos web without mutating anything: code review, architecture questions, or read-only status/health checks. Use when the task is purely investigative."
 nickname_candidates = ["Reviewer", "Explorer"]
 sandbox_mode = "read-only"
 developer_instructions = """

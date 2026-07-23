@@ -38,7 +38,7 @@ function workUnit(overrides = {}) {
 }
 
 test("a durable execution record reconciles from launch through settlement", async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), "fraktik-reconcile-"));
+  const directory = await mkdtemp(join(tmpdir(), "nelos-reconcile-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const store = new ExecutionStoreV1({ directory });
 

@@ -1,19 +1,19 @@
 # Installation and Distribution Trust
 
 This document records the complete trust, recovery, and verification model for
-Fraktik's transactional installer, the read-only `fraktik doctor`
+Nelos's transactional installer, the read-only `nelos doctor`
 diagnostic, and the distribution verifier. For the normal Codex installation —
 the marketplace plugin plus its bundled MCP tool surface
 ([docs/mcp-tool-surface.md](mcp-tool-surface.md)) — see
 [Install in Codex](../README.md#install-in-codex); this document covers the
 maintainer-oriented source distribution path, which installs the optional
-`fraktik` CLI that the installed plugin no longer depends on.
+`nelos` CLI that the installed plugin no longer depends on.
 
 ## The unified installer
 
 The unified installer copies one immutable release under `CODEX_HOME` and
 updates the CLI launchers, user-wide task-management skill,
-configured `fraktik@personal` plugin source, and Codex plugin cache
+configured `nelos@personal` plugin source, and Codex plugin cache
 from that release. It uses a lock, transaction journal, and backups so an
 interrupted install is recovered on the next run and a failed install restores
 the previous surfaces. Its lock combines process identity with a heartbeat so
@@ -34,7 +34,7 @@ Existing foreign files at the managed launcher or skill destinations also stop
 the install; inspect them before explicitly using
 `npm run install:distribution -- --force`. The force option does not override
 an earlier PATH shadow. The installer owns
-`~/plugins/fraktik` by default and refuses to replace another local
+`~/plugins/nelos` by default and refuses to replace another local
 plugin source or a Git checkout. To deliberately adopt a different configured
 source, pass its exact path with `--plugin-source PATH`.
 An explicitly opted-in Git checkout is fingerprinted in full, including its
@@ -76,7 +76,7 @@ local-marketplace locations.
 
 ## The read-only doctor
 
-`fraktik doctor` is a strictly read-only JSON diagnostic. It fails closed
+`nelos doctor` is a strictly read-only JSON diagnostic. It fails closed
 when PATH cannot select one trusted canonical Codex executable and reports
 distribution coherence, personal-marketplace bootstrap state, host endpoint
 availability, and exact restart/fresh-task actions. It never executes a PATH
@@ -103,10 +103,10 @@ record. Compare the candidate package with the CLI on `PATH`, user-wide skill,
 and cached plugin without changing any installation state:
 
 ```bash
-fraktik-verify-distribution
+nelos-verify-distribution
 ```
 
-The verifier never executes an untrusted `fraktik` found on `PATH`. It rejects
+The verifier never executes an untrusted `nelos` found on `PATH`. It rejects
 relative or empty current-directory `PATH` components and excludes them from
 inspection, so cwd content cannot influence the trust report. It reads sidecar
 provenance, uses the installer's exact cached-plugin record when one is

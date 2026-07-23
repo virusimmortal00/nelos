@@ -30,16 +30,16 @@ import {
   skillFingerprint,
 } from "../src/skill-installation.mjs";
 
-const TRANSACTION_FILENAME = ".manage-fraktik-tasks-install-transaction.json";
+const TRANSACTION_FILENAME = ".manage-nelos-tasks-install-transaction.json";
 const LEGACY_TRANSACTION_ACTIVE_WINDOW_MS = 5 * 60 * 1_000;
 const TRANSACTION_HEARTBEAT_INTERVAL_MS = 1_000;
 const TRANSACTION_STALE_AFTER_MS = 30_000;
 
 function printUsage() {
   process.stdout.write(`Usage:
-  fraktik-install-skill [--force]
+  nelos-install-skill [--force]
 
-Development-only escape hatch that installs the bundled manage-fraktik-tasks
+Development-only escape hatch that installs the bundled manage-nelos-tasks
 skill under CODEX_HOME without updating the CLI or plugin.
 Use --force to replace the entire existing skill directory, including extras.
 `);
@@ -82,7 +82,7 @@ function validateTransaction(transaction, target) {
     resolve(transaction?.backup ?? "") !==
       resolve(`${target}.${transaction.id}.backup`)
   ) {
-    throw new Error("invalid manage-fraktik-tasks install transaction");
+    throw new Error("invalid manage-nelos-tasks install transaction");
   }
 }
 
@@ -161,7 +161,7 @@ async function recoverReplacement(target, { ownedId = null } = {}) {
     )
   ) {
     throw new Error(
-      `another manage-fraktik-tasks skill installation is active (pid ${transaction.pid})`,
+      `another manage-nelos-tasks skill installation is active (pid ${transaction.pid})`,
     );
   }
   await ensureCanonicalDirectory(dirname(target), "skill root");
@@ -265,7 +265,7 @@ async function replaceDirectoryTransactionally(
         );
       }
     } else if (error.code === "EEXIST") {
-      throw new Error("another manage-fraktik-tasks skill installation is active");
+      throw new Error("another manage-nelos-tasks skill installation is active");
     }
     throw error;
   } finally {
@@ -287,7 +287,7 @@ async function main() {
   }
 
   const source = fileURLToPath(
-    new URL("../skills/manage-fraktik-tasks/SKILL.md", import.meta.url),
+    new URL("../skills/manage-nelos-tasks/SKILL.md", import.meta.url),
   );
   const provenanceSource = fileURLToPath(
     new URL("../distribution-provenance.json", import.meta.url),
@@ -295,7 +295,7 @@ async function main() {
   const codexHome = resolve(
     process.env.CODEX_HOME || join(homedir(), ".codex"),
   );
-  const target = join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md");
+  const target = join(codexHome, "skills", "manage-nelos-tasks", "SKILL.md");
   const targetDirectory = dirname(target);
   const skillRoot = dirname(targetDirectory);
   const sourceContents = await readFile(source, "utf8");
@@ -339,10 +339,10 @@ async function main() {
     targetDirectory,
     installedFingerprint,
   );
-  process.stdout.write(`installed manage-fraktik-tasks at ${target}\n`);
+  process.stdout.write(`installed manage-nelos-tasks at ${target}\n`);
 }
 
 main().catch((error) => {
-  process.stderr.write(`fraktik-install-skill: ${error.message}\n`);
+  process.stderr.write(`nelos-install-skill: ${error.message}\n`);
   process.exitCode = 1;
 });

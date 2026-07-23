@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const cliSource = await readFile(new URL("../bin/fraktik", import.meta.url), "utf8");
-const bash = await readFile(new URL("../completions/fraktik.bash", import.meta.url), "utf8");
-const zsh = await readFile(new URL("../completions/fraktik.zsh", import.meta.url), "utf8");
-const fish = await readFile(new URL("../completions/fraktik.fish", import.meta.url), "utf8");
+const cliSource = await readFile(new URL("../bin/nelos", import.meta.url), "utf8");
+const bash = await readFile(new URL("../completions/nelos.bash", import.meta.url), "utf8");
+const zsh = await readFile(new URL("../completions/nelos.zsh", import.meta.url), "utf8");
+const fish = await readFile(new URL("../completions/nelos.fish", import.meta.url), "utf8");
 
 function sortedSet(values) {
   return [...new Set(values)].toSorted();
@@ -13,13 +13,13 @@ function sortedSet(values) {
 
 function canonicalTopLevelCommands() {
   const match = cliSource.match(/const supported = \[([\s\S]*?)\];/);
-  assert.ok(match, "could not find fraktik's `supported` command array");
+  assert.ok(match, "could not find nelos's `supported` command array");
   return sortedSet([...match[1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]));
 }
 
 function canonicalSubcommands(name, pattern, source = cliSource) {
   const match = source.match(pattern);
-  assert.ok(match, `could not find fraktik's ${name} subcommand list`);
+  assert.ok(match, `could not find nelos's ${name} subcommand list`);
   return sortedSet([...match[0].matchAll(/['"]([a-z]+)['"]/g)].map((m) => m[1]));
 }
 
@@ -45,7 +45,7 @@ const CANONICAL = {
   ),
 };
 
-test("fraktik's own command surface has the expected shape", () => {
+test("nelos's own command surface has the expected shape", () => {
   assert.deepEqual(CANONICAL.commands, [
     "archive",
     "doctor",
@@ -69,16 +69,16 @@ test("fraktik's own command surface has the expected shape", () => {
   assert.deepEqual(CANONICAL.worktree, ["inspect", "integration", "launch", "plan", "provision"]);
 });
 
-test("bash completion's command and subcommand lists match fraktik exactly", () => {
-  const commands = sortedSet(bash.match(/_fraktik_commands="([^"]*)"/)[1].split(/\s+/));
-  const title = sortedSet(bash.match(/_fraktik_subcommands_title="([^"]*)"/)[1].split(/\s+/));
-  const web = sortedSet(bash.match(/_fraktik_subcommands_web="([^"]*)"/)[1].split(/\s+/));
-  const plan = sortedSet(bash.match(/_fraktik_subcommands_plan="([^"]*)"/)[1].split(/\s+/));
+test("bash completion's command and subcommand lists match nelos exactly", () => {
+  const commands = sortedSet(bash.match(/_nelos_commands="([^"]*)"/)[1].split(/\s+/));
+  const title = sortedSet(bash.match(/_nelos_subcommands_title="([^"]*)"/)[1].split(/\s+/));
+  const web = sortedSet(bash.match(/_nelos_subcommands_web="([^"]*)"/)[1].split(/\s+/));
+  const plan = sortedSet(bash.match(/_nelos_subcommands_plan="([^"]*)"/)[1].split(/\s+/));
   const intelligence = sortedSet(
-    bash.match(/_fraktik_subcommands_intelligence="([^"]*)"/)[1].split(/\s+/),
+    bash.match(/_nelos_subcommands_intelligence="([^"]*)"/)[1].split(/\s+/),
   );
   const worktree = sortedSet(
-    bash.match(/_fraktik_subcommands_worktree="([^"]*)"/)[1].split(/\s+/),
+    bash.match(/_nelos_subcommands_worktree="([^"]*)"/)[1].split(/\s+/),
   );
 
   assert.deepEqual(commands, CANONICAL.commands);
@@ -89,18 +89,18 @@ test("bash completion's command and subcommand lists match fraktik exactly", () 
   assert.deepEqual(worktree, CANONICAL.worktree);
 });
 
-test("zsh completion's command and subcommand lists match fraktik exactly", () => {
-  const commands = sortedSet(zsh.match(/_fraktik_commands=\(([^)]*)\)/)[1].split(/\s+/));
+test("zsh completion's command and subcommand lists match nelos exactly", () => {
+  const commands = sortedSet(zsh.match(/_nelos_commands=\(([^)]*)\)/)[1].split(/\s+/));
   const title = sortedSet(
-    zsh.match(/_fraktik_subcommands_title=\(([^)]*)\)/)[1].split(/\s+/),
+    zsh.match(/_nelos_subcommands_title=\(([^)]*)\)/)[1].split(/\s+/),
   );
-  const web = sortedSet(zsh.match(/_fraktik_subcommands_web=\(([^)]*)\)/)[1].split(/\s+/));
-  const plan = sortedSet(zsh.match(/_fraktik_subcommands_plan=\(([^)]*)\)/)[1].split(/\s+/));
+  const web = sortedSet(zsh.match(/_nelos_subcommands_web=\(([^)]*)\)/)[1].split(/\s+/));
+  const plan = sortedSet(zsh.match(/_nelos_subcommands_plan=\(([^)]*)\)/)[1].split(/\s+/));
   const intelligence = sortedSet(
-    zsh.match(/_fraktik_subcommands_intelligence=\(([^)]*)\)/)[1].split(/\s+/),
+    zsh.match(/_nelos_subcommands_intelligence=\(([^)]*)\)/)[1].split(/\s+/),
   );
   const worktree = sortedSet(
-    zsh.match(/_fraktik_subcommands_worktree=\(([^)]*)\)/)[1].split(/\s+/),
+    zsh.match(/_nelos_subcommands_worktree=\(([^)]*)\)/)[1].split(/\s+/),
   );
 
   assert.deepEqual(commands, CANONICAL.commands);
@@ -111,14 +111,14 @@ test("zsh completion's command and subcommand lists match fraktik exactly", () =
   assert.deepEqual(worktree, CANONICAL.worktree);
 });
 
-test("fish completion's top-level command list matches fraktik exactly", () => {
+test("fish completion's top-level command list matches nelos exactly", () => {
   const commands = sortedSet(
     [...fish.matchAll(/__fish_use_subcommand -a (\S+)/g)].map((m) => m[1]),
   );
   assert.deepEqual(commands, CANONICAL.commands);
 });
 
-test("fish completion's subcommand lists match fraktik exactly", () => {
+test("fish completion's subcommand lists match nelos exactly", () => {
   const title = sortedSet(
     fish
       .match(/__fish_seen_subcommand_from title;[^\n]*-a '([^']*)'/)[1]

@@ -1,57 +1,65 @@
-# Handover: live smoke test of the Fraktik MCP tool surface (v0.2.0)
+# Handover: live smoke test of the Nelos rename (v0.3.0)
 
 ## Context
 
-PR #5 (merged to `main`) makes the Fraktik marketplace plugin ship a bundled,
-socket-free MCP server so installs no longer depend on the `fraktik` CLI
-being on PATH. Design and verified host facts: `docs/mcp-tool-surface.md`.
-The launch form is an inline self-locating bootstrap (the host substitutes no
-`${PLUGIN_ROOT}`), so this smoke test is the first end-to-end validation on a
-real marketplace install.
+The project previously published as **Fraktik** is now **Nelos**
+(repository `virusimmortal00/nelos`). The bundled MCP tool surface was
+live-verified end-to-end under the old name at 0.2.0 (bootstrap cache
+resolution, all three tools, fail-closed verification); design record:
+`docs/mcp-tool-surface.md`. The rename changes every load-bearing install
+identifier — marketplace/plugin pair (`nelos@nelos`), config enablement key,
+bootstrap cache glob (`cache/*/nelos/<version>`), MCP server key, baked
+version env (`NELOS_PLUGIN_VERSION`), and tool names — so this smoke test
+revalidates the same mechanics under the new identity, and exercises the
+Fraktik→Nelos migration path on a machine with the old plugin installed.
 
-**Scope: test the tools directly.** The bundled skill still references the
-`fraktik` CLI (its migration to these tools is a follow-up PR), so do not
-drive this through the skill — call the MCP tools yourself. Observe and
-report; do not modify the repo. Unlike the probe rounds, **do not clean up at
-the end**: leave the plugin installed and enabled.
+**Scope: observe and report.** Call the MCP tools directly. Do not modify
+the repository. Leave Nelos installed and enabled at the end.
 
 ## Steps
 
-1. Install (or refresh) from the GitHub marketplace:
+1. Migration cleanup (this machine has Fraktik 0.2.x installed):
 
    ```bash
-   codex plugin marketplace add virusimmortal00/fraktik --ref main --json
-   codex plugin add fraktik@fraktik --json
+   codex plugin remove fraktik@fraktik --json
+   codex plugin marketplace remove fraktik --json
    ```
 
-   If an older fraktik marketplace/plugin is already present, update or
-   remove-and-re-add so the cached version is **0.2.0**. Record the reported
-   cache path (expected shape:
-   `~/.codex/plugins/cache/fraktik/fraktik/0.2.0`) (S1).
+   Delete the `[plugins."fraktik@fraktik".mcp_servers."fraktik"]` block from
+   `~/.codex/config.toml`. Record any friction — this is the migration path
+   the README now documents (N1).
 
-2. Enable the server in `~/.codex/config.toml`:
+2. Install Nelos from the renamed GitHub marketplace:
+
+   ```bash
+   codex plugin marketplace add virusimmortal00/nelos --ref main --json
+   codex plugin add nelos@nelos --json
+   ```
+
+   Record the installed version and cache path (expected:
+   `~/.codex/plugins/cache/nelos/nelos/0.3.0`) (N2).
+
+3. Enable the server in `~/.codex/config.toml`:
 
    ```toml
-   [plugins."fraktik@fraktik".mcp_servers."fraktik"]
+   [plugins."nelos@nelos".mcp_servers."nelos"]
    enabled = true
    ```
 
-3. Start a fresh Codex session. Confirm the server starts (no
-   `MCP startup failed` line) and that exactly these tools are exposed:
-   `fraktik_plan_slices`, `fraktik_intelligence_route`,
-   `fraktik_intelligence_verify` (S2).
+4. Start a fresh Codex session. Confirm the server starts cleanly and
+   exactly these tools appear: `nelos_plan_slices`,
+   `nelos_intelligence_route`, `nelos_intelligence_verify` (N3).
 
-4. Call `fraktik_intelligence_route` with `{"taskShape": "everyday"}`.
-   Expect a non-error JSON result with `command: "intelligence route"` and a
-   route containing model and effort values. Record the JSON verbatim (S3).
+5. Call `nelos_intelligence_route` with `{"taskShape": "everyday"}` —
+   expect a non-error route with model and effort. Record verbatim (N4).
 
-5. Call `fraktik_plan_slices` with:
+6. Call `nelos_plan_slices` with:
 
    ```json
    {
      "plan": {
        "schemaVersion": 1,
-       "objective": "smoke-test the bundled planner",
+       "objective": "smoke-test the renamed planner",
        "slices": [
          {
            "id": "smoke",
@@ -69,54 +77,50 @@ the end**: leave the plugin installed and enabled.
    }
    ```
 
-   Expect a non-error result with `command: "plan slices"`, one wave, and a
-   summary of one slice. Record verbatim (S4).
+   Expect `command: "plan slices"`, one wave, one slice (N5).
 
-6. Verification round-trip: launch a trivial native task using the exact
-   model and effort from step 4's route. After it starts, call
-   `fraktik_intelligence_verify` with that task's thread ID and the same
-   model/effort — expect `verified: true`, not an error (S5). Then call it
-   again with a deliberately wrong effort — expect a **tool error** whose
-   payload shows `verified: false` (fail-closed) (S6). Archive the trivial
-   task afterward if convenient.
-
-7. Note the approval UX for these calls under your current config (S7).
+7. Verification round-trip: launch a trivial native task with the exact
+   model/effort from step 5, then call `nelos_intelligence_verify` with its
+   thread ID and the same values — expect `verified: true` (N6). Repeat with
+   a deliberately wrong effort — expect a tool error with `verified: false`
+   (N7). Also confirm the bundled skill is discoverable under its new name
+   (`manage-nelos-tasks`) in this fresh task (N8).
 
 ## Findings template — fill in and return
 
 ```markdown
-# Smoke-test findings — <date>, codex version: <codex --version>
+# Nelos rename smoke-test findings — <date>, codex version: <codex --version>
 
-## S1 — Install
-Commands used; installed version and cache path; any warnings.
+## N1 — Fraktik removal
+Commands used; any friction with the documented migration path.
 
-## S2 — Server startup and discovery
-Server started cleanly yes/no; tools exposed (exact list); any stderr lines.
+## N2 — Install
+Installed version and cache path; any warnings.
 
-## S3 — intelligence_route JSON (verbatim)
+## N3 — Server startup and discovery
+Started cleanly yes/no; exact tool list; any stderr.
 
-## S4 — plan_slices JSON (verbatim)
+## N4 — intelligence_route JSON (verbatim)
 
-## S5 — verify success case
-Thread ID, model/effort used, and the verbatim JSON result.
+## N5 — plan_slices JSON (verbatim)
 
-## S6 — verify fail-closed case
-The verbatim error payload for the wrong-effort call.
+## N6 — verify success case (verbatim)
 
-## S7 — Approval UX
-Prompts observed per call, and relevant config policy in effect.
+## N7 — verify fail-closed case (verbatim error payload)
 
-## S8 — Anything unexpected
+## N8 — Skill discovery
+manage-nelos-tasks visible in the fresh task: yes/no.
 
-## S9 — End state
-Plugin left installed and enabled: yes/no.
+## N9 — Anything unexpected
+
+## N10 — End state
+Nelos left installed and enabled; all fraktik surfaces gone: yes/no.
 ```
 
 ## What the findings decide
 
-- S2 proves the bootstrap resolves a *real* marketplace cache (the probe only
-  ever proved a hand-built fixture).
-- S5/S6 prove `intelligence verify` finds the live sessions root from inside
-  the plugin-launched process (no `CODEX_HOME` env exists there).
-- S3–S6 green-light the follow-up PR that migrates the skill from the
-  `fraktik` CLI to these tools; anything red feeds a fix first.
+- N2/N3 prove the renamed bootstrap resolves the new cache path and server
+  key end-to-end.
+- N1 validates (or corrects) the README's migration instructions.
+- Green across N1–N8 closes the rename; anything red feeds a fix before the
+  rename is announced.

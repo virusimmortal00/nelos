@@ -1,10 +1,10 @@
 # Slice Planning and Intelligence Routing
 
-Fraktik composes two tools for high-level work:
+Nelos composes two tools for high-level work:
 
 1. The queen turns the user's objective into bounded semantic slices with
    deliverables, acceptance criteria, dependencies, lifecycle, and isolation.
-2. `fraktik plan slices` validates that topology, schedules deterministic
+2. `nelos plan slices` validates that topology, schedules deterministic
    parallel waves, and applies the reviewed model/reasoning policy to every
    slice.
 
@@ -90,7 +90,7 @@ The queen can produce this bounded input:
 Pipe it without shell-encoding multiline JSON:
 
 ```bash
-fraktik plan slices --spec-file - < slice-plan.json
+nelos plan slices --spec-file - < slice-plan.json
 ```
 
 The result has three waves:
@@ -111,7 +111,7 @@ the queen.
 The route is fail-closed. The queen must not omit or substitute a decided model
 or reasoning value when native task creation requires additional authorization.
 It obtains approval for the exact values or does not launch. After creation it
-runs `fraktik intelligence verify` for the returned task ID and expected
+runs `nelos intelligence verify` for the returned task ID and expected
 route. Work from an unverified or mismatched task cannot settle a wave or enter
 queen acceptance.
 

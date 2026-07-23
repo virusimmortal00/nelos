@@ -17,14 +17,14 @@ import { startStandaloneAppServer } from "./dev-app-server.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const cliPath = fileURLToPath(new URL("../bin/fraktik", import.meta.url));
+const cliPath = fileURLToPath(new URL("../bin/nelos", import.meta.url));
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_TURN_WAIT_MS = 300_000;
 
 function usage() {
   return `Usage: node scripts/verify-app-server.mjs [options]
 
-Verify Fraktik against a disposable standalone Codex app server.
+Verify Nelos against a disposable standalone Codex app server.
 The default mode performs no model calls. --live creates two model turns and
 archives the uniquely named smoke task before shutdown.
 
@@ -137,13 +137,13 @@ async function runCli(argumentsList, { signal, socketPath, stateHome, timeoutMs 
   } catch (error) {
     const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
     throw new Error(
-      `fraktik ${argumentsList[0]} failed${stderr ? `: ${stderr}` : `: ${error.message}`}`,
+      `nelos ${argumentsList[0]} failed${stderr ? `: ${stderr}` : `: ${error.message}`}`,
     );
   }
 }
 
 async function discoverRegisteredThreadIds(stateHome, title) {
-  const directory = join(stateHome, "fraktik", "tasks");
+  const directory = join(stateHome, "nelos", "tasks");
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -221,8 +221,8 @@ async function interruptActiveTurns(socketPath, activeTurns) {
   let client;
   try {
     client = await openAppServerClient({
-      clientName: "fraktik-app-server-verifier-cleanup",
-      clientTitle: "Fraktik App Server Verifier Cleanup",
+      clientName: "nelos-app-server-verifier-cleanup",
+      clientTitle: "Nelos App Server Verifier Cleanup",
       socketPath,
       timeoutMs: 5_000,
     });
@@ -412,7 +412,7 @@ export async function runVerifier(argv = process.argv.slice(2)) {
     return;
   }
 
-  const temporary = await mkdtemp(join(tmpdir(), "fraktik-app-server-"));
+  const temporary = await mkdtemp(join(tmpdir(), "nelos-app-server-"));
   const socketPath = join(temporary, "app.sock");
   const stateHome = join(temporary, "state");
   const workspace = join(temporary, "workspace");
@@ -420,10 +420,10 @@ export async function runVerifier(argv = process.argv.slice(2)) {
   const nonce = randomUUID().replaceAll("-", "");
   const smoke = {
     activeTurns: new Map(),
-    firstSentinel: `FRAKTIK_FIRST_${nonce}`,
-    secondSentinel: `FRAKTIK_SECOND_${nonce}`,
+    firstSentinel: `NELOS_FIRST_${nonce}`,
+    secondSentinel: `NELOS_SECOND_${nonce}`,
     threadIds: new Set(),
-    title: `Fraktik live smoke ${nonce}`,
+    title: `Nelos live smoke ${nonce}`,
     workspace,
   };
   let server = null;
@@ -507,7 +507,7 @@ export async function runVerifier(argv = process.argv.slice(2)) {
           } catch (error) {
             errors.push(
               new Error(
-                `${error.message}; manual recovery: fraktik archive ${threadId}`,
+                `${error.message}; manual recovery: nelos archive ${threadId}`,
                 { cause: error },
               ),
             );

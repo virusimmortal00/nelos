@@ -3,25 +3,25 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const openaiYaml = await readFile(
-  new URL("../skills/manage-fraktik-tasks/agents/openai.yaml", import.meta.url),
+  new URL("../skills/manage-nelos-tasks/agents/openai.yaml", import.meta.url),
   "utf8",
 );
 const webQueen = await readFile(
   new URL(
-    "../skills/manage-fraktik-tasks/agents/samples/web-queen.toml",
+    "../skills/manage-nelos-tasks/agents/samples/web-queen.toml",
     import.meta.url,
   ),
   "utf8",
 );
 const reviewerExplorer = await readFile(
   new URL(
-    "../skills/manage-fraktik-tasks/agents/samples/reviewer-explorer.toml",
+    "../skills/manage-nelos-tasks/agents/samples/reviewer-explorer.toml",
     import.meta.url,
   ),
   "utf8",
 );
 const agentsReadme = await readFile(
-  new URL("../skills/manage-fraktik-tasks/agents/README.md", import.meta.url),
+  new URL("../skills/manage-nelos-tasks/agents/README.md", import.meta.url),
   "utf8",
 );
 
@@ -34,7 +34,7 @@ test("openai.yaml declares discovery metadata without changing implicit invocati
 });
 
 test("the web-queen sample inherits live parent permissions", () => {
-  assert.match(webQueen, /^name = "fraktik-web-queen"$/m);
+  assert.match(webQueen, /^name = "nelos-web-queen"$/m);
   assert.match(webQueen, /^description = ".+"$/m);
   assert.match(webQueen, /^developer_instructions = """/m);
   assert.doesNotMatch(webQueen, /^sandbox_mode\s*=/m);
@@ -43,7 +43,7 @@ test("the web-queen sample inherits live parent permissions", () => {
 });
 
 test("the reviewer-explorer sample narrows to read-only without escalating", () => {
-  assert.match(reviewerExplorer, /^name = "fraktik-reviewer-explorer"$/m);
+  assert.match(reviewerExplorer, /^name = "nelos-reviewer-explorer"$/m);
   assert.match(reviewerExplorer, /^sandbox_mode = "read-only"$/m);
   assert.match(reviewerExplorer, /a restriction, not an escalation/);
 });

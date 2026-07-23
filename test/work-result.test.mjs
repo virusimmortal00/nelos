@@ -51,7 +51,7 @@ test("ResultEnvelopeV1 formatting and parsing preserve bounded work-unit data", 
     recoveryHint: "Provide fixtureMode=scripted-no-model",
   });
   const formatted = formatResultEnvelope(value);
-  assert.match(formatted, /^```fraktik-result/m);
+  assert.match(formatted, /^```nelos-result/m);
   assert.deepEqual(parseResultEnvelope(formatted), {
     format: "envelope",
     result: value,
@@ -80,11 +80,11 @@ test("result parsing uses the latest envelope and safely classifies text fallbac
 
 test("result parsing rejects malformed or unbounded envelopes", () => {
   assert.deepEqual(
-    parseResultEnvelope("```fraktik-result\n{broken}\n```").error,
+    parseResultEnvelope("```nelos-result\n{broken}\n```").error,
     { code: "invalid_json", message: "result envelope is not valid JSON" },
   );
   assert.equal(
-    parseResultEnvelope("```fraktik-result\n{}").error.code,
+    parseResultEnvelope("```nelos-result\n{}").error.code,
     "unterminated_envelope",
   );
   assert.throws(
@@ -156,7 +156,7 @@ test("result parsing rejects malformed or unbounded envelopes", () => {
   const valid = formatResultEnvelope(envelope());
   assert.equal(
     parseResultEnvelope(
-      `${valid}\n\`\`\`fraktik-result\n{\"schemaVersion\":1}`,
+      `${valid}\n\`\`\`nelos-result\n{\"schemaVersion\":1}`,
     ).error.code,
     "unterminated_envelope",
   );
@@ -165,13 +165,13 @@ test("result parsing rejects malformed or unbounded envelopes", () => {
     "nonterminal_envelope",
   );
   assert.equal(
-    parseResultEnvelope(`${valid}\n\`\`\`fraktik-result\n{broken}\n\`\`\``)
+    parseResultEnvelope(`${valid}\n\`\`\`nelos-result\n{broken}\n\`\`\``)
       .error.code,
     "invalid_json",
   );
   assert.equal(
     parseResultEnvelope(
-      `${valid}\n\`\`\`fraktik-result\n${"x".repeat(8_193)}\n\`\`\``,
+      `${valid}\n\`\`\`nelos-result\n${"x".repeat(8_193)}\n\`\`\``,
     ).error.code,
     "envelope_too_large",
   );
@@ -315,7 +315,7 @@ test("work classification keeps lifecycle, outcome, and attention separate", () 
             {
               type: "agentMessage",
               phase: "final_answer",
-              text: "```fraktik-result\n{}\n```",
+              text: "```nelos-result\n{}\n```",
             },
           ],
         },

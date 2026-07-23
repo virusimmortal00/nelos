@@ -51,14 +51,14 @@ test("the generated launch form is the verified inline bootstrap", () => {
 });
 
 async function bootstrapFixture() {
-  const home = await mkdtemp(join(tmpdir(), "fraktik-mcp-bootstrap-"));
+  const home = await mkdtemp(join(tmpdir(), "nelos-mcp-bootstrap-"));
   const cachedPlugin = join(
     home,
     ".codex",
     "plugins",
     "cache",
     "a-marketplace",
-    "fraktik",
+    "nelos",
     pluginMetadata.version,
   );
   await mkdir(cachedPlugin, { recursive: true });
@@ -119,7 +119,7 @@ test("the bootstrap locates the versioned cache and serves the tools", async () 
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line));
     assert.deepEqual(responses[0].result.serverInfo, {
-      name: "fraktik",
+      name: "nelos",
       version: pluginMetadata.version,
     });
     assert.equal(responses[1].result.tools.length, 3);
@@ -137,8 +137,8 @@ test("the bootstrap fails closed with an actionable diagnostic", async () => {
       requests: [],
     });
     assert.equal(code, 1);
-    assert.match(stderr, /no cached fraktik 9\.9\.9 plugin under/);
-    assert.match(stderr, /reinstall the fraktik plugin/);
+    assert.match(stderr, /no cached nelos 9\.9\.9 plugin under/);
+    assert.match(stderr, /reinstall the nelos plugin/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -26,7 +26,7 @@ import {
 } from "../src/distribution-provenance.mjs";
 
 const verifier = fileURLToPath(
-  new URL("../bin/fraktik-verify-distribution", import.meta.url),
+  new URL("../bin/nelos-verify-distribution", import.meta.url),
 );
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const expectedPath = fileURLToPath(
@@ -66,13 +66,13 @@ async function createDistributionFixture(overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), "codex-distribution-fixture-OK-"));
   const codexHome = join(root, "codex-home");
   const cliRoot = join(root, "cli");
-  const cliPath = join(cliRoot, "bin", "fraktik");
+  const cliPath = join(cliRoot, "bin", "nelos");
   const pluginRoot = join(
     codexHome,
     "plugins",
     "cache",
     "personal",
-    "fraktik",
+    "nelos",
     "0.1.0+fixture",
   );
   const expected = JSON.parse(await readFile(expectedPath, "utf8"));
@@ -104,14 +104,14 @@ async function createDistributionFixture(overrides = {}) {
     join(
       codexHome,
       "skills",
-      "manage-fraktik-tasks",
+      "manage-nelos-tasks",
       "distribution-provenance.json",
     ),
     records.skill === "stale" ? stale : records.skill,
   );
   await cp(
-    join(packageRoot, "skills", "manage-fraktik-tasks", "SKILL.md"),
-    join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md"),
+    join(packageRoot, "skills", "manage-nelos-tasks", "SKILL.md"),
+    join(codexHome, "skills", "manage-nelos-tasks", "SKILL.md"),
   );
   await writeProvenance(
     join(pluginRoot, "distribution-provenance.json"),
@@ -176,7 +176,7 @@ test("the provenance revision stays aligned with package and plugin releases", a
   assert.equal(
     provenance.skillIntegrity,
     await computeFileIntegrity(
-      join(packageRoot, "skills", "manage-fraktik-tasks", "SKILL.md"),
+      join(packageRoot, "skills", "manage-nelos-tasks", "SKILL.md"),
     ),
   );
 });
@@ -202,7 +202,7 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
 test("read-only verification detects a tampered PATH command without executing it", async () => {
   const fixture = await createDistributionFixture();
   const sentinel = join(fixture.root, "executed-sentinel");
-  const cliPath = join(fixture.root, "cli", "bin", "fraktik");
+  const cliPath = join(fixture.root, "cli", "bin", "nelos");
   try {
     await writeFile(
       cliPath,
@@ -213,7 +213,7 @@ test("read-only verification detects a tampered PATH command without executing i
     assert.equal(result.status, 1);
     assert.match(
       result.stderr,
-      /MISMATCH PATH CLI:.*fraktik integrity\/executability mismatch/,
+      /MISMATCH PATH CLI:.*nelos integrity\/executability mismatch/,
     );
     await assert.rejects(readFile(sentinel, "utf8"), { code: "ENOENT" });
   } finally {
@@ -256,15 +256,15 @@ test("required bundled provenance rejects a missing record", async () => {
 });
 
 test("PATH lookup uses empty components but ignores directories", async () => {
-  const matches = await listPathCommands("bin/fraktik", delimiter);
-  assert.equal(matches[0]?.path, resolve("bin/fraktik"));
+  const matches = await listPathCommands("bin/nelos", delimiter);
+  assert.equal(matches[0]?.path, resolve("bin/nelos"));
   assert.deepEqual(await listPathCommands("bin", delimiter), []);
 });
 
 test("provenance compares required CLI commands as an unordered set", () => {
   const expected = {
     schemaVersion: 1,
-    distribution: "fraktik",
+    distribution: "nelos",
     revision: "0.2.0",
     requiredCliCommands: ["spinoff", "web begin", "web join", "web collect"],
   };
@@ -283,7 +283,7 @@ test("an invalid installed record reports one mismatch without hiding other surf
   const skillPath = join(
     fixture.environment.CODEX_HOME,
     "skills",
-    "manage-fraktik-tasks",
+    "manage-nelos-tasks",
     "distribution-provenance.json",
   );
   try {
@@ -312,7 +312,7 @@ test("retained plugin revisions do not make the newest cached copy ambiguous", a
         "plugins",
         "cache",
         "personal",
-        "fraktik",
+        "nelos",
         "0.0.9+retained",
         "distribution-provenance.json",
       ),
@@ -323,7 +323,7 @@ test("retained plugin revisions do not make the newest cached copy ambiguous", a
       "plugins",
       "cache",
       "personal",
-      "fraktik",
+      "nelos",
       "0.0.9+retained",
     );
     await utimes(retainedPath, new Date(0), new Date(0));
@@ -344,7 +344,7 @@ test("cached copies from multiple marketplaces report ambiguity", async () => {
         "plugins",
         "cache",
         "another-marketplace",
-        "fraktik",
+        "nelos",
         "0.1.0+fixture",
         "distribution-provenance.json",
       ),
@@ -368,7 +368,7 @@ test("a newer cached plugin missing provenance is not masked by an older copy", 
         "plugins",
         "cache",
         "personal",
-        "fraktik",
+        "nelos",
         "0.1.0+fixture",
       ),
       new Date(0),
@@ -380,7 +380,7 @@ test("a newer cached plugin missing provenance is not masked by an older copy", 
         "plugins",
         "cache",
         "personal",
-        "fraktik",
+        "nelos",
         "0.2.0+missing",
       ),
       { recursive: true },

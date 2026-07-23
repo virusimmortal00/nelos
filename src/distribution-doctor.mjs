@@ -52,7 +52,7 @@ async function validateStateCandidate(candidate, { codexHome, installRoot }) {
       resolve(candidate.codexHome ?? "") !== codexHome || resolve(candidate.installRoot ?? "") !== installRoot ||
       !isAbsolute(candidate.releasePath ?? "") || !within(candidate.releasePath, join(installRoot, "releases")) ||
       !isAbsolute(candidate.binDir ?? "") || !isAbsolute(candidate.codexCommand ?? "") || !isAbsolute(candidate.skillPath ?? "") ||
-      resolve(candidate.skillPath) !== join(codexHome, "skills", "manage-fraktik-tasks") ||
+      resolve(candidate.skillPath) !== join(codexHome, "skills", "manage-nelos-tasks") ||
       candidate.plugin?.selector !== `${PLUGIN_NAME}@personal` ||
       !isAbsolute(candidate.plugin?.sourcePath ?? "") || !isAbsolute(candidate.plugin?.installedPath ?? "") ||
       !within(candidate.plugin.installedPath, join(codexHome, "plugins", "cache", "personal", PLUGIN_NAME))) {
@@ -113,12 +113,12 @@ export async function diagnoseDistribution(options = {}) {
         };
       }),
     );
-    const fraktikTaskBinding = cliBindings.find(
-      ({ command }) => command === "fraktik",
+    const nelosTaskBinding = cliBindings.find(
+      ({ command }) => command === "nelos",
     );
     const [cli, skill, plugin, releaseIntegrity, skillIntegrity, pluginIntegrity] = await Promise.all([
-      inspectCliProvenance(fraktikTaskBinding?.matches[0]?.path ?? null),
-      inspectProvenance(join(codexHome, "skills", "manage-fraktik-tasks", PROVENANCE_FILENAME)),
+      inspectCliProvenance(nelosTaskBinding?.matches[0]?.path ?? null),
+      inspectProvenance(join(codexHome, "skills", "manage-nelos-tasks", PROVENANCE_FILENAME)),
       inspectProvenance(join(state.plugin.installedPath, PROVENANCE_FILENAME)),
       observedIntegrity(() => computeDistributionIntegrity(state.releasePath)),
       observedIntegrity(() => computeFileIntegrity(join(state.skillPath, "SKILL.md"))),
@@ -176,7 +176,7 @@ export async function diagnoseDistribution(options = {}) {
         "marketplace",
         "warning",
         "personal marketplace is absent and ready for safe bootstrap",
-        "Run the unified distribution installer to create the marketplace and Fraktik entry.",
+        "Run the unified distribution installer to create the marketplace and Nelos entry.",
       ));
     } else {
       if (!marketplaceInfo.isFile() || marketplaceInfo.isSymbolicLink() || marketplaceInfo.size > 1_048_576) {
@@ -194,28 +194,28 @@ export async function diagnoseDistribution(options = {}) {
         home,
       });
       if (inspection.state === "compatible") {
-        checks.push(item("marketplace", "ok", "personal marketplace has one unambiguous local Fraktik source"));
+        checks.push(item("marketplace", "ok", "personal marketplace has one unambiguous local Nelos source"));
       } else if (inspection.state === "bootstrap-ready") {
         if (inspection.mutation?.kind === "append-target-properties") {
           checks.push(item(
             "marketplace",
             "warning",
-            "Fraktik marketplace source is valid and ready for canonical policy metadata",
-            "Run the unified distribution installer to add only missing Fraktik metadata; unrelated content will be preserved.",
+            "Nelos marketplace source is valid and ready for canonical policy metadata",
+            "Run the unified distribution installer to add only missing Nelos metadata; unrelated content will be preserved.",
           ));
         } else {
           checks.push(item(
             "marketplace",
             "warning",
-            "personal marketplace is valid and ready for a Fraktik entry",
-            "Run the unified distribution installer to add only the Fraktik entry; unrelated content will be preserved.",
+            "personal marketplace is valid and ready for a Nelos entry",
+            "Run the unified distribution installer to add only the Nelos entry; unrelated content will be preserved.",
           ));
         }
       } else {
         checks.push(item(
           "marketplace",
           "error",
-          "personal marketplace conflicts with the managed Fraktik source",
+          "personal marketplace conflicts with the managed Nelos source",
           "Inspect the target entry; do not replace it silently. Use an exact --plugin-source path only if this distribution should own that source.",
         ));
       }
@@ -224,7 +224,7 @@ export async function diagnoseDistribution(options = {}) {
     checks.push(item(
       "marketplace",
       "error",
-      "personal marketplace conflicts with the managed Fraktik source",
+      "personal marketplace conflicts with the managed Nelos source",
       "Inspect the target entry and path ancestry; do not replace them silently.",
     ));
   }

@@ -1,36 +1,36 @@
 <p align="center">
-  <img src="docs/assets/fraktik-banner.png" alt="Fraktik" width="100%">
+  <img src="docs/assets/nelos-banner.png" alt="Nelos" width="100%">
 </p>
 
-# Fraktik
+# Nelos
 
 **Plan complex Codex work into safe, dependency-aware parallel slices.**
 
-Fraktik helps you turn a large development task into a visible web of focused
+Nelos helps you turn a large development task into a visible web of focused
 subagents and durable tasks. It keeps dependencies explicit, suggests
 model-and-reasoning profiles, and gives the coordinating task the evidence it
 needs to decide when a later wave may start.
 
-Fraktik is an independent open-source project. It integrates with Codex but is
+Nelos is an independent open-source project. It integrates with Codex but is
 not sponsored, endorsed, or maintained by OpenAI.
 
 ## Install in Codex
 
 In the Codex app, open **Plugins**, add a GitHub marketplace source for
-`virusimmortal00/fraktik`, then install **Fraktik** from the **Fraktik** source.
+`virusimmortal00/nelos`, then install **Nelos** from the **Nelos** source.
 The equivalent terminal commands are:
 
 ```bash
-codex plugin marketplace add virusimmortal00/fraktik --ref main
-codex plugin add fraktik@fraktik
+codex plugin marketplace add virusimmortal00/nelos --ref main
+codex plugin add nelos@nelos
 ```
 
-Then enable Fraktik's bundled planning tools. Codex deliberately keeps
+Then enable Nelos's bundled planning tools. Codex deliberately keeps
 plugin-bundled MCP servers disabled until you opt in, so add this block to
 `~/.codex/config.toml`:
 
 ```toml
-[plugins."fraktik@fraktik".mcp_servers."fraktik"]
+[plugins."nelos@nelos".mcp_servers."nelos"]
 enabled = true
 ```
 
@@ -38,39 +38,56 @@ Start a fresh Codex task afterward so it discovers the bundled skill and
 tools. That is the whole setup: no distribution installer, no manual copying,
 and no `PATH` changes. The bundled tools run through Node.js, so use Node.js
 20 or newer on macOS or Linux. The current distribution does not support
-Windows. The `fraktik` command-line interface is a separate, optional surface
+Windows. The `nelos` command-line interface is a separate, optional surface
 for contributors and automation (see below); nothing in the installed plugin
 depends on it.
+
+### Upgrading from Fraktik
+
+Nelos was previously published as **Fraktik** (through plugin 0.2.1). The
+rename changes the install identity, so an existing Fraktik install does not
+upgrade in place. Remove the old plugin and marketplace source, delete any
+`[plugins."fraktik@fraktik"...]` blocks from `~/.codex/config.toml`, then
+follow the install steps above:
+
+```bash
+codex plugin remove fraktik@fraktik
+codex plugin marketplace remove fraktik
+```
+
+If the old distribution installer was ever used, its `fraktik` CLI launchers
+and user-wide skill are also superseded; reinstall from source (below) to get
+the `nelos` equivalents.
 
 ## Start here
 
 Ask Codex:
 
 ```text
-Use Fraktik to plan this feature into safe parallel slices.
+Use Nelos to plan this feature into safe parallel slices.
 ```
 
-Fraktik will help decide which work is a short-lived built-in subagent and
+Nelos will help decide which work is a short-lived built-in subagent and
 which needs a durable, independently inspectable task. It can then organize
 the work into waves, keep dependencies visible, and pause before advancing
 until the coordinating task accepts the needed results.
 
-Use a durable Fraktik task when a workstream needs its own working directory,
+Use a durable Nelos task when a workstream needs its own working directory,
 later turns, a handoff, or a dependency gate. Use a built-in subagent for a
 bounded investigation or review that returns directly to the current task.
 
-## What Fraktik adds
+## What Nelos adds
 
 - A clear plan of bounded work slices and their dependencies.
 - Parallel waves that launch only when accepted upstream work is ready.
 - Reviewed model-and-reasoning recommendations for each slice.
 - A lightweight task web that makes task relationships easier to inspect.
 
-For a short conceptual overview, Fraktik calls the coordinating task the
+For a short conceptual overview, Nelos calls the coordinating task the
 **queen**, independently managed tasks **spinoffs**, and the connected set a
 **web**. The details are below when you need them.
 
-## Why Fraktik?
+## Why Nelos?
 
 Codex's [built-in subagents](https://developers.openai.com/codex/subagents)
 are ideal when the current task can delegate bounded work — repository
@@ -78,7 +95,7 @@ exploration, test analysis, focused review — and combine the returned results
 into one response. A different coordination problem appears when a piece of
 work needs its own lifecycle: a stable task identity, a separate working
 directory, dependency gates, later turns, direct inspection, or an explicit
-archive point. Fraktik calls a durable Codex task directed by another task a
+archive point. Nelos calls a durable Codex task directed by another task a
 **spinoff**.
 
 People sometimes describe this choice as “subagent versus full agent,” but
@@ -92,13 +109,13 @@ lifecycle: a subagent completes a bounded part of the current task, while a
 spinoff is created as a separate top-level task and stays independently
 addressable after its initial turn.
 
-| Question | Built-in subagent | Durable Fraktik spinoff |
+| Question | Built-in subagent | Durable Nelos spinoff |
 | --- | --- | --- |
 | What is its contract? | Complete a bounded part of the current task. | Own a separately managed stream of work. |
-| What is its Codex topology? | A child agent thread in the parent workflow. | A separate top-level app-server thread connected to the queen by Fraktik metadata. |
+| What is its Codex topology? | A child agent thread in the parent workflow. | A separate top-level app-server thread connected to the queen by Nelos metadata. |
 | What context starts it? | Scoped instructions delegated by the current workflow. | A fresh thread started from the supplied prompt and configuration; the queen's transcript is not copied. |
 | How do results return? | Codex reports the result to the parent, which consolidates it. | Output remains in the spinoff until the queen or user explicitly reads and integrates it. |
-| How is it continued? | The parent steers, follows up with, waits for, or closes it through native subagent controls. | `fraktik send` starts a later turn by task ID after the current turn finishes. |
+| How is it continued? | The parent steers, follows up with, waits for, or closes it through native subagent controls. | `nelos send` starts a later turn by task ID after the current turn finishes. |
 | How is it configured? | It inherits the parent turn's live sandbox and approval choices. Custom-agent files can supply role, model, tools, and config defaults, including a sandbox default, but live overrides still win. | It can start with an explicit working directory, model, effort, sandbox, approval policy, or permission profile. |
 | What is it best for? | Exploration, review, test runs, log analysis, and summarization needed by the current response. | Branch-backed deliverables, dependency gates, multi-turn work, handoffs, and work someone should revisit directly. |
 
@@ -109,7 +126,7 @@ overlay; it does not change Codex's parent/child thread topology.
 
 ### What This Tool Adds
 
-Codex users can already open separate chats without this tool. Fraktik's
+Codex users can already open separate chats without this tool. Nelos's
 value is making their orchestration explicit, scriptable, and agent-operable.
 It can place both kinds of work in one **web**, and it:
 
@@ -146,23 +163,23 @@ for the full title grammar, CLI workflow, and web lifecycle.
 ## Durable Task Lifecycle
 
 ```bash
-fraktik start \
+nelos start \
   --title "Implementation task" \
   --prompt "Complete the requested work and report the verification." \
   --cwd "/absolute/path/to/worktree"
 
-fraktik spinoff \
+nelos spinoff \
   --title "Spinoff implementation" \
   --prompt "Own this durable workstream and leave verification in the task output." \
   --cwd "/absolute/path/to/spinoff-worktree" \
   --queen-thread-id "$CODEX_THREAD_ID"
 
-fraktik status THREAD_ID
-fraktik read THREAD_ID --turns 3
-fraktik watch THREAD_ID
-fraktik web collect --queen-thread-id "$CODEX_THREAD_ID" --wait
-fraktik send THREAD_ID --prompt "The dependency is ready; continue the work."
-fraktik archive THREAD_ID
+nelos status THREAD_ID
+nelos read THREAD_ID --turns 3
+nelos watch THREAD_ID
+nelos web collect --queen-thread-id "$CODEX_THREAD_ID" --wait
+nelos send THREAD_ID --prompt "The dependency is ready; continue the work."
+nelos archive THREAD_ID
 ```
 
 `start` creates a persistent top-level task outside a web. `spinoff` creates a
@@ -179,7 +196,7 @@ result for each direct active member without copying member transcripts. Pass
 one command instead of serial member watches. A timeout still exits
 successfully with a bounded checkpoint (`wait.status: timed_out`), and
 `allSucceeded` is true only when every member completed with a `succeeded`
-result — a transport/result checkpoint, not a queen acceptance. Fraktik's
+result — a transport/result checkpoint, not a queen acceptance. Nelos's
 durable acceptance records bind a queen decision to the current work-unit
 revision, attempt, member task, source turn, and bounded result; a stale
 attempt cannot satisfy a dependency gate. The full checkpoint semantics —
@@ -187,14 +204,14 @@ attempt cannot satisfy a dependency gate. The full checkpoint semantics —
 corrective turns — are documented in [Webs and Terminology](docs/webs.md).
 
 Named `--permissions` profiles are validated against the selected working
-directory before Fraktik starts a thread or changes a queen title. The current
+directory before Nelos starts a thread or changes a queen title. The current
 app-server contract accepts the profile ID as the `permissions` string on both
 `thread/start` and `turn/start`; it does not accept a nested permissions object.
 If the profile is unavailable, the command fails before partial spinoff setup.
 
 ## Model and Reasoning Selection
 
-Fraktik can independently inherit, recommend, or explicitly select the
+Nelos can independently inherit, recommend, or explicitly select the
 model and reasoning level for a new task. With no routing arguments it preserves
 both host defaults. A task shape selects the reviewed Sol, Terra, or Luna
 profile and lowest reviewed effort; an explicit model/profile or effort changes
@@ -202,16 +219,16 @@ only that dimension unless a task shape also supplies the other one.
 
 ```bash
 # Automatic recommendation for an everyday implementation task
-fraktik intelligence route --task-shape everyday
+nelos intelligence route --task-shape everyday
 
 # Sol with Max reasoning
-fraktik intelligence route --profile sol --effort max
+nelos intelligence route --profile sol --effort max
 
 # Keep the host model but use High reasoning
-fraktik intelligence route --effort high
+nelos intelligence route --effort high
 
 # Use Terra but keep the host reasoning default
-fraktik intelligence route --profile terra
+nelos intelligence route --profile terra
 ```
 
 The JSON response includes `route.launch.nativeTask`, ready to pass as the
@@ -224,7 +241,7 @@ the wave stops instead of inheriting host defaults. After native creation,
 verify the observed local turn context before using the task result:
 
 ```bash
-fraktik intelligence verify --thread-id THREAD_ID \
+nelos intelligence verify --thread-id THREAD_ID \
   --model gpt-5.6-terra --effort low
 ```
 
@@ -245,7 +262,7 @@ contract, returns deterministic parallel waves, and applies the model/reasoning
 router to every slice:
 
 ```bash
-fraktik plan slices --spec-file - < slice-plan.json
+nelos plan slices --spec-file - < slice-plan.json
 ```
 
 Only the current wave launches concurrently. The planner's `nextAction` returns
@@ -275,18 +292,18 @@ spinoff becomes queen of its own nested web, both roles remain visible:
 🕸️ A1.1 · Contract tests
 ```
 
-Ordinary bounded subagents do not require a Fraktik web. When web-level
+Ordinary bounded subagents do not require a Nelos web. When web-level
 visibility or coordination is useful in Desktop, run
-`fraktik web begin --registry-only --title TITLE`, apply its
+`nelos web begin --registry-only --title TITLE`, apply its
 `renderedTitle` through the native title tool, and create members through native
 project threads. Register each returned member ID with
 `web join --registry-only` and apply its rendered title natively. Every
 successful command response carries its own `nextAction`, including the exact
-native title synchronization. The socket-backed `fraktik spinoff` adapter is
+native title synchronization. The socket-backed `nelos spinoff` adapter is
 development-only; it is not part of the skill.
 
 Durable task creation, waiting, continuation, titles, navigation, and archival
-stay on Codex's native project/thread tools. Fraktik's local records are
+stay on Codex's native project/thread tools. Nelos's local records are
 topology plus a disposable last lifecycle observation, never an authority on
 archival state: app-server-backed reads reconcile that cache on every read, and
 desktop-only lifecycle remains unobserved until Codex exposes the same host
@@ -318,14 +335,14 @@ worktree must have a single writer. See
 
 ## Status and Scope
 
-Fraktik is a working early-stage tool. The shipped product is a Codex
+Nelos is a working early-stage tool. The shipped product is a Codex
 plugin packaging the task-management skill: mutable lifecycle operations go
 through the CLI or native task tools, and a local registry keeps web topology
 synchronized. A future host integration is documented in
 [Future Host Integration](docs/mcp-web-ui.md) and the
 [Product Backlog](docs/backlog.md); no MCP server ships today.
 
-Fraktik deliberately does not copy the queen's context into a spinoff,
+Nelos deliberately does not copy the queen's context into a spinoff,
 automatically deliver a spinoff's result back to its queen, create Git branches
 or worktrees, prevent concurrent writers from conflicting, or merge completed
 work. A queen still owns dependency ordering, integration, final verification,
@@ -343,14 +360,14 @@ the host.
 ```bash
 npm install
 npm run install:distribution
-fraktik --help
-fraktik doctor
-fraktik-verify-distribution
+nelos --help
+nelos doctor
+nelos-verify-distribution
 ```
 
 The unified installer copies one immutable release under `CODEX_HOME` and
 updates the CLI launchers, user-wide task-management skill, configured
-`fraktik@personal` plugin source, and Codex plugin cache from that
+`nelos@personal` plugin source, and Codex plugin cache from that
 release. Installation is transactional and idempotent: an interrupted install
 is recovered on the next run, a failed install restores the previous surfaces,
 and foreign files at managed destinations stop the install rather than being
@@ -358,8 +375,8 @@ replaced. If no app server is running, installation still succeeds but reports
 `restart-required`; restart Codex and start a fresh task so Codex discovers
 the plugin skill.
 
-`fraktik doctor` is a strictly read-only JSON diagnostic of installation
-health, and `fraktik-verify-distribution` checks every distributed surface
+`nelos doctor` is a strictly read-only JSON diagnostic of installation
+health, and `nelos-verify-distribution` checks every distributed surface
 against the shared `distribution-provenance.json` provenance record without
 changing installation state. The complete trust model — locking, path safety,
 forced installs, host refresh ordering, and recovery semantics — is documented
@@ -381,7 +398,7 @@ in [Installation and Distribution Trust](docs/installation.md).
 - `skills/` contains the reusable task-management workflow bundled with the
   plugin.
 - `completions/` contains Bash, Zsh, and Fish tab-completion for
-  `fraktik`; see [docs/fraktik-completions.md](docs/fraktik-completions.md) for
+  `nelos`; see [docs/nelos-completions.md](docs/nelos-completions.md) for
   install and regeneration instructions.
 
 ### Design principles

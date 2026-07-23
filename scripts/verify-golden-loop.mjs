@@ -24,7 +24,7 @@ import { formatResultEnvelope } from "../src/work-result.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-const cliPath = fileURLToPath(new URL("../bin/fraktik", import.meta.url));
+const cliPath = fileURLToPath(new URL("../bin/nelos", import.meta.url));
 const queenThreadId = "queen-thread";
 
 function resultEnvelope(member, { attempt = 1, blocked = false } = {}) {
@@ -76,7 +76,7 @@ async function runCli(argumentsList, { socketPath, stateHome }) {
   } catch (error) {
     const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
     throw new Error(
-      `fraktik ${argumentsList.join(" ")} failed: ${stderr || error.message}`,
+      `nelos ${argumentsList.join(" ")} failed: ${stderr || error.message}`,
     );
   }
 }
@@ -176,7 +176,7 @@ function assertExactPromptContracts(requests) {
 async function readWebRecord(stateHome, threadId) {
   const path = join(
     stateHome,
-    "fraktik",
+    "nelos",
     "webs",
     `${encodeURIComponent(threadId)}.json`,
   );
@@ -185,7 +185,7 @@ async function readWebRecord(stateHome, threadId) {
 
 export async function runGoldenLoopScenario({ iteration = 1 } = {}) {
   const startedAt = Date.now();
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "fraktik-golden-loop-"));
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-golden-loop-"));
   const socketPath = join(temporaryRoot, "app.sock");
   const stateHome = join(temporaryRoot, "state");
   let server = null;
@@ -194,8 +194,8 @@ export async function runGoldenLoopScenario({ iteration = 1 } = {}) {
   try {
     server = await startGoldenLoopAppServer(socketPath, { cwd: repositoryRoot });
     const context = { socketPath, stateHome };
-    const executionDirectory = join(stateHome, "fraktik", "executions");
-    const acceptanceDirectory = join(stateHome, "fraktik", "queen-acceptances");
+    const executionDirectory = join(stateHome, "nelos", "executions");
+    const acceptanceDirectory = join(stateHome, "nelos", "queen-acceptances");
     const executionStore = new ExecutionStoreV1({ directory: executionDirectory });
     const acceptanceStore = new QueenAcceptanceStoreV1({ directory: acceptanceDirectory });
     const launch = async (title) =>

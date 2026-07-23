@@ -7,16 +7,16 @@ Status: accepted July 2026; launch mechanics pinned to behavior observed on
 
 Ship the plugin's CLI-backed operations as a bundled MCP server so that a
 marketplace install is self-sufficient. The skill calls named tools instead of
-a `fraktik` shell command; the CLI remains a developer and automation surface
+a `nelos` shell command; the CLI remains a developer and automation surface
 installed separately via the distribution installer.
 
 The MCP surface is limited to **socket-free** operations — commands that never
 open an app-server control endpoint:
 
-- `fraktik_plan_slices` — the offline slice planner (pure computation);
-- `fraktik_intelligence_route` — the offline model/reasoning router (pure
+- `nelos_plan_slices` — the offline slice planner (pure computation);
+- `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);
-- `fraktik_intelligence_verify` — runtime-intelligence verification, which
+- `nelos_intelligence_verify` — runtime-intelligence verification, which
   reads only bounded turn-context metadata from local rollout files under the
   Codex sessions directory and fails closed on any mismatch.
 
@@ -49,7 +49,7 @@ rounds; repro and findings preserved with the draft upstream issue):
   paths resolve from the plugin root.
 - Bundled servers are **disabled by default**. Enabling requires a
   `~/.codex/config.toml` block keyed by plugin *and* marketplace:
-  `[plugins."fraktik@fraktik".mcp_servers."<server>"] enabled = true`. The
+  `[plugins."nelos@nelos".mcp_servers."<server>"] enabled = true`. The
   bare plugin key documented upstream is rejected.
 - `${PLUGIN_ROOT}` is **not substituted anywhere** in `.mcp.json` (`command`,
   `args`, or `env` values pass through literally), and the server process
@@ -74,7 +74,7 @@ Because no supported mechanism lets a bundled server reference its own files,
 
 1. reads the release version from a static `env` value baked into `.mcp.json`
    at generation time (checked against the plugin manifest by tests);
-2. resolves `~/.codex/plugins/cache/*/fraktik/<version>/` — the marketplace
+2. resolves `~/.codex/plugins/cache/*/nelos/<version>/` — the marketplace
    segment is globbed so a differently named marketplace source cannot break
    resolution — and fails with a structured, actionable stderr diagnostic if
    no match contains the server module;
@@ -83,7 +83,7 @@ Because no supported mechanism lets a bundled server reference its own files,
 
 The bootstrap is the only component that depends on the undocumented cache
 layout, and it is quarantined on purpose: the server itself is an ordinary
-module, launched identically by `bin/fraktik-mcp` for development and tests.
+module, launched identically by `bin/nelos-mcp` for development and tests.
 
 **Retirement condition:** when a Codex release substitutes `${PLUGIN_ROOT}`
 in `.mcp.json` (or injects an equivalent environment variable), replace the

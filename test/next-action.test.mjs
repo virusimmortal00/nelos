@@ -53,9 +53,9 @@ test("slice planning returns an executable current-wave launch action", () => {
           "Acceptance criteria:",
           "- The tradeoff is explicit.",
         ].join("\n") +
-          "\nFinish with exactly one final fenced fraktik-result block and no trailing prose.\n" +
+          "\nFinish with exactly one final fenced nelos-result block and no trailing prose.\n" +
           "Use this result shape. Change outcome when needed; succeeded has no blockers, while blocked has at least one blocker and a recoveryHint:\n" +
-          "```fraktik-result\n" +
+          "```nelos-result\n" +
           "{\"schemaVersion\":1,\"workUnitId\":\"research\",\"specRevision\":1,\"attempt\":1,\"outcome\":\"succeeded\",\"summary\":\"concise result summary\",\"artifacts\":[],\"verification\":[],\"blockers\":[],\"recoveryHint\":null}\n" +
           "```",
       },
@@ -236,7 +236,7 @@ test("web collection returns one action for waiting, correction, or acceptance",
         {
           threadId: "member-1",
           prompt:
-            "Correct the prior task result: blocked. Preserve workUnitId member-work and specRevision 2; use attempt 2. Resolve these blockers: Needs the API decision. Finish with exactly one valid final fraktik-result block and no trailing prose.",
+            "Correct the prior task result: blocked. Preserve workUnitId member-work and specRevision 2; use attempt 2. Resolve these blockers: Needs the API decision. Finish with exactly one valid final nelos-result block and no trailing prose.",
         },
       ],
       after: "web-collect",

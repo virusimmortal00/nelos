@@ -27,7 +27,7 @@ async function createDoctorFixture(root) {
   const installRoot = join(codexHome, "distributions", PLUGIN_NAME);
   const releasePath = join(installRoot, "releases", "test-release");
   const binDir = join(home, ".local", "bin");
-  const skillPath = join(codexHome, "skills", "manage-fraktik-tasks");
+  const skillPath = join(codexHome, "skills", "manage-nelos-tasks");
   const pluginSourcePath = join(home, "plugins", PLUGIN_NAME);
   const pluginInstalledPath = join(
     codexHome,
@@ -54,7 +54,7 @@ async function createDoctorFixture(root) {
   }
   await Promise.all([
     writeFile(join(releasePath, "README.md"), "trusted release\n"),
-    writeFile(join(releasePath, ".mcp.json"), '{"fraktik":{}}\n'),
+    writeFile(join(releasePath, ".mcp.json"), '{"nelos":{}}\n'),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
   ]);
@@ -114,10 +114,10 @@ async function createDoctorFixture(root) {
 }
 
 test("personal marketplace bootstrap is exact and idempotent", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-");
+  const root = await canonicalMkdtemp("nelos-marketplace-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
-    const options = { home: root, marketplacePath: path, pluginIdentity: { name: "fraktik", marketplaceName: "personal" }, sourcePath: join(root, "plugins", "fraktik") };
+    const options = { home: root, marketplacePath: path, pluginIdentity: { name: "nelos", marketplaceName: "personal" }, sourcePath: join(root, "plugins", "nelos") };
     const transaction = join(root, "transaction.json");
     const initial = await distributionInstallInternals.ensurePersonalMarketplace(options);
     assert.equal(initial.created, true);
@@ -126,7 +126,7 @@ test("personal marketplace bootstrap is exact and idempotent", async () => {
     const first = await readFile(path, "utf8");
     const document = JSON.parse(first);
     assert.equal(document.interface.displayName, "Personal");
-    assert.equal(document.plugins[0].source.path, "./plugins/fraktik");
+    assert.equal(document.plugins[0].source.path, "./plugins/nelos");
     assert.deepEqual(document.plugins[0].policy, {
       installation: "AVAILABLE",
       authentication: "ON_INSTALL",
@@ -139,12 +139,12 @@ test("personal marketplace bootstrap is exact and idempotent", async () => {
 });
 
 test("marketplace activation rejects a parent swap before writing intent", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-parent-swap-");
+  const root = await canonicalMkdtemp("nelos-marketplace-parent-swap-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(
       dirname(path),
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
@@ -167,13 +167,13 @@ test("marketplace activation rejects a parent swap before writing intent", async
 });
 
 test("marketplace activation never cleans through a parent swapped during linking", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-link-parent-swap-");
+  const root = await canonicalMkdtemp("nelos-marketplace-link-parent-swap-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const parent = dirname(path);
     const transaction = join(
       parent,
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
@@ -194,7 +194,7 @@ test("marketplace activation never cleans through a parent swapped during linkin
           beforeReplaceLink: async () => {
             const intent = JSON.parse(await readFile(transaction, "utf8"));
             const candidateName = basename(
-              `${path}.fraktik-exchange-${intent.exchangeId}.candidate`,
+              `${path}.nelos-exchange-${intent.exchangeId}.candidate`,
             );
             await rename(parent, originalParent);
             await mkdir(outside);
@@ -222,11 +222,11 @@ test("marketplace activation never cleans through a parent swapped during linkin
 });
 
 test("marketplace crash recovery refuses a concurrently replaced file", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-recovery-");
+  const root = await canonicalMkdtemp("nelos-marketplace-recovery-");
   try {
     const path = join(root, "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
-    const options = { home: root, marketplacePath: path, pluginIdentity: { name: "fraktik", marketplaceName: "personal" }, sourcePath: join(root, "source") };
+    const options = { home: root, marketplacePath: path, pluginIdentity: { name: "nelos", marketplaceName: "personal" }, sourcePath: join(root, "source") };
     const bootstrap = await distributionInstallInternals.ensurePersonalMarketplace(options);
     await distributionInstallInternals.activateMarketplaceBootstrap(bootstrap, transaction);
     await writeFile(path, '{"name":"foreign","plugins":[]}\n');
@@ -236,7 +236,7 @@ test("marketplace crash recovery refuses a concurrently replaced file", async ()
 });
 
 test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-coexist-");
+  const root = await canonicalMkdtemp("nelos-marketplace-coexist-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     await mkdir(join(root, ".agents", "plugins"), { recursive: true });
@@ -251,8 +251,8 @@ test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte
           custom: true,
         },
         {
-          name: "fraktik",
-          source: { source: "local", path: "./plugins/fraktik" },
+          name: "nelos",
+          source: { source: "local", path: "./plugins/nelos" },
           policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
           category: "Developer Tools",
         },
@@ -262,8 +262,8 @@ test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte
     const options = {
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     };
     const result = await distributionInstallInternals.ensurePersonalMarketplace(options);
     assert.equal(result.changed, false);
@@ -277,13 +277,13 @@ test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte
     });
     const marketplace = diagnosis.checks.find(({ id }) => id === "marketplace");
     assert.equal(marketplace.status, "ok");
-    assert.match(marketplace.summary, /unambiguous local Fraktik source/);
+    assert.match(marketplace.summary, /unambiguous local Nelos source/);
     assert.equal(await readFile(path, "utf8"), bytes);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("marketplace update rollback restores exact bytes and mode", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-update-");
+  const root = await canonicalMkdtemp("nelos-marketplace-update-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -294,8 +294,8 @@ test("marketplace update rollback restores exact bytes and mode", async () => {
     const options = {
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     };
     const planned = await distributionInstallInternals.ensurePersonalMarketplace(options);
     assert.equal(planned.updated, true);
@@ -304,7 +304,7 @@ test("marketplace update rollback restores exact bytes and mode", async () => {
     const updated = JSON.parse(await readFile(path, "utf8"));
     assert.deepEqual(updated.interface, { displayName: "Preserve Me" });
     assert.equal(updated.plugins[0].keep[2], 3);
-    assert.equal(updated.plugins[1].name, "fraktik");
+    assert.equal(updated.plugins[1].name, "nelos");
     assert.equal((await stat(path)).mode & 0o777, 0o640);
 
     await distributionInstallInternals.recoverMarketplaceTransaction(transaction, path);
@@ -315,7 +315,7 @@ test("marketplace update rollback restores exact bytes and mode", async () => {
 });
 
 test("marketplace recovery restores an update interrupted after displacement", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-displaced-");
+  const root = await canonicalMkdtemp("nelos-marketplace-displaced-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -326,8 +326,8 @@ test("marketplace recovery restores an update interrupted after displacement", a
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
 
     await assert.rejects(
@@ -340,7 +340,7 @@ test("marketplace recovery restores an update interrupted after displacement", a
     );
     await assert.rejects(stat(path), /ENOENT/);
     const intent = JSON.parse(await readFile(transaction, "utf8"));
-    const prefix = `${path}.fraktik-exchange-${intent.exchangeId}`;
+    const prefix = `${path}.nelos-exchange-${intent.exchangeId}`;
     assert.equal((await stat(`${prefix}.displaced`)).isFile(), true);
     assert.equal((await stat(`${prefix}.candidate`)).isFile(), true);
 
@@ -350,14 +350,14 @@ test("marketplace recovery restores an update interrupted after displacement", a
     await assert.rejects(stat(transaction), /ENOENT/);
     assert.deepEqual(
       (await readdir(dirname(path))).filter((entry) =>
-        entry.startsWith(`${basename(path)}.fraktik-exchange-`)),
+        entry.startsWith(`${basename(path)}.nelos-exchange-`)),
       [],
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("marketplace recovery restores an update interrupted after replacement link", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-linked-");
+  const root = await canonicalMkdtemp("nelos-marketplace-linked-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -367,8 +367,8 @@ test("marketplace recovery restores an update interrupted after replacement link
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
 
     await assert.rejects(
@@ -379,9 +379,9 @@ test("marketplace recovery restores an update interrupted after replacement link
       ),
       /injected marketplace interruption after linked/,
     );
-    assert.match(await readFile(path, "utf8"), /fraktik/);
+    assert.match(await readFile(path, "utf8"), /nelos/);
     const intent = JSON.parse(await readFile(transaction, "utf8"));
-    const prefix = `${path}.fraktik-exchange-${intent.exchangeId}`;
+    const prefix = `${path}.nelos-exchange-${intent.exchangeId}`;
     assert.equal((await stat(`${prefix}.displaced`)).isFile(), true);
     assert.equal((await stat(`${prefix}.candidate`)).isFile(), true);
 
@@ -391,14 +391,14 @@ test("marketplace recovery restores an update interrupted after replacement link
     await assert.rejects(stat(transaction), /ENOENT/);
     assert.deepEqual(
       (await readdir(dirname(path))).filter((entry) =>
-        entry.startsWith(`${basename(path)}.fraktik-exchange-`)),
+        entry.startsWith(`${basename(path)}.nelos-exchange-`)),
       [],
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("marketplace recovery discards a partial journaled candidate before mutation", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-partial-");
+  const root = await canonicalMkdtemp("nelos-marketplace-partial-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -409,8 +409,8 @@ test("marketplace recovery discards a partial journaled candidate before mutatio
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     await assert.rejects(
       distributionInstallInternals.activateMarketplaceBootstrap(
@@ -421,7 +421,7 @@ test("marketplace recovery discards a partial journaled candidate before mutatio
       /injected marketplace interruption after candidate/,
     );
     const intent = JSON.parse(await readFile(transaction, "utf8"));
-    const candidate = `${path}.fraktik-exchange-${intent.exchangeId}.candidate`;
+    const candidate = `${path}.nelos-exchange-${intent.exchangeId}.candidate`;
     await writeFile(candidate, "{partial");
     await chmod(path, 0o600);
 
@@ -434,7 +434,7 @@ test("marketplace recovery discards a partial journaled candidate before mutatio
 });
 
 test("marketplace recovery rebuilds a missing preimage after a partial candidate", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-partial-missing-");
+  const root = await canonicalMkdtemp("nelos-marketplace-partial-missing-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -445,8 +445,8 @@ test("marketplace recovery rebuilds a missing preimage after a partial candidate
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     await assert.rejects(
       distributionInstallInternals.activateMarketplaceBootstrap(
@@ -457,7 +457,7 @@ test("marketplace recovery rebuilds a missing preimage after a partial candidate
       /injected marketplace interruption after candidate/,
     );
     const intent = JSON.parse(await readFile(transaction, "utf8"));
-    const candidate = `${path}.fraktik-exchange-${intent.exchangeId}.candidate`;
+    const candidate = `${path}.nelos-exchange-${intent.exchangeId}.candidate`;
     await writeFile(candidate, "{partial");
     await rm(path);
 
@@ -470,7 +470,7 @@ test("marketplace recovery rebuilds a missing preimage after a partial candidate
 });
 
 test("marketplace recovery restores the exact displaced preimage mode", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-displaced-mode-");
+  const root = await canonicalMkdtemp("nelos-marketplace-displaced-mode-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -481,8 +481,8 @@ test("marketplace recovery restores the exact displaced preimage mode", async ()
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     await assert.rejects(
       distributionInstallInternals.activateMarketplaceBootstrap(
@@ -493,7 +493,7 @@ test("marketplace recovery restores the exact displaced preimage mode", async ()
       /injected marketplace interruption after candidate/,
     );
     const intent = JSON.parse(await readFile(transaction, "utf8"));
-    const prefix = `${path}.fraktik-exchange-${intent.exchangeId}`;
+    const prefix = `${path}.nelos-exchange-${intent.exchangeId}`;
     await chmod(path, 0o600);
     await rename(path, `${prefix}.displaced`);
 
@@ -507,7 +507,7 @@ test("marketplace recovery restores the exact displaced preimage mode", async ()
 });
 
 test("marketplace append preserves unrelated JSON numbers losslessly", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-lossless-");
+  const root = await canonicalMkdtemp("nelos-marketplace-lossless-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -517,22 +517,22 @@ test("marketplace append preserves unrelated JSON numbers losslessly", async () 
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     await distributionInstallInternals.activateMarketplaceBootstrap(planned, transaction);
     const updated = await readFile(path, "utf8");
     assert.match(updated, /"id":9007199254740993/);
     assert.match(updated, /"ratio":1\.2300/);
     assert.match(updated, /"name":"other"/);
-    assert.match(updated, /"name":"fraktik"/);
+    assert.match(updated, /"name":"nelos"/);
     await distributionInstallInternals.recoverMarketplaceTransaction(transaction, path);
     assert.equal(await readFile(path, "utf8"), original);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("committed marketplace update recovery preserves the appended entry", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-commit-");
+  const root = await canonicalMkdtemp("nelos-marketplace-commit-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -541,8 +541,8 @@ test("committed marketplace update recovery preserves the appended entry", async
     const options = {
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     };
     const planned = await distributionInstallInternals.ensurePersonalMarketplace(options);
     await distributionInstallInternals.activateMarketplaceBootstrap(planned, transaction);
@@ -553,26 +553,26 @@ test("committed marketplace update recovery preserves the appended entry", async
       { preserve: true },
     );
     assert.equal(await readFile(path, "utf8"), committedBytes);
-    assert.equal(JSON.parse(committedBytes).plugins.at(-1).name, "fraktik");
+    assert.equal(JSON.parse(committedBytes).plugins.at(-1).name, "nelos");
     await assert.rejects(stat(transaction), /ENOENT/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("shared marketplace recovery honors a committed owner from another install root", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-cross-root-");
+  const root = await canonicalMkdtemp("nelos-marketplace-cross-root-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(
       dirname(path),
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     const ownerJournalPath = join(root, "install-a", "install-transaction.json");
     const ownerTransactionId = "install-a-transaction";
     const options = {
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     };
     const planned = await distributionInstallInternals.ensurePersonalMarketplace(options);
     await distributionInstallInternals.activateMarketplaceBootstrap(
@@ -630,18 +630,18 @@ test("shared marketplace recovery honors a committed owner from another install 
 });
 
 test("shared recovery settles committed marketplace intent before owner evidence", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-order-");
+  const root = await canonicalMkdtemp("nelos-marketplace-order-");
   try {
     const home = root;
     const codexHome = join(root, ".codex");
-    const installRoot = join(codexHome, "distributions", "fraktik");
+    const installRoot = join(codexHome, "distributions", "nelos");
     const binDir = join(root, ".local", "bin");
-    const sourcePath = join(root, "plugins", "fraktik");
+    const sourcePath = join(root, "plugins", "nelos");
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const journalPath = join(installRoot, "install-transaction.json");
     const transactionPath = join(
       dirname(path),
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     const transactionId = "committed-order-probe";
     const expected = {
@@ -649,13 +649,13 @@ test("shared recovery settles committed marketplace intent before owner evidence
       codexHome,
       installRoot,
       binDir,
-      pluginSelector: "fraktik@personal",
+      pluginSelector: "nelos@personal",
       pluginSource: sourcePath,
     };
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
       sourcePath,
     });
     await distributionInstallInternals.activateMarketplaceBootstrap(
@@ -671,7 +671,7 @@ test("shared recovery settles committed marketplace intent before owner evidence
       status: "committed",
       codexCommand: process.execPath,
       statePath: join(installRoot, "install-state.json"),
-      plugin: { selector: "fraktik@personal" },
+      plugin: { selector: "nelos@personal" },
       launchers: [],
     })}\n`);
 
@@ -715,15 +715,15 @@ test("shared recovery settles committed marketplace intent before owner evidence
 });
 
 test("released marketplace journals recover and dual locations fail closed", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-legacy-");
+  const root = await canonicalMkdtemp("nelos-marketplace-legacy-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
-    const installRoot = join(root, ".codex", "distributions", "fraktik");
+    const installRoot = join(root, ".codex", "distributions", "nelos");
     const journalPath = join(installRoot, "install-transaction.json");
     const legacyPath = join(installRoot, "marketplace-transaction.json");
     const sharedPath = join(
       dirname(path),
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     const bytes = Buffer.from('{"name":"personal","plugins":[]}\n');
     const intent = {
@@ -737,8 +737,8 @@ test("released marketplace journals recover and dual locations fail closed", asy
       codexHome: join(root, ".codex"),
       installRoot,
       binDir: join(root, ".local", "bin"),
-      pluginSelector: "fraktik@personal",
-      pluginSource: join(root, "plugins", "fraktik"),
+      pluginSelector: "nelos@personal",
+      pluginSource: join(root, "plugins", "nelos"),
     };
     await mkdir(dirname(path), { recursive: true });
     await mkdir(installRoot, { recursive: true });
@@ -779,7 +779,7 @@ test("released marketplace journals recover and dual locations fail closed", asy
 });
 
 test("marketplace update intent cannot overwrite a concurrent writer", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-cas-");
+  const root = await canonicalMkdtemp("nelos-marketplace-cas-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -788,8 +788,8 @@ test("marketplace update intent cannot overwrite a concurrent writer", async () 
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     const concurrent = '{"name":"personal","plugins":[{"name":"concurrent","source":{"source":"local","path":"/opt/concurrent"}}]}\n';
     await writeFile(path, concurrent);
@@ -803,7 +803,7 @@ test("marketplace update intent cannot overwrite a concurrent writer", async () 
 });
 
 test("marketplace update intent preserves a concurrent mode change", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-mode-cas-");
+  const root = await canonicalMkdtemp("nelos-marketplace-mode-cas-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -814,8 +814,8 @@ test("marketplace update intent preserves a concurrent mode change", async () =>
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     await chmod(path, 0o600);
 
@@ -830,7 +830,7 @@ test("marketplace update intent preserves a concurrent mode change", async () =>
 });
 
 test("marketplace replacement cannot clobber a writer after fingerprint validation", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-link-cas-");
+  const root = await canonicalMkdtemp("nelos-marketplace-link-cas-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
@@ -839,8 +839,8 @@ test("marketplace replacement cannot clobber a writer after fingerprint validati
     const planned = await distributionInstallInternals.ensurePersonalMarketplace({
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     });
     const concurrent = '{"name":"personal","plugins":[{"name":"late-writer","source":{"source":"local","path":"/opt/late"}}]}\n';
     await assert.rejects(
@@ -861,18 +861,18 @@ test("marketplace replacement cannot clobber a writer after fingerprint validati
 });
 
 test("missing canonical target metadata is repaired while conflicts fail closed", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-policy-");
+  const root = await canonicalMkdtemp("nelos-marketplace-policy-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const transaction = join(root, "transaction.json");
     await mkdir(join(root, ".agents", "plugins"), { recursive: true });
-    const minimal = '{"name":"personal","plugins":[{"name":"fraktik","source":{"source":"local","path":"./plugins/fraktik"},"custom":"preserve"}]}\n';
+    const minimal = '{"name":"personal","plugins":[{"name":"nelos","source":{"source":"local","path":"./plugins/nelos"},"custom":"preserve"}]}\n';
     await writeFile(path, minimal);
     const options = {
       home: root,
       marketplacePath: path,
-      pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-      sourcePath: join(root, "plugins", "fraktik"),
+      pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+      sourcePath: join(root, "plugins", "nelos"),
     };
     const beforeRepair = await diagnoseDistribution({
       home: root,
@@ -906,8 +906,8 @@ test("missing canonical target metadata is repaired while conflicts fail closed"
       const document = {
         name: "personal",
         plugins: [{
-          name: "fraktik",
-          source: { source: "local", path: "./plugins/fraktik" },
+          name: "nelos",
+          source: { source: "local", path: "./plugins/nelos" },
           ...conflict,
         }],
       };
@@ -921,16 +921,16 @@ test("missing canonical target metadata is repaired while conflicts fail closed"
 });
 
 test("marketplace ownership and relative-path conflicts fail without writes", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-conflict-");
+  const root = await canonicalMkdtemp("nelos-marketplace-conflict-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     await mkdir(join(root, ".agents", "plugins"), { recursive: true });
-    const target = (source) => ({ name: "fraktik", source });
+    const target = (source) => ({ name: "nelos", source });
     const conflicts = [
-      { name: "personal", plugins: [target({ source: "remote", path: "./plugins/fraktik" })] },
+      { name: "personal", plugins: [target({ source: "remote", path: "./plugins/nelos" })] },
       { name: "personal", plugins: [target({ source: "local", path: "/tmp/foreign" })] },
-      { name: "personal", plugins: [target({ source: "local", path: "./plugins/../plugins/fraktik" })] },
-      { name: "personal", plugins: [target({ source: "local", path: "./plugins/fraktik" }), target({ source: "local", path: "./plugins/fraktik" })] },
+      { name: "personal", plugins: [target({ source: "local", path: "./plugins/../plugins/nelos" })] },
+      { name: "personal", plugins: [target({ source: "local", path: "./plugins/nelos" }), target({ source: "local", path: "./plugins/nelos" })] },
       { name: "foreign", plugins: [] },
       { name: "personal", plugins: "not-an-array" },
     ];
@@ -941,8 +941,8 @@ test("marketplace ownership and relative-path conflicts fail without writes", as
         distributionInstallInternals.ensurePersonalMarketplace({
           home: root,
           marketplacePath: path,
-          pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-          sourcePath: join(root, "plugins", "fraktik"),
+          pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+          sourcePath: join(root, "plugins", "nelos"),
         }),
         /conflicting local marketplace/,
       );
@@ -951,27 +951,27 @@ test("marketplace ownership and relative-path conflicts fail without writes", as
 
     const customPath = join(root, "custom", "marketplace.json");
     await mkdir(join(root, "custom"), { recursive: true });
-    const customBytes = '{"name":"personal","plugins":[{"name":"fraktik","source":{"source":"local","path":"./plugins/fraktik"}}]}\n';
+    const customBytes = '{"name":"personal","plugins":[{"name":"nelos","source":{"source":"local","path":"./plugins/nelos"}}]}\n';
     await writeFile(customPath, customBytes);
     await assert.rejects(
       distributionInstallInternals.ensurePersonalMarketplace({
         home: root,
         marketplacePath: customPath,
-        pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-        sourcePath: join(root, "plugins", "fraktik"),
+        pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+        sourcePath: join(root, "plugins", "nelos"),
       }),
       /conflicting local marketplace/,
     );
     assert.equal(await readFile(customPath, "utf8"), customBytes);
 
-    const duplicateKeyBytes = '{"name":"personal","plugins":[],"plugins":[{"name":"fraktik","source":{"source":"local","path":"./plugins/fraktik"}}]}\n';
+    const duplicateKeyBytes = '{"name":"personal","plugins":[],"plugins":[{"name":"nelos","source":{"source":"local","path":"./plugins/nelos"}}]}\n';
     await writeFile(path, duplicateKeyBytes);
     await assert.rejects(
       distributionInstallInternals.ensurePersonalMarketplace({
         home: root,
         marketplacePath: path,
-        pluginIdentity: { name: "fraktik", marketplaceName: "personal" },
-        sourcePath: join(root, "plugins", "fraktik"),
+        pluginIdentity: { name: "nelos", marketplaceName: "personal" },
+        sourcePath: join(root, "plugins", "nelos"),
       }),
       /malformed local marketplace/,
     );
@@ -980,7 +980,7 @@ test("marketplace ownership and relative-path conflicts fail without writes", as
 });
 
 test("marketplace semantic conflicts do not echo arbitrary plugin names", async () => {
-  const root = await canonicalMkdtemp("fraktik-marketplace-secret-");
+  const root = await canonicalMkdtemp("nelos-marketplace-secret-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const secret = "TOP_SECRET_PLUGIN_NAME";
@@ -1009,7 +1009,7 @@ test("marketplace semantic conflicts do not echo arbitrary plugin names", async 
 });
 
 test("doctor distinguishes safe bootstrap-ready marketplace states", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-bootstrap-");
+  const root = await canonicalMkdtemp("nelos-doctor-bootstrap-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const missing = await diagnoseDistribution({
@@ -1031,13 +1031,13 @@ test("doctor distinguishes safe bootstrap-ready marketplace states", async () =>
     });
     const readyCheck = ready.checks.find(({ id }) => id === "marketplace");
     assert.equal(readyCheck.status, "warning");
-    assert.match(readyCheck.summary, /ready for a Fraktik entry/);
+    assert.match(readyCheck.summary, /ready for a Nelos entry/);
     assert.equal(await readFile(path, "utf8"), unrelated);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("doctor bounds malformed marketplace content without echoing it", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-malformed-marketplace-");
+  const root = await canonicalMkdtemp("nelos-doctor-malformed-marketplace-");
   try {
     const path = join(root, ".agents", "plugins", "marketplace.json");
     await mkdir(join(root, ".agents", "plugins"), { recursive: true });
@@ -1054,7 +1054,7 @@ test("doctor bounds malformed marketplace content without echoing it", async () 
 });
 
 test("doctor is read-only and fails closed on a PATH shadow", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-");
+  const root = await canonicalMkdtemp("nelos-doctor-");
   try {
     const home = join(root, "home");
     const shadow = join(root, "shadow");
@@ -1071,16 +1071,16 @@ test("doctor is read-only and fails closed on a PATH shadow", async () => {
 });
 
 test("doctor bounds malformed state, endpoint descriptors, and foreign marketplaces", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-adversarial-");
+  const root = await canonicalMkdtemp("nelos-doctor-adversarial-");
   try {
     const home = join(root, "home");
     const codexHome = join(home, ".codex");
-    const installRoot = join(codexHome, "distributions", "fraktik");
+    const installRoot = join(codexHome, "distributions", "nelos");
     await mkdir(installRoot, { recursive: true });
-    await writeFile(join(installRoot, "install-state.json"), '{"schemaVersion":1,"distribution":"fraktik","plugin":null}\n');
+    await writeFile(join(installRoot, "install-state.json"), '{"schemaVersion":1,"distribution":"nelos","plugin":null}\n');
     const outside = join(root, "outside");
     await mkdir(outside, { recursive: true });
-    await writeFile(join(outside, "marketplace.json"), '{"name":"personal","plugins":[{"name":"fraktik","source":{"source":"local","path":"/tmp/foreign-source"}},{"name":"extra","source":{"source":"local","path":"/tmp/extra"}}]}\n');
+    await writeFile(join(outside, "marketplace.json"), '{"name":"personal","plugins":[{"name":"nelos","source":{"source":"local","path":"/tmp/foreign-source"}},{"name":"extra","source":{"source":"local","path":"/tmp/extra"}}]}\n');
     await mkdir(join(home, ".agents"), { recursive: true });
     await symlink(outside, join(home, ".agents", "plugins"));
     const secret = "do-not-echo-this-token";
@@ -1094,7 +1094,7 @@ test("doctor bounds malformed state, endpoint descriptors, and foreign marketpla
 });
 
 test("doctor does not claim a non-Codex Unix socket is compatible", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-socket-");
+  const root = await canonicalMkdtemp("nelos-doctor-socket-");
   const socketPath = join(root, "not-codex.sock");
   const server = net.createServer((socket) => socket.end());
   try {
@@ -1111,7 +1111,7 @@ test("doctor does not claim a non-Codex Unix socket is compatible", async () => 
 });
 
 test("doctor binds selected Codex and PATH launchers to recorded install state", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-binding-");
+  const root = await canonicalMkdtemp("nelos-doctor-binding-");
   try {
     const fixture = await createDoctorFixture(root);
     const healthy = await diagnoseDistribution({
@@ -1174,7 +1174,7 @@ test("doctor binds selected Codex and PATH launchers to recorded install state",
 });
 
 test("doctor verifies release, skill, and plugin bytes rather than provenance alone", async () => {
-  const root = await canonicalMkdtemp("fraktik-doctor-integrity-");
+  const root = await canonicalMkdtemp("nelos-doctor-integrity-");
   try {
     const fixture = await createDoctorFixture(root);
     const diagnose = () => diagnoseDistribution({

@@ -1,6 +1,6 @@
 # Webs and Terminology
 
-Codex exposes several kinds of work that are easy to conflate. Fraktik
+Codex exposes several kinds of work that are easy to conflate. Nelos
 uses these terms consistently:
 
 | Term | Meaning |
@@ -14,12 +14,12 @@ uses these terms consistently:
 | **Web member** | A spinoff or subagent that belongs to a web. |
 | **Web** | One queen and the queen's direct web members, identified by a shared web ID. |
 
-Queen, spinoff, web member, and web are Fraktik vocabulary. See the Codex
+Queen, spinoff, web member, and web are Nelos vocabulary. See the Codex
 documentation for the native [subagent](https://developers.openai.com/codex/subagents)
 and [app-server thread](https://developers.openai.com/codex/app-server) models.
 
 Use *parent* and *child* only for actual app-server thread topology.
-`fraktik spinoff` creates a separate top-level thread with `thread/start`;
+`nelos spinoff` creates a separate top-level thread with `thread/start`;
 queen and spinoff describe its web roles, not its thread topology.
 
 ## Title Grammar
@@ -33,7 +33,7 @@ direct web member have web title markers:
 🕸️ A1 · Second spinoff
 ```
 
-A spinoff can also become queen of a nested web. Fraktik allocates a
+A spinoff can also become queen of a nested web. Nelos allocates a
 hierarchical web ID and retains both roles in its title:
 
 ```text
@@ -50,14 +50,14 @@ not substitutes for stable task IDs.
 When Codex exposes native project/thread tools, create durable members through
 those tools so the desktop sidebar receives the host's normal lifecycle events.
 For a high-level objective, run the queen-authored contract through
-`fraktik plan slices --spec-file -`, launch only its current dependency wave,
+`nelos plan slices --spec-file -`, launch only its current dependency wave,
 and pass each slice's `route.launch.nativeTask` to native creation. See
 [Slice Planning and Intelligence Routing](slice-planning.md).
 Record topology without connecting to an app-server socket:
 
 ```bash
-fraktik web begin --registry-only --title "Release planning"
-fraktik web join --registry-only --id A1 --title "API changes" \
+nelos web begin --registry-only --title "Release planning"
+nelos web join --registry-only --id A1 --title "API changes" \
   --queen-thread-id QUEEN_THREAD_ID --thread-id MEMBER_THREAD_ID
 ```
 
@@ -93,7 +93,7 @@ an agent here. For deliberate standalone development, start a development app
 server and pass its absolute socket explicitly:
 
 ```bash
-fraktik spinoff \
+nelos spinoff \
   --title "API changes" \
   --prompt "Implement the API changes and leave verification in this task's output." \
   --cwd "/absolute/path/to/spinoff-worktree" \
@@ -110,7 +110,7 @@ When web visibility is useful, built-in subagent tools do not always expose the
 new subagent child thread's ID to the queen. In that case, begin the web first:
 
 ```bash
-fraktik web begin --socket "/absolute/path/app-server.sock"
+nelos web begin --socket "/absolute/path/app-server.sock"
 ```
 
 Pass the returned `webId`, queen `threadId`, and a short title in the subagent's
@@ -118,14 +118,14 @@ initial instructions. The subagent renames its child thread before doing other
 work:
 
 ```bash
-fraktik web join --id A1 --title "Architecture scan" \
+nelos web join --id A1 --title "Architecture scan" \
   --queen-thread-id QUEEN_THREAD_ID \
   --socket "/absolute/path/app-server.sock"
 ```
 
 Both commands are idempotent. `web begin` reuses the current task's outbound
 web, and `web join` reuses matching inbound membership. Allocation and
-membership are stored under the user's `fraktik/webs` state directory so
+membership are stored under the user's `nelos/webs` state directory so
 nested webs do not depend on parsing sidebar titles as their source of truth.
 
 Socket-backed `web begin` returns a verified `liveTitle`. Registry-only setup
@@ -137,7 +137,7 @@ At a queen checkpoint, collect one current bounded result from every direct,
 active member:
 
 ```bash
-fraktik web collect --queen-thread-id "$CODEX_THREAD_ID" \
+nelos web collect --queen-thread-id "$CODEX_THREAD_ID" \
   --socket "/absolute/path/app-server.sock"
 ```
 
@@ -157,8 +157,8 @@ For a durable execution web, inspect the gate and record a decision after the
 queen has reviewed the current bounded result:
 
 ```bash
-fraktik web readiness --id WEB_ID
-fraktik web accept --work-unit-id UNIT_ID --member-thread-id MEMBER_ID \
+nelos web readiness --id WEB_ID
+nelos web accept --work-unit-id UNIT_ID --member-thread-id MEMBER_ID \
   --source-turn-id TURN_ID --result-file result-envelope.json
 ```
 
@@ -186,7 +186,7 @@ set the decorated title there instead.
 Web title markers represent durable web lineage and persist for the task's
 lifetime.
 A web ID becomes reusable only after its queen and every task carrying that ID
-or a descendant ID are observed archived through `fraktik archive` or a
+or a descendant ID are observed archived through `nelos archive` or a
 host-provided lifecycle observation. Until then its compact ID remains reserved;
 the local cache never releases it based on a manually asserted archive. Sidebar
 activity state, rather than removal of the marker, indicates whether a member is

@@ -7,7 +7,7 @@ import { installDistribution } from "../src/distribution-install.mjs";
 
 function printUsage() {
   process.stdout.write(`Usage:
-  fraktik-install-distribution [options]
+  nelos-install-distribution [options]
 
 Installs the CLI, user-wide task-management skill, and configured local Codex
 plugin from one immutable distribution release. Existing foreign launchers or
@@ -18,8 +18,8 @@ Options:
   --codex-home PATH    Codex state root (default: CODEX_HOME or ~/.codex)
   --install-root PATH  Immutable release/state root under CODEX_HOME
   --bin-dir PATH       Managed PATH directory (default: ~/.local/bin)
-  --plugin SELECTOR    Configured local plugin (default: fraktik@personal)
-  --plugin-source PATH Exact local source opt-in (default: ~/plugins/fraktik)
+  --plugin SELECTOR    Configured local plugin (default: nelos@personal)
+  --plugin-source PATH Exact local source opt-in (default: ~/plugins/nelos)
   --marketplace PATH   Local marketplace.json used for live desktop activation
   --socket PATH        Running Codex app-server control socket
   --codex PATH         Trusted Codex CLI executable
@@ -95,9 +95,9 @@ async function main() {
 main().catch((error) => {
   if (error instanceof AggregateError) {
     for (const nested of error.errors) {
-      process.stderr.write(`fraktik-install-distribution: ${nested.message}\n`);
+      process.stderr.write(`nelos-install-distribution: ${nested.message}\n`);
     }
   }
-  process.stderr.write(`fraktik-install-distribution: ${error.message}\n`);
+  process.stderr.write(`nelos-install-distribution: ${error.message}\n`);
   process.exitCode = 1;
 });

@@ -50,9 +50,9 @@ function memberPrompt(slice) {
     `Deliverable: ${slice.deliverable}`,
     "Acceptance criteria:",
     criteria,
-    "Finish with exactly one final fenced fraktik-result block and no trailing prose.",
+    "Finish with exactly one final fenced nelos-result block and no trailing prose.",
     "Use this result shape. Change outcome when needed; succeeded has no blockers, while blocked has at least one blocker and a recoveryHint:",
-    "```fraktik-result",
+    "```nelos-result",
     JSON.stringify(resultTemplate),
     "```",
   ].join("\n");
@@ -85,7 +85,7 @@ function correctionPrompt(member) {
   return [
     `Correct the prior task result: ${member.attentionReason}.`,
     identity + blockers,
-    "Finish with exactly one valid final fraktik-result block and no trailing prose.",
+    "Finish with exactly one valid final nelos-result block and no trailing prose.",
   ].join(" ");
 }
 

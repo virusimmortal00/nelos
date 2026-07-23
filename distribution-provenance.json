@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "distribution": "fraktik",
-  "revision": "0.2.1",
-  "integrity": "sha256:4623d0eaef5595383dafe340356689e6ef25282329d4685de1fd2c18a4c1d963",
-  "skillIntegrity": "sha256:3f926c29c925301fcc242e836acf6edc245ceb4c04b05c3d2937a7401cde71ce",
+  "distribution": "nelos",
+  "revision": "0.3.0",
+  "integrity": "sha256:53e4201bb7cf284e150d6410b445669959b916e7d62e29ba6d7127b9a5f2f3fe",
+  "skillIntegrity": "sha256:a4ca284f5980d27f831f8bbd95bfc6c8dc79effdf08bb181d4b95377899307c5",
   "requiredCliCommands": [
     "doctor",
     "spinoff",

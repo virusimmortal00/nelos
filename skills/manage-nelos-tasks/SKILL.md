@@ -1,15 +1,15 @@
 ---
-name: manage-fraktik-tasks
-description: Plan multi-stream feature or fix work into dependency-safe waves, choose bounded built-in subagents or durable Codex tasks, and execute Fraktik's machine-generated next actions.
+name: manage-nelos-tasks
+description: Plan multi-stream feature or fix work into dependency-safe waves, choose bounded built-in subagents or durable Codex tasks, and execute Nelos's machine-generated next actions.
 ---
 
-# Manage Fraktik Tasks
+# Manage Nelos Tasks
 
 Use this skill for work that genuinely benefits from delegation or coordination.
 The only judgment this skill asks the queen to make before launch is the shape
 of the work: whether a slice is a bounded **subagent** or a durable **spinoff**,
 and what a good slice contract says. The queen also decides whether current
-evidence meets the written acceptance criteria. Fraktik's bundled tools own
+evidence meets the written acceptance criteria. Nelos's bundled tools own
 protocol, sequencing, titles, result format, and launch settings.
 
 ## Make the Two Judgments
@@ -36,7 +36,7 @@ Send a JSON plan with `schemaVersion`, `objective`, optional `maxParallel`, and
 
 ## Follow the One Desktop Path
 
-Call the `fraktik_plan_slices` tool with the plan as its `plan` argument.
+Call the `nelos_plan_slices` tool with the plan as its `plan` argument.
 Then execute only the
 returned `nextAction`; do not reconstruct a procedure from memory.
 
@@ -47,7 +47,7 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   Never omit, substitute, or inherit a decided `nativeTask` field. If the native
   tool requires explicit model authorization or cannot accept the exact route,
   stop and obtain that authorization or report `attention`; do not launch.
-  After launch returns a task ID, call the `fraktik_intelligence_verify` tool
+  After launch returns a task ID, call the `nelos_intelligence_verify` tool
   with that ID and the exact `model`/`thinking` values (`thinking` maps to
   `effort`). Include `turnId` when known. Do not wait, read, accept, or
   synthesize the task until it returns `verified: true`; any mismatch stops

@@ -49,11 +49,11 @@ function invalidateInspection(inspection, detail) {
 
 function printUsage() {
   process.stdout.write(`Usage:
-  fraktik-verify-distribution [--home PATH] [--codex-home PATH] [--install-root PATH] [--codex PATH]
+  nelos-verify-distribution [--home PATH] [--codex-home PATH] [--install-root PATH] [--codex PATH]
 
-Compares this distribution's provenance with the fraktik command on PATH,
-the user-wide manage-fraktik-tasks skill, and the cached fraktik plugin.
-The check is read-only and never executes the PATH-resolved fraktik command.
+Compares this distribution's provenance with the nelos command on PATH,
+the user-wide manage-nelos-tasks skill, and the cached nelos plugin.
+The check is read-only and never executes the PATH-resolved nelos command.
 Pass --codex with an explicitly trusted Codex executable to also verify the
 active plugin registry; install-state.json never authorizes code execution.
 CODEX_HOME defaults to ~/.codex.
@@ -105,7 +105,7 @@ async function validateInstallationPaths(installation, { codexHome, installRoot 
   if (
     resolve(installation.installRoot ?? "") !== installRoot ||
     resolve(installation.skillPath ?? "") !==
-      join(codexHome, "skills", "manage-fraktik-tasks") ||
+      join(codexHome, "skills", "manage-nelos-tasks") ||
     !isAbsolute(installation.plugin?.sourcePath ?? "") ||
     selectorSeparator <= 0 ||
     selectorSeparator === selector.length - 1 ||
@@ -182,7 +182,7 @@ async function main() {
   );
   const installRoot = resolve(
     options.installRoot ??
-      process.env.FRAKTIK_INSTALL_ROOT ??
+      process.env.NELOS_INSTALL_ROOT ??
       join(codexHome, "distributions", PLUGIN_NAME),
   );
   let installation = null;
@@ -222,14 +222,14 @@ async function main() {
     installedRoot === bundledRoot ? installation.provenance : bundledExpected;
   const inspectionPath = safeInspectionPath(process.env.PATH);
   const cliCandidates = await listPathCommands(
-    "fraktik",
+    "nelos",
     inspectionPath.pathValue,
   );
   const cliPath = cliCandidates[0]?.path ?? null;
   const skillProvenancePath = join(
     codexHome,
     "skills",
-    "manage-fraktik-tasks",
+    "manage-nelos-tasks",
     PROVENANCE_FILENAME,
   );
   const [inspectedCli, skillProvenance, pluginProvenances] = await Promise.all([
@@ -301,7 +301,7 @@ async function main() {
       }
     }
     const actualSkillIntegrity = await computeFileIntegrity(
-      join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md"),
+      join(codexHome, "skills", "manage-nelos-tasks", "SKILL.md"),
     ).catch(() => null);
     if (actualSkillIntegrity !== bundledExpected.skillIntegrity) {
       invalidateInspection(
@@ -349,7 +349,7 @@ async function main() {
       );
     }
     const expectedCliPath = await realpath(
-      join(installation.releasePath, "bin", "fraktik"),
+      join(installation.releasePath, "bin", "nelos"),
     ).catch(() => null);
     if (cliProvenance?.realPath !== expectedCliPath) {
       invalidateInspection(
@@ -381,7 +381,7 @@ async function main() {
       }
     }
     const actualSkillIntegrity = await computeFileIntegrity(
-      join(codexHome, "skills", "manage-fraktik-tasks", "SKILL.md"),
+      join(codexHome, "skills", "manage-nelos-tasks", "SKILL.md"),
     ).catch(() => null);
     if (actualSkillIntegrity !== installedExpected.skillIntegrity) {
       invalidateInspection(
@@ -503,6 +503,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`fraktik-verify-distribution: ${error.message}\n`);
+  process.stderr.write(`nelos-verify-distribution: ${error.message}\n`);
   process.exitCode = 1;
 });
