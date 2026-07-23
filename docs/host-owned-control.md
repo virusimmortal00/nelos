@@ -115,7 +115,7 @@ distinguish read-only observation from task mutations. Endpoint values and
 tokens must not enter logs or persisted web state. Network transports are out
 of scope for schema version 1.
 
-## Upgrade, uninstall, and migration
+## Upgrade and uninstall
 
 Host upgrades may rotate the endpoint and advertise a new compatible protocol
 revision while old clients drain. Incompatible changes require a new descriptor
@@ -124,10 +124,8 @@ state; it never stops the host app server. Host uninstall owns daemon/socket
 cleanup after verifying ownership.
 
 Developers may continue `npm run dev:app-server`, `--socket`, or the legacy
-environment variable. Migration is additive: hosts first inject the versioned
-descriptor, then grant the plugin/task sandbox access, then remove dependence on
-the conventional socket path. The developer launcher remains a test tool, not
-the ordinary installation path.
+environment variable. The developer launcher remains a test tool, not the
+ordinary installation path.
 
 ## Fallback boundary
 

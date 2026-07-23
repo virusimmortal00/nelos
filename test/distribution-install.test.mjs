@@ -1925,7 +1925,7 @@ test("a nonstandard plugin source requires an exact destructive-replacement opt-
   }
 });
 
-test("known legacy fingerprints remain allowlisted for the live migration", () => {
+test("known historical fingerprints remain allowlisted", () => {
   assert.ok(
     distributionInstallInternals.LEGACY_HASHES.get("nelos").has(
       "67daffba89630769986e7b902925dd4d340b4121d5752ecca460b77afd45f8c1",

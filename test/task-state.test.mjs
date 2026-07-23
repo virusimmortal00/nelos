@@ -18,7 +18,7 @@ import {
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
 
 test("pre-queen records retain lineage and rewrite to the current schema", async () => {
-  const root = await mkdtemp(join(tmpdir(), "nelos-state-migration-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-state-upgrade-"));
   const previousStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = root;
   const taskDirectory = join(root, "nelos", "tasks");

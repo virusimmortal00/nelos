@@ -78,14 +78,6 @@ the app server, stamp `observedAt`, and give the result a bounded `freshUntil`
 lease. The next read still contacts the source of truth; the lease only makes
 cache age explicit for diagnostics and future projections.
 
-For a migrated or recovered record that is no longer available from the current
-app server, ordinary `archive` fails without changing the local registry. Only
-after reviewing that error, use `archive MEMBER_THREAD_ID --detach` to hide the
-local task and topology records. Detachment is auditable, preserves web lineage,
-and reports `serverArchiveState: "not-attempted"`; it never claims an upstream
-archive. Use `archive MEMBER_THREAD_ID --restore-detached` to reverse only that
-local detachment. Neither operation contacts an app server.
-
 ## Development-only Standalone CLI Workflow
 
 This is development documentation only. The task-management skill never directs

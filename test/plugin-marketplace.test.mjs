@@ -10,8 +10,8 @@ test("the repository marketplace exposes the root Nelos plugin", async () => {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const entry = marketplace.plugins.find(({ name }) => name === manifest.name);
 
-  assert.equal(marketplace.name, "nelos");
-  assert.equal(marketplace.interface.displayName, "Nelos");
+  assert.equal(marketplace.name, "nelos-marketplace");
+  assert.equal(marketplace.interface.displayName, "Nelos Marketplace");
   assert.deepEqual(entry, {
     name: "nelos",
     source: { source: "local", path: "./" },

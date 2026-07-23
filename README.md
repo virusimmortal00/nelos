@@ -16,13 +16,15 @@ not sponsored, endorsed, or maintained by OpenAI.
 
 ## Install in Codex
 
-In the Codex app, open **Plugins**, add a GitHub marketplace source for
-`virusimmortal00/nelos`, then install **Nelos** from the **Nelos** source.
-The equivalent terminal commands are:
+This repository is both the standalone **Nelos** plugin and a convenient
+one-plugin marketplace named **Nelos Marketplace**. To install Nelos by itself,
+open **Plugins** in the Codex app, add `virusimmortal00/nelos` as a GitHub
+marketplace source, then install **Nelos** from **Nelos Marketplace**. The
+equivalent terminal commands are:
 
 ```bash
 codex plugin marketplace add virusimmortal00/nelos --ref main
-codex plugin add nelos@nelos
+codex plugin add nelos@nelos-marketplace
 ```
 
 Then enable Nelos's bundled planning tools. Codex deliberately keeps
@@ -30,7 +32,7 @@ plugin-bundled MCP servers disabled until you opt in, so add this block to
 `~/.codex/config.toml`:
 
 ```toml
-[plugins."nelos@nelos".mcp_servers."nelos"]
+[plugins."nelos@nelos-marketplace".mcp_servers."nelos"]
 enabled = true
 ```
 
@@ -39,29 +41,38 @@ tools. A running desktop session can retain an old skill locator after the
 plugin is installed or updated. If Codex reports an advertised skill path that
 is unavailable or one directory above the versioned installed copy, restart
 before changing anything in the plugin cache; if it persists, remove and
-reinstall `nelos@nelos`, then restart once more. That is the whole setup: no
-distribution installer, no manual copying, and no `PATH` changes. The bundled
-tools run through Node.js, so use Node.js 20 or newer on macOS or Linux. The
-current distribution does not support Windows. The `nelos` command-line
-interface is a separate, optional surface for contributors and automation
-(see below); nothing in the installed plugin depends on it.
+reinstall `nelos@nelos-marketplace`, then restart once more. That is the whole
+setup: no distribution installer, no manual copying, and no `PATH` changes.
+The bundled tools run through Node.js, so use Node.js 20 or newer on macOS or
+Linux. The current distribution does not support Windows. The `nelos`
+command-line interface is a separate, optional surface for contributors and
+automation (see below); nothing in the installed plugin depends on it.
 
-### Upgrading from Fraktik
+### Add Nelos to another marketplace
 
-Nelos was previously published as **Fraktik** (through plugin 0.2.1). The
-rename changes the install identity, so an existing Fraktik install does not
-upgrade in place. Remove the old plugin and marketplace source, delete any
-`[plugins."fraktik@fraktik"...]` blocks from `~/.codex/config.toml`, then
-follow the install steps above:
+Nelos does not have to be installed from its bundled one-plugin marketplace.
+A team or personal marketplace can include the standalone plugin alongside
+other plugins by adding this entry to its `plugins` array:
 
-```bash
-codex plugin remove fraktik@fraktik
-codex plugin marketplace remove fraktik
+```json
+{
+  "name": "nelos",
+  "source": {
+    "source": "url",
+    "url": "https://github.com/virusimmortal00/nelos.git",
+    "ref": "main"
+  },
+  "policy": {
+    "installation": "AVAILABLE",
+    "authentication": "ON_INSTALL"
+  },
+  "category": "Developer Tools"
+}
 ```
 
-If the old distribution installer was ever used, its `fraktik` CLI launchers
-and user-wide skill are also superseded; reinstall from source (below) to get
-the `nelos` equivalents.
+Install selectors and configuration keys always use
+`nelos@<marketplace-name>`. Replace `<marketplace-name>` with the containing
+marketplace's top-level `name`.
 
 ## Start here
 
@@ -312,16 +323,9 @@ topology plus a disposable last lifecycle observation, never an authority on
 archival state: app-server-backed reads reconcile that cache on every read, and
 desktop-only lifecycle remains unobserved until Codex exposes the same host
 observation bridge. There is no registry-only archive command or required
-follow-up sync step. If a migrated record's normal `archive` fails because this
-machine has no upstream rollout or the task is unavailable, local archive state
-remains unchanged. After reviewing that failure, `archive THREAD_ID --detach`
-hides only the local task and topology records, explicitly reports
-`serverArchiveState: "not-attempted"`, preserves lineage, and appends a local
-audit event; `archive THREAD_ID --restore-detached` reverses that local hiding
-without contacting or changing the upstream task. A host-injected app-server
-endpoint remains a future integration path; the versioned host contract and
-fallback boundary are recorded in
-[Host-owned Codex control](docs/host-owned-control.md). See
+follow-up sync step. A host-injected app-server endpoint remains a future
+integration path; the versioned host contract and fallback boundary are
+recorded in [Host-owned Codex control](docs/host-owned-control.md). See
 [webs and terminology](docs/webs.md) for the full title grammar, CLI workflow,
 and web lifecycle.
 
@@ -392,8 +396,8 @@ in [Installation and Distribution Trust](docs/installation.md).
   CI.
 - `src/` contains the shared app-server transport, task and web models,
   persistence, compatibility checks, and orchestration behavior.
-- `.agents/plugins/marketplace.json` exposes this repository as a GitHub
-  marketplace source for the Codex app.
+- `.agents/plugins/marketplace.json` exposes the standalone plugin through the
+  repository's one-plugin **Nelos Marketplace** catalog.
 - `.codex-plugin/` defines the plugin manifest and its presentation metadata.
 - `.mcp.json` declares the plugin's bundled MCP server. It is generated by
   `npm run generate:mcp-config` and pinned to verified host launch behavior;

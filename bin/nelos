@@ -174,7 +174,7 @@ List options:
 Archive options:
   Archival is an app-server effect. The local lifecycle cache is updated only
   from the app server's successful response or a later live observation.
-  --detach              Explicitly hide a migrated local task/topology record without
+  --detach              Explicitly hide a local task/topology record without
                          contacting an app server. Records an auditable local-only
                          detachment; it never claims the upstream task was archived.
   --restore-detached    Restore records hidden by --detach. This is local-only and
@@ -2416,7 +2416,7 @@ async function runArchive(options, client) {
   } catch (error) {
     throw new Error(
       `app-server archive failed for ${threadId}: ${error.message}; no local records were changed. ` +
-      `Use \`nelos archive ${threadId} --detach\` only to explicitly hide a migrated historical record.`,
+      `Use \`nelos archive ${threadId} --detach\` only after confirming the task is unavailable upstream.`,
     );
   }
   const observation = await recordConfirmedArchive(threadId, title);
