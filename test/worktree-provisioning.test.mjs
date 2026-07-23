@@ -19,11 +19,11 @@ async function git(args, cwd) {
 }
 
 async function fixture(t) {
-  const root = await mkdtemp(join(process.cwd(), ".fraktik-worktree-"));
+  const root = await mkdtemp(join(process.cwd(), ".nelos-worktree-"));
   const source = join(root, "source");
   await execFile("git", ["init", "--initial-branch=main", source]);
   await git(["config", "user.email", "tests@example.invalid"], source);
-  await git(["config", "user.name", "Fraktik Tests"], source);
+  await git(["config", "user.name", "Nelos Tests"], source);
   await writeFile(join(source, "README.md"), "base\n");
   await git(["add", "README.md"], source);
   await git(["commit", "-m", "base"], source);
@@ -44,7 +44,7 @@ function request(fixtureValue, overrides = {}) {
     ownerTaskId: "queen-thread",
     sourcePath: fixtureValue.source,
     worktreePath: join(fixtureValue.root, "member-worktree"),
-    branch: "fraktik/implement-api",
+    branch: "nelos/implement-api",
     baseRevision: "HEAD",
     operation: "create",
     ...overrides,
@@ -65,7 +65,7 @@ test("provisioning creates one clean branch/worktree and a private durable recei
   assert.equal(result.receipt.operation, "create");
   assert.equal(result.receipt.worktreePath, join(current.root, "member-worktree"));
   assert.equal(result.receipt.baseCommit, current.baseCommit);
-  assert.equal(await git(["branch", "--show-current"], result.receipt.worktreePath), "fraktik/implement-api");
+  assert.equal(await git(["branch", "--show-current"], result.receipt.worktreePath), "nelos/implement-api");
   assert.equal(await git(["rev-parse", "HEAD"], result.receipt.worktreePath), current.baseCommit);
   assert.equal(await git(["status", "--porcelain=v1"], result.receipt.worktreePath), "");
   assert.deepEqual(await current.receiptStore.read("launch-worktree-1"), result.receipt);

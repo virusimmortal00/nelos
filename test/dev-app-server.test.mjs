@@ -33,7 +33,7 @@ test("dev app-server arguments preserve explicit paths and timeouts", () => {
   assert.deepEqual(
     parseDevAppServerArgs([
       "--socket",
-      "/tmp/fraktik dev.sock",
+      "/tmp/nelos dev.sock",
       "--codex",
       "/usr/local/bin/codex",
       "--startup-timeout-ms",
@@ -45,7 +45,7 @@ test("dev app-server arguments preserve explicit paths and timeouts", () => {
       codexCommand: "/usr/local/bin/codex",
       help: false,
       shutdownTimeoutMs: 900,
-      socketPath: "/tmp/fraktik dev.sock",
+      socketPath: "/tmp/nelos dev.sock",
       startupTimeoutMs: 2500,
     },
   );
@@ -208,7 +208,7 @@ test("the launcher rejects a socket directly under a writable temp parent", asyn
   const unsafeParent = process.platform === "darwin" ? "/private/tmp" : "/tmp";
   const socketPath = join(
     unsafeParent,
-    `fraktik-insecure-parent-${randomUUID()}.sock`,
+    `nelos-insecure-parent-${randomUUID()}.sock`,
   );
   const mock = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};

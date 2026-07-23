@@ -26,12 +26,12 @@ async function git(args, cwd) {
 }
 
 async function fixture(t) {
-  const root = await mkdtemp(join(process.cwd(), ".fraktik-integration-"));
+  const root = await mkdtemp(join(process.cwd(), ".nelos-integration-"));
   const source = join(root, "source");
   const worktree = join(root, "member-worktree");
   await execFile("git", ["init", "--initial-branch=main", source]);
   await git(["config", "user.email", "tests@example.invalid"], source);
-  await git(["config", "user.name", "Fraktik Tests"], source);
+  await git(["config", "user.name", "Nelos Tests"], source);
   await writeFile(join(source, "README.md"), "base\n");
   await git(["add", "README.md"], source);
   await git(["commit", "-m", "base"], source);
@@ -44,7 +44,7 @@ async function fixture(t) {
     ownerTaskId: "queen-thread",
     sourcePath: source,
     worktreePath: worktree,
-    branch: "fraktik/member",
+    branch: "nelos/member",
     baseRevision: "HEAD",
     operation: "create",
   }, { receiptStore, withRepositoryLock: noRepositoryLock });
@@ -99,7 +99,7 @@ test("deterministic worktree planning derives stable collision-resistant targets
 
   assert.deepEqual(first, second);
   assert.equal(first.actionId, "launch:A1:member:api:r2:a3");
-  assert.match(first.branch, /^fraktik\/a1-member-api-r2-[a-f0-9]{10}$/);
+  assert.match(first.branch, /^nelos\/a1-member-api-r2-[a-f0-9]{10}$/);
   assert.match(first.worktreePath, /a1-member-api-r2-[a-f0-9]{10}$/);
 });
 

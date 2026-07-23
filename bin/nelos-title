@@ -17,8 +17,8 @@ import {
 
 function printUsage() {
   process.stdout.write(`Usage:
-  fraktik-title set TITLE [options]
-  fraktik-title get [options]
+  nelos-title set TITLE [options]
+  nelos-title get [options]
 
 Options:
   --thread-id ID    Task ID (defaults to CODEX_THREAD_ID)
@@ -84,8 +84,8 @@ async function main() {
   const threadId = resolveThreadId(options.threadId);
   const timeoutMs = parsePositiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "--timeout-ms");
   const client = await openAppServerClient({
-    clientName: "fraktik-title",
-    clientTitle: "Fraktik Title CLI",
+    clientName: "nelos-title",
+    clientTitle: "Nelos Title CLI",
     socketPath: options.socketPath,
     timeoutMs,
   });
@@ -150,6 +150,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`fraktik-title: ${error.message}\n`);
+  process.stderr.write(`nelos-title: ${error.message}\n`);
   process.exitCode = 1;
 });

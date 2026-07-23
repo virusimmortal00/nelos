@@ -4,9 +4,9 @@ Status: proposed host contract; repository compatibility seam implemented July 2
 
 ## Decision
 
-Codex should own the app-server process used by the task that loads Fraktik.
+Codex should own the app-server process used by the task that loads Nelos.
 The host starts or reuses that process as part of its own session lifecycle and
-passes the plugin a scoped, versioned control endpoint. Fraktik connects as
+passes the plugin a scoped, versioned control endpoint. Nelos connects as
 a client; it does not install another Codex CLI, bootstrap a system service, or
 stop a process it did not create.
 
@@ -69,7 +69,7 @@ all clients are gone, no turn or approval is active, and a bounded idle grace
 period expires. New clients cancel pending shutdown. Shutdown removes only a
 socket whose recorded filesystem identity still matches the host-owned socket.
 Desktop may keep its own app server alive for broader product reasons; that is
-still host policy, not a Fraktik requirement.
+still host policy, not a Nelos requirement.
 
 ## Handshake, versions, and recovery
 
@@ -107,7 +107,7 @@ values, and relative paths are rejected. Before enabling host descriptors for
 privileged mutations, upstream must enforce a user-owned, non-writable socket
 directory, verify socket ownership and peer identity where the OS supports it,
 and attest server identity/version/capabilities in the live handshake.
-Fraktik does not add a portable peer-credential check in this seam because
+Nelos does not add a portable peer-credential check in this seam because
 Node's cross-platform Unix socket API does not expose one and applying partial
 filesystem checks only in the client would overstate the guarantee. App-server
 authorization must bind requests to the current Codex user/workspace and

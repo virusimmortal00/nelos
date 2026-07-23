@@ -133,8 +133,8 @@ export async function probeAppServer(socketPath, timeoutMs = 1_000) {
   let client;
   try {
     client = await openAppServerClient({
-      clientName: "fraktik-dev-launcher",
-      clientTitle: "Fraktik Dev Launcher",
+      clientName: "nelos-dev-launcher",
+      clientTitle: "Nelos Dev Launcher",
       socketPath,
       timeoutMs,
     });

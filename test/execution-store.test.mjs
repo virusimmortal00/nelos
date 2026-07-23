@@ -44,7 +44,7 @@ function workUnit(overrides = {}) {
 }
 
 async function withStore(t, options = {}) {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-execution-store-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-execution-store-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const directory = join(root, "execution-v1");
   return {

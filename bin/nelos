@@ -123,30 +123,30 @@ const VALUE_OPTIONS = new Map([
 
 function printUsage() {
   process.stdout.write(`Usage:
-  fraktik start --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
-  fraktik spinoff --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
-  fraktik send [THREAD_ID] (--prompt TEXT | --prompt-file PATH) [options]
-  fraktik status [THREAD_ID] [options]
-  fraktik read [THREAD_ID] [--turns N] [options]
-  fraktik watch [THREAD_ID] [options]
-  fraktik list [--limit N] [--all] [options]
-  fraktik archive [THREAD_ID] [--detach|--restore-detached] [options]
-  fraktik title set TITLE [options]
-  fraktik title get [options]
-  fraktik web begin [--title TITLE] [--registry-only] [options]
-  fraktik web join --id WEB_ID --title TITLE [--registry-only] [options]
-  fraktik web collect [--id WEB_ID] [--queen-thread-id ID] [--wait] [options]
-  fraktik web readiness [--id WEB_ID] [--queen-thread-id ID]
-  fraktik web accept --work-unit-id ID --member-thread-id ID --source-turn-id ID --result-file PATH [--decision accepted|rejected] [--summary TEXT]
-  fraktik plan slices --spec-file PATH
-  fraktik worktree plan --web-id WEB_ID --work-unit-id ID --spec-revision N --attempt N --worktree-root PATH
-  fraktik worktree provision --action-id ID --work-unit-id ID --owner-task-id ID --source PATH --worktree-path PATH --branch NAME --base REVISION [--operation create|adopt]
-  fraktik worktree inspect --action-id ID
-  fraktik worktree launch --work-unit-spec PATH (--prompt TEXT | --prompt-file PATH) --source PATH --worktree-root PATH --base REVISION [options]
-  fraktik worktree integration --queen-thread-id ID [options]
-  fraktik intelligence route [--task-shape SHAPE] [model/reasoning options]
-  fraktik intelligence verify --thread-id ID --model MODEL --effort LEVEL [--turn-id ID]
-  fraktik doctor [--codex PATH] [--socket PATH]
+  nelos start --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
+  nelos spinoff --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
+  nelos send [THREAD_ID] (--prompt TEXT | --prompt-file PATH) [options]
+  nelos status [THREAD_ID] [options]
+  nelos read [THREAD_ID] [--turns N] [options]
+  nelos watch [THREAD_ID] [options]
+  nelos list [--limit N] [--all] [options]
+  nelos archive [THREAD_ID] [--detach|--restore-detached] [options]
+  nelos title set TITLE [options]
+  nelos title get [options]
+  nelos web begin [--title TITLE] [--registry-only] [options]
+  nelos web join --id WEB_ID --title TITLE [--registry-only] [options]
+  nelos web collect [--id WEB_ID] [--queen-thread-id ID] [--wait] [options]
+  nelos web readiness [--id WEB_ID] [--queen-thread-id ID]
+  nelos web accept --work-unit-id ID --member-thread-id ID --source-turn-id ID --result-file PATH [--decision accepted|rejected] [--summary TEXT]
+  nelos plan slices --spec-file PATH
+  nelos worktree plan --web-id WEB_ID --work-unit-id ID --spec-revision N --attempt N --worktree-root PATH
+  nelos worktree provision --action-id ID --work-unit-id ID --owner-task-id ID --source PATH --worktree-path PATH --branch NAME --base REVISION [--operation create|adopt]
+  nelos worktree inspect --action-id ID
+  nelos worktree launch --work-unit-spec PATH (--prompt TEXT | --prompt-file PATH) --source PATH --worktree-root PATH --base REVISION [options]
+  nelos worktree integration --queen-thread-id ID [options]
+  nelos intelligence route [--task-shape SHAPE] [model/reasoning options]
+  nelos intelligence verify --thread-id ID --model MODEL --effort LEVEL [--turn-id ID]
+  nelos doctor [--codex PATH] [--socket PATH]
 
 Start options:
   --cwd PATH          Workspace directory (default: current directory)
@@ -167,7 +167,7 @@ List options:
   --all               Query the live app server across every source kind (cli,
                        vscode, exec, appServer, subAgent, etc.) instead of the
                        default. Without --all, list shows only tasks recorded in
-                       this machine's local fraktik registry (i.e. tasks
+                       this machine's local nelos registry (i.e. tasks
                        started by this CLI on this machine); tasks created from
                        Codex Desktop, VS Code, or another machine are excluded.
 
@@ -1706,9 +1706,9 @@ async function runSend(options, client) {
     ),
     turnId,
     monitor: {
-      status: `fraktik status ${threadId}`,
-      read: `fraktik read ${threadId}`,
-      watch: `fraktik watch ${threadId}`,
+      status: `nelos status ${threadId}`,
+      read: `nelos read ${threadId}`,
+      watch: `nelos watch ${threadId}`,
     },
   };
 }
@@ -1744,8 +1744,8 @@ async function runStart(
       cwd: resolvedInput.cwd,
       approvalPolicy,
       ephemeral: false,
-      serviceName: "fraktik",
-      threadSource: "fraktik-cli",
+      serviceName: "nelos",
+      threadSource: "nelos-cli",
     };
     if (permissions) startParams.permissions = permissions;
     else startParams.sandbox = sandbox;
@@ -1829,9 +1829,9 @@ async function runStart(
       ),
       turnId,
       monitor: {
-        status: `fraktik status ${threadId}`,
-        read: `fraktik read ${threadId}`,
-        watch: `fraktik watch ${threadId}`,
+        status: `nelos status ${threadId}`,
+        read: `nelos read ${threadId}`,
+        watch: `nelos watch ${threadId}`,
       },
       ...(spinoff ? { spinoff } : {}),
     };
@@ -2097,7 +2097,7 @@ async function runWeb(options, client) {
       reused: result.reused,
       webMemberTitlePrefix: `🕸️ ${result.webId} ·`,
       joinCommand:
-        `fraktik web join --id ${result.webId} --title <TITLE> ` +
+        `nelos web join --id ${result.webId} --title <TITLE> ` +
         `--queen-thread-id ${threadId}` +
         (options.registryOnly ? " --registry-only" : ""),
     };
@@ -2416,7 +2416,7 @@ async function runArchive(options, client) {
   } catch (error) {
     throw new Error(
       `app-server archive failed for ${threadId}: ${error.message}; no local records were changed. ` +
-      `Use \`fraktik archive ${threadId} --detach\` only to explicitly hide a migrated historical record.`,
+      `Use \`nelos archive ${threadId} --detach\` only to explicitly hide a migrated historical record.`,
     );
   }
   const observation = await recordConfirmedArchive(threadId, title);
@@ -2643,8 +2643,8 @@ async function main() {
 
   const common = parseCommonOptions(options);
   const client = await openAppServerClient({
-    clientName: "fraktik",
-    clientTitle: "Fraktik CLI",
+    clientName: "nelos",
+    clientTitle: "Nelos CLI",
     ...common,
   });
 
@@ -2669,6 +2669,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`fraktik: ${error.message}\n`);
+  process.stderr.write(`nelos: ${error.message}\n`);
   process.exitCode = 1;
 });

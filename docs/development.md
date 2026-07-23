@@ -43,7 +43,7 @@ In another terminal, use the source CLI or connect the Codex terminal UI to the
 same explicitly selected socket:
 
 ```bash
-node bin/fraktik list --all --socket /absolute/path/app-server.sock
+node bin/nelos list --all --socket /absolute/path/app-server.sock
 codex --remote unix:///absolute/path/app-server.sock
 ```
 
@@ -55,7 +55,7 @@ client and re-run the standalone verifier after Codex CLI upgrades.
 ## Verifiers
 
 The default standalone-server verifier starts its own temporary Unix socket,
-initializes through Fraktik, exercises `thread/list`, and removes its
+initializes through Nelos, exercises `thread/list`, and removes its
 process and temporary state. It does not start a task or make a model call:
 
 ```bash
@@ -73,7 +73,7 @@ npm run verify:app-server:live -- --model MODEL --effort LEVEL
 ```
 
 This runs two model turns and may consume billed or plan usage. The socket,
-workspace, and Fraktik registry are temporary, but the task uses the
+workspace, and Nelos registry are temporary, but the task uses the
 normal Codex store and remains there as an archived session.
 
 The deterministic golden-loop verifier exercises the product's core gate

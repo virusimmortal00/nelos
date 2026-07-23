@@ -1,6 +1,6 @@
 # Security policy
 
-Fraktik is an early-stage local plugin and CLI for observing and
+Nelos is an early-stage local plugin and CLI for observing and
 coordinating Codex tasks. This policy describes the current implementation; it
 does not imply that proposed host capabilities are available.
 
@@ -15,8 +15,8 @@ permissions, symbolic links, and a Unix-domain app-server control socket.
 
 The installed plugin contains no MCP server. Desktop lifecycle evidence comes
 from Codex's native task controls; local web topology comes from the
-Fraktik registry. Task creation, rename, steering, interruption, and
-archival belong to the `fraktik` CLI or Codex's native controls and require
+Nelos registry. Task creation, rename, steering, interruption, and
+archival belong to the `nelos` CLI or Codex's native controls and require
 access to the local Codex app server. Treat any grant that exposes those
 controls as a task-mutation grant, not as read-only monitoring access.
 
@@ -32,8 +32,8 @@ reachability or the descriptor's `protocolVersion` as authentication. See
 [Host-owned Codex control](docs/host-owned-control.md) for the exact proposal
 and current limitations.
 
-Fraktik keeps local task and web registry records under
-`$XDG_STATE_HOME/fraktik` (or `~/.local/state/fraktik` when that variable
+Nelos keeps local task and web registry records under
+`$XDG_STATE_HOME/nelos` (or `~/.local/state/nelos` when that variable
 is unset). Registry files are written with mode `0600` and their directories
 are created with mode `0700`. The records contain coordination metadata
 such as task and turn IDs, titles, working directories, web relationships,
@@ -45,10 +45,10 @@ skill, a configured local plugin source and cache, provenance records,
 transaction/lock data, and installation state under the configured Codex and
 distribution roots. Installation state records paths, versions, integrity and
 activation status; it is not a credential store. The Codex host owns its own
-task data and active plugin registry; Fraktik does not replace that store.
+task data and active plugin registry; Nelos does not replace that store.
 
 Plugin, skill, and CLI files are executable trust surfaces. Verify their shared
-`distribution-provenance.json` with `fraktik-verify-distribution` before use.
+`distribution-provenance.json` with `nelos-verify-distribution` before use.
 The installer manages only its declared destinations, rejects unsafe or
 ambiguous ownership and symlink ancestry, excludes relative or empty `PATH`
 components from command discovery, and does not override an earlier foreign

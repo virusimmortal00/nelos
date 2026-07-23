@@ -18,8 +18,8 @@ import {
 } from "node:path";
 
 export const PROVENANCE_FILENAME = "distribution-provenance.json";
-export const DISTRIBUTION_NAME = "fraktik";
-export const PLUGIN_NAME = "fraktik";
+export const DISTRIBUTION_NAME = "nelos";
+export const PLUGIN_NAME = "nelos";
 export const INSTALL_STATE_FILENAME = "install-state.json";
 export const REQUIRED_CLI_COMMANDS = [
   "doctor",
@@ -39,11 +39,11 @@ export const REQUIRED_CLI_COMMANDS = [
   "intelligence verify",
 ];
 export const MANAGED_CLI_BINS = Object.freeze({
-  "fraktik": "bin/fraktik",
-  "fraktik-title": "bin/fraktik-title",
-  "fraktik-install-skill": "bin/fraktik-install-skill",
-  "fraktik-install-distribution": "bin/fraktik-install-distribution",
-  "fraktik-verify-distribution": "bin/fraktik-verify-distribution",
+  "nelos": "bin/nelos",
+  "nelos-title": "bin/nelos-title",
+  "nelos-install-skill": "bin/nelos-install-skill",
+  "nelos-install-distribution": "bin/nelos-install-distribution",
+  "nelos-verify-distribution": "bin/nelos-verify-distribution",
 });
 export const MANAGED_CLI_COMMANDS = Object.freeze(Object.keys(MANAGED_CLI_BINS));
 export const DISTRIBUTION_ENTRIES = [

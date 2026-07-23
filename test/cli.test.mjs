@@ -21,10 +21,10 @@ import { readProcessIdentity } from "../src/process-liveness.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 import { startMockAppServer } from "./support/mock-app-server.mjs";
 
-const cli = fileURLToPath(new URL("../bin/fraktik", import.meta.url));
-const titleCli = fileURLToPath(new URL("../bin/fraktik-title", import.meta.url));
+const cli = fileURLToPath(new URL("../bin/nelos", import.meta.url));
+const titleCli = fileURLToPath(new URL("../bin/nelos-title", import.meta.url));
 const skillInstaller = fileURLToPath(
-  new URL("../bin/fraktik-install-skill", import.meta.url),
+  new URL("../bin/nelos-install-skill", import.meta.url),
 );
 const expectedProvenance = JSON.parse(
   await readFile(new URL("../distribution-provenance.json", import.meta.url), "utf8"),
@@ -86,7 +86,7 @@ function mockThread(id, name) {
     status: { type: "idle" },
     cwd: process.cwd(),
     source: "appServer",
-    threadSource: "fraktik-cli",
+    threadSource: "nelos-cli",
     createdAt: 1,
     updatedAt: 2,
   };
@@ -96,24 +96,24 @@ test("main CLI help includes persistent-task lifecycle commands", () => {
   const result = run(cli, ["--help"]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /fraktik start/);
-  assert.match(result.stdout, /fraktik spinoff/);
+  assert.match(result.stdout, /nelos start/);
+  assert.match(result.stdout, /nelos spinoff/);
   assert.match(result.stdout, /--queen-thread-id/);
-  assert.match(result.stdout, /fraktik web collect/);
-  assert.match(result.stdout, /fraktik send/);
-  assert.match(result.stdout, /fraktik watch/);
-  assert.match(result.stdout, /fraktik archive/);
-  assert.match(result.stdout, /fraktik plan slices/);
-  assert.match(result.stdout, /fraktik worktree provision/);
+  assert.match(result.stdout, /nelos web collect/);
+  assert.match(result.stdout, /nelos send/);
+  assert.match(result.stdout, /nelos watch/);
+  assert.match(result.stdout, /nelos archive/);
+  assert.match(result.stdout, /nelos plan slices/);
+  assert.match(result.stdout, /nelos worktree provision/);
   assert.match(result.stdout, /--spec-file/);
-  assert.match(result.stdout, /fraktik intelligence route/);
-  assert.match(result.stdout, /fraktik intelligence verify/);
-  assert.match(result.stdout, /fraktik doctor/);
+  assert.match(result.stdout, /nelos intelligence route/);
+  assert.match(result.stdout, /nelos intelligence verify/);
+  assert.match(result.stdout, /nelos doctor/);
   assert.match(result.stdout, /use - for standard input/);
 });
 
 test("worktree provision creates an isolated writer checkout without an app-server connection", async (t) => {
-  const root = await mkdtemp(join(process.cwd(), ".fraktik-cli-worktree-"));
+  const root = await mkdtemp(join(process.cwd(), ".nelos-cli-worktree-"));
   const source = join(root, "source");
   const worktree = join(root, "member-worktree");
   const stateHome = join(root, "state");
@@ -126,7 +126,7 @@ test("worktree provision creates an isolated writer checkout without an app-serv
   await mkdir(source);
   runGit(["init", "--initial-branch=main"]);
   runGit(["config", "user.email", "tests@example.invalid"]);
-  runGit(["config", "user.name", "Fraktik Tests"]);
+  runGit(["config", "user.name", "Nelos Tests"]);
   await writeFile(join(source, "README.md"), "base\n");
   runGit(["add", "README.md"]);
   runGit(["commit", "-m", "base"]);
@@ -141,7 +141,7 @@ test("worktree provision creates an isolated writer checkout without an app-serv
       "--owner-task-id", "queen-thread",
       "--source", source,
       "--worktree-path", worktree,
-      "--branch", "fraktik/api",
+      "--branch", "nelos/api",
       "--base", "HEAD",
     ],
     { XDG_STATE_HOME: stateHome },
@@ -152,15 +152,15 @@ test("worktree provision creates an isolated writer checkout without an app-serv
   assert.equal(output.command, "worktree provision");
   assert.equal(output.reused, false);
   assert.equal(output.receipt.state, "provisioned");
-  assert.equal(runGit(["branch", "--show-current"], worktree), "fraktik/api");
+  assert.equal(runGit(["branch", "--show-current"], worktree), "nelos/api");
 });
 
 test("worktree launch binds a durable work unit and reports integration readiness", async (t) => {
-  const root = await mkdtemp(join(process.cwd(), ".fraktik-worktree-launch-"));
+  const root = await mkdtemp(join(process.cwd(), ".nelos-worktree-launch-"));
   const source = join(root, "source");
   const writers = join(root, "writers");
   const stateHome = join(root, "state");
-  const socketRoot = await mkdtemp(join(tmpdir(), "fraktik-worktree-socket-"));
+  const socketRoot = await mkdtemp(join(tmpdir(), "nelos-worktree-socket-"));
   const socketPath = join(socketRoot, "app.sock");
   const specPath = join(root, "work-unit.json");
   const runGit = (args, cwd = source) => {
@@ -213,7 +213,7 @@ test("worktree launch binds a durable work unit and reports integration readines
   await mkdir(writers);
   runGit(["init", "--initial-branch=main"]);
   runGit(["config", "user.email", "tests@example.invalid"]);
-  runGit(["config", "user.name", "Fraktik Tests"]);
+  runGit(["config", "user.name", "Nelos Tests"]);
   await writeFile(join(source, "README.md"), "base\n");
   runGit(["add", "README.md"]);
   runGit(["commit", "-m", "base"]);
@@ -311,7 +311,7 @@ test("worktree launch binds a durable work unit and reports integration readines
 });
 
 test("packaged launcher plans dependency waves and per-slice routes offline", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-plan-package-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-package-"));
   const installedRoot = join(root, "installed-release");
   const unrelatedCwd = join(root, "unrelated-workspace");
   const spec = {
@@ -354,7 +354,7 @@ test("packaged launcher plans dependency waves and per-slice routes offline", as
     const result = await new Promise((resolvePromise, rejectPromise) => {
       const child = spawn(
         process.execPath,
-        [join(installedRoot, "bin", "fraktik"), "plan", "slices", "--spec-file", "-"],
+        [join(installedRoot, "bin", "nelos"), "plan", "slices", "--spec-file", "-"],
         { cwd: unrelatedCwd, env: testEnvironment() },
       );
       let stdout = "";
@@ -388,7 +388,7 @@ test("packaged launcher plans dependency waves and per-slice routes offline", as
 });
 
 test("plan slices rejects malformed input before app-server access", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-plan-invalid-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-invalid-"));
   try {
     const invalidJson = await runAsync(
       cli,
@@ -413,10 +413,10 @@ test("plan slices rejects malformed input before app-server access", async () =>
 });
 
 test("start reads an exact multiline prompt from standard input", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-stdin-prompt-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-stdin-prompt-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const prompt = "First line\n```fraktik-result\n{\"summary\":\"A_RESULT\"}\n```\n";
+  const prompt = "First line\n```nelos-result\n{\"summary\":\"A_RESULT\"}\n```\n";
   let receivedPrompt = null;
   const thread = mockThread("stdin-thread", "Stdin prompt");
   const server = await startMockAppServer(socketPath, async ({ method, params }) => {
@@ -473,7 +473,7 @@ test("start reads an exact multiline prompt from standard input", async () => {
 });
 
 test("packaged launcher routes intelligence from an unrelated working directory", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-intelligence-package-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-intelligence-package-"));
   const installedRoot = join(root, "installed-release");
   const unrelatedCwd = join(root, "unrelated-workspace");
   try {
@@ -487,7 +487,7 @@ test("packaged launcher routes intelligence from an unrelated working directory"
     const result = spawnSync(
       process.execPath,
       [
-        join(installedRoot, "bin", "fraktik"),
+        join(installedRoot, "bin", "nelos"),
         "intelligence",
         "route",
         "--task-shape",
@@ -568,7 +568,7 @@ test("intelligence routing omission preserves host defaults without app-server a
 });
 
 test("intelligence verification exits nonzero on an effective route mismatch", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-route-verify-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-route-verify-"));
   const sessions = join(root, "sessions", "2026", "07", "21");
   const threadId = "thread-route-1";
   try {
@@ -633,7 +633,7 @@ test("main CLI reports its bundled distribution provenance", () => {
 });
 
 test("web collect rejects ignored and ambiguous options before reading tasks", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-collect-options-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-collect-options-"));
   const socketPath = join(root, "app.sock");
   const server = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};
@@ -709,10 +709,10 @@ test("web collect rejects ignored and ambiguous options before reading tasks", a
 });
 
 test("web collect --wait polls read-only state until every member is terminal", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-collect-wait-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-collect-wait-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await Promise.all([
     writeFile(
@@ -871,10 +871,10 @@ test("web collect --wait polls read-only state until every member is terminal", 
 });
 
 test("web collect --wait bounds hung member reads by the collection deadline", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-collect-deadline-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-collect-deadline-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   const memberThreadIds = Array.from(
     { length: 9 },
     (_, index) => `hung-member-${index + 1}`,
@@ -977,7 +977,7 @@ test("web collect --wait bounds hung member reads by the collection deadline", a
 });
 
 test("nonterminal and unknown turn lifecycles stay active-safe for send and watch", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-unknown-turn-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-unknown-turn-"));
   const socketPath = join(root, "app.sock");
   const thread = mockThread("queued-thread", "Queued task");
   let turnStarts = 0;
@@ -1036,7 +1036,7 @@ test("nonterminal and unknown turn lifecycles stay active-safe for send and watc
 });
 
 test("send rejects non-idle thread states even with empty or terminal turn data", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-thread-status-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-thread-status-"));
   const socketPath = join(root, "app.sock");
   const thread = mockThread("active-thread", "Active task");
   let threadStatus = { type: "active" };
@@ -1084,7 +1084,7 @@ test("send rejects non-idle thread states even with empty or terminal turn data"
 });
 
 test("send fails closed when turn list and full-history fallback are not arrays", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-turn-array-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-turn-array-"));
   const socketPath = join(root, "app.sock");
   let turnStarts = 0;
   const server = await startMockAppServer(socketPath, async ({ method, params }) => {
@@ -1129,10 +1129,10 @@ test("send fails closed when turn list and full-history fallback are not arrays"
 });
 
 test("web collect fails closed without fetching full thread history", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-collect-fallback-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-collect-fallback-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await Promise.all([
     writeFile(
@@ -1199,10 +1199,10 @@ test("web collect fails closed without fetching full thread history", async () =
 });
 
 test("web collect uses a bounded two-turn page and separates lifecycle from result source", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-collect-recovery-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-collect-recovery-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await Promise.all([
     writeFile(
@@ -1340,22 +1340,22 @@ test("title compatibility CLI remains available", () => {
   const result = run(titleCli, ["--help"]);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /fraktik-title set TITLE/);
-  assert.match(result.stdout, /fraktik-title get/);
+  assert.match(result.stdout, /nelos-title set TITLE/);
+  assert.match(result.stdout, /nelos-title get/);
 });
 
 test("skill installer requires force for any existing content drift", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-install-"));
-  const target = join(root, "skills", "manage-fraktik-tasks", "SKILL.md");
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-install-"));
+  const target = join(root, "skills", "manage-nelos-tasks", "SKILL.md");
   try {
     const installed = await runAsync(skillInstaller, [], { CODEX_HOME: root });
     assert.equal(installed.status, 0, installed.stderr);
     const installedSkill = await readFile(target, "utf8");
-    assert.match(installedSkill, /name: manage-fraktik-tasks/);
+    assert.match(installedSkill, /name: manage-nelos-tasks/);
     assert.deepEqual(
       JSON.parse(
         await readFile(
-          join(root, "skills", "manage-fraktik-tasks", "distribution-provenance.json"),
+          join(root, "skills", "manage-nelos-tasks", "distribution-provenance.json"),
           "utf8",
         ),
       ),
@@ -1366,7 +1366,7 @@ test("skill installer requires force for any existing content drift", async () =
     );
 
     await writeFile(
-      join(root, "skills", "manage-fraktik-tasks", "distribution-provenance.json"),
+      join(root, "skills", "manage-nelos-tasks", "distribution-provenance.json"),
       '{"schemaVersion":1,"distribution":"foreign","revision":"local"}\n',
     );
     const protectedForeignMetadata = await runAsync(skillInstaller, [], {
@@ -1382,7 +1382,7 @@ test("skill installer requires force for any existing content drift", async () =
     const oldManagedSkill = "older managed skill\n";
     await writeFile(target, oldManagedSkill);
     await writeFile(
-      join(root, "skills", "manage-fraktik-tasks", "distribution-provenance.json"),
+      join(root, "skills", "manage-nelos-tasks", "distribution-provenance.json"),
       `${JSON.stringify({
         ...expectedProvenance,
         revision: "0.1.0",
@@ -1405,9 +1405,9 @@ test("skill installer requires force for any existing content drift", async () =
       CODEX_HOME: root,
     });
     assert.equal(replaced.status, 0, replaced.stderr);
-    assert.match(await readFile(target, "utf8"), /name: manage-fraktik-tasks/);
+    assert.match(await readFile(target, "utf8"), /name: manage-nelos-tasks/);
     assert.deepEqual(
-      await readdir(join(root, "skills", "manage-fraktik-tasks")),
+      await readdir(join(root, "skills", "manage-nelos-tasks")),
       ["SKILL.md", "distribution-provenance.json"],
     );
   } finally {
@@ -1416,8 +1416,8 @@ test("skill installer requires force for any existing content drift", async () =
 });
 
 test("skill installer requires force when matching skill bytes lack managed provenance", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-provenance-"));
-  const targetDirectory = join(root, "skills", "manage-fraktik-tasks");
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-provenance-"));
+  const targetDirectory = join(root, "skills", "manage-nelos-tasks");
   try {
     const installed = await runAsync(skillInstaller, [], { CODEX_HOME: root });
     assert.equal(installed.status, 0, installed.stderr);
@@ -1429,7 +1429,7 @@ test("skill installer requires force when matching skill bytes lack managed prov
     assert.match(protectedResult.stderr, /rerun with --force/);
     assert.match(
       await readFile(join(targetDirectory, "SKILL.md"), "utf8"),
-      /name: manage-fraktik-tasks/,
+      /name: manage-nelos-tasks/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1437,7 +1437,7 @@ test("skill installer requires force when matching skill bytes lack managed prov
 });
 
 test("skill installer rejects symlinked ancestry without writing outside CODEX_HOME", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-symlink-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-symlink-"));
   const codexHome = join(root, "codex-home");
   const outside = join(root, "outside");
   try {
@@ -1449,7 +1449,7 @@ test("skill installer rejects symlinked ancestry without writing outside CODEX_H
     assert.equal(result.status, 1);
     assert.match(result.stderr, /skill root contains a symlinked path component/);
     assert.equal(await readFile(join(outside, "sentinel"), "utf8"), "preserve\n");
-    await assert.rejects(readFile(join(outside, "manage-fraktik-tasks", "SKILL.md")), {
+    await assert.rejects(readFile(join(outside, "manage-nelos-tasks", "SKILL.md")), {
       code: "ENOENT",
     });
   } finally {
@@ -1458,15 +1458,15 @@ test("skill installer rejects symlinked ancestry without writing outside CODEX_H
 });
 
 test("skill installer recovers a crash after moving the previous directory", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-recovery-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-recovery-"));
   const skillRoot = join(root, "skills");
-  const targetDirectory = join(skillRoot, "manage-fraktik-tasks");
+  const targetDirectory = join(skillRoot, "manage-nelos-tasks");
   const transactionId = "recovery-fixture";
   const temporary = `${targetDirectory}.${transactionId}.tmp`;
   const backup = `${targetDirectory}.${transactionId}.backup`;
   const transactionPath = join(
     skillRoot,
-    ".manage-fraktik-tasks-install-transaction.json",
+    ".manage-nelos-tasks-install-transaction.json",
   );
   try {
     await mkdir(backup, { recursive: true });
@@ -1504,15 +1504,15 @@ test("skill installer recovers a crash after moving the previous directory", asy
 });
 
 test("skill installer does not recover another live installer transaction", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-concurrent-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-concurrent-"));
   const skillRoot = join(root, "skills");
-  const targetDirectory = join(skillRoot, "manage-fraktik-tasks");
+  const targetDirectory = join(skillRoot, "manage-nelos-tasks");
   const transactionId = "live-fixture";
   const temporary = `${targetDirectory}.${transactionId}.tmp`;
   const backup = `${targetDirectory}.${transactionId}.backup`;
   const transactionPath = join(
     skillRoot,
-    ".manage-fraktik-tasks-install-transaction.json",
+    ".manage-nelos-tasks-install-transaction.json",
   );
   try {
     await mkdir(temporary, { recursive: true });
@@ -1536,7 +1536,7 @@ test("skill installer does not recover another live installer transaction", asyn
     );
     const result = await runAsync(skillInstaller, [], { CODEX_HOME: root });
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /another manage-fraktik-tasks skill installation is active/);
+    assert.match(result.stderr, /another manage-nelos-tasks skill installation is active/);
     assert.equal(await readFile(join(temporary, "sentinel"), "utf8"), "preserve\n");
     assert.equal(JSON.parse(await readFile(transactionPath, "utf8")).pid, process.pid);
   } finally {
@@ -1552,15 +1552,15 @@ test("strong process identity prevents reclaim after the heartbeat lease", async
     t.skip("this platform exposes no strong process identity");
     return;
   }
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-strong-owner-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-strong-owner-"));
   const skillRoot = join(root, "skills");
-  const targetDirectory = join(skillRoot, "manage-fraktik-tasks");
+  const targetDirectory = join(skillRoot, "manage-nelos-tasks");
   const transactionId = "strong-owner-fixture";
   const temporary = `${targetDirectory}.${transactionId}.tmp`;
   const backup = `${targetDirectory}.${transactionId}.backup`;
   const transactionPath = join(
     skillRoot,
-    ".manage-fraktik-tasks-install-transaction.json",
+    ".manage-nelos-tasks-install-transaction.json",
   );
   try {
     await mkdir(temporary, { recursive: true });
@@ -1586,7 +1586,7 @@ test("strong process identity prevents reclaim after the heartbeat lease", async
 
     const result = await runAsync(skillInstaller, [], { CODEX_HOME: root });
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /another manage-fraktik-tasks skill installation is active/);
+    assert.match(result.stderr, /another manage-nelos-tasks skill installation is active/);
     assert.equal(await readFile(join(temporary, "sentinel"), "utf8"), "preserve\n");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1604,15 +1604,15 @@ test("skill installer distinguishes PID reuse within the active window", async (
     t.skip("this platform exposes no strong process identity");
     return;
   }
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-pid-reuse-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-pid-reuse-"));
   const skillRoot = join(root, "skills");
-  const targetDirectory = join(skillRoot, "manage-fraktik-tasks");
+  const targetDirectory = join(skillRoot, "manage-nelos-tasks");
   const transactionId = "pid-reuse-fixture";
   const temporary = `${targetDirectory}.${transactionId}.tmp`;
   const backup = `${targetDirectory}.${transactionId}.backup`;
   const transactionPath = join(
     skillRoot,
-    ".manage-fraktik-tasks-install-transaction.json",
+    ".manage-nelos-tasks-install-transaction.json",
   );
   try {
     await mkdir(backup, { recursive: true });
@@ -1653,19 +1653,19 @@ test("skill installer distinguishes PID reuse within the active window", async (
 });
 
 test("skill recovery preserves the crashed transaction candidate across package upgrades", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-skill-intent-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-skill-intent-"));
   const skillRoot = join(root, "skills");
-  const targetDirectory = join(skillRoot, "manage-fraktik-tasks");
+  const targetDirectory = join(skillRoot, "manage-nelos-tasks");
   const transactionId = "intent-fixture";
   const temporary = `${targetDirectory}.${transactionId}.tmp`;
   const backup = `${targetDirectory}.${transactionId}.backup`;
   const transactionPath = join(
     skillRoot,
-    ".manage-fraktik-tasks-install-transaction.json",
+    ".manage-nelos-tasks-install-transaction.json",
   );
   const candidateSkill = "completed older candidate\n";
   const candidateProvenance =
-    '{"schemaVersion":1,"distribution":"fraktik","revision":"older"}\n';
+    '{"schemaVersion":1,"distribution":"nelos","revision":"older"}\n';
   try {
     await mkdir(targetDirectory, { recursive: true });
     await mkdir(backup);
@@ -1716,7 +1716,7 @@ test("unknown commands fail before connecting to app-server", () => {
 });
 
 test("start sends a current app-server named permission profile and validates it first", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-permissions-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-permissions-"));
   const socketPath = join(root, "app.sock");
   const thread = mockThread("permission-thread", "Permission task");
   const server = await startMockAppServer(socketPath, async ({ method, params }) => {
@@ -1795,7 +1795,7 @@ test("start sends a current app-server named permission profile and validates it
 });
 
 test("spinoff permission profile rejection happens before any task or web mutation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-permissions-rejected-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-permissions-rejected-"));
   const socketPath = join(root, "app.sock");
   const server = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};
@@ -1838,7 +1838,7 @@ test("spinoff permission profile rejection happens before any task or web mutati
 });
 
 test("start rejects conflicting named permissions and sandbox before creating a task", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-permissions-conflict-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-permissions-conflict-"));
   const socketPath = join(root, "app.sock");
   const server = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};
@@ -1878,7 +1878,7 @@ test("start rejects conflicting named permissions and sandbox before creating a 
 });
 
 test("start sends a bare text input item and surfaces the initialize identity fields", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-identity-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-identity-"));
   const socketPath = join(root, "app.sock");
   const thread = mockThread("identity-thread", "Identity task");
   const server = await startMockAppServer(socketPath, async ({ method }) => {
@@ -1935,7 +1935,7 @@ test("start sends a bare text input item and surfaces the initialize identity fi
 });
 
 test("start archives a new thread when the initial turn fails", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-cleanup-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-cleanup-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const thread = mockThread("orphan-thread", "Cleanup task");
@@ -1971,7 +1971,7 @@ test("start archives a new thread when the initial turn fails", async () => {
     assert.ok(server.requests.some(({ method }) => method === "thread/archive"));
     const record = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "tasks", "orphan-thread.json"),
+        join(stateHome, "nelos", "tasks", "orphan-thread.json"),
         "utf8",
       ),
     );
@@ -1984,7 +1984,7 @@ test("start archives a new thread when the initial turn fails", async () => {
 });
 
 test("web begin and join render nested queen relationships", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-web-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-web-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
@@ -2114,7 +2114,7 @@ test("web begin and join render nested queen relationships", async () => {
 });
 
 test("registry-only web setup supports desktop-native task creation without a socket", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-native-web-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-native-web-"));
   const stateHome = join(root, "state");
 
   try {
@@ -2163,7 +2163,7 @@ test("registry-only web setup supports desktop-native task creation without a so
 
     const stored = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "webs", "native-member.json"),
+        join(stateHome, "nelos", "webs", "native-member.json"),
         "utf8",
       ),
     );
@@ -2175,11 +2175,11 @@ test("registry-only web setup supports desktop-native task creation without a so
 });
 
 test("a live read reconciles stale archival cache with the app server", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-live-reconcile-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-live-reconcile-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const taskDirectory = join(stateHome, "fraktik", "tasks");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const taskDirectory = join(stateHome, "nelos", "tasks");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(taskDirectory, { recursive: true });
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
@@ -2235,10 +2235,10 @@ test("a live read reconciles stale archival cache with the app server", async ()
 });
 
 test("a live archived observation becomes the local cache's archival state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-reconcile-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-reconcile-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
     join(webDirectory, "member.json"),
@@ -2281,10 +2281,10 @@ test("a live archived observation becomes the local cache's archival state", asy
 });
 
 test("an unavailable read expires cache freshness without inventing lifecycle state", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-unavailable-reconcile-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-unavailable-reconcile-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
     join(webDirectory, "member.json"),
@@ -2333,10 +2333,10 @@ test("an unavailable read expires cache freshness without inventing lifecycle st
 });
 
 test("a read that started before archive cannot regress the confirmed archive cache", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-fence-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-fence-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
     join(webDirectory, "member.json"),
@@ -2396,7 +2396,7 @@ test("a read that started before archive cannot regress the confirmed archive ca
 });
 
 test("archive rejects retired registry-only lifecycle writes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-registry-archive-socket-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-registry-archive-socket-"));
   const stateHome = join(root, "state");
 
   try {
@@ -2416,7 +2416,7 @@ test("archive rejects retired registry-only lifecycle writes", async () => {
 });
 
 test("a revived archived task allocates a fresh web ID", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-web-revive-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-web-revive-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
@@ -2446,7 +2446,7 @@ test("a revived archived task allocates a fresh web ID", async () => {
 
     const oldRecordPath = join(
       stateHome,
-      "fraktik",
+      "nelos",
       "webs",
       "old-thread.json",
     );
@@ -2471,7 +2471,7 @@ test("a revived archived task allocates a fresh web ID", async () => {
 });
 
 test("spinoff marks the queen and reuses its web for durable tasks", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-spinoff-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-spinoff-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
@@ -2547,7 +2547,7 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
     );
     const record = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "tasks", `${output.threadId}.json`),
+        join(stateHome, "nelos", "tasks", `${output.threadId}.json`),
         "utf8",
       ),
     );
@@ -2564,7 +2564,7 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
 });
 
 test("a spinoff can become queen of a nested web", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-nested-spinoff-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-nested-spinoff-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
@@ -2633,13 +2633,13 @@ test("a spinoff can become queen of a nested web", async () => {
     });
     const nestedQueenWeb = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "webs", "spinoff-1.json"),
+        join(stateHome, "nelos", "webs", "spinoff-1.json"),
         "utf8",
       ),
     );
     const nestedQueenTask = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "tasks", "spinoff-1.json"),
+        join(stateHome, "nelos", "tasks", "spinoff-1.json"),
         "utf8",
       ),
     );
@@ -2659,7 +2659,7 @@ test("a spinoff can become queen of a nested web", async () => {
     assert.deepEqual(nestedQueenTask.web, expectedNestedQueenWeb);
     const record = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "webs", "spinoff-2.json"),
+        join(stateHome, "nelos", "webs", "spinoff-2.json"),
         "utf8",
       ),
     );
@@ -2671,7 +2671,7 @@ test("a spinoff can become queen of a nested web", async () => {
 });
 
 test("spinoff restores a newly marked queen when task creation fails", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-spinoff-failure-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-spinoff-failure-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const queen = mockThread("queen-thread", "Release planning");
@@ -2711,7 +2711,7 @@ test("spinoff restores a newly marked queen when task creation fails", async () 
     assert.equal(queen.name, "Release planning");
     const webRecord = JSON.parse(
       await readFile(
-        join(stateHome, "fraktik", "webs", "queen-thread.json"),
+        join(stateHome, "nelos", "webs", "queen-thread.json"),
         "utf8",
       ),
     );
@@ -2723,7 +2723,7 @@ test("spinoff restores a newly marked queen when task creation fails", async () 
 });
 
 test("a waiting spinoff does not block another spinoff launch", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-spinoff-wait-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-spinoff-wait-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
@@ -2821,7 +2821,7 @@ test("a waiting spinoff does not block another spinoff launch", async () => {
 });
 
 test("send resumes an unloaded thread before starting a follow-up turn", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-resume-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-resume-"));
   const socketPath = join(root, "app.sock");
   const threadId = "unloaded-thread";
   const unloadedThread = {
@@ -2902,7 +2902,7 @@ test("send resumes an unloaded thread before starting a follow-up turn", async (
 });
 
 test("send does not start a turn when resume returns a non-idle thread", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-resume-active-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-resume-active-"));
   const socketPath = join(root, "app.sock");
   const threadId = "unloaded-thread";
   const unloadedThread = {
@@ -2956,10 +2956,10 @@ test("send does not start a turn when resume returns a non-idle thread", async (
 });
 
 test("list tolerates registry records without createdAt", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-registry-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-registry-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const registry = join(stateHome, "fraktik", "tasks");
+  const registry = join(stateHome, "nelos", "tasks");
   await mkdir(registry, { recursive: true });
   await writeFile(
     join(registry, "legacy-one.json"),
@@ -3001,7 +3001,7 @@ test("list tolerates registry records without createdAt", async () => {
 });
 
 test("list --all requests the supported updated_at sort key", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-list-all-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-list-all-"));
   const socketPath = join(root, "app.sock");
   const server = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};
@@ -3030,11 +3030,11 @@ test("list --all requests the supported updated_at sort key", async () => {
 });
 
 test("missing rollouts and unavailable app-server tasks leave local archive records unchanged", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-failure-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-failure-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const taskDirectory = join(stateHome, "fraktik", "tasks");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const taskDirectory = join(stateHome, "nelos", "tasks");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(taskDirectory, { recursive: true });
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
@@ -3098,10 +3098,10 @@ test("missing rollouts and unavailable app-server tasks leave local archive reco
 });
 
 test("archive --detach hides migrated local records with an audit trail and can restore them", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-detach-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-detach-"));
   const stateHome = join(root, "state");
-  const taskDirectory = join(stateHome, "fraktik", "tasks");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const taskDirectory = join(stateHome, "nelos", "tasks");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(taskDirectory, { recursive: true });
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
@@ -3188,11 +3188,11 @@ test("archive --detach hides migrated local records with an audit trail and can 
 });
 
 test("archive retries only after a confirmed app-server archive", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-retry-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-retry-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const taskDirectory = join(stateHome, "fraktik", "tasks");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const taskDirectory = join(stateHome, "nelos", "tasks");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(taskDirectory, { recursive: true });
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
@@ -3253,10 +3253,10 @@ test("archive retries only after a confirmed app-server archive", async () => {
 });
 
 test("archive confirms an already archived task without issuing a second archive request", async () => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-archive-already-archived-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-archive-already-archived-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const webDirectory = join(stateHome, "fraktik", "webs");
+  const webDirectory = join(stateHome, "nelos", "webs");
   await mkdir(webDirectory, { recursive: true });
   await writeFile(
     join(webDirectory, "archived-thread.json"),

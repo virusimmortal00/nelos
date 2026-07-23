@@ -51,7 +51,7 @@ export const INTELLIGENCE_PROFILE_CATALOG = Object.freeze({
     kind: "local-reviewed-policy",
     version: 2,
     summary:
-      "Fraktik independently inherits, recommends, or overrides model and reasoning choices and maps them to native launch options without claiming entitlement.",
+      "Nelos independently inherits, recommends, or overrides model and reasoning choices and maps them to native launch options without claiming entitlement.",
   }),
   profiles,
 });

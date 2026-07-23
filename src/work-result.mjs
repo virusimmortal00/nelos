@@ -4,7 +4,7 @@ export const RESULT_ENVELOPE_SCHEMA_VERSION = 1;
 export const WEB_COLLECTION_SCHEMA_VERSION = 1;
 export const WORK_OUTCOMES = ["unknown", "succeeded", "blocked", "failed"];
 
-const RESULT_MARKER_PATTERN_SOURCE = "fraktik-result";
+const RESULT_MARKER_PATTERN_SOURCE = "nelos-result";
 const RESULT_BLOCK_PATTERN = new RegExp(
   `^\`\`\`${RESULT_MARKER_PATTERN_SOURCE}[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n\`\`\`[ \\t]*$`,
   "gimu",
@@ -13,7 +13,7 @@ const RESULT_MARKER_PATTERN = new RegExp(
   `^\`\`\`${RESULT_MARKER_PATTERN_SOURCE}[ \\t]*$`,
   "gimu",
 );
-const RESULT_BLOCK_MARKER = "```fraktik-result";
+const RESULT_BLOCK_MARKER = "```nelos-result";
 const MAX_RESULT_BYTES = 8 * 1024;
 const MAX_SCAN_CHARACTERS = 64 * 1024;
 const MAX_SUMMARY_CHARACTERS = 2_000;

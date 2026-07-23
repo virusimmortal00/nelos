@@ -1,13 +1,13 @@
 {
-  "name": "fraktik",
-  "version": "0.2.1",
+  "name": "nelos",
+  "version": "0.3.0",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
-    "name": "Fraktik Maintainers",
+    "name": "Nelos Maintainers",
     "url": "https://github.com/virusimmortal00"
   },
-  "homepage": "https://github.com/virusimmortal00/fraktik",
-  "repository": "https://github.com/virusimmortal00/fraktik",
+  "homepage": "https://github.com/virusimmortal00/nelos",
+  "repository": "https://github.com/virusimmortal00/nelos",
   "license": "MIT",
   "keywords": [
     "orchestration",
@@ -17,21 +17,21 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Fraktik",
+    "displayName": "Nelos",
     "shortDescription": "Turn complex work into safe parallel Codex tasks",
     "longDescription": "Plan, route, and coordinate dependency-aware task webs with explicit lifecycle evidence.",
-    "developerName": "Fraktik Maintainers",
+    "developerName": "Nelos Maintainers",
     "category": "Developer Tools",
     "capabilities": [
       "Read",
       "Write"
     ],
     "brandColor": "#111111",
-    "composerIcon": "./assets/fraktik-spider-icon.png",
-    "logo": "./assets/fraktik-spider-icon.png",
-    "logoDark": "./assets/fraktik-spider-icon-dark.png",
+    "composerIcon": "./assets/nelos-spider-icon.png",
+    "logo": "./assets/nelos-spider-icon.png",
+    "logoDark": "./assets/nelos-spider-icon-dark.png",
     "defaultPrompt": [
-      "Use Fraktik to plan this feature into safe parallel slices.",
+      "Use Nelos to plan this feature into safe parallel slices.",
       "Create durable spinoffs only where they need independent lifecycle.",
       "Show me the native evidence and topology for this task web."
     ]

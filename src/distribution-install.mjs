@@ -76,10 +76,10 @@ import {
 
 const INSTALL_SCHEMA_VERSION = 1;
 const TRANSACTION_FILENAME = "install-transaction.json";
-const MARKETPLACE_TRANSACTION_FILENAME = ".fraktik-marketplace-transaction.json";
-const LOCK_DIRECTORY = ".fraktik-install.lock";
-const MARKETPLACE_LOCK_DIRECTORY = ".fraktik-marketplace.lock";
-const SKILL_NAME = "manage-fraktik-tasks";
+const MARKETPLACE_TRANSACTION_FILENAME = ".nelos-marketplace-transaction.json";
+const LOCK_DIRECTORY = ".nelos-install.lock";
+const MARKETPLACE_LOCK_DIRECTORY = ".nelos-marketplace.lock";
+const SKILL_NAME = "manage-nelos-tasks";
 const DEFAULT_PLUGIN_SELECTOR = `${PLUGIN_NAME}@personal`;
 const DEFAULT_APP_SERVER_TIMEOUT_MS = 15_000;
 const LOCK_HEARTBEAT_INTERVAL_MS = 1_000;
@@ -88,11 +88,11 @@ const MAX_MARKETPLACE_BYTES = 1_048_576;
 const EXPECTED_BINS = new Map(Object.entries(MANAGED_CLI_BINS));
 const LEGACY_HASHES = new Map([
   [
-    "fraktik",
+    "nelos",
     new Set(["67daffba89630769986e7b902925dd4d340b4121d5752ecca460b77afd45f8c1"]),
   ],
   [
-    "fraktik-title",
+    "nelos-title",
     new Set(["91b21ef37501c4c3d669e3fcc21e6751648967e28b3e19072563456088cf02c8"]),
   ],
 ]);
@@ -346,7 +346,7 @@ async function removeMarketplaceIfFingerprint(
 }
 
 function marketplaceExchangePaths(path, exchangeId) {
-  const prefix = `${path}.fraktik-exchange-${exchangeId}`;
+  const prefix = `${path}.nelos-exchange-${exchangeId}`;
   return {
     displacedPath: `${prefix}.displaced`,
     candidatePath: `${prefix}.candidate`,
@@ -614,7 +614,7 @@ async function acquireInstallLock(
 function assertSupportedPlatform() {
   if (process.platform === "win32") {
     throw new Error(
-      "fraktik-install-distribution currently requires a POSIX platform with symlink support",
+      "nelos-install-distribution currently requires a POSIX platform with symlink support",
     );
   }
 }
@@ -687,7 +687,7 @@ async function verifyExecutableBins(releasePath) {
 }
 
 async function verifyCliSurface(releasePath, env) {
-  const cliPath = join(releasePath, "bin", "fraktik");
+  const cliPath = join(releasePath, "bin", "nelos");
   const result = await runChecked(process.execPath, [cliPath, "--help"], { env });
   for (const command of REQUIRED_CLI_COMMANDS) {
     if (!result.stdout.includes(command)) {
@@ -1654,8 +1654,8 @@ async function activateRunningAppServer({
   let client;
   try {
     client = await openAppServerClient({
-      clientName: "fraktik-installer",
-      clientTitle: "Fraktik Installer",
+      clientName: "nelos-installer",
+      clientTitle: "Nelos Installer",
       resolvedControlEndpoint: context.controlEndpoint,
       timeoutMs: context.timeoutMs,
     });
@@ -1797,7 +1797,7 @@ async function stagePluginSource(
   if ((await treeFingerprint(sourcePath)) !== sourceFingerprint) {
     throw new Error(`plugin source changed during preflight: ${sourcePath}`);
   }
-  const stagePath = `${sourcePath}.fraktik-stage-${transactionId}`;
+  const stagePath = `${sourcePath}.nelos-stage-${transactionId}`;
   await rm(stagePath, { recursive: true, force: true });
   try {
     await cp(releasePath, stagePath, {
@@ -1813,7 +1813,7 @@ async function stagePluginSource(
 }
 
 async function activatePluginSource(staged, journal, journalPath) {
-  const backupPath = `${staged.sourcePath}.fraktik-backup-${journal.id}`;
+  const backupPath = `${staged.sourcePath}.nelos-backup-${journal.id}`;
   journal.plugin.sourcePath = staged.sourcePath;
   journal.plugin.sourceStagePath = staged.stagePath;
   journal.plugin.sourceBackupPath = backupPath;
@@ -1865,8 +1865,8 @@ async function replaceSkill({ releasePath, skillPath, force, journal, journalPat
     throw new Error(`skill changed during preflight: ${skillPath}`);
   }
 
-  const stagePath = `${skillPath}.fraktik-stage-${journal.id}`;
-  const backupPath = `${skillPath}.fraktik-backup-${journal.id}`;
+  const stagePath = `${skillPath}.nelos-stage-${journal.id}`;
+  const backupPath = `${skillPath}.nelos-backup-${journal.id}`;
   await rm(stagePath, { recursive: true, force: true });
   try {
     await mkdir(stagePath, { recursive: true, mode: 0o700 });
@@ -2012,7 +2012,7 @@ async function replaceLaunchers({
       const currentTarget = resolve(dirname(destination), await readlink(destination));
       if (currentTarget === target) continue;
     }
-    const backupPath = `${destination}.fraktik-backup-${journal.id}`;
+    const backupPath = `${destination}.nelos-backup-${journal.id}`;
     const record = {
       path: destination,
       backupPath,
@@ -2209,12 +2209,12 @@ function validateJournal(journal, expected) {
     );
     assertJournalPath(
       journal.plugin.sourceBackupPath,
-      `${expected.pluginSource}.fraktik-backup-${journal.id}`,
+      `${expected.pluginSource}.nelos-backup-${journal.id}`,
       "plugin source backup",
     );
     assertJournalPath(
       journal.plugin.sourceStagePath,
-      `${expected.pluginSource}.fraktik-stage-${journal.id}`,
+      `${expected.pluginSource}.nelos-stage-${journal.id}`,
       "plugin source stage",
     );
     if (!/^[a-f0-9]{64}$/.test(journal.plugin.sourceFingerprint ?? "")) {
@@ -2226,12 +2226,12 @@ function validateJournal(journal, expected) {
     assertJournalPath(journal.skill.path, skillPath, "skill");
     assertJournalPath(
       journal.skill.backupPath,
-      `${skillPath}.fraktik-backup-${journal.id}`,
+      `${skillPath}.nelos-backup-${journal.id}`,
       "skill backup",
     );
     assertJournalPath(
       journal.skill.stagePath,
-      `${skillPath}.fraktik-stage-${journal.id}`,
+      `${skillPath}.nelos-stage-${journal.id}`,
       "skill stage",
     );
   }
@@ -2255,7 +2255,7 @@ function validateJournal(journal, expected) {
     assertJournalPath(launcher.path, launcherPath, "launcher");
     assertJournalPath(
       launcher.backupPath,
-      `${launcherPath}.fraktik-backup-${journal.id}`,
+      `${launcherPath}.nelos-backup-${journal.id}`,
       "launcher backup",
     );
   }
@@ -2383,7 +2383,7 @@ async function verifyInstalled({
       );
     }
   }
-  const help = await runChecked("fraktik", ["--help"], { env });
+  const help = await runChecked("nelos", ["--help"], { env });
   for (const command of REQUIRED_CLI_COMMANDS) {
     if (!help.stdout.includes(command)) {
       throw new Error(`installed CLI help is missing required command: ${command}`);

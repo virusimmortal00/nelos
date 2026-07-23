@@ -11,7 +11,7 @@ import {
   createWorkUnitSpecV1,
 } from "../src/execution-store.mjs";
 
-const cli = fileURLToPath(new URL("../bin/fraktik", import.meta.url));
+const cli = fileURLToPath(new URL("../bin/nelos", import.meta.url));
 
 function workUnit({ workUnitId, dependencies = [] }) {
   return createWorkUnitSpecV1({
@@ -40,11 +40,11 @@ function run(argumentsList, stateHome) {
 }
 
 test("web acceptance persists an exact decision and releases only accepted dependencies", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-acceptance-cli-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-acceptance-cli-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const stateHome = join(root, "state");
   const store = new ExecutionStoreV1({
-    directory: join(stateHome, "fraktik", "executions"),
+    directory: join(stateHome, "nelos", "executions"),
   });
   await store.create(workUnit({ workUnitId: "upstream" }));
   await store.create(workUnit({ workUnitId: "dependent", dependencies: ["upstream"] }));

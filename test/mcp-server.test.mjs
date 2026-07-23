@@ -8,8 +8,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  listFraktikMcpTools,
-  startFraktikMcpServer,
+  listNelosMcpTools,
+  startNelosMcpServer,
 } from "../src/mcp-server.mjs";
 
 const INITIALIZE = {
@@ -45,7 +45,7 @@ async function roundTrip(messages) {
   const chunks = [];
   output.on("data", (chunk) => chunks.push(chunk));
   const exited = new Promise((resolve) => {
-    startFraktikMcpServer({
+    startNelosMcpServer({
       input,
       output,
       serverVersion: "0.0.0-test",
@@ -78,7 +78,7 @@ test("initialize returns the tools capability and server identity", async () => 
   assert.equal(response.result.protocolVersion, "2025-06-18");
   assert.deepEqual(response.result.capabilities, { tools: { listChanged: false } });
   assert.deepEqual(response.result.serverInfo, {
-    name: "fraktik",
+    name: "nelos",
     version: "0.0.0-test",
   });
 });
@@ -92,9 +92,9 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
   assert.deepEqual(
     tools.map((tool) => tool.name),
     [
-      "fraktik_plan_slices",
-      "fraktik_intelligence_route",
-      "fraktik_intelligence_verify",
+      "nelos_plan_slices",
+      "nelos_intelligence_route",
+      "nelos_intelligence_verify",
     ],
   );
   for (const tool of tools) {
@@ -103,17 +103,17 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
-  assert.deepEqual(tools, listFraktikMcpTools());
+  assert.deepEqual(tools, listNelosMcpTools());
 });
 
-test("fraktik_plan_slices routes a valid plan into waves", async () => {
+test("nelos_plan_slices routes a valid plan into waves", async () => {
   const [, response] = await roundTrip([
     INITIALIZE,
     {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "fraktik_plan_slices", arguments: { plan: validPlan() } },
+      params: { name: "nelos_plan_slices", arguments: { plan: validPlan() } },
     },
   ]);
   const { isError, body } = toolBody(response);
@@ -125,7 +125,7 @@ test("fraktik_plan_slices routes a valid plan into waves", async () => {
   assert.equal(body.plan.waves.length, 1);
 });
 
-test("fraktik_plan_slices reports invalid plans as tool errors", async () => {
+test("nelos_plan_slices reports invalid plans as tool errors", async () => {
   const [, response] = await roundTrip([
     INITIALIZE,
     {
@@ -133,7 +133,7 @@ test("fraktik_plan_slices reports invalid plans as tool errors", async () => {
       id: 2,
       method: "tools/call",
       params: {
-        name: "fraktik_plan_slices",
+        name: "nelos_plan_slices",
         arguments: { plan: { schemaVersion: 99 } },
       },
     },
@@ -143,7 +143,7 @@ test("fraktik_plan_slices reports invalid plans as tool errors", async () => {
   assert.ok(body.error);
 });
 
-test("fraktik_intelligence_route mirrors the CLI mapping", async () => {
+test("nelos_intelligence_route mirrors the CLI mapping", async () => {
   const [, routed, invalid] = await roundTrip([
     INITIALIZE,
     {
@@ -151,7 +151,7 @@ test("fraktik_intelligence_route mirrors the CLI mapping", async () => {
       id: 2,
       method: "tools/call",
       params: {
-        name: "fraktik_intelligence_route",
+        name: "nelos_intelligence_route",
         arguments: { taskShape: "everyday" },
       },
     },
@@ -160,7 +160,7 @@ test("fraktik_intelligence_route mirrors the CLI mapping", async () => {
       id: 3,
       method: "tools/call",
       params: {
-        name: "fraktik_intelligence_route",
+        name: "nelos_intelligence_route",
         arguments: { taskShape: "unsupported-shape" },
       },
     },
@@ -175,7 +175,7 @@ test("fraktik_intelligence_route mirrors the CLI mapping", async () => {
 });
 
 async function sessionsFixture(events) {
-  const root = await mkdtemp(join(tmpdir(), "fraktik-mcp-verify-"));
+  const root = await mkdtemp(join(tmpdir(), "nelos-mcp-verify-"));
   const directory = join(root, "sessions", "2026", "07", "21");
   await mkdir(directory, { recursive: true });
   await writeFile(
@@ -204,7 +204,7 @@ async function withCodexHome(root, run) {
   }
 }
 
-test("fraktik_intelligence_verify confirms an exact route", async () => {
+test("nelos_intelligence_verify confirms an exact route", async () => {
   const root = await sessionsFixture([
     turnContext("turn-1", "gpt-5.6-terra", "low"),
   ]);
@@ -216,7 +216,7 @@ test("fraktik_intelligence_verify confirms an exact route", async () => {
         id: 2,
         method: "tools/call",
         params: {
-          name: "fraktik_intelligence_verify",
+          name: "nelos_intelligence_verify",
           arguments: { threadId: "thread-1", model: "gpt-5.6-terra", effort: "low" },
         },
       },
@@ -228,7 +228,7 @@ test("fraktik_intelligence_verify confirms an exact route", async () => {
   });
 });
 
-test("fraktik_intelligence_verify fails closed on any mismatch", async () => {
+test("nelos_intelligence_verify fails closed on any mismatch", async () => {
   const root = await sessionsFixture([
     turnContext("turn-1", "gpt-5.6-terra", "high"),
   ]);
@@ -240,7 +240,7 @@ test("fraktik_intelligence_verify fails closed on any mismatch", async () => {
         id: 2,
         method: "tools/call",
         params: {
-          name: "fraktik_intelligence_verify",
+          name: "nelos_intelligence_verify",
           arguments: { threadId: "thread-1", model: "gpt-5.6-terra", effort: "low" },
         },
       },
@@ -249,7 +249,7 @@ test("fraktik_intelligence_verify fails closed on any mismatch", async () => {
         id: 3,
         method: "tools/call",
         params: {
-          name: "fraktik_intelligence_verify",
+          name: "nelos_intelligence_verify",
           arguments: { threadId: "no-such-thread", model: "gpt-5.6-terra", effort: "low" },
         },
       },
@@ -290,7 +290,7 @@ test("rejected and missing tool arguments are tool errors", async () => {
       id: 2,
       method: "tools/call",
       params: {
-        name: "fraktik_plan_slices",
+        name: "nelos_plan_slices",
         arguments: { plan: validPlan(), extra: true },
       },
     },
@@ -298,7 +298,7 @@ test("rejected and missing tool arguments are tool errors", async () => {
       jsonrpc: "2.0",
       id: 3,
       method: "tools/call",
-      params: { name: "fraktik_intelligence_verify", arguments: { threadId: "t" } },
+      params: { name: "nelos_intelligence_verify", arguments: { threadId: "t" } },
     },
   ]);
   const extra = toolBody(unexpected);
@@ -309,8 +309,8 @@ test("rejected and missing tool arguments are tool errors", async () => {
   assert.match(absent.body.error, /requires argument model/);
 });
 
-test("bin/fraktik-mcp serves the same surface over real stdio", async () => {
-  const binPath = fileURLToPath(new URL("../bin/fraktik-mcp", import.meta.url));
+test("bin/nelos-mcp serves the same surface over real stdio", async () => {
+  const binPath = fileURLToPath(new URL("../bin/nelos-mcp", import.meta.url));
   const child = spawn(process.execPath, [binPath], {
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -333,9 +333,9 @@ test("bin/fraktik-mcp serves the same surface over real stdio", async () => {
   await gotTwo;
   child.stdin.end();
   await new Promise((resolve) => child.on("exit", resolve));
-  assert.equal(lines[0].result.serverInfo.name, "fraktik");
+  assert.equal(lines[0].result.serverInfo.name, "nelos");
   assert.deepEqual(
     lines[1].result.tools.map((tool) => tool.name),
-    listFraktikMcpTools().map((tool) => tool.name),
+    listNelosMcpTools().map((tool) => tool.name),
   );
 });

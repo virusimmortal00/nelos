@@ -258,7 +258,7 @@ export function inspectPersonalMarketplace(
   if (!plugin) {
     return {
       state: "bootstrap-ready",
-      reason: "Fraktik entry is absent",
+      reason: "Nelos entry is absent",
       mutation: {
         kind: "append-plugin",
         plugin: personalMarketplacePluginEntry(pluginIdentity, sourcePath, {
@@ -271,7 +271,7 @@ export function inspectPersonalMarketplace(
   if (!record(plugin.source) || plugin.source.source !== "local") {
     return {
       state: "conflict",
-      reason: "Fraktik entry is owned by a non-local source",
+      reason: "Nelos entry is owned by a non-local source",
     };
   }
 
@@ -285,13 +285,13 @@ export function inspectPersonalMarketplace(
   } catch {
     return {
       state: "conflict",
-      reason: "Fraktik local source path is malformed",
+      reason: "Nelos local source path is malformed",
     };
   }
   if (resolvedSource !== resolve(sourcePath)) {
     return {
       state: "conflict",
-      reason: "Fraktik entry points at a different local source",
+      reason: "Nelos entry points at a different local source",
     };
   }
 
@@ -308,7 +308,7 @@ export function inspectPersonalMarketplace(
   ) {
     return {
       state: "conflict",
-      reason: "Fraktik entry has conflicting install or authentication policy",
+      reason: "Nelos entry has conflicting install or authentication policy",
     };
   }
   if (plugin.category === undefined) {
@@ -316,13 +316,13 @@ export function inspectPersonalMarketplace(
   } else if (plugin.category !== PLUGIN_CATEGORY) {
     return {
       state: "conflict",
-      reason: "Fraktik entry has a conflicting category",
+      reason: "Nelos entry has a conflicting category",
     };
   }
   if (Object.keys(properties).length > 0) {
     return {
       state: "bootstrap-ready",
-      reason: "Fraktik entry is ready for canonical metadata",
+      reason: "Nelos entry is ready for canonical metadata",
       mutation: {
         kind: "append-target-properties",
         pluginIndex,
@@ -333,8 +333,8 @@ export function inspectPersonalMarketplace(
   return {
     state: "compatible",
     reason: isAbsolute(plugin.source.path)
-      ? "Fraktik uses the expected absolute local source"
-      : "Fraktik uses the expected home-relative local source",
+      ? "Nelos uses the expected absolute local source"
+      : "Nelos uses the expected home-relative local source",
     sourcePath: resolvedSource,
   };
 }

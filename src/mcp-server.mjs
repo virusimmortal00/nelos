@@ -8,7 +8,7 @@ import { verifyRuntimeIntelligenceV1 } from "./runtime-intelligence-verification
 // observed to use (codex-cli 0.144.6). Every tool is read-only: the planner
 // and router are pure, and verification performs bounded local rollout reads.
 
-export const MCP_SERVER_NAME = "fraktik";
+export const MCP_SERVER_NAME = "nelos";
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 const MAX_MESSAGE_BYTES = 256 * 1024;
 
@@ -20,11 +20,11 @@ const READ_ONLY_ANNOTATIONS = Object.freeze({
 
 const TOOLS = [
   {
-    name: "fraktik_plan_slices",
+    name: "nelos_plan_slices",
     description:
       "Validate a queen-authored slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
-      "machine-generated nextAction. Equivalent to `fraktik plan slices`.",
+      "machine-generated nextAction. Equivalent to `nelos plan slices`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -45,10 +45,10 @@ const TOOLS = [
     },
   },
   {
-    name: "fraktik_intelligence_route",
+    name: "nelos_intelligence_route",
     description:
       "Route a task shape to a reviewed model-and-reasoning profile, with " +
-      "optional explicit overrides. Equivalent to `fraktik intelligence route`.",
+      "optional explicit overrides. Equivalent to `nelos intelligence route`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -86,11 +86,11 @@ const TOOLS = [
     },
   },
   {
-    name: "fraktik_intelligence_verify",
+    name: "nelos_intelligence_verify",
     description:
       "Verify from bounded local turn-context metadata that a launched task " +
       "runs the exact expected model and reasoning effort. Fails closed on " +
-      "any mismatch. Equivalent to `fraktik intelligence verify`.",
+      "any mismatch. Equivalent to `nelos intelligence verify`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -122,7 +122,7 @@ const TOOLS = [
   },
 ];
 
-export function listFraktikMcpTools() {
+export function listNelosMcpTools() {
   return TOOLS.map(({ name, description, inputSchema }) => ({
     name,
     description,
@@ -150,7 +150,7 @@ function assertToolArguments(tool, value) {
   return args;
 }
 
-export function startFraktikMcpServer({
+export function startNelosMcpServer({
   input = process.stdin,
   output = process.stdout,
   serverVersion = "0.0.0-dev",
@@ -209,7 +209,7 @@ export function startFraktikMcpServer({
       return;
     }
     if (method === "tools/list") {
-      send({ jsonrpc: "2.0", id, result: { tools: listFraktikMcpTools() } });
+      send({ jsonrpc: "2.0", id, result: { tools: listNelosMcpTools() } });
       return;
     }
     if (method === "tools/call") {
@@ -241,7 +241,7 @@ export function startFraktikMcpServer({
     buffer += chunk;
     if (Buffer.byteLength(buffer, "utf8") > MAX_MESSAGE_BYTES) {
       process.stderr.write(
-        `fraktik-mcp: message exceeds ${MAX_MESSAGE_BYTES} bytes; terminating\n`,
+        `nelos-mcp: message exceeds ${MAX_MESSAGE_BYTES} bytes; terminating\n`,
       );
       onExit(1);
       return;
@@ -255,7 +255,7 @@ export function startFraktikMcpServer({
       try {
         message = JSON.parse(line);
       } catch {
-        process.stderr.write("fraktik-mcp: ignored unparseable message\n");
+        process.stderr.write("nelos-mcp: ignored unparseable message\n");
         continue;
       }
       // Serialize handling so responses keep request order.

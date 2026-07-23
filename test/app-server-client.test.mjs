@@ -37,7 +37,7 @@ test("codexTaskUrl safely encodes task IDs", () => {
 });
 
 test("package root exports the shared app-server client API", async () => {
-  const packageApi = await import("fraktik");
+  const packageApi = await import("nelos");
 
   assert.equal(typeof packageApi.AppServerClient, "function");
   assert.equal(typeof packageApi.openAppServerClient, "function");

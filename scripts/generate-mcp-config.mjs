@@ -13,8 +13,8 @@ import { fileURLToPath } from "node:url";
 // form once the host implements substitution; see docs/mcp-tool-surface.md.
 
 export const MCP_CONFIG_FILENAME = ".mcp.json";
-export const MCP_PLUGIN_VERSION_ENV = "FRAKTIK_PLUGIN_VERSION";
-export const MCP_SERVER_CONFIG_KEY = "fraktik";
+export const MCP_PLUGIN_VERSION_ENV = "NELOS_PLUGIN_VERSION";
+export const MCP_SERVER_CONFIG_KEY = "nelos";
 
 // The bootstrap must stay dependency-free CommonJS (it runs via `node -e`),
 // use no template literals (kept trivially embeddable in JSON), and confine
@@ -27,7 +27,7 @@ export function buildMcpBootstrap() {
     '  const os = require("node:os");',
     '  const { pathToFileURL } = require("node:url");',
     "  const fail = (message) => {",
-    '    process.stderr.write("fraktik-mcp bootstrap: " + message + "\\n");',
+    '    process.stderr.write("nelos-mcp bootstrap: " + message + "\\n");',
     "    process.exit(1);",
     "  };",
     `  const version = process.env.${MCP_PLUGIN_VERSION_ENV};`,
@@ -42,21 +42,21 @@ export function buildMcpBootstrap() {
     "  const candidates = [];",
     "  for (const marketplace of marketplaces) {",
     "    const candidate = path.join(",
-    '      cacheRoot, marketplace, "fraktik", version, "src", "mcp-server.mjs");',
+    '      cacheRoot, marketplace, "nelos", version, "src", "mcp-server.mjs");',
     "    if (fs.existsSync(candidate)) candidates.push(candidate);",
     "  }",
     "  if (candidates.length === 0) {",
-    '    fail("no cached fraktik " + version + " plugin under " + cacheRoot +',
-    '      "; reinstall the fraktik plugin so the cached version matches .mcp.json");',
+    '    fail("no cached nelos " + version + " plugin under " + cacheRoot +',
+    '      "; reinstall the nelos plugin so the cached version matches .mcp.json");',
     "  }",
     "  candidates.sort();",
     "  if (candidates.length > 1) {",
     "    process.stderr.write(",
-    '      "fraktik-mcp bootstrap: multiple cached copies; using " + candidates[0] + "\\n");',
+    '      "nelos-mcp bootstrap: multiple cached copies; using " + candidates[0] + "\\n");',
     "  }",
     "  try {",
     "    const serverModule = await import(pathToFileURL(candidates[0]).href);",
-    "    serverModule.startFraktikMcpServer({ serverVersion: version });",
+    "    serverModule.startNelosMcpServer({ serverVersion: version });",
     "  } catch (error) {",
     '    fail("failed to start " + candidates[0] + ": " + error.message);',
     "  }",

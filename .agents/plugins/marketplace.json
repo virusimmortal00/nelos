@@ -1,11 +1,11 @@
 {
-  "name": "fraktik",
+  "name": "nelos",
   "interface": {
-    "displayName": "Fraktik"
+    "displayName": "Nelos"
   },
   "plugins": [
     {
-      "name": "fraktik",
+      "name": "nelos",
       "source": {
         "source": "local",
         "path": "./"

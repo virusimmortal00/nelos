@@ -17,7 +17,7 @@ function mockThread(id, name, cwd) {
     status: { type: "idle" },
     cwd,
     source: "appServer",
-    threadSource: id === "queen-thread" ? "appServer" : "fraktik-cli",
+    threadSource: id === "queen-thread" ? "appServer" : "nelos-cli",
     createdAt: 1,
     updatedAt: 2,
   };

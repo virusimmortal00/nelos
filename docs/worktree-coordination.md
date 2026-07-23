@@ -1,6 +1,6 @@
 # Worktree Coordination
 
-Fraktik coordinates task lifecycles; it does not infer Git ownership
+Nelos coordinates task lifecycles; it does not infer Git ownership
 from an agent thread. A durable Codex task, a Git branch, and a Git worktree are
 different resources and must be bound explicitly when work runs concurrently.
 
@@ -12,19 +12,19 @@ the Codex task, then pass the absolute worktree path through `--cwd`.
 
 ### Opt-in provisioning
 
-`fraktik worktree provision` is the supported initial provisioning adapter.
+`nelos worktree provision` is the supported initial provisioning adapter.
 It performs no task, merge, deployment, or cleanup action. It instead creates
 or explicitly adopts one clean worktree and records a private receipt under
-the user-scoped Fraktik state directory.
+the user-scoped Nelos state directory.
 
 ```bash
-fraktik worktree provision \
+nelos worktree provision \
   --action-id "web-A1-api-launch-r1" \
   --work-unit-id "api" \
   --owner-task-id "$CODEX_THREAD_ID" \
   --source "/absolute/path/project-main" \
   --worktree-path "/absolute/path/project-api" \
-  --branch "fraktik/BA-1234-short-name" \
+  --branch "nelos/BA-1234-short-name" \
   --base "origin/main"
 ```
 
@@ -58,7 +58,7 @@ sequence in explicit standalone development:
 1. Preview the deterministic action, branch, and path without changing Git:
 
    ```bash
-   fraktik worktree plan \
+   nelos worktree plan \
      --web-id A1 --work-unit-id api --spec-revision 1 --attempt 1 \
      --worktree-root "/absolute/path/writers"
    ```
@@ -68,7 +68,7 @@ sequence in explicit standalone development:
    spinoff only after the receipt verifies, and then binds its returned task ID.
 
    ```bash
-   fraktik worktree launch \
+   nelos worktree launch \
      --work-unit-spec "/absolute/path/api-work-unit.json" \
      --prompt-file "/absolute/path/api-prompt.md" \
      --source "/absolute/path/project-main" \
@@ -85,8 +85,8 @@ sequence in explicit standalone development:
    read-only integration queue through the same app-server connection:
 
    ```bash
-   fraktik worktree inspect --action-id "launch:A1:api:r1:a1"
-   fraktik worktree integration \
+   nelos worktree inspect --action-id "launch:A1:api:r1:a1"
+   nelos worktree integration \
      --queen-thread-id "$CODEX_THREAD_ID" \
      --socket "/absolute/path/app-server.sock"
    ```
@@ -99,10 +99,10 @@ inside the assigned worktree.
 After the provisioning receipt is `provisioned`, task launch remains explicit:
 
 ```bash
-fraktik start \
+nelos start \
   --title "BA-1234: Short name" \
   --cwd "/absolute/path/project-ba-1234" \
-  --prompt "Work only in /absolute/path/project-ba-1234 on branch fraktik/BA-1234-short-name."
+  --prompt "Work only in /absolute/path/project-ba-1234 on branch nelos/BA-1234-short-name."
 ```
 
 ## Ownership Rules
@@ -114,7 +114,7 @@ fraktik start \
 4. Give web member tasks disjoint, pre-provisioned worktrees when they must write.
 5. Keep dependency ordering, integration, and conflict resolution with the
    queen.
-6. Resume an idle persistent task with `fraktik send` when its dependency
+6. Resume an idle persistent task with `nelos send` when its dependency
    gate opens; do not create a replacement task for the same branch.
 
 Read-only agents may inspect a shared checkout, but they must not make commits
@@ -149,7 +149,7 @@ worktrees cannot collide any more than two explicitly provisioned ones can.
 
 The planned opt-in Git/workspace effect adapter applies when a host exposes enough
 information to describe a task's workspace — whether host-managed (above) or
-explicitly provisioned (Branch Contract) — Fraktik should be able to
+explicitly provisioned (Branch Contract) — Nelos should be able to
 record these fields in private execution state:
 
 | Field         | Meaning                                                                 |
@@ -175,7 +175,7 @@ The workspace-identity fields above are only as trustworthy as their source:
   operations itself — worktree creation, detached HEAD, branch naming, and
   Handoff — so `repository`, `branch`, and `worktreePath` can be read from the
   host's own task/thread state rather than inferred. This is the only path
-  where Fraktik could treat those fields as host-attested.
+  where Nelos could treat those fields as host-attested.
 - **Standalone app-server transport** (`docs/host-owned-control.md`): a
   directly connected app server has no worktree of its own opinion — the
   worktree is whatever `--cwd` was pointed at when the task was started. In

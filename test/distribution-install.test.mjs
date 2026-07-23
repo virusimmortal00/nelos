@@ -35,15 +35,15 @@ import {
 } from "../src/distribution-provenance.mjs";
 import { startMockAppServer } from "./support/mock-app-server.mjs";
 
-const packageRoot = process.env.FRAKTIK_TEST_PACKAGE_ROOT
-  ? resolve(process.env.FRAKTIK_TEST_PACKAGE_ROOT)
+const packageRoot = process.env.NELOS_TEST_PACKAGE_ROOT
+  ? resolve(process.env.NELOS_TEST_PACKAGE_ROOT)
   : fileURLToPath(new URL("..", import.meta.url));
 const candidateVersion = JSON.parse(
   await readFile(join(packageRoot, "package.json"), "utf8"),
 ).version;
 const legacyVersion = "0.0.0";
 const verifier = fileURLToPath(
-  new URL("../bin/fraktik-verify-distribution", import.meta.url),
+  new URL("../bin/nelos-verify-distribution", import.meta.url),
 );
 
 function runVerifier(environment, args = [], options = {}) {
@@ -73,7 +73,7 @@ const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
 
-const selector = "fraktik@personal";
+const selector = "nelos@personal";
 const candidateVersion = ${JSON.stringify(candidateVersion)};
 const sourcePath = process.env.FAKE_PLUGIN_SOURCE;
 const codexHome = process.env.CODEX_HOME;
@@ -104,7 +104,7 @@ async function main() {
     const state = await readState();
     const entry = {
       pluginId: selector,
-      name: "fraktik",
+      name: "nelos",
       marketplaceName: "personal",
       version: state.version || null,
       installed: Boolean(state.installed),
@@ -132,7 +132,7 @@ async function main() {
       process.exitCode = 10;
       return;
     }
-    const installedPath = path.join(codexHome, "plugins", "cache", "personal", "fraktik", manifest.version);
+    const installedPath = path.join(codexHome, "plugins", "cache", "personal", "nelos", manifest.version);
     await fsp.rm(installedPath, { recursive: true, force: true });
     await fsp.mkdir(path.dirname(installedPath), { recursive: true });
     await fsp.cp(sourcePath, installedPath, { recursive: true });
@@ -145,7 +145,7 @@ async function main() {
     await writeState({ installed: true, version: manifest.version, installedPath });
     output({
       pluginId: selector,
-      name: "fraktik",
+      name: "nelos",
       marketplaceName: "personal",
       version: manifest.version,
       installedPath,
@@ -169,19 +169,19 @@ main().catch((error) => { process.stderr.write(error.message + "\\n"); process.e
 
 async function createLegacyPluginSource(sourcePath) {
   await mkdir(join(sourcePath, ".codex-plugin"), { recursive: true });
-  await mkdir(join(sourcePath, "skills", "manage-fraktik-tasks"), {
+  await mkdir(join(sourcePath, "skills", "manage-nelos-tasks"), {
     recursive: true,
   });
   await writeFile(
     join(sourcePath, ".codex-plugin", "plugin.json"),
-    `${JSON.stringify({ name: "fraktik", version: legacyVersion }, null, 2)}\n`,
+    `${JSON.stringify({ name: "nelos", version: legacyVersion }, null, 2)}\n`,
   );
   await writeFile(
     join(sourcePath, "distribution-provenance.json"),
     `${JSON.stringify(
       {
         schemaVersion: 1,
-        distribution: "fraktik",
+        distribution: "nelos",
         revision: legacyVersion,
       },
       null,
@@ -189,7 +189,7 @@ async function createLegacyPluginSource(sourcePath) {
     )}\n`,
   );
   await writeFile(
-    join(sourcePath, "skills", "manage-fraktik-tasks", "SKILL.md"),
+    join(sourcePath, "skills", "manage-nelos-tasks", "SKILL.md"),
     "legacy plugin skill\n",
   );
   await writeFile(join(sourcePath, "legacy-marker"), "legacy source\n");
@@ -208,9 +208,9 @@ async function createFixture() {
   const binDir = join(home, ".local", "bin");
   const fakeBin = join(root, "fake-bin");
   const codexPath = join(fakeBin, "codex");
-  const pluginSource = join(home, "plugins", "fraktik");
-  const skillPath = join(codexHome, "skills", "manage-fraktik-tasks");
-  const installRoot = join(codexHome, "distributions", "fraktik");
+  const pluginSource = join(home, "plugins", "nelos");
+  const skillPath = join(codexHome, "skills", "manage-nelos-tasks");
+  const installRoot = join(codexHome, "distributions", "nelos");
   await mkdir(binDir, { recursive: true });
   await mkdir(fakeBin, { recursive: true });
   await mkdir(skillPath, { recursive: true });
@@ -223,8 +223,8 @@ async function createFixture() {
   );
   const oldCli = "#!/bin/sh\nprintf 'legacy help\\n'\n";
   const oldTitle = "#!/bin/sh\nprintf 'legacy title\\n'\n";
-  await writeFile(join(binDir, "fraktik"), oldCli, { mode: 0o755 });
-  await writeFile(join(binDir, "fraktik-title"), oldTitle, { mode: 0o755 });
+  await writeFile(join(binDir, "nelos"), oldCli, { mode: 0o755 });
+  await writeFile(join(binDir, "nelos-title"), oldTitle, { mode: 0o755 });
   const env = {
     ...process.env,
     HOME: home,
@@ -234,7 +234,7 @@ async function createFixture() {
       delimiter,
     ),
   };
-  await runFakeCodex(codexPath, ["plugin", "add", "fraktik@personal", "--json"], env);
+  await runFakeCodex(codexPath, ["plugin", "add", "nelos@personal", "--json"], env);
   return {
     root,
     home,
@@ -271,8 +271,8 @@ async function makeFixtureClean(fixture) {
     rm(fixture.skillPath, { recursive: true, force: true }),
     rm(join(fixture.codexHome, "plugins"), { recursive: true, force: true }),
     rm(join(fixture.codexHome, "fake-plugin-state.json"), { force: true }),
-    rm(join(fixture.binDir, "fraktik"), { force: true }),
-    rm(join(fixture.binDir, "fraktik-title"), { force: true }),
+    rm(join(fixture.binDir, "nelos"), { force: true }),
+    rm(join(fixture.binDir, "nelos-title"), { force: true }),
   ]);
 }
 
@@ -299,7 +299,7 @@ async function startPluginAppServer(
         name: "personal",
         plugins: [
           {
-            name: "fraktik",
+            name: "nelos",
             source: { source: "local", path: fixture.pluginSource },
           },
         ],
@@ -310,8 +310,8 @@ async function startPluginAppServer(
   );
   const state = { installed: true, version: legacyVersion };
   const summary = () => ({
-    id: "fraktik@personal",
-    name: "fraktik",
+    id: "nelos@personal",
+    name: "nelos",
     localVersion: state.version,
     installed: state.installed,
     enabled: state.installed,
@@ -361,9 +361,9 @@ async function startPluginAppServer(
 }
 
 async function assertLegacyState(fixture) {
-  assert.equal(await readFile(join(fixture.binDir, "fraktik"), "utf8"), fixture.oldCli);
+  assert.equal(await readFile(join(fixture.binDir, "nelos"), "utf8"), fixture.oldCli);
   assert.equal(
-    await readFile(join(fixture.binDir, "fraktik-title"), "utf8"),
+    await readFile(join(fixture.binDir, "nelos-title"), "utf8"),
     fixture.oldTitle,
   );
   assert.equal(
@@ -390,18 +390,18 @@ test("unified install repairs PATH, skill, and plugin from one immutable release
     assert.equal(installed.plugin.liveActivation.freshTaskSmokeTestRequired, true);
     assert.match(installed.provenance.integrity, /^sha256:[a-f0-9]{64}$/);
     assert.equal(
-      await realpath(join(fixture.binDir, "fraktik")),
-      await realpath(join(installed.releasePath, "bin", "fraktik")),
+      await realpath(join(fixture.binDir, "nelos")),
+      await realpath(join(installed.releasePath, "bin", "nelos")),
     );
-    const help = spawnSync("fraktik", ["--help"], {
+    const help = spawnSync("nelos", ["--help"], {
       env: fixture.env,
       encoding: "utf8",
     });
     assert.equal(help.status, 0, help.stderr);
-    assert.match(help.stdout, /fraktik spinoff/);
-    assert.match(help.stdout, /fraktik web begin/);
-    assert.match(help.stdout, /fraktik web join/);
-    assert.match(help.stdout, /fraktik web collect/);
+    assert.match(help.stdout, /nelos spinoff/);
+    assert.match(help.stdout, /nelos web begin/);
+    assert.match(help.stdout, /nelos web join/);
+    assert.match(help.stdout, /nelos web collect/);
 
     const skillProvenance = JSON.parse(
       await readFile(
@@ -430,13 +430,13 @@ test("unified install repairs PATH, skill, and plugin from one immutable release
       "plugins",
       "cache",
       "personal",
-      "fraktik",
+      "nelos",
       "999.0.0",
     );
     await mkdir(orphanedCache, { recursive: true });
     await writeFile(
       join(orphanedCache, "distribution-provenance.json"),
-      '{"schemaVersion":1,"distribution":"fraktik","revision":"999.0.0"}\n',
+      '{"schemaVersion":1,"distribution":"nelos","revision":"999.0.0"}\n',
     );
 
     const verified = await runVerifier(fixture.env);
@@ -484,8 +484,8 @@ test("a live-shaped canonical marketplace remains byte-identical during install"
           preserve: { nested: true },
         },
         {
-          name: "fraktik",
-          source: { source: "local", path: "./plugins/fraktik" },
+          name: "nelos",
+          source: { source: "local", path: "./plugins/nelos" },
           policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
           category: "Developer Tools",
         },
@@ -501,7 +501,7 @@ test("a live-shaped canonical marketplace remains byte-identical during install"
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
-test("install appends Fraktik, preserves the legacy plugin, and is byte-idempotent afterward", async () => {
+test("install appends Nelos, preserves the legacy plugin, and is byte-idempotent afterward", async () => {
   const fixture = await createFixture();
   try {
     const marketplacePath = join(fixture.home, ".agents", "plugins", "marketplace.json");
@@ -520,8 +520,8 @@ test("install appends Fraktik, preserves the legacy plugin, and is byte-idempote
     assert.equal(updated.plugins[0].nested.keep, true);
     assert.equal(updated.plugins[1].name, "legacy-orchestrator");
     assert.equal(updated.plugins[1].legacy, true);
-    assert.equal(updated.plugins[2].name, "fraktik");
-    assert.equal(updated.plugins[2].source.path, "./plugins/fraktik");
+    assert.equal(updated.plugins[2].name, "nelos");
+    assert.equal(updated.plugins[2].source.path, "./plugins/nelos");
 
     const repeated = await installFixture(fixture);
     assert.equal(repeated.marketplaceBootstrap.changed, false);
@@ -547,7 +547,7 @@ test("failed install restores a coexisting marketplace exactly", async () => {
     assert.equal(await readFile(marketplacePath, "utf8"), original);
     assert.equal((await stat(marketplacePath)).mode & 0o777, 0o640);
     await assert.rejects(
-      stat(join(dirname(marketplacePath), ".fraktik-marketplace-transaction.json")),
+      stat(join(dirname(marketplacePath), ".nelos-marketplace-transaction.json")),
       /ENOENT/,
     );
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
@@ -569,12 +569,12 @@ test("committed crash recovery preserves marketplace and next install coherence"
       codexCommand: fixture.codexPath,
       statePath,
       previousState,
-      plugin: { selector: "fraktik@personal" },
+      plugin: { selector: "nelos@personal" },
       launchers: [],
     })}\n`);
     const marketplaceTransactionPath = join(
       dirname(marketplacePath),
-      ".fraktik-marketplace-transaction.json",
+      ".nelos-marketplace-transaction.json",
     );
     await writeFile(marketplaceTransactionPath, `${JSON.stringify({
       schemaVersion: 1,
@@ -638,9 +638,9 @@ test("a copied managed launcher is accepted and replaced without force", async (
   const fixture = await createFixture();
   try {
     const installed = await installFixture(fixture);
-    const launcher = join(fixture.binDir, "fraktik");
+    const launcher = join(fixture.binDir, "nelos");
     await rm(launcher);
-    await copyFile(join(installed.releasePath, "bin", "fraktik"), launcher);
+    await copyFile(join(installed.releasePath, "bin", "nelos"), launcher);
     const candidate = join(fixture.root, "candidate-distribution");
     await mkdir(candidate);
     for (const entry of DISTRIBUTION_ENTRIES) {
@@ -650,7 +650,7 @@ test("a copied managed launcher is accepted and replaced without force", async (
       join(packageRoot, "distribution-provenance.json"),
       join(candidate, "distribution-provenance.json"),
     );
-    const candidateCli = join(candidate, "bin", "fraktik");
+    const candidateCli = join(candidate, "bin", "nelos");
     await writeFile(candidateCli, `${await readFile(candidateCli, "utf8")}\n// next build\n`);
     const candidateProvenancePath = join(
       candidate,
@@ -671,7 +671,7 @@ test("a copied managed launcher is accepted and replaced without force", async (
     assert.notEqual(repeated.releasePath, installed.releasePath);
     assert.equal(
       await realpath(launcher),
-      await realpath(join(repeated.releasePath, "bin", "fraktik")),
+      await realpath(join(repeated.releasePath, "bin", "nelos")),
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -721,7 +721,7 @@ test("managed verification reports cross-marketplace cache ambiguity", async () 
       "plugins",
       "cache",
       "another-marketplace",
-      "fraktik",
+      "nelos",
       installed.provenance.revision,
     );
     await mkdir(ambiguous, { recursive: true });
@@ -848,7 +848,7 @@ test("verification reports an unusable explicit Codex path without aborting", as
       verified.stderr,
       /MISMATCH cached plugin:.*could not verify active plugin state with --codex/,
     );
-    assert.doesNotMatch(verified.stderr, /^fraktik-verify-distribution:/m);
+    assert.doesNotMatch(verified.stderr, /^nelos-verify-distribution:/m);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -858,7 +858,7 @@ test("verification rejects current-directory PATH components without trusting cw
   const fixture = await createFixture();
   try {
     await installFixture(fixture);
-    const cwdShadow = join(fixture.root, "fraktik");
+    const cwdShadow = join(fixture.root, "nelos");
     await writeFile(cwdShadow, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     const unsafeEnvironment = {
       ...fixture.env,
@@ -1041,7 +1041,7 @@ test("production environment variables cannot activate test failpoints", async (
   const fixture = await createFixture();
   try {
     const installed = await installFixture(fixture, {
-      env: { ...fixture.env, FRAKTIK_FAILPOINT: "skill" },
+      env: { ...fixture.env, NELOS_FAILPOINT: "skill" },
     });
     assert.equal(installed.provenance.revision, candidateVersion);
   } finally {
@@ -1137,26 +1137,26 @@ test("the next install recovers an interrupted journal before proceeding", async
   const fixture = await createFixture();
   const transactionId = "interrupted-fixture";
   const journalPath = join(fixture.installRoot, "install-transaction.json");
-  const skillBackup = `${fixture.skillPath}.fraktik-backup-${transactionId}`;
-  const launcherPath = join(fixture.binDir, "fraktik");
-  const launcherBackup = `${launcherPath}.fraktik-backup-${transactionId}`;
-  const sourceBackup = `${fixture.pluginSource}.fraktik-backup-${transactionId}`;
+  const skillBackup = `${fixture.skillPath}.nelos-backup-${transactionId}`;
+  const launcherPath = join(fixture.binDir, "nelos");
+  const launcherBackup = `${launcherPath}.nelos-backup-${transactionId}`;
+  const sourceBackup = `${fixture.pluginSource}.nelos-backup-${transactionId}`;
   try {
     await mkdir(fixture.installRoot, { recursive: true });
     await rename(fixture.skillPath, skillBackup);
     await mkdir(fixture.skillPath, { recursive: true });
     await writeFile(join(fixture.skillPath, "SKILL.md"), "interrupted candidate\n");
     await rename(launcherPath, launcherBackup);
-    await symlink(join(packageRoot, "bin", "fraktik"), launcherPath);
+    await symlink(join(packageRoot, "bin", "nelos"), launcherPath);
     await rename(fixture.pluginSource, sourceBackup);
     await createLegacyPluginSource(fixture.pluginSource);
     await writeFile(
       join(fixture.pluginSource, ".codex-plugin", "plugin.json"),
-      `${JSON.stringify({ name: "fraktik", version: candidateVersion }, null, 2)}\n`,
+      `${JSON.stringify({ name: "nelos", version: candidateVersion }, null, 2)}\n`,
     );
     await runFakeCodex(
       fixture.codexPath,
-      ["plugin", "add", "fraktik@personal", "--json"],
+      ["plugin", "add", "nelos@personal", "--json"],
       fixture.env,
     );
     await writeFile(
@@ -1170,11 +1170,11 @@ test("the next install recovers an interrupted journal before proceeding", async
           statePath: join(fixture.installRoot, "install-state.json"),
           previousState: null,
           plugin: {
-            selector: "fraktik@personal",
+            selector: "nelos@personal",
             previouslyInstalled: true,
             sourcePath: fixture.pluginSource,
             sourceBackupPath: sourceBackup,
-            sourceStagePath: `${fixture.pluginSource}.fraktik-stage-${transactionId}`,
+            sourceStagePath: `${fixture.pluginSource}.nelos-stage-${transactionId}`,
             sourceExisted: true,
             sourceFingerprint:
               await distributionInstallInternals.treeFingerprint(sourceBackup),
@@ -1184,7 +1184,7 @@ test("the next install recovers an interrupted journal before proceeding", async
           skill: {
             path: fixture.skillPath,
             backupPath: skillBackup,
-            stagePath: `${fixture.skillPath}.fraktik-stage-${transactionId}`,
+            stagePath: `${fixture.skillPath}.nelos-stage-${transactionId}`,
             existed: true,
             activated: true,
           },
@@ -1213,7 +1213,7 @@ test("the next install recovers an interrupted journal before proceeding", async
         codexHome: fixture.codexHome,
         installRoot: fixture.installRoot,
         binDir: fixture.binDir,
-        pluginSelector: "fraktik@personal",
+        pluginSelector: "nelos@personal",
         pluginSource: fixture.pluginSource,
       },
     );
@@ -1332,7 +1332,7 @@ test("managed verification rejects content drift and a provenance-copying CLI sh
         sentinel = join(fixture.root, "malicious-cli-executed");
         await mkdir(maliciousBin, { recursive: true });
         await writeFile(
-          join(maliciousBin, "fraktik"),
+          join(maliciousBin, "nelos"),
           `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "executed\\n");\n`,
           { mode: 0o755 },
         );
@@ -1366,22 +1366,22 @@ test("recovery removes a newly installed plugin from the pre-response crash wind
   const fixture = await createFixture();
   const transactionId = "pre-response-crash";
   const journalPath = join(fixture.installRoot, "install-transaction.json");
-  const sourceBackup = `${fixture.pluginSource}.fraktik-backup-${transactionId}`;
+  const sourceBackup = `${fixture.pluginSource}.nelos-backup-${transactionId}`;
   try {
     await runFakeCodex(
       fixture.codexPath,
-      ["plugin", "remove", "fraktik@personal", "--json"],
+      ["plugin", "remove", "nelos@personal", "--json"],
       fixture.env,
     );
     await rename(fixture.pluginSource, sourceBackup);
     await createLegacyPluginSource(fixture.pluginSource);
     await writeFile(
       join(fixture.pluginSource, ".codex-plugin", "plugin.json"),
-      `${JSON.stringify({ name: "fraktik", version: candidateVersion }, null, 2)}\n`,
+      `${JSON.stringify({ name: "nelos", version: candidateVersion }, null, 2)}\n`,
     );
     await runFakeCodex(
       fixture.codexPath,
-      ["plugin", "add", "fraktik@personal", "--json"],
+      ["plugin", "add", "nelos@personal", "--json"],
       fixture.env,
     );
     await mkdir(fixture.installRoot, { recursive: true });
@@ -1396,12 +1396,12 @@ test("recovery removes a newly installed plugin from the pre-response crash wind
           statePath: join(fixture.installRoot, "install-state.json"),
           previousState: null,
           plugin: {
-            selector: "fraktik@personal",
+            selector: "nelos@personal",
             previouslyInstalled: false,
             installAttempted: true,
             sourcePath: fixture.pluginSource,
             sourceBackupPath: sourceBackup,
-            sourceStagePath: `${fixture.pluginSource}.fraktik-stage-${transactionId}`,
+            sourceStagePath: `${fixture.pluginSource}.nelos-stage-${transactionId}`,
             sourceExisted: true,
             sourceFingerprint:
               await distributionInstallInternals.treeFingerprint(sourceBackup),
@@ -1425,7 +1425,7 @@ test("recovery removes a newly installed plugin from the pre-response crash wind
         codexHome: fixture.codexHome,
         installRoot: fixture.installRoot,
         binDir: fixture.binDir,
-        pluginSelector: "fraktik@personal",
+        pluginSelector: "nelos@personal",
         pluginSource: fixture.pluginSource,
       },
     );
@@ -1462,13 +1462,13 @@ test("recovery rejects forged journal paths before recursive cleanup", async () 
           statePath: join(fixture.installRoot, "install-state.json"),
           previousState: null,
           plugin: {
-            selector: "fraktik@personal",
+            selector: "nelos@personal",
             previouslyInstalled: true,
           },
           skill: {
             path: outside,
-            backupPath: `${outside}.fraktik-backup-forged-journal`,
-            stagePath: `${outside}.fraktik-stage-forged-journal`,
+            backupPath: `${outside}.nelos-backup-forged-journal`,
+            stagePath: `${outside}.nelos-stage-forged-journal`,
             existed: true,
           },
           current: null,
@@ -1522,7 +1522,7 @@ test("an earlier unknown PATH shadow aborts before any mutation", async () => {
   const shadowDir = join(fixture.root, "shadow-bin");
   try {
     await mkdir(shadowDir, { recursive: true });
-    await writeFile(join(shadowDir, "fraktik"), "#!/bin/sh\nexit 0\n", {
+    await writeFile(join(shadowDir, "nelos"), "#!/bin/sh\nexit 0\n", {
       mode: 0o755,
     });
     const env = {
@@ -1531,7 +1531,7 @@ test("an earlier unknown PATH shadow aborts before any mutation", async () => {
     };
     await assert.rejects(
       installFixture(fixture, { env }),
-      new RegExp(`PATH shadow ${join(shadowDir, "fraktik")}`),
+      new RegExp(`PATH shadow ${join(shadowDir, "nelos")}`),
     );
     await assertLegacyState(fixture);
   } finally {
@@ -1545,7 +1545,7 @@ test("an earlier shadow of any managed companion command aborts", async () => {
   try {
     await mkdir(shadowDir, { recursive: true });
     await writeFile(
-      join(shadowDir, "fraktik-verify-distribution"),
+      join(shadowDir, "nelos-verify-distribution"),
       "#!/bin/sh\nexit 0\n",
       { mode: 0o755 },
     );
@@ -1556,7 +1556,7 @@ test("an earlier shadow of any managed companion command aborts", async () => {
     await assert.rejects(
       installFixture(fixture, { env }),
       new RegExp(
-        `PATH shadow ${join(shadowDir, "fraktik-verify-distribution")}`,
+        `PATH shadow ${join(shadowDir, "nelos-verify-distribution")}`,
       ),
     );
     await assertLegacyState(fixture);
@@ -1570,11 +1570,11 @@ test("foreign launchers require force and an active install lock rejects concurr
   try {
     await assert.rejects(
       installFixture(fixture, { force: false }),
-      new RegExp(`foreign executable exists at ${join(fixture.binDir, "fraktik")}`),
+      new RegExp(`foreign executable exists at ${join(fixture.binDir, "nelos")}`),
     );
     const lockPath = join(
       fixture.installRoot,
-      ".fraktik-install.lock",
+      ".nelos-install.lock",
     );
     await mkdir(lockPath, { recursive: true });
     await writeFile(
@@ -1600,7 +1600,7 @@ test("the marketplace lock coordinates installers with different install roots",
     releaseMarketplaceLock = await distributionInstallInternals.acquireInstallLock(
       marketplaceRoot,
       {
-        lockDirectory: ".fraktik-marketplace.lock",
+        lockDirectory: ".nelos-marketplace.lock",
         scope: "personal marketplace update",
       },
     );
@@ -1619,7 +1619,7 @@ test("the marketplace lock coordinates installers with different install roots",
 
 test("lock inspection retries while a competing owner record is being initialized", async () => {
   const root = await mkdtemp(join(tmpdir(), "codex-install-lock-init-"));
-  const lockPath = join(root, ".fraktik-install.lock");
+  const lockPath = join(root, ".nelos-install.lock");
   try {
     await mkdir(lockPath, { recursive: true });
     const writer = delay(60).then(() =>
@@ -1640,7 +1640,7 @@ test("lock inspection retries while a competing owner record is being initialize
 
 test("a stale ownerless lock directory is recovered", async () => {
   const root = await mkdtemp(join(tmpdir(), "codex-install-lock-orphan-"));
-  const lockPath = join(root, ".fraktik-install.lock");
+  const lockPath = join(root, ".nelos-install.lock");
   try {
     await mkdir(lockPath, { recursive: true });
     await utimes(lockPath, new Date(0), new Date(0));
@@ -1654,7 +1654,7 @@ test("a stale ownerless lock directory is recovered", async () => {
 
 test("an expired lock heartbeat permits recovery after PID reuse", async () => {
   const root = await mkdtemp(join(tmpdir(), "codex-install-lock-heartbeat-"));
-  const lockPath = join(root, ".fraktik-install.lock");
+  const lockPath = join(root, ".nelos-install.lock");
   const ownerPath = join(lockPath, "owner.json");
   try {
     await mkdir(lockPath, { recursive: true });
@@ -1776,7 +1776,7 @@ test("plugin source activation detects replacement after staging", async () => {
     await mkdir(join(source, ".codex-plugin"), { recursive: true });
     await writeFile(
       join(source, ".codex-plugin", "plugin.json"),
-      `${JSON.stringify({ name: "fraktik" })}\n`,
+      `${JSON.stringify({ name: "nelos" })}\n`,
     );
     await writeFile(join(source, "original"), "preserve\n");
     await mkdir(release);
@@ -1814,7 +1814,7 @@ test("plugin source activation detects in-place content edits after staging", as
     await mkdir(join(source, ".codex-plugin"), { recursive: true });
     await writeFile(
       join(source, ".codex-plugin", "plugin.json"),
-      `${JSON.stringify({ name: "fraktik" })}\n`,
+      `${JSON.stringify({ name: "nelos" })}\n`,
     );
     const mutableFile = join(source, "mutable");
     await writeFile(mutableFile, "before\n");
@@ -1851,7 +1851,7 @@ test("plugin source activation fingerprints Git metadata and hooks", async () =>
     await mkdir(dirname(hook), { recursive: true });
     await writeFile(
       join(source, ".codex-plugin", "plugin.json"),
-      `${JSON.stringify({ name: "fraktik" })}\n`,
+      `${JSON.stringify({ name: "nelos" })}\n`,
     );
     await writeFile(hook, "before\n");
     await mkdir(release);
@@ -1927,12 +1927,12 @@ test("a nonstandard plugin source requires an exact destructive-replacement opt-
 
 test("known legacy fingerprints remain allowlisted for the live migration", () => {
   assert.ok(
-    distributionInstallInternals.LEGACY_HASHES.get("fraktik").has(
+    distributionInstallInternals.LEGACY_HASHES.get("nelos").has(
       "67daffba89630769986e7b902925dd4d340b4121d5752ecca460b77afd45f8c1",
     ),
   );
   assert.ok(
-    distributionInstallInternals.LEGACY_HASHES.get("fraktik-title").has(
+    distributionInstallInternals.LEGACY_HASHES.get("nelos-title").has(
       "91b21ef37501c4c3d669e3fcc21e6751648967e28b3e19072563456088cf02c8",
     ),
   );
@@ -1954,7 +1954,7 @@ test("staging rejects package bin mappings that could escape the managed directo
     );
     const metadataPath = join(candidate, "package.json");
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-    metadata.bin["../../outside"] = "bin/fraktik";
+    metadata.bin["../../outside"] = "bin/nelos";
     await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
     await assert.rejects(
       stageDistribution({
@@ -1983,14 +1983,14 @@ test("staging rejects managed CLI files without executable permissions", async (
       join(packageRoot, "distribution-provenance.json"),
       join(candidate, "distribution-provenance.json"),
     );
-    await chmod(join(candidate, "bin", "fraktik"), 0o644);
+    await chmod(join(candidate, "bin", "nelos"), 0o644);
     await assert.rejects(
       stageDistribution({
         packageRoot: candidate,
         installRoot: join(root, "install"),
         env: process.env,
       }),
-      /managed CLI target is not executable: fraktik/,
+      /managed CLI target is not executable: nelos/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

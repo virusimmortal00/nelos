@@ -24,7 +24,7 @@ function sleep(milliseconds) {
 
 export function taskStateDirectory() {
   const stateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
-  return join(stateHome, "fraktik");
+  return join(stateHome, "nelos");
 }
 
 function taskRegistryDirectory() {

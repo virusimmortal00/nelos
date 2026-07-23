@@ -91,7 +91,7 @@ export function deriveWorktreeTargetV1(value) {
     specRevision,
     attempt,
     actionId: `launch:${webId}:${workUnitId}:r${specRevision}:a${attempt}`,
-    branch: `fraktik/${slug}`,
+    branch: `nelos/${slug}`,
     worktreePath: resolve(worktreeRoot, slug),
   };
 }
