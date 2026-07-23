@@ -25,22 +25,26 @@ test("the skill reserves model judgment for lifecycle choice and slice authorshi
   assert.match(skill, /`spinoff` with `isolated-write`/);
 });
 
-test("the skill has one native path driven by CLI next actions", () => {
+test("the skill has one native path driven by machine-generated next actions", () => {
   assert.match(skill, /## Follow the One Desktop Path/);
-  assert.match(skill, /`fraktik plan slices --spec-file -`/);
+  assert.match(skill, /`fraktik_plan_slices` tool with the plan/);
   assert.match(skill, /execute only the\n+returned `nextAction`/);
   assert.match(skill, /`native-set-title`/);
   assert.match(skill, /`launch-wave`/);
   assert.match(skill, /`native-wait` and `native-read`/);
   assert.match(skill, /`attach-native-task-options`/);
   assert.match(skill, /Never omit, substitute, or inherit a decided `nativeTask` field/);
-  assert.match(skill, /`fraktik intelligence verify`/);
-  assert.match(skill, /any mismatch stops the wave/);
+  assert.match(skill, /`fraktik_intelligence_verify` tool/);
+  assert.match(skill, /any mismatch stops\n+  the wave/);
   assert.match(skill, /`decide`/);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
   assert.doesNotMatch(skill, /--socket|app-server|standalone|FRAKTIK_PROMPT/);
   assert.doesNotMatch(skill, /web collect|web begin|web join|fraktik-result/);
+  // Marketplace installs ship no `fraktik` executable; the installed skill
+  // must reference only the bundled MCP tools, never shell commands.
+  assert.doesNotMatch(skill, /`fraktik[ \-]/);
+  assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
   assert.ok(skill.length < 5_000, "agent-facing skill should remain compact");
   assert.ok(skill.split("\n").length < 90, "agent-facing skill should be scannable");
 });

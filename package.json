@@ -1,6 +1,6 @@
 {
   "name": "fraktik",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {
