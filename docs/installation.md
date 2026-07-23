@@ -86,15 +86,17 @@ a compatible Codex CLI and a reachable app server or developer launcher.
 
 ## Skill discovery and fresh tasks
 
-Codex discovers plugin skills when a task starts. Start a fresh task after
-installation before validating agent-visible behavior. A `registry-refreshed`
-result confirms the running host's plugin metadata, but a fresh-task smoke test
-remains the authoritative check for the task-management skill. A running
-Desktop session can retain a pre-upgrade cached skill locator even after plugin
-metadata refresh. If a fresh task says that its advertised
-versioned skill path is unavailable after a cache-busted update, restart Codex
-once and retry the fresh task; do not recreate or alias the obsolete cache
-directory.
+Codex discovers plugin skills when a task starts. Restart Codex and start a
+fresh task after installation before validating agent-visible behavior. A
+`registry-refreshed` result confirms the running host's plugin metadata, but a
+fresh-task smoke test remains the authoritative check for the task-management
+skill. A running Desktop session can retain a stale skill locator after an
+initial install as well as after an upgrade. If a fresh task says that its
+advertised skill path is unavailable—or points one directory above the
+versioned installed bundle—restart Codex once and retry in a fresh task. Do
+not recreate or alias the obsolete cache directory. If the restarted task still
+reports the stale locator, remove and reinstall the plugin, then restart once
+more.
 
 ## Distribution provenance and the verifier
 
