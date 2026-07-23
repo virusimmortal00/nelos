@@ -2,9 +2,12 @@
 
 This document records the complete trust, recovery, and verification model for
 Fraktik's transactional installer, the read-only `fraktik doctor`
-diagnostic, and the distribution verifier. For the normal Codex installation,
-see [Install in Codex](../README.md#install-in-codex); this document covers the
-maintainer-oriented source distribution path.
+diagnostic, and the distribution verifier. For the normal Codex installation —
+the marketplace plugin plus its bundled MCP tool surface
+([docs/mcp-tool-surface.md](mcp-tool-surface.md)) — see
+[Install in Codex](../README.md#install-in-codex); this document covers the
+maintainer-oriented source distribution path, which installs the optional
+`fraktik` CLI that the installed plugin no longer depends on.
 
 ## The unified installer
 

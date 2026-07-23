@@ -22,16 +22,19 @@ condition and a filed upstream report.
 
 Delivery slices:
 
-- [ ] add the newline-framed stdio MCP server exposing `fraktik_plan_slices`,
+- [x] add the newline-framed stdio MCP server exposing `fraktik_plan_slices`,
   `fraktik_intelligence_route`, and `fraktik_intelligence_verify`, reusing the
-  CLI's modules with no behavioral fork;
-- [ ] generate `.mcp.json` with the baked release version and inline
+  CLI's modules with no behavioral fork (live-smoke-tested on a real
+  marketplace install of 0.2.0);
+- [x] generate `.mcp.json` with the baked release version and inline
   bootstrap; verify freshness and version consistency in tests;
-- [ ] migrate the skill's two CLI invocations to the named tools, keeping the
+- [x] migrate the skill's two CLI invocations to the named tools, keeping the
   one-desktop-path protocol unchanged, and assert in compliance tests that the
   installed skill references no shell `fraktik` commands;
-- [ ] update install documentation with the required `config.toml` enablement
-  block and teach diagnostics to recognize installed-but-disabled servers.
+- [x] update install documentation with the required `config.toml` enablement
+  block;
+- [ ] teach `fraktik doctor` and the distribution verifier to recognize the
+  installed-but-disabled server state and point at the enablement block.
 
 Acceptance criteria: a fresh marketplace install plus the documented
 enablement block yields a task where the skill completes plan → launch →
