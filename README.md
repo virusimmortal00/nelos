@@ -34,13 +34,17 @@ plugin-bundled MCP servers disabled until you opt in, so add this block to
 enabled = true
 ```
 
-Start a fresh Codex task afterward so it discovers the bundled skill and
-tools. That is the whole setup: no distribution installer, no manual copying,
-and no `PATH` changes. The bundled tools run through Node.js, so use Node.js
-20 or newer on macOS or Linux. The current distribution does not support
-Windows. The `nelos` command-line interface is a separate, optional surface
-for contributors and automation (see below); nothing in the installed plugin
-depends on it.
+Restart Codex, then start a fresh task so it discovers the bundled skill and
+tools. A running desktop session can retain an old skill locator after the
+plugin is installed or updated. If Codex reports an advertised skill path that
+is unavailable or one directory above the versioned installed copy, restart
+before changing anything in the plugin cache; if it persists, remove and
+reinstall `nelos@nelos`, then restart once more. That is the whole setup: no
+distribution installer, no manual copying, and no `PATH` changes. The bundled
+tools run through Node.js, so use Node.js 20 or newer on macOS or Linux. The
+current distribution does not support Windows. The `nelos` command-line
+interface is a separate, optional surface for contributors and automation
+(see below); nothing in the installed plugin depends on it.
 
 ### Upgrading from Fraktik
 

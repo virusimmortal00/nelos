@@ -1,6 +1,10 @@
-import { planWorkSlices } from "./slice-planner.mjs";
+import {
+  planWorkSlices,
+  SLICE_PLAN_INPUT_SCHEMA,
+} from "./slice-planner.mjs";
 import { routeIntelligenceProfile } from "./intelligence-profile-router.mjs";
 import { verifyRuntimeIntelligenceV1 } from "./runtime-intelligence-verification.mjs";
+import { withNextAction } from "./next-action.mjs";
 
 // Socket-free MCP tool surface for the marketplace plugin; scope and trust
 // model are specified in docs/mcp-tool-surface.md. Transport is
@@ -29,19 +33,22 @@ const TOOLS = [
       type: "object",
       properties: {
         plan: {
-          type: "object",
           description:
             "Slice plan with schemaVersion, objective, optional maxParallel, " +
             "and slices (id, title, objective, deliverable, " +
             "acceptanceCriteria, dependsOn, lifecycle, workspaceMode, " +
             "taskShape).",
+          ...SLICE_PLAN_INPUT_SCHEMA,
         },
       },
       required: ["plan"],
       additionalProperties: false,
     },
     async run(args) {
-      return { command: "plan slices", plan: planWorkSlices(args.plan) };
+      return withNextAction({
+        command: "plan slices",
+        plan: planWorkSlices(args.plan),
+      });
     },
   },
   {
@@ -79,10 +86,10 @@ const TOOLS = [
       if (args.model !== undefined) input.modelOverride = args.model;
       if (args.effort !== undefined) input.effortOverride = args.effort;
       if (args.allowNativeFanout === true) input.nativeFanoutAllowed = true;
-      return {
+      return withNextAction({
         command: "intelligence route",
         route: routeIntelligenceProfile(input),
-      };
+      });
     },
   },
   {
@@ -112,9 +119,12 @@ const TOOLS = [
         model: args.model,
         effort: args.effort,
       });
-      return {
+      const output = withNextAction({
         command: "intelligence verify",
         ...verification,
+      });
+      return {
+        ...output,
         // Mirrors the CLI, which exits nonzero for an unverified route.
         isError: verification.verified !== true,
       };

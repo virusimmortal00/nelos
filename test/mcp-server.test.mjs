@@ -104,6 +104,16 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
   assert.deepEqual(tools, listNelosMcpTools());
+
+  const planner = tools.find(({ name }) => name === "nelos_plan_slices");
+  const plan = planner.inputSchema.properties.plan;
+  assert.equal(plan.properties.schemaVersion.const, 1);
+  assert.deepEqual(plan.required, ["schemaVersion", "objective", "slices"]);
+  assert.equal(plan.properties.slices.items.additionalProperties, false);
+  assert.deepEqual(plan.properties.slices.items.properties.lifecycle.enum, [
+    "spinoff",
+    "subagent",
+  ]);
 });
 
 test("nelos_plan_slices routes a valid plan into waves", async () => {
@@ -123,6 +133,29 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
   assert.equal(body.plan.summary.slices, 1);
   assert.ok(Array.isArray(body.plan.waves));
   assert.equal(body.plan.waves.length, 1);
+  assert.deepEqual(body.nextAction, {
+    schemaVersion: 1,
+    kind: "launch-wave",
+    waveIndex: 1,
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "subagent",
+        title: "Explore",
+        workspaceMode: "shared-read-only",
+        nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+        routeEnforcement: {
+          mode: "exact",
+          onUnavailable: "stop",
+          verifyAfterLaunch: true,
+        },
+        prompt: body.nextAction.members[0].prompt,
+      },
+    ],
+    settleBeforeWaveIndex: 2,
+    remainingWaveCount: 0,
+  });
+  assert.match(body.nextAction.members[0].prompt, /Own only this slice/);
 });
 
 test("nelos_plan_slices reports invalid plans as tool errors", async () => {
@@ -169,6 +202,11 @@ test("nelos_intelligence_route mirrors the CLI mapping", async () => {
   assert.equal(success.isError, false);
   assert.equal(success.body.command, "intelligence route");
   assert.ok(success.body.route.taskShape);
+  assert.equal(success.body.nextAction.kind, "attach-native-task-options");
+  assert.deepEqual(
+    success.body.nextAction.nativeTask,
+    success.body.route.launch.nativeTask,
+  );
   const failure = toolBody(invalid);
   assert.equal(failure.isError, true);
   assert.match(failure.body.error, /unsupported intelligence task shape/);
@@ -225,6 +263,7 @@ test("nelos_intelligence_verify confirms an exact route", async () => {
     assert.equal(isError, false);
     assert.equal(body.command, "intelligence verify");
     assert.equal(body.verified, true);
+    assert.equal(body.nextAction.kind, "complete");
   });
 });
 
@@ -257,6 +296,7 @@ test("nelos_intelligence_verify fails closed on any mismatch", async () => {
     const mismatched = toolBody(mismatch);
     assert.equal(mismatched.isError, true);
     assert.equal(mismatched.body.verified, false);
+    assert.equal(mismatched.body.nextAction.kind, "attention");
     const absent = toolBody(missing);
     assert.equal(absent.isError, true);
     assert.match(absent.body.error, /no local rollout/);

@@ -1,4 +1,8 @@
-import { routeIntelligenceProfile } from "./intelligence-profile-router.mjs";
+import { INTELLIGENCE_PROFILE_CATALOG } from "./intelligence-profile-catalog.mjs";
+import {
+  INTELLIGENCE_TASK_SHAPES,
+  routeIntelligenceProfile,
+} from "./intelligence-profile-router.mjs";
 
 export const SLICE_PLAN_SCHEMA_VERSION = 1;
 export const MAX_PLAN_SLICES = 32;
@@ -32,6 +36,124 @@ const ROUTING_FIELDS = new Set([
 ]);
 const LIFECYCLES = Object.freeze(["spinoff", "subagent"]);
 const WORKSPACE_MODES = Object.freeze(["shared-read-only", "isolated-write"]);
+const INTELLIGENCE_PROFILES = Object.freeze(
+  Object.keys(INTELLIGENCE_PROFILE_CATALOG.profiles),
+);
+const INTELLIGENCE_MODELS = Object.freeze(
+  Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).map(
+    ({ requestedModel }) => requestedModel,
+  ),
+);
+const INTELLIGENCE_EFFORTS = Object.freeze(
+  [...new Set(
+    Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).flatMap(
+      ({ supportedEfforts }) => supportedEfforts,
+    ),
+  )],
+);
+
+// This is exported as the MCP tool schema so callers can construct valid plans
+// before they reach the stricter semantic and dependency validation below.
+export const SLICE_PLAN_INPUT_SCHEMA = Object.freeze({
+  type: "object",
+  description: "Dependency-aware Nelos slice plan.",
+  properties: {
+    schemaVersion: { type: "integer", const: SLICE_PLAN_SCHEMA_VERSION },
+    objective: {
+      type: "string",
+      minLength: 1,
+      maxLength: MAX_OBJECTIVE_CHARACTERS,
+    },
+    maxParallel: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_PARALLEL_SLICES,
+    },
+    slices: {
+      type: "array",
+      minItems: 1,
+      maxItems: MAX_PLAN_SLICES,
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          },
+          title: { type: "string", minLength: 1, maxLength: MAX_TITLE_CHARACTERS },
+          objective: {
+            type: "string",
+            minLength: 1,
+            maxLength: MAX_OBJECTIVE_CHARACTERS,
+          },
+          deliverable: {
+            type: "string",
+            minLength: 1,
+            maxLength: MAX_DELIVERABLE_CHARACTERS,
+          },
+          acceptanceCriteria: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_CRITERIA,
+            items: {
+              type: "string",
+              minLength: 1,
+              maxLength: MAX_CRITERION_CHARACTERS,
+            },
+          },
+          dependsOn: {
+            type: "array",
+            maxItems: MAX_PLAN_SLICES,
+            uniqueItems: true,
+            items: {
+              type: "string",
+              pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            },
+          },
+          lifecycle: { type: "string", enum: LIFECYCLES },
+          workspaceMode: { type: "string", enum: WORKSPACE_MODES },
+          taskShape: { type: "string", enum: INTELLIGENCE_TASK_SHAPES },
+          routing: {
+            type: "object",
+            properties: {
+              profile: { type: "string", enum: INTELLIGENCE_PROFILES },
+              model: { type: "string", enum: INTELLIGENCE_MODELS },
+              effort: { type: "string", enum: INTELLIGENCE_EFFORTS },
+              nativeFanoutAllowed: { type: "boolean" },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: [
+          "id",
+          "title",
+          "objective",
+          "deliverable",
+          "acceptanceCriteria",
+          "dependsOn",
+          "lifecycle",
+          "workspaceMode",
+          "taskShape",
+        ],
+        additionalProperties: false,
+        allOf: [
+          {
+            if: {
+              properties: { workspaceMode: { const: "isolated-write" } },
+              required: ["workspaceMode"],
+            },
+            then: {
+              properties: { lifecycle: { const: "spinoff" } },
+              required: ["lifecycle"],
+            },
+          },
+        ],
+      },
+    },
+  },
+  required: ["schemaVersion", "objective", "slices"],
+  additionalProperties: false,
+});
 
 function compareStrings(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -217,7 +339,7 @@ export function planWorkSlices(value) {
     throw new Error(`slice plan exceeds ${MAX_PLAN_BYTES} bytes`);
   }
   if (value.schemaVersion !== SLICE_PLAN_SCHEMA_VERSION) {
-    throw new Error(`schemaVersion must be ${SLICE_PLAN_SCHEMA_VERSION}`);
+    throw new Error(`schemaVersion must be the number ${SLICE_PLAN_SCHEMA_VERSION}`);
   }
   if (
     !Array.isArray(value.slices) ||

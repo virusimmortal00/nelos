@@ -120,6 +120,11 @@ test("slice plans reject malformed topology and unsafe isolation", async (t) => 
   };
   const scenarios = [
     ["unknown field", { ...base, surprise: true }, /unknown field: surprise/],
+    [
+      "string schema version",
+      { ...base, schemaVersion: "1" },
+      /schemaVersion must be the number 1/,
+    ],
     ["duplicate id", { ...base, slices: [slice("a"), slice("a")] }, /duplicate slice id/],
     [
       "unknown dependency",
