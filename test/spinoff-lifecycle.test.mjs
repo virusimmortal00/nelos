@@ -68,12 +68,14 @@ async function fixture(
     units = [workUnit()],
     decisions = [acceptance()],
     storeDecorator = (store) => store,
+    adapterOptions = {},
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-spinoff-lifecycle-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const store = storeDecorator(new SpinoffLifecycleStoreV1({ directory }));
   const adapter = new SpinoffLifecycleAdapterV1({
+    ...adapterOptions,
     store,
     callerThreadId: () => callerThreadId,
     now: (() => {
@@ -168,6 +170,41 @@ test("spin-off completion does not blindly retry an uncertain wake", async (t) =
   assert.equal(calls, 1);
 });
 
+test("spin-off completion retries deferred wakes before returning", async (t) => {
+  const delays = [];
+  const { adapter } = await fixture(t, "member-thread", {
+    adapterOptions: {
+      wakeRetryDelays: [10, 20],
+      sleep: async (delay) => delays.push(delay),
+    },
+  });
+  let calls = 0;
+  const result = await adapter.complete(completion(), {
+    async deliverParentWake() {
+      calls += 1;
+      if (calls < 3) {
+        return {
+          delivered: false,
+          replayed: false,
+          deferred: true,
+          reason: "queen-system-error",
+          queenTurnId: null,
+        };
+      }
+      return {
+        delivered: true,
+        replayed: false,
+        deferred: false,
+        reason: null,
+        queenTurnId: "queen-turn",
+      };
+    },
+  });
+  assert.equal(result.record.wakeState, "delivered");
+  assert.equal(result.deliveryAttempts, 3);
+  assert.deepEqual(delays, [10, 20]);
+});
+
 test("cleanup asks with exact accepted candidates before archiving", async (t) => {
   const { adapter } = await fixture(t, "queen");
   const archived = [];
@@ -205,6 +242,18 @@ test("cleanup asks with exact accepted candidates before archiving", async (t) =
     replayed: false,
   }]);
   assert.deepEqual(archived, ["member-thread"]);
+
+  const replay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    confirmedThreadIds: ["member-thread"],
+  }, bridge);
+  assert.deepEqual(replay.results, [{
+    threadId: "member-thread",
+    state: "archived",
+    replayed: true,
+  }]);
+  assert.deepEqual(archived, ["member-thread"]);
 });
 
 test("remembered auto and keep policies are durable", async (t) => {
@@ -238,6 +287,7 @@ test("remembered auto and keep policies are durable", async (t) => {
   assert.deepEqual(kept.results, [{
     threadId: "member-thread",
     state: "kept",
+    replayed: false,
   }]);
 });
 

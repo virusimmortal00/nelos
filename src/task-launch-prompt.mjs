@@ -35,7 +35,9 @@ export function buildTaskLaunchPromptV1({
     .join("\n");
   const wakeInstructions = completionWake
     ? [
-        "Before your final response, call `nelos_spinoff_complete` exactly once.",
+        "Before your final response, call `nelos_spinoff_complete`.",
+        "If its persisted wakeState is `deferred`, retry the same call before final;",
+        "stop only after `delivered` or `attention` (retries are idempotent).",
         "Use the outcome and concise summary you will place in the result block,",
         "set memberThreadId to this task's CODEX_THREAD_ID, and use these fixed fields:",
         JSON.stringify(completionWake),

@@ -59,8 +59,9 @@ operations use one lazily started, long-lived
   durable work unit, persists a bounded completion record, and delivers one
   idempotent queen wake. It reconciles the stable client message ID first,
   steers a known active queen turn, or resumes and starts an idle queen turn.
-  Ambiguous mutations stop in `attention` rather than blindly duplicating a
-  turn; and
+  Deferred delivery receives bounded retries and remains safely callable by the
+  member with the same identity. Ambiguous mutations stop in `attention` rather
+  than blindly duplicating a turn; and
 - `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
   queen acceptances with an explicit `archive` capability. It previews a named
   confirmation list under the default `ask` policy, or applies remembered

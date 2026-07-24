@@ -355,6 +355,8 @@ export class SpinoffLifecycleAdapterV1 {
   #store;
   #callerThreadId;
   #now;
+  #sleep;
+  #wakeRetryDelays;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
@@ -362,12 +364,29 @@ export class SpinoffLifecycleAdapterV1 {
     store = new SpinoffLifecycleStoreV1(),
     callerThreadId = () => process.env.CODEX_THREAD_ID ?? null,
     now = () => new Date().toISOString(),
+    sleep = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    wakeRetryDelays = [250, 500, 1_000, 2_000],
   } = {}) {
+    if (
+      !Array.isArray(wakeRetryDelays) ||
+      wakeRetryDelays.length > 5 ||
+      wakeRetryDelays.some(
+        (delay) =>
+          !Number.isSafeInteger(delay) ||
+          delay < 0 ||
+          delay > 5_000,
+      )
+    ) {
+      throw new Error("wakeRetryDelays must contain at most five bounded delays");
+    }
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#store = store;
     this.#callerThreadId = callerThreadId;
     this.#now = now;
+    this.#sleep = sleep;
+    this.#wakeRetryDelays = [...wakeRetryDelays];
   }
 
   async complete(value, appServerBridge) {
@@ -396,25 +415,39 @@ export class SpinoffLifecycleAdapterV1 {
         return { schemaVersion: 1, replayed: true, record };
       }
       try {
-        const delivery = await appServerBridge.deliverParentWake({
-          queenThreadId: completion.queenThreadId,
-          clientUserMessageId: record.clientUserMessageId,
-          message: wakeMessage(completion),
-        });
-        record = await this.#store.write({
-          ...record,
-          revision: record.revision + 1,
-          wakeState: delivery.delivered ? "delivered" : "deferred",
-          wakeReason: delivery.reason ?? null,
-          queenTurnId: delivery.queenTurnId,
-          updatedAt: this.#now(),
-        }, { expectedRevision: record.revision });
-        return {
-          schemaVersion: 1,
-          replayed: delivery.replayed,
-          delivery,
-          record,
-        };
+        for (
+          let deliveryAttempt = 0;
+          deliveryAttempt <= this.#wakeRetryDelays.length;
+          deliveryAttempt += 1
+        ) {
+          const delivery = await appServerBridge.deliverParentWake({
+            queenThreadId: completion.queenThreadId,
+            clientUserMessageId: record.clientUserMessageId,
+            message: wakeMessage(completion),
+          });
+          record = await this.#store.write({
+            ...record,
+            revision: record.revision + 1,
+            wakeState: delivery.delivered ? "delivered" : "deferred",
+            wakeReason: delivery.reason ?? null,
+            queenTurnId: delivery.queenTurnId,
+            updatedAt: this.#now(),
+          }, { expectedRevision: record.revision });
+          if (
+            delivery.delivered ||
+            deliveryAttempt === this.#wakeRetryDelays.length
+          ) {
+            return {
+              schemaVersion: 1,
+              replayed: delivery.replayed,
+              deliveryAttempts: deliveryAttempt + 1,
+              delivery,
+              record,
+            };
+          }
+          await this.#sleep(this.#wakeRetryDelays[deliveryAttempt]);
+        }
+        throw new Error("spinoff wake retry loop ended unexpectedly");
       } catch (error) {
         record = await this.#store.write({
           ...record,
@@ -534,7 +567,7 @@ export class SpinoffLifecycleAdapterV1 {
         title: workUnit.title,
       }))
       .sort((left, right) => left.workUnit.workUnitId.localeCompare(right.workUnit.workUnitId));
-    const candidates = (
+    const allCandidates = (
       await Promise.all(
         eligible.map(async (candidate) => {
           const completion = {
@@ -550,7 +583,8 @@ export class SpinoffLifecycleAdapterV1 {
           return { ...candidate, completion, record };
         }),
       )
-    ).filter(
+    );
+    const candidates = allCandidates.filter(
       ({ record }) =>
         !["archived", "kept"].includes(record?.cleanupState),
     );
@@ -569,15 +603,21 @@ export class SpinoffLifecycleAdapterV1 {
       };
     }
 
+    const reconciliationCandidates =
+      confirmedThreadIds === undefined ? candidates : allCandidates;
     const confirmed = confirmedThreadIds === undefined
       ? new Set(candidates.map(({ threadId }) => threadId))
       : new Set(confirmedThreadIds.map((thread) => id(thread, "confirmedThreadId")));
-    const candidateIds = new Set(candidates.map(({ threadId }) => threadId));
+    const candidateIds = new Set(
+      reconciliationCandidates.map(({ threadId }) => threadId),
+    );
     if ([...confirmed].some((thread) => !candidateIds.has(thread))) {
       throw new Error("cleanup confirmation contains an ineligible spin-off");
     }
     if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
-    const selected = candidates.filter(({ threadId }) => confirmed.has(threadId));
+    const selected = reconciliationCandidates.filter(
+      ({ threadId }) => confirmed.has(threadId),
+    );
     const results = [];
     for (const candidate of selected) {
       const completion = candidate.completion;
@@ -591,24 +631,34 @@ export class SpinoffLifecycleAdapterV1 {
               { expectedRevision: 0 },
             );
           }
-          if (resolvedPolicy === "keep") {
-            if (record.cleanupState !== "kept") {
-              record = await this.#store.write({
-                ...record,
-                revision: record.revision + 1,
-                cleanupState: "kept",
-                cleanupPolicy: resolvedPolicy,
-                updatedAt: this.#now(),
-              }, { expectedRevision: record.revision });
-            }
-            results.push({ threadId: candidate.threadId, state: "kept" });
-            return;
-          }
           if (record.cleanupState === "archived") {
             results.push({
               threadId: candidate.threadId,
               state: "archived",
               replayed: true,
+            });
+            return;
+          }
+          if (record.cleanupState === "kept") {
+            results.push({
+              threadId: candidate.threadId,
+              state: "kept",
+              replayed: true,
+            });
+            return;
+          }
+          if (resolvedPolicy === "keep") {
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "kept",
+              cleanupPolicy: resolvedPolicy,
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "kept",
+              replayed: false,
             });
             return;
           }

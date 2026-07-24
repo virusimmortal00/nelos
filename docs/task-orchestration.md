@@ -229,7 +229,10 @@ that gap at the application layer: every durable launch prompt carries an exact
 before its final response and the MCP-owned app-server bridge reconciles a
 stable client message ID before mutation. A known active queen turn is steered;
 an unloaded queen is resumed; and an idle queen receives one new continuation
-turn. Ambiguous delivery is retained as `attention` and never blindly replayed.
+turn. Deferred delivery receives bounded in-call retries, and the member retries
+the same idempotent callback before final if the persisted state remains
+`deferred`. Ambiguous delivery is retained as `attention` and never blindly
+replayed.
 
 The callback complements rather than replaces the queen join loop. A member can
 crash before making its callback, so a live queen still uses bounded native
@@ -254,7 +257,9 @@ without an explicit `archive` capability is never eligible. Archive is a native
 app-server mutation and each outcome is recorded independently so partial
 cleanup remains recoverable. A persisted `archiving` state requires attention
 and is never replayed as a second archive request. A certainly rejected archive
-returns to `pending` so a later cleanup can safely retry it.
+returns to `pending` so a later cleanup can safely retry it. Terminal `archived`
+and `kept` records remain addressable by an exact confirmation replay, allowing
+a lost MCP response to be reconciled without another native mutation.
 
 ## Upstream Native API Improvements
 

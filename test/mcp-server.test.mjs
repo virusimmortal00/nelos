@@ -328,7 +328,8 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.body.effects.length, 1);
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
-  assert.match(launchPrompt, /call `nelos_spinoff_complete` exactly once/u);
+  assert.match(launchPrompt, /call `nelos_spinoff_complete`/u);
+  assert.match(launchPrompt, /wakeState is `deferred`/u);
   assert.match(
     launchPrompt,
     /"queenThreadId":"queen-thread".*"workUnitId":"member-a"/u,
