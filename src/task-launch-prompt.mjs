@@ -1,5 +1,6 @@
 export const TASK_TITLE_PROMPT_PREFIX = "Task title:";
 export const RECOMMENDED_SEEDED_TITLE_CHARACTERS = 48;
+export { QUEEN_TITLE_PREFIX, renderQueenTitle } from "./task-web.mjs";
 
 export function taskTitlePromptLine(title) {
   if (typeof title !== "string" || !title.trim()) {

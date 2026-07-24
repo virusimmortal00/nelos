@@ -8,12 +8,24 @@ import {
   renderWebTitle,
   resolveThreadId,
 } from "../src/app-server-client.mjs";
+import { resolveQueenMarked } from "../src/task-web.mjs";
 import {
   patchTaskRegistryRecord,
   readWebRecord,
   withWebRegistryLock,
   writeWebRecord,
 } from "../src/task-state.mjs";
+
+function normalizedThreadStatus(value) {
+  if (value && typeof value === "object") return normalizedThreadStatus(value.type);
+  return String(value || "").replaceAll(/[_\s-]/g, "").toLowerCase();
+}
+
+function isArchivedThread(thread) {
+  if (!thread || typeof thread !== "object") return false;
+  if (thread.archivedAt || thread.archived === true) return true;
+  return ["archived", "archive"].includes(normalizedThreadStatus(thread.status));
+}
 
 function printUsage() {
   process.stdout.write(`Usage:
@@ -103,16 +115,37 @@ async function main() {
 
     const liveTitle = await withWebRegistryLock(async () => {
       const webRecord = await readWebRecord(threadId);
+      const activeWebRecord =
+        webRecord && !webRecord.archivedAt ? webRecord : null;
+      const parsedTitle = parseWebTitle(options.title);
+      const before = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (!before?.thread) throw new Error(`task not found: ${threadId}`);
+      if (isArchivedThread(before.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot be renamed`);
+      }
+      const queenMarked = resolveQueenMarked({
+        requestedTitle: options.title,
+        liveTitle: before.thread.name || "",
+        webRecord: activeWebRecord,
+      });
       const effectiveTitle =
-        webRecord &&
-        !webRecord.archivedAt &&
-        (webRecord.inboundWebId || webRecord.outboundWebId)
+        activeWebRecord &&
+        (activeWebRecord.inboundWebId || activeWebRecord.outboundWebId)
           ? renderWebTitle({
-              baseTitle: options.title,
-              inboundWebId: webRecord.inboundWebId,
-              outboundWebId: webRecord.outboundWebId,
+              baseTitle: parsedTitle.baseTitle,
+              inboundWebId: activeWebRecord.inboundWebId,
+              outboundWebId: activeWebRecord.outboundWebId,
+              queenMarked,
             })
-          : options.title;
+          : queenMarked
+            ? renderWebTitle({
+                baseTitle: parsedTitle.baseTitle,
+                queenMarked: true,
+              })
+            : options.title;
       await client.request("thread/name/set", { threadId, name: effectiveTitle });
       const result = await client.request("thread/read", {
         threadId,
@@ -124,12 +157,13 @@ async function main() {
         );
       }
 
-      const baseTitle = parseWebTitle(options.title).baseTitle;
+      const baseTitle = parsedTitle.baseTitle;
       await patchTaskRegistryRecord(threadId, { title: effectiveTitle, baseTitle });
-      if (webRecord) {
+      if (activeWebRecord) {
         await writeWebRecord({
-          ...webRecord,
+          ...activeWebRecord,
           baseTitle,
+          queenMarked,
           renderedTitle: effectiveTitle,
           updatedAt: new Date().toISOString(),
         });

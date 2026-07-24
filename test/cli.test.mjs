@@ -1988,8 +1988,8 @@ test("web begin and join render nested queen relationships", async () => {
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
   const threads = new Map([
-    ["queen-thread", mockThread("queen-thread", "Release planning")],
-    ["member-thread", mockThread("member-thread", "API changes")],
+    ["queen-thread", mockThread("queen-thread", "👑 · Release planning")],
+    ["member-thread", mockThread("member-thread", "👑 · API changes")],
   ]);
   const server = await startMockAppServer(socketPath, async ({ method, params }) => {
     if (method === "initialize") return {};
@@ -2019,7 +2019,18 @@ test("web begin and join render nested queen relationships", async () => {
       queenOutput.joinCommand,
       /--queen-thread-id queen-thread$/,
     );
-    assert.equal(threads.get("queen-thread").name, "🕷️ A1 · Release planning");
+    assert.equal(
+      threads.get("queen-thread").name,
+      "🕷️ A1 👑 · Release planning",
+    );
+    const queenWebRecord = JSON.parse(
+      await readFile(
+        join(stateHome, "nelos", "webs", "queen-thread.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(queenWebRecord.baseTitle, "Release planning");
+    assert.equal(queenWebRecord.queenMarked, true);
 
     const joinResult = await runAsync(
       cli,
@@ -2044,7 +2055,18 @@ test("web begin and join render nested queen relationships", async () => {
     );
     assert.equal(joinResult.status, 0, joinResult.stderr);
     assert.equal(JSON.parse(joinResult.stdout).queenThreadId, "queen-thread");
-    assert.equal(threads.get("member-thread").name, "🕸️ A1 · API changes");
+    assert.equal(
+      threads.get("member-thread").name,
+      "🕸️ A1 👑 · API changes",
+    );
+    const joinedWebRecord = JSON.parse(
+      await readFile(
+        join(stateHome, "nelos", "webs", "member-thread.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(joinedWebRecord.baseTitle, "API changes");
+    assert.equal(joinedWebRecord.queenMarked, true);
 
     const nestedResult = await runAsync(
       cli,
@@ -2058,8 +2080,23 @@ test("web begin and join render nested queen relationships", async () => {
     assert.equal(JSON.parse(nestedResult.stdout).webId, "A1.1");
     assert.equal(
       threads.get("member-thread").name,
-      "🕸️ A1 🕷️ A1.1 · API changes",
+      "🕸️ A1 🕷️ A1.1 👑 · API changes",
     );
+    const nestedRecordPath = join(
+      stateHome,
+      "nelos",
+      "webs",
+      "member-thread.json",
+    );
+    const nestedRecord = JSON.parse(
+      await readFile(nestedRecordPath, "utf8"),
+    );
+    await writeFile(
+      nestedRecordPath,
+      `${JSON.stringify({ ...nestedRecord, queenMarked: false })}\n`,
+    );
+    threads.get("member-thread").name =
+      "🕸️ A1 🕷️ A1.1 · API changes";
 
     const titleResult = await runAsync(
       cli,
@@ -2080,8 +2117,16 @@ test("web begin and join render nested queen relationships", async () => {
     assert.equal(titleResult.status, 0, titleResult.stderr);
     assert.equal(
       threads.get("member-thread").name,
-      "🕸️ A1 🕷️ A1.1 · API implementation",
+      "🕸️ A1 🕷️ A1.1 👑 · API implementation",
     );
+    const mainTitleRecord = JSON.parse(
+      await readFile(
+        join(stateHome, "nelos", "webs", "member-thread.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(mainTitleRecord.baseTitle, "API implementation");
+    assert.equal(mainTitleRecord.queenMarked, true);
 
     const compatibilityTitleResult = await runAsync(
       titleCli,
@@ -2105,8 +2150,230 @@ test("web begin and join render nested queen relationships", async () => {
     );
     assert.equal(
       threads.get("member-thread").name,
-      "🕸️ A1 🕷️ A1.1 · API delivery",
+      "🕸️ A1 🕷️ A1.1 👑 · API delivery",
     );
+    const compatibilityTitleRecord = JSON.parse(
+      await readFile(
+        join(stateHome, "nelos", "webs", "member-thread.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(compatibilityTitleRecord.baseTitle, "API delivery");
+    assert.equal(compatibilityTitleRecord.queenMarked, true);
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("both title CLIs preserve a live MCP crown without a web record", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-title-live-crown-"));
+  const socketPath = join(root, "app.sock");
+  const stateHome = join(root, "state");
+  const threads = new Map([
+    ["main-crown", mockThread("main-crown", "👑 · MCP queen")],
+    ["compat-crown", mockThread("compat-crown", "👑 · Compatibility queen")],
+    ["revived-plain", mockThread("revived-plain", "Previously archived")],
+  ]);
+  const server = await startMockAppServer(socketPath, async ({ method, params }) => {
+    if (method === "initialize") return {};
+    if (method === "thread/read") return { thread: threads.get(params.threadId) };
+    if (method === "thread/name/set") {
+      threads.get(params.threadId).name = params.name;
+      return {};
+    }
+    throw new Error(`unexpected method: ${method}`);
+  });
+
+  try {
+    const archivedWebDirectory = join(stateHome, "nelos", "webs");
+    await mkdir(archivedWebDirectory, { recursive: true });
+    await writeFile(
+      join(archivedWebDirectory, "revived-plain.json"),
+      `${JSON.stringify({
+        threadId: "revived-plain",
+        baseTitle: "Old queen",
+        inboundWebId: null,
+        outboundWebId: "A9",
+        queenMarked: true,
+        queenThreadId: null,
+        renderedTitle: "🕷️ A9 👑 · Old queen",
+        createdAt: "2026-07-24T00:00:00.000Z",
+        updatedAt: "2026-07-24T00:00:00.000Z",
+        archivedAt: "2026-07-24T01:00:00.000Z",
+      })}\n`,
+    );
+
+    const main = await runAsync(
+      cli,
+      [
+        "title",
+        "set",
+        "Renamed main queen",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: "main-crown",
+      },
+    );
+    assert.equal(main.status, 0, main.stderr);
+    assert.equal(threads.get("main-crown").name, "👑 · Renamed main queen");
+    assert.equal(JSON.parse(main.stdout).liveTitle, "👑 · Renamed main queen");
+
+    const compatibility = await runAsync(
+      titleCli,
+      [
+        "set",
+        "Renamed compatibility queen",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: "compat-crown",
+      },
+    );
+    assert.equal(compatibility.status, 0, compatibility.stderr);
+    assert.equal(
+      threads.get("compat-crown").name,
+      "👑 · Renamed compatibility queen",
+    );
+    assert.equal(
+      JSON.parse(compatibility.stdout).liveTitle,
+      "👑 · Renamed compatibility queen",
+    );
+
+    const revived = await runAsync(
+      cli,
+      [
+        "title",
+        "set",
+        "Revived plain task",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: "revived-plain",
+      },
+    );
+    assert.equal(revived.status, 0, revived.stderr);
+    assert.equal(threads.get("revived-plain").name, "Revived plain task");
+    const retainedArchivedWeb = JSON.parse(
+      await readFile(
+        join(archivedWebDirectory, "revived-plain.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(retainedArchivedWeb.archivedAt, "2026-07-24T01:00:00.000Z");
+    assert.equal(retainedArchivedWeb.renderedTitle, "🕷️ A9 👑 · Old queen");
+
+    for (const threadId of [
+      "main-crown",
+      "compat-crown",
+      "revived-plain",
+    ]) {
+      const methods = server.requests
+        .filter(({ params }) => params?.threadId === threadId)
+        .map(({ method }) => method);
+      assert.deepEqual(methods, [
+        "thread/read",
+        "thread/name/set",
+        "thread/read",
+      ]);
+    }
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("both title CLIs reject archived tasks before sending a rename", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-title-archived-"));
+  const socketPath = join(root, "app.sock");
+  const stateHome = join(root, "state");
+  const mainThread = {
+    ...mockThread("archived-main", "Original main title"),
+    status: { type: "archived" },
+  };
+  const compatibilityThread = {
+    ...mockThread("archived-compatibility", "Original compatibility title"),
+    archived: true,
+  };
+  const threads = new Map([
+    [mainThread.id, mainThread],
+    [compatibilityThread.id, compatibilityThread],
+  ]);
+  const server = await startMockAppServer(socketPath, async ({ method, params }) => {
+    if (method === "initialize") return {};
+    if (method === "thread/read") return { thread: threads.get(params.threadId) };
+    if (method === "thread/name/set") {
+      threads.get(params.threadId).name = params.name;
+      return {};
+    }
+    throw new Error(`unexpected method: ${method}`);
+  });
+
+  try {
+    const main = await runAsync(
+      cli,
+      [
+        "title",
+        "set",
+        "Mutated main title",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: mainThread.id,
+      },
+    );
+    assert.equal(main.status, 1);
+    assert.match(main.stderr, /archived and cannot be renamed/);
+
+    const compatibility = await runAsync(
+      titleCli,
+      [
+        "set",
+        "Mutated compatibility title",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: compatibilityThread.id,
+      },
+    );
+    assert.equal(compatibility.status, 1);
+    assert.match(compatibility.stderr, /archived and cannot be renamed/);
+
+    assert.equal(mainThread.name, "Original main title");
+    assert.equal(compatibilityThread.name, "Original compatibility title");
+    assert.equal(
+      server.requests.some(({ method }) => method === "thread/name/set"),
+      false,
+    );
+    for (const threadId of [mainThread.id, compatibilityThread.id]) {
+      assert.deepEqual(
+        server.requests
+          .filter(({ params }) => params?.threadId === threadId)
+          .map(({ method }) => method),
+        ["thread/read"],
+      );
+    }
   } finally {
     await server.close();
     await rm(root, { recursive: true, force: true });
@@ -2130,7 +2397,9 @@ test("registry-only web setup supports desktop-native task creation without a so
     assert.equal(queenResult.status, 0, queenResult.stderr);
     const queen = JSON.parse(queenResult.stdout);
     assert.equal(queen.webId, "A1");
-    assert.equal(queen.renderedTitle, "🕷️ A1 · Desktop queen");
+    assert.equal(queen.renderedTitle, "🕷️ A1 👑 · Desktop queen");
+    assert.equal(queen.baseTitle, "Desktop queen");
+    assert.equal(queen.queenMarked, true);
     assert.equal(queen.titleVerified, false);
     assert.equal(queen.requiresNativeTitleSync, true);
     assert.match(queen.joinCommand, /--registry-only$/);
@@ -2463,7 +2732,7 @@ test("a revived archived task allocates a fresh web ID", async () => {
     const revived = await begin("old-thread");
     assert.equal(revived.status, 0, revived.stderr);
     assert.equal(JSON.parse(revived.stdout).webId, "A2");
-    assert.equal(threads.get("old-thread").name, "🕷️ A2 · Old queen");
+    assert.equal(threads.get("old-thread").name, "🕷️ A2 👑 · Old queen");
   } finally {
     await server.close();
     await rm(root, { recursive: true, force: true });
@@ -2529,7 +2798,10 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
     ]);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(second.status, 0, second.stderr);
-    assert.equal(threads.get("queen-thread").name, "🕷️ A1 · Release planning");
+    assert.equal(
+      threads.get("queen-thread").name,
+      "🕷️ A1 👑 · Release planning",
+    );
     assert.deepEqual(
       [threads.get("spinoff-1").name, threads.get("spinoff-2").name].sort(),
       ["🕸️ A1 · API changes", "🕸️ A1 · Documentation"].sort(),
@@ -2557,6 +2829,14 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
       inboundWebId: "A1",
       outboundWebId: null,
     });
+    const queenRecord = JSON.parse(
+      await readFile(
+        join(stateHome, "nelos", "webs", "queen-thread.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(queenRecord.baseTitle, "Release planning");
+    assert.equal(queenRecord.queenMarked, true);
   } finally {
     await server.close();
     await rm(root, { recursive: true, force: true });
@@ -2618,17 +2898,20 @@ test("a spinoff can become queen of a nested web", async () => {
 
     const nested = await launch("spinoff-1", "Contract tests");
     assert.equal(nested.status, 0, nested.stderr);
-    assert.equal(threads.get("queen-thread").name, "🕷️ A1 · Release planning");
+    assert.equal(
+      threads.get("queen-thread").name,
+      "🕷️ A1 👑 · Release planning",
+    );
     assert.equal(
       threads.get("spinoff-1").name,
-      "🕸️ A1 🕷️ A1.1 · API changes",
+      "🕸️ A1 🕷️ A1.1 👑 · API changes",
     );
     assert.equal(threads.get("spinoff-2").name, "🕸️ A1.1 · Contract tests");
 
     const output = JSON.parse(nested.stdout);
     assert.deepEqual(output.spinoff, {
       queenThreadId: "spinoff-1",
-      queenTitle: "🕸️ A1 🕷️ A1.1 · API changes",
+      queenTitle: "🕸️ A1 🕷️ A1.1 👑 · API changes",
       webId: "A1.1",
     });
     const nestedQueenWeb = JSON.parse(
@@ -2670,16 +2953,21 @@ test("a spinoff can become queen of a nested web", async () => {
   }
 });
 
-test("spinoff restores a newly marked queen when task creation fails", async () => {
+test("spinoff rollback restores plain and crowned non-web queen state", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-spinoff-failure-"));
   const socketPath = join(root, "app.sock");
   const stateHome = join(root, "state");
-  const queen = mockThread("queen-thread", "Release planning");
+  const queens = new Map([
+    ["plain-queen", mockThread("plain-queen", "Release planning")],
+    ["crowned-queen", mockThread("crowned-queen", "👑 · Crowned release")],
+  ]);
   const server = await startMockAppServer(socketPath, async ({ method, params }) => {
     if (method === "initialize") return {};
-    if (method === "thread/read") return { thread: queen };
+    if (method === "thread/read") {
+      return { thread: queens.get(params.threadId) };
+    }
     if (method === "thread/name/set") {
-      queen.name = params.name;
+      queens.get(params.threadId).name = params.name;
       return {};
     }
     if (method === "thread/start") throw new Error("creation failed");
@@ -2687,35 +2975,58 @@ test("spinoff restores a newly marked queen when task creation fails", async () 
   });
 
   try {
-    const result = await runAsync(
-      cli,
-      [
-        "spinoff",
-        "--title",
-        "API changes",
-        "--prompt",
-        "Do the work",
-        "--socket",
-        socketPath,
-        "--timeout-ms",
-        "1000",
-      ],
+    for (const {
+      threadId,
+      originalTitle,
+      baseTitle,
+      queenMarked,
+    } of [
       {
-        XDG_STATE_HOME: stateHome,
-        CODEX_THREAD_ID: "queen-thread",
+        threadId: "plain-queen",
+        originalTitle: "Release planning",
+        baseTitle: "Release planning",
+        queenMarked: false,
       },
-    );
+      {
+        threadId: "crowned-queen",
+        originalTitle: "👑 · Crowned release",
+        baseTitle: "Crowned release",
+        queenMarked: true,
+      },
+    ]) {
+      const result = await runAsync(
+        cli,
+        [
+          "spinoff",
+          "--title",
+          "API changes",
+          "--prompt",
+          "Do the work",
+          "--socket",
+          socketPath,
+          "--timeout-ms",
+          "1000",
+        ],
+        {
+          XDG_STATE_HOME: stateHome,
+          CODEX_THREAD_ID: threadId,
+        },
+      );
 
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /creation failed/);
-    assert.equal(queen.name, "Release planning");
-    const webRecord = JSON.parse(
-      await readFile(
-        join(stateHome, "nelos", "webs", "queen-thread.json"),
-        "utf8",
-      ),
-    );
-    assert.equal(webRecord.outboundWebId, null);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /creation failed/);
+      assert.equal(queens.get(threadId).name, originalTitle);
+      const webRecord = JSON.parse(
+        await readFile(
+          join(stateHome, "nelos", "webs", `${threadId}.json`),
+          "utf8",
+        ),
+      );
+      assert.equal(webRecord.baseTitle, baseTitle);
+      assert.equal(webRecord.outboundWebId, null);
+      assert.equal(webRecord.queenMarked, queenMarked);
+      assert.equal(webRecord.renderedTitle, originalTitle);
+    }
   } finally {
     await server.close();
     await rm(root, { recursive: true, force: true });

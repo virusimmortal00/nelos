@@ -14,6 +14,7 @@ import {
   renderWebTitle,
   resolveThreadId,
 } from "../src/app-server-client.mjs";
+import { resolveQueenMarked } from "../src/task-web.mjs";
 import {
   listTaskRegistryRecords as listRegistryRecords,
   listWebRecords,
@@ -1405,7 +1406,10 @@ async function beginWeb(
         current?.baseTitle ||
         "",
     );
-    const requestedBase = requestedTitle ? parseWebTitle(requestedTitle).baseTitle : null;
+    const requestedParsed = requestedTitle
+      ? parseWebTitle(requestedTitle)
+      : null;
+    const requestedBase = requestedParsed?.baseTitle ?? null;
     const baseTitle = (requestedBase || parsed.baseTitle || current?.baseTitle || "").trim();
     if (!baseTitle) {
       throw new Error("web begin requires --title when the current task has no title");
@@ -1418,10 +1422,17 @@ async function beginWeb(
       current?.outboundWebId || parsedOutboundWebId || null;
     const outboundWebId =
       existingOutboundWebId || allocateWebId(await listWebRecords(), inboundWebId);
+    const priorQueenMarked = resolveQueenMarked({
+      requestedTitle,
+      liveTitle:
+        liveResult?.thread?.name || liveResult?.thread?.preview || "",
+      webRecord: current,
+    });
     const renderedTitle = renderWebTitle({
       baseTitle,
       inboundWebId,
       outboundWebId,
+      queenMarked: true,
     });
 
     if (!registryOnly) await setAndVerifyTitle(client, threadId, renderedTitle);
@@ -1431,6 +1442,7 @@ async function beginWeb(
       baseTitle,
       inboundWebId,
       outboundWebId,
+      queenMarked: true,
       queenThreadId: current?.queenThreadId ?? null,
       renderedTitle,
       createdAt: current?.createdAt || timestamp,
@@ -1447,6 +1459,7 @@ async function beginWeb(
       ...record,
       webId: outboundWebId,
       reused: Boolean(existingOutboundWebId),
+      priorQueenMarked,
       titleVerified: !registryOnly,
     };
   });
@@ -1492,15 +1505,26 @@ async function joinWeb(
       );
     }
 
-    const requestedBase = requestedTitle ? parseWebTitle(requestedTitle).baseTitle : null;
+    const requestedParsed = requestedTitle
+      ? parseWebTitle(requestedTitle)
+      : null;
+    const requestedBase = requestedParsed?.baseTitle ?? null;
     const baseTitle = (requestedBase || parsed.baseTitle || current?.baseTitle || "").trim();
     if (!baseTitle) throw new Error("web join requires --title when the task has no title");
     const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
     const outboundWebId = current?.outboundWebId || parsedOutboundWebId || null;
+    const queenMarked = resolveQueenMarked({
+      requestedTitle,
+      liveTitle:
+        liveResult?.thread?.name || liveResult?.thread?.preview || "",
+      webRecord: current,
+      outboundWebId,
+    });
     const renderedTitle = renderWebTitle({
       baseTitle,
       inboundWebId,
       outboundWebId,
+      queenMarked,
     });
 
     if (!registryOnly) await setAndVerifyTitle(client, threadId, renderedTitle);
@@ -1510,6 +1534,7 @@ async function joinWeb(
       baseTitle,
       inboundWebId,
       outboundWebId,
+      queenMarked,
       queenThreadId: queenThreadId || current?.queenThreadId || null,
       renderedTitle,
       createdAt: current?.createdAt || timestamp,
@@ -1548,11 +1573,13 @@ async function rollbackNewWeb(client, web) {
       baseTitle: current.baseTitle,
       inboundWebId: current.inboundWebId,
       outboundWebId: null,
+      queenMarked: web.priorQueenMarked === true,
     });
     await setAndVerifyTitle(client, web.threadId, renderedTitle);
     const restored = {
       ...current,
       outboundWebId: null,
+      queenMarked: web.priorQueenMarked === true,
       renderedTitle,
       updatedAt: new Date().toISOString(),
     };
@@ -2092,6 +2119,7 @@ async function runWeb(options, client) {
           }
         : { liveTitle: result.renderedTitle, titleVerified: true }),
       baseTitle: result.baseTitle,
+      queenMarked: result.queenMarked,
       webId: result.webId,
       inboundWebId: result.inboundWebId,
       reused: result.reused,
@@ -2144,6 +2172,7 @@ async function runWeb(options, client) {
         }
       : { liveTitle: result.renderedTitle, titleVerified: true }),
     baseTitle: result.baseTitle,
+    queenMarked: result.queenMarked,
     webId: result.webId,
     outboundWebId: result.outboundWebId,
     queenThreadId: result.queenThreadId,
@@ -2450,16 +2479,37 @@ async function runTitle(options, client) {
   if (action === "set") {
     const liveTitle = await withWebRegistryLock(async () => {
       const webRecord = await readWebRecord(threadId);
+      const activeWebRecord =
+        webRecord && !webRecord.archivedAt ? webRecord : null;
+      const parsedTitle = parseWebTitle(title);
+      const before = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (!before?.thread) throw new Error(`task not found: ${threadId}`);
+      if (isArchivedThread(before.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot be renamed`);
+      }
+      const queenMarked = resolveQueenMarked({
+        requestedTitle: title,
+        liveTitle: before.thread.name || "",
+        webRecord: activeWebRecord,
+      });
       const effectiveTitle =
-        webRecord &&
-        !webRecord.archivedAt &&
-        (webRecord.inboundWebId || webRecord.outboundWebId)
+        activeWebRecord &&
+        (activeWebRecord.inboundWebId || activeWebRecord.outboundWebId)
           ? renderWebTitle({
-              baseTitle: title,
-              inboundWebId: webRecord.inboundWebId,
-              outboundWebId: webRecord.outboundWebId,
+              baseTitle: parsedTitle.baseTitle,
+              inboundWebId: activeWebRecord.inboundWebId,
+              outboundWebId: activeWebRecord.outboundWebId,
+              queenMarked,
             })
-          : title;
+          : queenMarked
+            ? renderWebTitle({
+                baseTitle: parsedTitle.baseTitle,
+                queenMarked: true,
+              })
+            : title;
       await client.request("thread/name/set", { threadId, name: effectiveTitle });
       const result = await client.request("thread/read", {
         threadId,
@@ -2472,7 +2522,7 @@ async function runTitle(options, client) {
         throw new Error(`task ${threadId} is archived and cannot be renamed`);
       }
 
-      const baseTitle = parseWebTitle(title).baseTitle;
+      const baseTitle = parsedTitle.baseTitle;
       const observation = lifecycleObservation(result.thread);
       await patchRegistryRecord(threadId, {
         title: effectiveTitle,
@@ -2480,10 +2530,11 @@ async function runTitle(options, client) {
         archivedAt: null,
         lifecycleObservation: observation,
       });
-      if (webRecord) {
+      if (activeWebRecord) {
         await writeWebRecord({
-          ...webRecord,
+          ...activeWebRecord,
           baseTitle,
+          queenMarked,
           renderedTitle: effectiveTitle,
           updatedAt: new Date().toISOString(),
           archivedAt: null,

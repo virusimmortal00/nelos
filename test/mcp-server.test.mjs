@@ -86,7 +86,7 @@ test("initialize returns the tools capability and server identity", async () => 
   });
 });
 
-test("tools/list keeps three tools read-only and honestly annotates orchestration", async () => {
+test("tools/list honestly annotates app-server and orchestration effects", async () => {
   const [, response] = await roundTrip([
     INITIALIZE,
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
@@ -96,20 +96,30 @@ test("tools/list keeps three tools read-only and honestly annotates orchestratio
     tools.map((tool) => tool.name),
     [
       "nelos_plan_slices",
+      "nelos_thread_inspect",
+      "nelos_thread_inventory",
+      "nelos_thread_wait",
+      "nelos_app_server_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
     ],
   );
-  for (const tool of tools.slice(0, 3)) {
+  for (const tool of tools.slice(1, 7)) {
     assert.equal(tool.annotations.readOnlyHint, true);
     assert.equal(tool.annotations.destructiveHint, false);
     assert.equal(tool.annotations.openWorldHint, false);
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
-  const orchestration = tools[3];
+  assert.deepEqual(tools[0].annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  const orchestration = tools[7];
   assert.deepEqual(orchestration.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
@@ -121,7 +131,7 @@ test("tools/list keeps three tools read-only and honestly annotates orchestratio
     orchestration.inputSchema.properties.receipt.anyOf[1].additionalProperties,
     false,
   );
-  const advance = tools[4];
+  const advance = tools[8];
   assert.deepEqual(advance.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
@@ -490,22 +500,394 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
   assert.match(body.nextAction.members[0].prompt, /^Task title: Explore\n\n/u);
 });
 
-test("nelos_plan_slices reports invalid plans as tool errors", async () => {
-  const [, response] = await roundTrip([
-    INITIALIZE,
+test("nelos_plan_slices synchronizes the queen before returning a spinoff", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const calls = [];
+  const appServerBridge = {
+    async synchronizeQueenTitle() {
+      calls.push("synchronizeQueenTitle");
+      return {
+        schemaVersion: 1,
+        threadId: "queen-1",
+        previousTitle: "Release",
+        title: "👑 · Release",
+        changed: true,
+        verified: true,
+      };
+    },
+    async close() {
+      calls.push("close");
+    },
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_plan_slices", arguments: { plan } },
+      },
+    ],
+    { appServerBridge },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body.queenTitleSync, {
+    schemaVersion: 1,
+    threadId: "queen-1",
+    previousTitle: "Release",
+    title: "👑 · Release",
+    changed: true,
+    verified: true,
+  });
+  assert.equal(body.nextAction.members[0].title, "Explore");
+  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+});
+
+test("nelos_plan_slices fails closed when queen title synchronization fails", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_plan_slices", arguments: { plan } },
+      },
+    ],
     {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: {
-        name: "nelos_plan_slices",
-        arguments: { plan: { schemaVersion: 99 } },
+      appServerBridge: {
+        async synchronizeQueenTitle() {
+          throw new Error("queen title verification failed");
+        },
       },
     },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, true);
+  assert.match(body.error, /queen title verification failed/);
+  assert.equal(body.nextAction, undefined);
+});
+
+test("nelos_thread_inspect returns only bridge-bounded metadata", async () => {
+  const inspection = {
+    schemaVersion: 1,
+    threadId: "thread-1",
+    title: "Worker",
+    status: "active",
+    cwd: "/workspace",
+    parentThreadId: "queen-1",
+    createdAt: 10,
+    updatedAt: 20,
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_thread_inspect",
+          arguments: { threadId: "thread-1" },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async inspect(args) {
+          calls.push(args);
+          return inspection;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body, { command: "thread inspect", thread: inspection });
+  assert.deepEqual(calls, [{ threadId: "thread-1" }]);
+});
+
+test("nelos_thread_inventory forwards bounded IDs and topology policy", async () => {
+  const inventory = {
+    schemaVersion: 1,
+    requested: 2,
+    succeeded: 2,
+    failed: 0,
+    items: [],
+    topology: {
+      schemaVersion: 1,
+      nodes: [],
+      edges: [],
+      externalParents: [],
+    },
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_thread_inventory",
+          arguments: {
+            threadIds: ["queen-1", "child-1"],
+            includeTopology: true,
+          },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async inspectMany(args) {
+          calls.push(args);
+          return inventory;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body, { command: "thread inventory", inventory });
+  assert.deepEqual(calls, [
+    {
+      threadIds: ["queen-1", "child-1"],
+      includeTopology: true,
+    },
   ]);
+});
+
+test("nelos_thread_wait forwards snapshot cursors and polling bounds", async () => {
+  const wait = {
+    schemaVersion: 1,
+    status: "timeout",
+    snapshots: [],
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_thread_wait",
+          arguments: {
+            targets: [{ threadId: "child-1", afterCursor: "snapshot-v1:x" }],
+            timeoutMs: 1_000,
+            pollIntervalMs: 100,
+          },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async waitForThreads(args) {
+          calls.push(args);
+          return wait;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body, { command: "thread wait", wait });
+  assert.deepEqual(calls, [
+    {
+      targets: [{ threadId: "child-1", afterCursor: "snapshot-v1:x" }],
+      timeoutMs: 1_000,
+      pollIntervalMs: 100,
+    },
+  ]);
+});
+
+test("thread waits serialize with each other without blocking later MCP requests", async () => {
+  let activeWaits = 0;
+  let maxConcurrentWaits = 0;
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_thread_wait",
+          arguments: { targets: [{ threadId: "child-1" }], timeoutMs: 1_000 },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "nelos_thread_wait",
+          arguments: { targets: [{ threadId: "child-2" }], timeoutMs: 1_000 },
+        },
+      },
+      { jsonrpc: "2.0", id: 4, method: "ping" },
+    ],
+    {
+      appServerBridge: {
+        async waitForThreads() {
+          activeWaits += 1;
+          maxConcurrentWaits = Math.max(maxConcurrentWaits, activeWaits);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          activeWaits -= 1;
+          return { schemaVersion: 1, status: "timeout", snapshots: [] };
+        },
+      },
+    },
+  );
+
+  assert.deepEqual(responses.map(({ id }) => id), [1, 4, 2, 3]);
+  assert.deepEqual(responses[1].result, {});
+  assert.equal(toolBody(responses[2]).body.wait.status, "timeout");
+  assert.equal(toolBody(responses[3]).body.wait.status, "timeout");
+  assert.equal(maxConcurrentWaits, 1);
+});
+
+test("a failed non-wait response does not poison later requests or waits", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks = [];
+  output.on("data", (chunk) => chunks.push(chunk));
+  const write = output.write.bind(output);
+  let writes = 0;
+  output.write = (chunk, ...args) => {
+    writes += 1;
+    if (writes === 2) {
+      throw new Error("simulated prior response failure");
+    }
+    return write(chunk, ...args);
+  };
+  let waitCalls = 0;
+  const exited = new Promise((resolve) => {
+    startNelosMcpServer({
+      input,
+      output,
+      serverVersion: "0.0.0-test",
+      onExit: resolve,
+      appServerBridge: {
+        async waitForThreads() {
+          waitCalls += 1;
+          return { schemaVersion: 1, status: "timeout", snapshots: [] };
+        },
+      },
+    });
+  });
+
+  for (const message of [
+    INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "ping" },
+    { jsonrpc: "2.0", id: 3, method: "ping" },
+    {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "nelos_thread_wait",
+        arguments: { targets: [{ threadId: "child-1" }] },
+      },
+    },
+  ]) {
+    input.write(`${JSON.stringify(message)}\n`);
+  }
+  input.end();
+
+  assert.equal(await exited, 0);
+  const responses = Buffer.concat(chunks)
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(responses.map(({ id }) => id), [1, 3, 4]);
+  assert.deepEqual(responses[1].result, {});
+  assert.equal(toolBody(responses[2]).body.wait.status, "timeout");
+  assert.equal(waitCalls, 1);
+});
+
+test("nelos_app_server_health forwards the probe and bounded telemetry", async () => {
+  const health = {
+    schemaVersion: 1,
+    state: "ready",
+    compatible: true,
+    version: "0.144.6",
+    supportedVersions: ["0.144.5", "0.144.6"],
+    requiredMethods: ["thread/read", "thread/name/set"],
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_app_server_health",
+          arguments: { probe: true },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async health(args) {
+          calls.push(args);
+          return health;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body, { command: "app-server health", health });
+  assert.deepEqual(calls, [{ probe: true }]);
+});
+
+test("nelos_plan_slices reports invalid plans as tool errors", async () => {
+  let synchronizationCalls = 0;
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan: { schemaVersion: 99 } },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async synchronizeQueenTitle() {
+          synchronizationCalls += 1;
+        },
+      },
+    },
+  );
   const { isError, body } = toolBody(response);
   assert.equal(isError, true);
   assert.ok(body.error);
+  assert.equal(synchronizationCalls, 0);
 });
 
 test("nelos_intelligence_route mirrors the CLI mapping", async () => {

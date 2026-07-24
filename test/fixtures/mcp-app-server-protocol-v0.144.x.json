@@ -1,0 +1,47 @@
+{
+  "source": "codex-cli 0.144.5 and Codex Desktop 0.144.6: codex app-server generate-json-schema --experimental",
+  "compatibleCodexVersions": [
+    "0.144.5",
+    "0.144.6"
+  ],
+  "initialize": {
+    "requiredResponseFields": [
+      "codexHome",
+      "platformFamily",
+      "platformOs",
+      "userAgent"
+    ],
+    "experimentalApi": true
+  },
+  "methods": {
+    "thread/read": {
+      "requiredParams": [
+        "threadId"
+      ],
+      "optionalParams": [
+        "includeTurns"
+      ],
+      "readOnly": true
+    },
+    "thread/name/set": {
+      "requiredParams": [
+        "name",
+        "threadId"
+      ],
+      "optionalParams": [],
+      "readOnly": false
+    }
+  },
+  "threadStatus": {
+    "types": [
+      "notLoaded",
+      "idle",
+      "systemError",
+      "active"
+    ],
+    "activeFlags": [
+      "waitingOnApproval",
+      "waitingOnUserInput"
+    ]
+  }
+}

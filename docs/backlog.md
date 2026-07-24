@@ -14,13 +14,66 @@ work. Order future slices by their evidence and acceptance gates.
   rewriting `ExecutionStoreV1` or opening an app-server connection
   ([contract](observation-join.md)).
 
+### MCP-owned Codex app-server leverage
+
+Move deterministic Codex task operations behind the MCP boundary so correctness
+does not depend on the active agent remembering lifecycle bookkeeping. Each
+operation must remain narrow, idempotent where mutation is possible, and
+auditable.
+
+Delivered:
+
+- [x] add one lazy, reusable `codex app-server --stdio` bridge with bounded
+  JSONL requests, initialization, shutdown, and fail-closed errors;
+- [x] automatically mark the current task as the queen whenever a validated
+  Nelos plan contains spinoffs, preserving web-lineage markers and rendering
+  `[🕸️ inbound] [🕷️ outbound] [👑] · base title` before verifying the persisted
+  title and returning the launch action; and
+- [x] expose bounded read-only task inspection without turns, previews, prompts,
+  or transcripts.
+
+Migration backlog:
+
+- [x] add compatibility negotiation, generated-schema fixtures, health checks,
+  bounded restart policy, and version telemetry for the experimental protocol;
+- [x] batch task inspection and bounded snapshot-cursor status polling to
+  replace repeated agent-driven lookups; Codex `0.144.x` exposes no native wait
+  method or resumable event cursor, so this remains current-state polling;
+- [x] build a bounded task inventory and authoritative direct-parent topology
+  projection for caller-supplied task IDs without inferring lifecycle roles;
+- [ ] migrate deterministic create, fork, resume, follow-up, steer, archive,
+  unarchive, and child-title reconciliation behind explicit per-operation
+  policies;
+- [ ] let lifecycle subscriptions drive dependency-wave readiness and
+  crash-safe continuation without background actions escaping durable receipts;
+- [ ] expose bounded result provenance and current-turn collection while
+  retaining the default prohibition on prompt and transcript access;
+- [ ] attest working-directory, worktree, route, model, and reasoning metadata
+  where the protocol provides authoritative fields;
+- [ ] add a mutation audit log, permission matrix, serialization rules, and
+  operator diagnostics; and
+- [ ] require a versioned title compare-and-set or revision precondition before
+  claiming safety for simultaneous Desktop and MCP title writers; and
+- [ ] test desktop visibility, notification propagation, concurrent desktop/MCP
+  writers, and behavior when the desktop and bridge use different Codex
+  versions.
+
+Acceptance criteria: no migrated mutation relies on agent memory; validation
+precedes mutation; uncertain outcomes fail closed; repeated calls converge;
+and read tools return allowlisted metadata only. The delivered queen-title
+operation performs two stable-title preflight reads, writes once, and verifies
+the result. Codex `0.144.x` exposes no title compare-and-set or revision
+precondition, so simultaneous manual Desktop title edits remain an explicit
+unsupported concurrency window rather than a claimed guarantee. Future
+mutations must not produce duplicate tasks or silently overwrite newer state.
+
 ### Self-sufficient marketplace install (MCP tool surface)
 
 Close the packaging gap where a marketplace install ships the skill but not
 the `nelos` executable the skill invokes. Expose the skill's only CLI
-dependencies — the offline slice planner, the intelligence router, and
-runtime-intelligence verification — as a bundled, socket-free MCP server, per
-[Socket-free MCP tool surface](mcp-tool-surface.md). Launch mechanics are
+dependencies — the slice planner, the intelligence router, runtime-intelligence
+verification, and scoped task controls — as a bundled MCP server, per
+[MCP tool surface](mcp-tool-surface.md). Launch mechanics are
 pinned to verified `codex-cli 0.144.6` behavior (no `${PLUGIN_ROOT}`
 substitution; inline self-locating bootstrap) with a recorded retirement
 condition and a filed upstream report.
@@ -43,12 +96,12 @@ Delivery slices:
 
 Acceptance criteria: a fresh marketplace install plus the documented
 enablement block yields a task where the skill completes plan → launch →
-verify using only bundled tools and native task controls; the MCP server
-opens no sockets; its original three tools perform no writes, while stateful
-orchestration tools write only revision-checked private Nelos state and return
-host-owned effects; provenance and hermetic release gates cover the new
-surfaces; and the CLI remains fully supported for developers without being a
-skill dependency.
+verify using only bundled tools and native task controls; the MCP server opens
+no sockets; inspection, routing, and verification perform no writes; planning
+mutates only the current queen title when spinoffs exist; stateful orchestration
+tools write only revision-checked private Nelos state and return host-owned
+effects; provenance and hermetic release gates cover the new surfaces; and the
+CLI remains fully supported for developers without being a skill dependency.
 
 ### Durable execution foundation
 
@@ -141,8 +194,8 @@ These ideas are intentionally outside the compact-hierarchy slice:
 - task actions such as start, resume, rename, archive, or send message;
 - historical turn browsing or timelines;
 - richer dashboard or graph views.
-- a live host integration, only after Codex supplies a scoped, authenticated,
-  host-owned control endpoint and lifecycle contract; see
+- a general-purpose live dashboard or transcript surface, only after the
+  separate permission and lifecycle gate in
   [Future Host Integration](mcp-web-ui.md).
 
 Any future task mutation or task-history exposure needs its own explicit
@@ -170,8 +223,8 @@ module boundaries, safety rules, and rollout criteria.
   collection, traceable synthesis readiness, and a twice-run verifier.
 - Retire the MCP/UI prototype from the repository and distributed plugin; retain
   its future host requirements in [Future Host Integration](mcp-web-ui.md).
-  (The retired surface was live-state UI; the later socket-free tool surface in
-  [Socket-free MCP tool surface](mcp-tool-surface.md) is a different scope and
+  (The retired surface was live-state UI; the later bounded tool surface in
+  [MCP tool surface](mcp-tool-surface.md) is a different scope and
   does not reverse this.)
 - Add deterministic, overridable Sol/Terra/Luna intelligence routing with a
   versioned reviewed catalog, lowest-sufficient effort policy, and explicit
