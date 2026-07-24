@@ -1,3 +1,8 @@
+import {
+  RECOMMENDED_SEEDED_TITLE_CHARACTERS,
+  buildTaskLaunchPromptV1,
+} from "./task-launch-prompt.mjs";
+
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
 
 function action(kind, fields = {}) {
@@ -32,7 +37,6 @@ function readTaskResult(threadId, turnId = null) {
 }
 
 function memberPrompt(slice) {
-  const criteria = slice.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n");
   const resultTemplate = {
     schemaVersion: 1,
     workUnitId: slice.id,
@@ -45,17 +49,13 @@ function memberPrompt(slice) {
     blockers: [],
     recoveryHint: null,
   };
-  return [
-    `Own only this slice: ${slice.objective}`,
-    `Deliverable: ${slice.deliverable}`,
-    "Acceptance criteria:",
-    criteria,
-    "Finish with exactly one final fenced nelos-result block and no trailing prose.",
-    "Use this result shape. Change outcome when needed; succeeded has no blockers, while blocked has at least one blocker and a recoveryHint:",
-    "```nelos-result",
-    JSON.stringify(resultTemplate),
-    "```",
-  ].join("\n");
+  return buildTaskLaunchPromptV1({
+    title: slice.title,
+    objective: slice.objective,
+    deliverable: slice.deliverable,
+    acceptanceCriteria: slice.acceptanceCriteria,
+    resultTemplate,
+  });
 }
 
 function launchMember(slice) {
@@ -63,6 +63,12 @@ function launchMember(slice) {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
     title: slice.title,
+    titlePolicy: {
+      mode: "prompt-seeded",
+      recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,
+      verifyAfterLaunch: true,
+      onMismatch: "native-set-title",
+    },
     workspaceMode: slice.workspaceMode,
     nativeTask: slice.route.launch.nativeTask,
     routeEnforcement: {

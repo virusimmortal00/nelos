@@ -11,6 +11,8 @@ import {
   listNelosMcpTools,
   startNelosMcpServer,
 } from "../src/mcp-server.mjs";
+import { ExecutionStoreV1 } from "../src/execution-store.mjs";
+import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
 
 const INITIALIZE = {
   jsonrpc: "2.0",
@@ -39,7 +41,7 @@ function validPlan() {
   };
 }
 
-async function roundTrip(messages) {
+async function roundTrip(messages, options = {}) {
   const input = new PassThrough();
   const output = new PassThrough();
   const chunks = [];
@@ -50,6 +52,7 @@ async function roundTrip(messages) {
       output,
       serverVersion: "0.0.0-test",
       onExit: resolve,
+      ...options,
     });
   });
   for (const message of messages) {
@@ -83,7 +86,7 @@ test("initialize returns the tools capability and server identity", async () => 
   });
 });
 
-test("tools/list exposes exactly the three socket-free read-only tools", async () => {
+test("tools/list keeps three tools read-only and honestly annotates orchestration", async () => {
   const [, response] = await roundTrip([
     INITIALIZE,
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
@@ -95,14 +98,38 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
       "nelos_plan_slices",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
+      "nelos_orchestrate_create",
+      "nelos_orchestrate_advance",
     ],
   );
-  for (const tool of tools) {
+  for (const tool of tools.slice(0, 3)) {
     assert.equal(tool.annotations.readOnlyHint, true);
     assert.equal(tool.annotations.destructiveHint, false);
+    assert.equal(tool.annotations.openWorldHint, false);
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
+  const orchestration = tools[3];
+  assert.deepEqual(orchestration.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  assert.deepEqual(orchestration.inputSchema.required, ["workUnit", "receipt"]);
+  assert.equal(
+    orchestration.inputSchema.properties.receipt.anyOf[1].additionalProperties,
+    false,
+  );
+  const advance = tools[4];
+  assert.deepEqual(advance.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  assert.equal(advance.inputSchema.additionalProperties, false);
+  assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
   assert.deepEqual(tools, listNelosMcpTools());
 
   const planner = tools.find(({ name }) => name === "nelos_plan_slices");
@@ -114,6 +141,293 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
     "spinoff",
     "subagent",
   ]);
+});
+
+test("nelos_orchestrate_advance is callback-only and forwards exact arguments", async () => {
+  const calls = [];
+  const args = { webId: "A1", queenThreadId: "queen", receipt: null };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_orchestrate_advance", arguments: args },
+      },
+    ],
+    {
+      joinAdapter: {
+        async advance(value) {
+          calls.push(value);
+          return {
+            schemaVersion: 1,
+            checkpoint: { checkpointRevision: 7 },
+            join: {
+              effects: [{ type: "native-wait", actionId: "wait-7" }],
+              boundary: { type: "waiting" },
+            },
+          };
+        },
+      },
+    },
+  );
+  assert.deepEqual(calls, [args]);
+  const result = toolBody(response);
+  assert.equal(result.isError, false);
+  assert.equal(result.body.join.effects[0].type, "native-wait");
+});
+
+function workUnitInput(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    webId: "A1",
+    queenThreadId: "queen-thread",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+    memberKind: "spinoff",
+    capabilities: ["observe", "read-result", "follow-up"],
+    title: "Member A",
+    objectiveSummary: "Implement one bounded member task.",
+    deliverable: "A verified change.",
+    acceptanceCriteria: ["Focused tests pass."],
+    dependencies: [],
+    required: true,
+    policy: {
+      maxAttempts: 3,
+      onBlocked: "queen-review",
+      onFailure: "queen-review",
+    },
+    ...overrides,
+  };
+}
+
+function orchestrationCall(id, workUnit, receipt = null) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: {
+      name: "nelos_orchestrate_create",
+      arguments: { workUnit, receipt },
+    },
+  };
+}
+
+async function orchestrationFixture(t) {
+  const directory = await mkdtemp(join(tmpdir(), "nelos-mcp-orchestration-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new ExecutionStoreV1({ directory });
+  return {
+    store,
+    options: {
+      orchestrationAdapter: new McpOrchestrationAdapterV1({ store }),
+    },
+  };
+}
+
+test("stdio orchestration creates once, then requires reconciliation before any retry", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const [, first, retry] = await roundTrip(
+    [
+      INITIALIZE,
+      orchestrationCall(2, workUnitInput()),
+      orchestrationCall(3, workUnitInput()),
+    ],
+    fixture.options,
+  );
+  const initial = toolBody(first);
+  const replay = toolBody(retry);
+
+  assert.equal(initial.isError, false);
+  assert.equal(initial.body.binding.state, "launch-pending");
+  assert.equal(initial.body.effects.length, 1);
+  const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
+  assert.match(launchPrompt, /^Task title: Member A\n\n/u);
+  assert.deepEqual(launchEffect, {
+    schemaVersion: 1,
+    actionId:
+      "web-orchestration-v1/member-a/revision-1/attempt-1/launch",
+    type: "native-create",
+    scope: "work-unit",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+    title: "Member A",
+    preconditions: {
+      expectedSpecRevision: 1,
+      expectedBindingState: "unbound",
+      expectedMemberThreadId: null,
+      expectedSourceTurnId: null,
+    },
+  });
+  const [{ prompt: reconcilePrompt, ...reconcileEffect }] = replay.body.effects;
+  assert.equal(reconcilePrompt, launchPrompt);
+  assert.deepEqual(reconcileEffect, {
+      schemaVersion: 1,
+      actionId:
+        "web-orchestration-v1/member-a/revision-1/attempt-1/launch/reconcile",
+      type: "native-reconcile-create",
+      scope: "work-unit",
+      createActionId:
+        "web-orchestration-v1/member-a/revision-1/attempt-1/launch",
+      workUnitId: "member-a",
+      specRevision: 1,
+      attempt: 1,
+      title: "Member A",
+      policy: {
+        onFound: "return-native-create-receipt",
+        onAbsent: "return-attention-before-retry",
+        onAmbiguous: "return-attention",
+      },
+    },
+  );
+  assert.equal((await fixture.store.read("member-a")).binding.state, "launch-pending");
+});
+
+test("stdio orchestration validates a host callback before binding and replays idempotently", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const actionId =
+    "web-orchestration-v1/member-a/revision-1/attempt-1/launch";
+  const receipt = {
+    schemaVersion: 1,
+    actionId,
+    type: "native-create",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "thread-created-1",
+  };
+  const [, pending, bound, replay] = await roundTrip(
+    [
+      INITIALIZE,
+      orchestrationCall(2, workUnitInput()),
+      orchestrationCall(3, workUnitInput(), receipt),
+      orchestrationCall(4, workUnitInput(), receipt),
+    ],
+    fixture.options,
+  );
+
+  assert.equal(toolBody(pending).body.effects.length, 1);
+  const binding = toolBody(bound);
+  assert.equal(binding.isError, false);
+  assert.deepEqual(binding.body.binding, {
+    state: "bound",
+    memberThreadId: "thread-created-1",
+    launchActionId: actionId,
+    generation: 1,
+  });
+  assert.deepEqual(binding.body.effects, [
+    {
+      schemaVersion: 1,
+      actionId: "observation-v1/title/member-a/r1/a1/b1/observe",
+      type: "native-read-title",
+      workUnitId: "member-a",
+      specRevision: 1,
+      attempt: 1,
+      bindingGeneration: 1,
+      memberThreadId: "thread-created-1",
+      requestedTitle: "Member A",
+    },
+  ]);
+  assert.deepEqual(toolBody(replay).body, binding.body);
+});
+
+test("independent adapters serialize conflicting host receipts", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "nelos-mcp-orchestration-race-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const firstStore = new ExecutionStoreV1({ directory });
+  const secondStore = new ExecutionStoreV1({ directory });
+  const firstAdapter = new McpOrchestrationAdapterV1({ store: firstStore });
+  const secondAdapter = new McpOrchestrationAdapterV1({ store: secondStore });
+  const workUnit = workUnitInput({ workUnitId: "receipt-race" });
+  const actionId =
+    "web-orchestration-v1/receipt-race/revision-1/attempt-1/launch";
+
+  await firstAdapter.orchestrate({ workUnit });
+  const outcomes = await Promise.allSettled([
+    firstAdapter.orchestrate({
+      workUnit,
+      receipt: {
+        schemaVersion: 1,
+        actionId,
+        type: "native-create",
+        workUnitId: "receipt-race",
+        specRevision: 1,
+        attempt: 1,
+        memberThreadId: "thread-race-a",
+      },
+    }),
+    secondAdapter.orchestrate({
+      workUnit,
+      receipt: {
+        schemaVersion: 1,
+        actionId,
+        type: "native-create",
+        workUnitId: "receipt-race",
+        specRevision: 1,
+        attempt: 1,
+        memberThreadId: "thread-race-b",
+      },
+    }),
+  ]);
+
+  assert.deepEqual(
+    outcomes.map(({ status }) => status).sort(),
+    ["fulfilled", "rejected"],
+  );
+  const stored = await firstStore.read("receipt-race");
+  assert.equal(stored.binding.state, "bound");
+  assert.ok(["thread-race-a", "thread-race-b"].includes(stored.binding.memberThreadId));
+});
+
+test("stdio orchestration rejects malformed, stale, and conflicting receipts without changing state", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const workUnit = workUnitInput();
+  const actionId =
+    "web-orchestration-v1/member-a/revision-1/attempt-1/launch";
+  const baseReceipt = {
+    schemaVersion: 1,
+    actionId,
+    type: "native-create",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "thread-created-1",
+  };
+  const [, malformed, stale] = await roundTrip(
+    [
+      INITIALIZE,
+      orchestrationCall(2, workUnit, { ...baseReceipt, unexpected: true }),
+      orchestrationCall(3, workUnit, { ...baseReceipt, specRevision: 2 }),
+    ],
+    fixture.options,
+  );
+  assert.equal(toolBody(malformed).isError, true);
+  assert.match(toolBody(malformed).body.error, /unknown field: unexpected/);
+  assert.equal(toolBody(stale).isError, true);
+  assert.match(toolBody(stale).body.error, /stale or conflicting specRevision/);
+  assert.equal(await fixture.store.read("member-a"), null);
+
+  const [, bound, conflicting] = await roundTrip(
+    [
+      INITIALIZE,
+      orchestrationCall(4, workUnit, baseReceipt),
+      orchestrationCall(5, workUnit, {
+        ...baseReceipt,
+        memberThreadId: "thread-created-2",
+      }),
+    ],
+    fixture.options,
+  );
+  assert.equal(toolBody(bound).isError, false);
+  assert.equal(toolBody(conflicting).isError, true);
+  assert.match(toolBody(conflicting).body.error, /conflicts with the bound/);
+  assert.equal(
+    (await fixture.store.read("member-a")).binding.memberThreadId,
+    "thread-created-1",
+  );
 });
 
 test("nelos_plan_slices routes a valid plan into waves", async () => {
@@ -142,6 +456,12 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
         sliceId: "explore",
         lifecycle: "subagent",
         title: "Explore",
+        titlePolicy: {
+          mode: "prompt-seeded",
+          recommendedMaxCharacters: 48,
+          verifyAfterLaunch: true,
+          onMismatch: "native-set-title",
+        },
         workspaceMode: "shared-read-only",
         nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
         routeEnforcement: {
@@ -155,7 +475,7 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 0,
   });
-  assert.match(body.nextAction.members[0].prompt, /Own only this slice/);
+  assert.match(body.nextAction.members[0].prompt, /^Task title: Explore\n\n/u);
 });
 
 test("nelos_plan_slices reports invalid plans as tool errors", async () => {

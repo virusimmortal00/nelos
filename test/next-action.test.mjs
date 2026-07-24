@@ -40,6 +40,12 @@ test("slice planning returns an executable current-wave launch action", () => {
         sliceId: "research",
         lifecycle: "subagent",
         title: "Research the design",
+        titlePolicy: {
+          mode: "prompt-seeded",
+          recommendedMaxCharacters: 48,
+          verifyAfterLaunch: true,
+          onMismatch: "native-set-title",
+        },
         workspaceMode: "shared-read-only",
         nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
         routeEnforcement: {
@@ -48,6 +54,8 @@ test("slice planning returns an executable current-wave launch action", () => {
           verifyAfterLaunch: true,
         },
         prompt: [
+          "Task title: Research the design",
+          "",
           "Own only this slice: Resolve the open design question.",
           "Deliverable: A short evidence-backed recommendation.",
           "Acceptance criteria:",

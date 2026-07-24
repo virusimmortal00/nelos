@@ -5,12 +5,20 @@ import {
 import { routeIntelligenceProfile } from "./intelligence-profile-router.mjs";
 import { verifyRuntimeIntelligenceV1 } from "./runtime-intelligence-verification.mjs";
 import { withNextAction } from "./next-action.mjs";
+import {
+  MCP_ORCHESTRATE_INPUT_SCHEMA,
+  McpOrchestrationAdapterV1,
+} from "./mcp-orchestration.mjs";
+import {
+  MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
+  McpJoinAdapterV1,
+} from "./mcp-observation.mjs";
 
-// Socket-free MCP tool surface for the marketplace plugin; scope and trust
-// model are specified in docs/mcp-tool-surface.md. Transport is
+// MCP tool surface for the marketplace plugin; scope and trust model are
+// specified in docs/mcp-tool-surface.md. Transport is
 // newline-delimited JSON-RPC over stdio, the framing the Codex host was
-// observed to use (codex-cli 0.144.6). Every tool is read-only: the planner
-// and router are pure, and verification performs bounded local rollout reads.
+// observed to use (codex-cli 0.144.6). The original tools remain read-only;
+// orchestration writes private execution state and returns a callback effect.
 
 export const MCP_SERVER_NAME = "nelos";
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
@@ -19,6 +27,13 @@ const MAX_MESSAGE_BYTES = 256 * 1024;
 const READ_ONLY_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
+  openWorldHint: false,
+});
+
+const STATEFUL_ANNOTATIONS = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 });
 
@@ -130,14 +145,37 @@ const TOOLS = [
       };
     },
   },
+  {
+    name: "nelos_orchestrate_create",
+    description:
+      "Durably advance one spinoff work unit to launch-pending and return " +
+      "one typed native-create effect, or validate a host create receipt and " +
+      "bind its member thread ID. This tool never contacts the app server.",
+    inputSchema: MCP_ORCHESTRATE_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { orchestrationAdapter }) {
+      return orchestrationAdapter.orchestrate(args);
+    },
+  },
+  {
+    name: "nelos_orchestrate_advance",
+    description:
+      "Advance the durable callback-only title/wait/result join checkpoint. " +
+      "Returns typed host-owned effects and never starts or discovers an app server.",
+    inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { joinAdapter }) {
+      return joinAdapter.advance(args);
+    },
+  },
 ];
 
 export function listNelosMcpTools() {
-  return TOOLS.map(({ name, description, inputSchema }) => ({
+  return TOOLS.map(({ name, description, inputSchema, annotations }) => ({
     name,
     description,
     inputSchema,
-    annotations: READ_ONLY_ANNOTATIONS,
+    annotations: annotations ?? READ_ONLY_ANNOTATIONS,
   }));
 }
 
@@ -165,6 +203,8 @@ export function startNelosMcpServer({
   output = process.stdout,
   serverVersion = "0.0.0-dev",
   onExit = (code) => process.exit(code),
+  orchestrationAdapter = new McpOrchestrationAdapterV1(),
+  joinAdapter = new McpJoinAdapterV1(),
 } = {}) {
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -179,7 +219,10 @@ export function startNelosMcpServer({
     }
     let result;
     try {
-      result = await tool.run(assertToolArguments(tool, params.arguments));
+      result = await tool.run(assertToolArguments(tool, params.arguments), {
+        orchestrationAdapter,
+        joinAdapter,
+      });
     } catch (error) {
       return {
         content: [

@@ -1,4 +1,4 @@
-# ADR: Socket-free MCP tool surface for the marketplace plugin
+# ADR: MCP tool surface for the marketplace plugin
 
 Status: accepted July 2026; launch mechanics pinned to behavior observed on
 `codex-cli 0.144.6`.
@@ -18,11 +18,23 @@ open an app-server control endpoint:
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
   reads only bounded turn-context metadata from local rollout files under the
-  Codex sessions directory and fails closed on any mismatch.
+  Codex sessions directory and fails closed on any mismatch; and
+- `nelos_orchestrate_create` — a callback-only durable effect adapter. It
+  creates one private `WorkUnitSpecV1` execution record, advances its
+  deterministic reducer action to `launch-pending`, and returns exactly one
+  typed `native-create` effect. An uncertain replay returns a non-creating
+  reconciliation effect instead of another create. A later call supplies a
+  schema-validated host receipt, binds the returned member thread ID, and
+  emits an idempotent title-sync effect; and
+- `nelos_orchestrate_advance` — a callback-only observation and join adapter.
+  It writes a separate private web checkpoint, validates exact title, wait,
+  and result receipts, and returns typed host-owned effects. See
+  [Durable Host Observation and Parent Join](observation-join.md).
 
-These are the only CLI commands the installed skill's desktop path invokes;
-everything else in that path uses native Codex task tools. Tools that would
-contact an app server remain out of scope here and stay behind the
+The original three tools remain explicitly read-only. Both orchestration tools
+are explicitly non-read-only and idempotent: they write private Nelos state
+but do not themselves perform native host effects. Tools that would contact
+an app server remain out of scope here and stay behind the
 reintroduction gate in [Future Host Integration](mcp-web-ui.md). This ADR does
 not reverse the earlier removal of the MCP/UI prototype: that removal retired
 a live-state surface the plugin could not safely read; this surface reads no
@@ -93,13 +105,80 @@ probe repro.
 
 ## Trust model
 
-Every shipped tool is read-only from the host's perspective: the planner and
-router are pure functions of their inputs, and verification performs bounded
-reads of local rollout metadata (never prompts or transcripts, per
-`src/runtime-intelligence-verification.mjs`). The server opens no sockets,
-spawns no processes, and writes nothing. Any future tool that mutates state
-or reads live host state requires its own permission design and, for live
-state, the host contract in [Host-owned Codex control](host-owned-control.md).
+The planner, router, and verifier advertise `readOnlyHint: true`; verification
+performs bounded reads of local rollout metadata (never prompts or transcripts,
+per `src/runtime-intelligence-verification.mjs`). Orchestration advertises
+`readOnlyHint: false`, `destructiveHint: false`, and `idempotentHint: true`.
+Creation writes atomic private execution records through `ExecutionStoreV1`;
+observation writes a separate revision-checked web checkpoint.
+One work-unit decision is protected by a cross-process state lock so
+conflicting callbacks cannot both bind independent store instances.
+
+The server opens no sockets and spawns no processes. Native creation remains a
+host-owned effect: the server returns a deterministic action ID, and it accepts
+only an exact receipt containing that action identity and a bounded member
+thread ID. Receipt shape, revision, attempt, and action identity are validated
+before a state transition. Stale receipts and a second thread ID for an already
+bound action fail closed. The requested title is carried in a complete launch
+prompt whose first line is `Task title: <short intended title>`. After binding,
+the adapter emits a read-only title observation. The observation adapter emits
+a rename only when that native title differs, advances opaque wait cursors,
+validates current-turn result
+provenance, and returns a deterministic parent boundary. App-server transport
+remains outside this surface.
+
+## Callback contract
+
+Call `nelos_orchestrate_create` with an unbound work-unit definition and an
+explicit `null` receipt. The result persists `launch-pending` and contains one
+effect shaped as:
+
+```json
+{
+  "schemaVersion": 1,
+  "actionId": "web-orchestration-v1/member-a/revision-1/attempt-1/launch",
+  "type": "native-create",
+  "scope": "work-unit",
+  "workUnitId": "member-a",
+  "specRevision": 1,
+  "attempt": 1,
+  "title": "Member A",
+  "prompt": "Task title: Member A\n\nOwn only this slice: ...",
+  "preconditions": {
+    "expectedSpecRevision": 1,
+    "expectedBindingState": "unbound",
+    "expectedMemberThreadId": null,
+    "expectedSourceTurnId": null
+  }
+}
+```
+
+If that response may have been lost, replaying the null-receipt call returns
+`native-reconcile-create`, whose policy forbids another create until the host
+inventory proves absence and explicitly returns attention. It never blindly
+re-emits `native-create`.
+
+After the host performs that effect, call the same tool with the same work-unit
+definition and this receipt:
+
+```json
+{
+  "schemaVersion": 1,
+  "actionId": "web-orchestration-v1/member-a/revision-1/attempt-1/launch",
+  "type": "native-create",
+  "workUnitId": "member-a",
+  "specRevision": 1,
+  "attempt": 1,
+  "memberThreadId": "returned-host-thread-id"
+}
+```
+
+The bound result emits a stable `native-read-title` effect for the returned
+thread and exact requested title. Submit its `native-title-observed` receipt to
+`nelos_orchestrate_advance`. An exact match verifies without mutation; a
+mismatch produces a bounded, idempotent `native-set-title` fallback. Replaying
+the bound phase re-emits only the same read effect. The adapter never interprets
+a receipt as authorization for a second create.
 
 ## User-visible install contract
 

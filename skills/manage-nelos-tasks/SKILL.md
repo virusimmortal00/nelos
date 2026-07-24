@@ -44,6 +44,11 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   `title`, then verify it natively.
 - `launch-wave`: create only the listed current-wave members concurrently. Use
   each member's exact `lifecycle`, `title`, `nativeTask`, and generated `prompt`.
+  The generated prompt begins with `Task title: <short intended title>` so
+  Desktop can assign the intended title during creation. After the task ID
+  resolves, observe its settled native title. If it matches, do not rename it;
+  only use the native title tool on a mismatch, then verify the fallback rename.
+  Follow the returned `titlePolicy` exactly.
   Never omit, substitute, or inherit a decided `nativeTask` field. If the native
   tool requires explicit model authorization or cannot accept the exact route,
   stop and obtain that authorization or report `attention`; do not launch.
