@@ -122,7 +122,7 @@ test("the bootstrap locates the versioned cache and serves the tools", async () 
       name: "nelos",
       version: pluginMetadata.version,
     });
-    assert.equal(responses[1].result.tools.length, 3);
+    assert.equal(responses[1].result.tools.length, 5);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

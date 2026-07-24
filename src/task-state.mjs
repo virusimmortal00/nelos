@@ -247,6 +247,51 @@ export function withQueenAcceptanceLock(decisionId, callback, timeoutMs = 60_000
 }
 
 /**
+ * Serialize one orchestration decision across adapters and processes. The
+ * digest keeps the caller-controlled work-unit ID out of the lock namespace.
+ */
+export function withExecutionOrchestrationLock(
+  workUnitId,
+  callback,
+  timeoutMs = 60_000,
+) {
+  if (
+    typeof workUnitId !== "string" ||
+    workUnitId.length === 0 ||
+    workUnitId.length > 128
+  ) {
+    throw new Error("execution orchestration lock requires a bounded work-unit ID");
+  }
+  const lockId = createHash("sha256").update(workUnitId, "utf8").digest("hex");
+  return withOwnedStateLock(`execution-${lockId}`, callback, timeoutMs);
+}
+
+/**
+ * Serialize one web checkpoint read/reduce/write transaction.
+ */
+export function withObservationCheckpointLock(
+  webId,
+  queenThreadId,
+  callback,
+  timeoutMs = 60_000,
+) {
+  if (
+    typeof webId !== "string" ||
+    webId.length === 0 ||
+    webId.length > 256 ||
+    typeof queenThreadId !== "string" ||
+    queenThreadId.length === 0 ||
+    queenThreadId.length > 256
+  ) {
+    throw new Error("observation checkpoint lock requires bounded web identities");
+  }
+  const lockId = createHash("sha256")
+    .update(JSON.stringify([webId, queenThreadId]), "utf8")
+    .digest("hex");
+  return withOwnedStateLock(`observation-${lockId}`, callback, timeoutMs);
+}
+
+/**
  * Serialize a short-lived effect that changes one Git repository's worktree
  * topology. The key is a stable, opaque repository identity rather than a
  * path, so callers never place an untrusted filesystem path in a lock name.

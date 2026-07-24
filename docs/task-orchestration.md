@@ -1,0 +1,277 @@
+# Robust Native Task Orchestration
+
+Status: proposed architecture.
+
+## Problem
+
+Native Desktop task creation currently accepts an initial prompt and target but
+not a title. A directly created task returns a `threadId`; a queued worktree
+creation may initially return only a `clientThreadId`. Nelos therefore cannot
+make "create with this title" one formal native operation. Live Desktop
+validation shows that a short first prompt line in the form
+`Task title: <intended title>` can be preserved exactly, but inference may still
+rewrite even a short seed, so native verification remains mandatory.
+
+Durable spinoffs are also independent top-level tasks. Their completion does
+not restart a queen after the queen has ended its turn. While the queen remains
+active, the native multi-task wait operation can wake it when a member
+completes or needs attention. If the queen ends first, resumption needs a
+separate persistent mechanism.
+
+These are related orchestration problems, but they are not one linear
+lifecycle. A task may be running while title synchronization is pending, and a
+title failure does not prove that task creation or execution failed.
+
+## Decision
+
+Represent every durable member launch as a persisted **launch intent** with
+orthogonal launch, title, execution, and coordination state. Drive that intent
+through an MCP-first orchestration reducer that emits machine-generated native
+actions only at the host boundary. The queen must join required spinoffs before
+ending its turn unless the plan explicitly marks them detached.
+
+Nelos remains the protocol and topology layer. Native Codex tools remain the
+authority for task creation, titles, execution status, results, and archival
+state.
+
+## MCP-First Product Surface
+
+The installed product should not require the model to reconstruct shell
+commands or lifecycle rules from skill prose. Put the state machine in shared
+library code and expose it primarily through Nelos MCP tools. Keep CLI commands
+as a developer, automation, and recovery adapter over the same library.
+
+The MCP server can directly own:
+
+- launch-intent, topology, cursor, and acceptance persistence;
+- idempotency locks and crash reconciliation for Nelos-owned state;
+- slice planning, routing, prompt construction, and title rendering;
+- result-envelope validation and dependency-wave reduction;
+- selection of the one exact next action;
+- local worktree provisioning when explicitly authorized by that tool's
+  permission contract.
+
+The desired installed loop is:
+
+```text
+call nelos_orchestration_start/advance
+                │
+                ▼
+        MCP persists and reduces
+                │
+                ▼
+     complete / attention / nativeEffect
+                │
+                ▼
+ agent performs only the nativeEffect
+                │
+                ▼
+   MCP receives the bounded native receipt
+```
+
+This is one protocol loop, not a collection of instructions the agent must
+remember. A native receipt must be schema-validated before it changes Nelos
+state.
+
+An MCP server does not automatically inherit the Codex host's native task
+tools, and it cannot call a sibling tool merely because the model can see that
+tool. Without a host-provided control endpoint, task creation, title mutation,
+native waiting, reads, follow-ups, and archival remain explicit `nativeEffect`
+callbacks executed by the agent. If Codex later injects an authorized
+host-owned endpoint, the same reducer can execute those effects internally and
+offer a single `nelos_orchestration_run` tool.
+
+Local CLI and app-server processes that use the same Codex home write to the
+shared session inventory, so tasks they create can be discovered in Desktop.
+Spawning a dedicated stdio app-server is therefore a viable compatibility
+path for creating visible local tasks; it is not inherently a separate task
+universe.
+
+It is not automatically equivalent to controlling Desktop's own live
+app-server connection. Before treating the compatibility path as full Desktop
+integration, verify concurrent live behavior for streamed status, approvals,
+steering, interruption, worktree ownership, and handoff. Prefer a brokered
+connection to the Desktop-owned app-server when available because that makes
+those host semantics explicit. Otherwise, use the shared-session compatibility
+path only for capabilities verified across both processes, and retain native
+effects for host-only operations.
+
+The Nelos MCP server previously exposed only three socket-free, read-only
+tools. The orchestration tools added here are therefore a deliberate MCP
+permission and persistence expansion, not something hidden inside the prior
+read-only contract.
+
+## State Model
+
+One record owns a stable `intentId` and these independent state groups:
+
+| Group | States | Authority |
+| --- | --- | --- |
+| Launch | `planned`, `creating`, `provisioning`, `bound`, `attention` | Durable Nelos receipt plus native creation result |
+| Title | `pending`, `applying`, `verified`, `attention` | Native title write and subsequent native observation |
+| Execution | `unknown`, `queued`, `running`, `terminal`, `attention` | Native wait/read result |
+| Coordination | `unjoined`, `waiting`, `collected`, `accepted`, `detached` | Queen decision and result provenance |
+
+The launch intent should persist at least:
+
+```json
+{
+  "schemaVersion": 1,
+  "intentId": "launch:A1:api:r1:a1",
+  "queenThreadId": "queen-task-id",
+  "workUnitId": "api",
+  "requestedTitle": "🕸️ A1 · API changes",
+  "promptDigest": "sha256:...",
+  "target": {},
+  "nativeTask": {},
+  "clientThreadId": null,
+  "memberThreadId": null,
+  "hostId": null,
+  "launchState": "planned",
+  "titleState": "pending",
+  "executionState": "unknown",
+  "coordinationState": "unjoined",
+  "waitPolicy": "required"
+}
+```
+
+The prompt and credentials should not be persisted in this receipt. Persist a
+digest and the bounded routing/target metadata needed to detect accidental
+reuse of an `intentId` with different inputs.
+
+## Launch Protocol
+
+1. **Prepare the intent before mutation.** Write `planned` with the desired
+   title, target, route, queen, and work-unit provenance.
+2. **Claim creation once.** Move to `creating` under the existing queen/action
+   lock, then call native task creation exactly once.
+3. **Record the native receipt before further effects.**
+   - A returned `threadId` moves launch directly to `bound`.
+   - A returned `clientThreadId` moves launch to `provisioning`. It must be
+     resolved to a `threadId` through a host-provided creation result before
+     the task can be titled or waited on.
+   - An ambiguous timeout moves the intent to `attention`; never create a
+     replacement until native reconciliation proves that the first create did
+     not commit.
+4. **Verify the seeded title as soon as a `threadId` exists.** Every launch
+   prompt starts with `Task title: <short intended title>`. Observe the settled
+   native title first. Exact equality completes title synchronization without a
+   mutation. Only a mismatch emits an idempotent native rename followed by
+   verification. A title failure changes only `titleState`; it does not relaunch
+   or misclassify the running task.
+5. **Join required work.** Once every required current-wave member is bound,
+   enter the queen join loop. Detached members are recorded but excluded.
+
+The standalone app-server adapter can continue its stronger sequence of
+`thread/start`, title synchronization, then `turn/start`. Native Desktop
+creation currently starts the initial turn as part of creation. Prompt seeding
+normally gives that task its intended short title immediately, while native
+observation and conditional rename remain the compatibility fallback.
+
+## Queen Join Loop
+
+For required spinoffs, the queen should remain active and use the native
+multi-task wait primitive rather than serial status polling:
+
+1. Call one wait with all nonterminal required `threadId`/`hostId` pairs.
+2. When the first member completes or needs attention, persist its returned
+   cursor and read only the bounded result needed for collection.
+3. Classify the result as current, stale, correctable, blocked, or failed.
+4. Send a same-task corrective turn when allowed, or stop for queen attention.
+5. Wait again on the remaining nonterminal members, supplying their latest
+   cursors.
+6. After all required results are current, perform explicit queen acceptance,
+   advance the dependency wave, or synthesize the final response.
+
+`wait_threads` is an event wait from the queen's perspective; it is the
+preferred "pull" mechanism while the queen turn is alive. A bounded timeout is
+an opportunity to report progress and wait again, not evidence that a member
+failed.
+
+The queen must not return a final answer while required members remain
+`waiting`. Ending the turn is valid only when all required work is accepted,
+the workflow needs user attention, or the plan explicitly chose `detached`.
+
+## Resume After an Interrupted Queen
+
+Persist enough join state that a later queen turn can reconstruct the wait set
+without replaying launches:
+
+- bound member and host IDs;
+- per-member wait cursor;
+- latest observed turn/result provenance;
+- required/detached policy;
+- current dependency wave and acceptance records.
+
+On resume, reconcile native state, verify any still-pending bound titles, then
+continue the join loop.
+
+Automatic restart after the queen has already ended requires a native
+persistent completion subscription that targets the queen. That capability is
+not currently part of the task-creation/wait contract. A July 2026 live Desktop
+probe confirmed that a child completed after its parent ended while the parent
+remained idle and received no new turn. Until a subscription exists:
+
+- keep the queen turn alive with bounded native waits for normal joined work;
+- use a thread heartbeat only as an explicit durability fallback when the user
+  asks to detach or a host time limit prevents a continuous wait;
+- do not market heartbeat polling as event-driven child completion.
+
+## Upstream Native API Improvements
+
+Nelos should feature-detect and use these if Codex adds them:
+
+1. `create_thread.title`: apply the requested title atomically with creation.
+2. `create_thread.idempotencyKey`: let an ambiguous create be safely retried.
+3. A durable mapping/event from `clientThreadId` to the eventual `threadId`.
+4. `resumeParentOnCompletion` or a persistent wait subscription for a set of
+   independently owned tasks.
+
+Until then, the title receipt and queen join loop are the compatibility layer.
+
+## Failure Rules
+
+| Failure | Required behavior |
+| --- | --- |
+| Create rejected before commit | Mark launch `attention`; retry only by explicit policy. |
+| Create response lost | Reconcile by idempotency/correlation; never blindly duplicate. |
+| Worktree still provisioning | Preserve `clientThreadId`; do not title or wait prematurely. |
+| Title write fails | Keep the task bound/running; retry title independently. |
+| Title verification disagrees | Preserve desired and observed titles; surface attention after bounded retries. |
+| Wait times out | Persist progress/cursors and wait again or yield an explicit resumable checkpoint. |
+| Queen process/turn stops | Resume from receipts; do not recreate members. |
+| Member result is stale | Reject for acceptance and wait/read the current turn. |
+| Member needs correction | Follow up in the same task and rejoin it. |
+
+## Implementation Slices
+
+1. Extend `WorkUnitSpec` execution state with the orthogonal title,
+   execution, coordination, `hostId`, `clientThreadId`, and wait-cursor fields.
+   Add a migration from the current binding-only record.
+2. Extract a shared orchestration reducer and expose stateful MCP
+   `start`/`advance`/`resume` operations with strict native-receipt schemas.
+   Retain the CLI as an adapter over the same code.
+3. Add crash-safe native launch-intent transitions and reconciliation. Reuse
+   the existing launch action ID and queen lock instead of introducing a second
+   identity. The callback adapter now serializes one work unit and emits a
+   non-creating reconciliation action after an uncertain first dispatch; live
+   host inventory reconciliation is still required.
+4. Make `launch-wave` emit a complete native action chain:
+   `native-create` with a title-seeded prompt → `native-bind` →
+   `native-read-title` → conditional `native-set-title` → `native-wait`.
+   The callback adapters now reach verified title, cursor-aware wait, and
+   current-turn result-read steps through strict host receipts.
+5. [Implemented](observation-join.md): use a cursor-aware queen join reducer
+   with at most one batched `native-wait` while required members are
+   nonterminal.
+6. Add queen-resume reconstruction and an explicit detached/heartbeat policy.
+7. Keep the standalone app-server adapter, but make both transports produce
+   the same state transitions and acceptance provenance.
+
+## Verification
+
+Tests should cover direct and queued creation, delayed title application,
+title failure during successful execution, lost create responses, wait
+timeouts, multiple members completing in different orders, corrective turns,
+queen restart, stale cursors/results, detached members, and a twice-run
+idempotency test proving that no duplicate task is created.

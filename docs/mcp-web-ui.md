@@ -13,11 +13,13 @@ the plugin cannot safely read on ordinary installations.
 This gate governs anything that reads **live host state** — Desktop threads,
 turns, or lifecycle — from the installed plugin. It does not govern MCP as a
 transport. The plugin ships a bundled MCP server whose tools are strictly
-socket-free (the offline planner, router, and bounded local
-runtime-intelligence verification); that surface is specified in
-[Socket-free MCP tool surface](mcp-tool-surface.md) and reads no live host
-state. Any tool that would contact an app server belongs to this gate, not to
-that surface.
+socket-free: three read-only tools (the offline planner, router, and bounded
+local runtime-intelligence verification) plus stateful callback-only adapters
+that journal native-create intent, refuse blind create replay, and advance
+strict title/wait/result observations through host-owned effects. That surface
+is specified in [MCP tool surface](mcp-tool-surface.md) and reads no live host
+state directly. Any tool that would contact an app server belongs to this gate,
+not to that surface.
 
 ## Host Capability Required
 

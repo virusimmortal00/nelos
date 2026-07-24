@@ -9,6 +9,11 @@ work. Order future slices by their evidence and acceptance gates.
 
 ## Next
 
+- [x] add the durable host-observation checkpoint, strict title/wait/result
+  receipts, pure join reducer, and callback-only MCP advance operation without
+  rewriting `ExecutionStoreV1` or opening an app-server connection
+  ([contract](observation-join.md)).
+
 ### Self-sufficient marketplace install (MCP tool surface)
 
 Close the packaging gap where a marketplace install ships the skill but not
@@ -39,9 +44,11 @@ Delivery slices:
 Acceptance criteria: a fresh marketplace install plus the documented
 enablement block yields a task where the skill completes plan → launch →
 verify using only bundled tools and native task controls; the MCP server
-opens no sockets and performs no writes; provenance and hermetic release
-gates cover the new surfaces; and the CLI remains fully supported for
-developers without being a skill dependency.
+opens no sockets; its original three tools perform no writes, while stateful
+orchestration tools write only revision-checked private Nelos state and return
+host-owned effects; provenance and hermetic release gates cover the new
+surfaces; and the CLI remains fully supported for developers without being a
+skill dependency.
 
 ### Durable execution foundation
 
@@ -62,6 +69,16 @@ Delivery slices:
   expected task/turn preconditions for task-scoped actions; and
 - [ ] prove restart reconciliation and reducer idempotency with deterministic
   fixtures before enabling any automatic continuation.
+- [x] add the callback-only MCP first slice: persist one deterministic
+  `launch-pending` action, return one typed native-create effect, validate the
+  host receipt before mutation, and bind its returned member thread ID without
+  adding app-server transport or a second registry writer.
+- [x] harden that callback boundary: serialize decisions across processes,
+  turn uncertain replays into a non-creating reconciliation effect, carry the
+  requested title in a title-seeded creation prompt, observe the settled title
+  after binding, and emit an idempotent rename only on mismatch.
+- [x] add host receipt and observation contracts for title verification,
+  cursor-aware waiting, result collection, and parent continuation.
 
 Acceptance criteria: a queen restart reconstructs the same derived state and
 same proposed next action; stale observations and malformed records fail closed;

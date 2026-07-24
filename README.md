@@ -205,6 +205,10 @@ default; pass `--wait` when the calling task should block for that turn.
 Spinoffs do not report back automatically; use the returned task ID with
 `status`, `read`, or `watch`.
 
+The proposed unified native launch, title synchronization, queen join, and
+crash-resume protocol is documented in
+[Robust Native Task Orchestration](docs/task-orchestration.md).
+
 At an explicit queen checkpoint, `web collect` returns one current bounded
 result for each direct active member without copying member transcripts. Pass
 `--wait` to poll that checkpoint until every member is transport-terminal —
@@ -282,8 +286,11 @@ nelos plan slices --spec-file - < slice-plan.json
 
 Only the current wave launches concurrently. The planner's `nextAction` returns
 the exact member title, lifecycle, native task settings, and bounded-result
-prompt for that wave; the queen executes it rather than reconstructing a
-protocol. It waits for accepted results before unlocking dependents. This keeps
+prompt for that wave. Each prompt starts with `Task title: <short title>` so
+Desktop normally assigns the intended title at creation; native observation
+verifies it and rename is only a mismatch fallback. The queen executes this
+contract rather than reconstructing a protocol. It waits for accepted results
+before unlocking dependents. This keeps
 semantic decomposition and intelligence selection separate but composable. It
 is a reviewed optimization heuristic, so quality, latency, and usage claims
 still require repeated evaluation. See the complete
@@ -344,11 +351,17 @@ worktree must have a single writer. See
 ## Status and Scope
 
 Nelos is a working early-stage tool. The shipped product is a Codex
-plugin packaging the task-management skill: mutable lifecycle operations go
-through the CLI or native task tools, and a local registry keeps web topology
-synchronized. A future host integration is documented in
+plugin packaging the task-management skill and a bundled socket-free MCP
+server. Three MCP tools are read-only; callback-only orchestration tools
+durably journal one native-create effect, require reconciliation instead of
+blindly replaying an uncertain create, bind only a validated host receipt, and
+advance a separate title/wait/result checkpoint into deterministic waiting,
+attention, decision, or continuation boundaries. Native lifecycle effects
+still belong to Codex task tools, and a local registry keeps web topology
+synchronized. A future live host integration is
+documented in
 [Future Host Integration](docs/mcp-web-ui.md) and the
-[Product Backlog](docs/backlog.md); no MCP server ships today.
+[Product Backlog](docs/backlog.md).
 
 Nelos deliberately does not copy the queen's context into a spinoff,
 automatically deliver a spinoff's result back to its queen, create Git branches
