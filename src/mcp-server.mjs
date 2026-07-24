@@ -148,9 +148,10 @@ const TOOLS = [
   {
     name: "nelos_orchestrate_create",
     description:
-      "Durably advance one spinoff work unit to launch-pending and return " +
-      "one typed native-create effect, or validate a host create receipt and " +
-      "bind its member thread ID. This tool never contacts the app server.",
+      "Durably advance one spinoff or joined-subagent work unit to " +
+      "launch-pending and return one lifecycle-specific native-create effect, " +
+      "or validate a host create receipt and bind its member thread ID. This " +
+      "tool never contacts the app server.",
     inputSchema: MCP_ORCHESTRATE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { orchestrationAdapter }) {

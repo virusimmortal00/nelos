@@ -101,19 +101,22 @@ The result has three waves:
 | 2 | `implementation`, `documentation` | Terra/Low, Luna/Low |
 | 3 | `verification` | Sol/Medium |
 
-For a native durable task, the queen passes the slice's
-`route.launch.nativeTask` object directly as the creation tool's `model` and
-`thinking` fields. It launches only the current wave, gives each concurrent
-writer a different worktree, waits for accepted results, and then unlocks the
-next wave. Durable slices become sidebar spinoffs; bounded subagents return to
-the queen.
+Every launch member now carries an explicit `memberKind` and `launcher`.
+`spinoff` maps to `memberKind: "spinoff"` and `launcher: "create-thread"`;
+`subagent` maps to `memberKind: "joined-subagent"` and
+`launcher: "spawn-subagent"`. The queen passes the slice's
+`route.launch.nativeTask` unchanged to that launcher. It launches only the
+current wave, gives each concurrent writer a different worktree, waits for
+accepted results, and then unlocks the next wave. Durable slices become sidebar
+spinoffs; bounded subagents return to the queen.
 
 The route is fail-closed. The queen must not omit or substitute a decided model
 or reasoning value when native task creation requires additional authorization.
 It obtains approval for the exact values or does not launch. After creation it
 runs `nelos intelligence verify` for the returned task ID and expected
 route. Work from an unverified or mismatched task cannot settle a wave or enter
-queen acceptance.
+queen acceptance. A launcher result without a native `threadId` also fails
+closed; an agent name is not a substitute for the child thread identity.
 
 ## Overrides and Guardrails
 

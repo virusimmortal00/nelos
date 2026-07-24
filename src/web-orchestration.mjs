@@ -619,9 +619,6 @@ export function reduceWebOrchestration(input = null) {
   if (binding.state === "unbound") {
     if (observation !== null) return closedState(identity, "stale_observation");
     if (resultEnvelope !== null) return closedState(identity, "stale_result");
-    if (spec.memberKind !== "spinoff") {
-      return closedState(identity, "unsupported_capability");
-    }
     const actions = actionUnlessReceived(
       spec,
       binding,
