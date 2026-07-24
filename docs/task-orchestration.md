@@ -253,7 +253,8 @@ Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
 without an explicit `archive` capability is never eligible. Archive is a native
 app-server mutation and each outcome is recorded independently so partial
 cleanup remains recoverable. A persisted `archiving` state requires attention
-and is never replayed as a second archive request.
+and is never replayed as a second archive request. A certainly rejected archive
+returns to `pending` so a later cleanup can safely retry it.
 
 ## Upstream Native API Improvements
 

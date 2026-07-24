@@ -407,6 +407,41 @@ test("cleanup does not blindly retry an uncertain archive", async (t) => {
   assert.equal(calls, 1);
 });
 
+test("cleanup can retry a certainly rejected archive", async (t) => {
+  const { adapter } = await fixture(t, "queen");
+  let calls = 0;
+  const bridge = {
+    async archiveThread() {
+      calls += 1;
+      if (calls === 1) {
+        const error = new Error("archive rejected before mutation");
+        error.mutationUncertain = false;
+        throw error;
+      }
+    },
+  };
+  const rejected = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, bridge);
+  assert.equal(rejected.state, "pending");
+  assert.deepEqual(rejected.results, [{
+    threadId: "member-thread",
+    state: "pending",
+    reason: "archive-rejected",
+  }]);
+
+  const retried = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, bridge);
+  assert.equal(retried.state, "complete");
+  assert.equal(retried.results[0].state, "archived");
+  assert.equal(calls, 2);
+});
+
 test("cleanup does not replay a persisted archiving operation", async (t) => {
   const { adapter, store } = await fixture(t, "queen");
   const value = completion();

@@ -655,16 +655,17 @@ export class SpinoffLifecycleAdapterV1 {
               replayed: false,
             });
           } catch (error) {
+            const uncertain = error?.mutationUncertain === true;
             await this.#store.write({
               ...record,
               revision: record.revision + 1,
-              cleanupState: "attention",
+              cleanupState: uncertain ? "attention" : "pending",
               updatedAt: this.#now(),
             }, { expectedRevision: record.revision });
             results.push({
               threadId: candidate.threadId,
-              state: "attention",
-              reason: error?.mutationUncertain
+              state: uncertain ? "attention" : "pending",
+              reason: uncertain
                 ? "archive-uncertain"
                 : "archive-rejected",
             });
@@ -683,7 +684,9 @@ export class SpinoffLifecycleAdapterV1 {
       policy: resolvedPolicy,
       state: results.some(({ state }) => state === "attention")
         ? "attention"
-        : "complete",
+        : results.some(({ state }) => state === "pending")
+          ? "pending"
+          : "complete",
       results,
     };
   }
