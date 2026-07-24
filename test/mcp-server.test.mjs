@@ -763,7 +763,7 @@ test("thread waits serialize with each other without blocking later MCP requests
   assert.equal(maxConcurrentWaits, 1);
 });
 
-test("a wait receives a JSON-RPC error when prerequisite handling fails", async () => {
+test("a failed non-wait response does not poison later requests or waits", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
   const chunks = [];
@@ -796,9 +796,10 @@ test("a wait receives a JSON-RPC error when prerequisite handling fails", async 
   for (const message of [
     INITIALIZE,
     { jsonrpc: "2.0", id: 2, method: "ping" },
+    { jsonrpc: "2.0", id: 3, method: "ping" },
     {
       jsonrpc: "2.0",
-      id: 3,
+      id: 4,
       method: "tools/call",
       params: {
         name: "nelos_thread_wait",
@@ -816,12 +817,10 @@ test("a wait receives a JSON-RPC error when prerequisite handling fails", async 
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line));
-  assert.deepEqual(responses.map(({ id }) => id), [1, 3]);
-  assert.deepEqual(responses[1].error, {
-    code: -32603,
-    message: "internal wait scheduling failure",
-  });
-  assert.equal(waitCalls, 0);
+  assert.deepEqual(responses.map(({ id }) => id), [1, 3, 4]);
+  assert.deepEqual(responses[1].result, {});
+  assert.equal(toolBody(responses[2]).body.wait.status, "timeout");
+  assert.equal(waitCalls, 1);
 });
 
 test("nelos_app_server_health forwards the probe and bounded telemetry", async () => {

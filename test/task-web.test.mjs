@@ -6,6 +6,7 @@ import {
   assertWebId,
   parseWebTitle,
   renderWebTitle,
+  resolveQueenMarked,
 } from "../src/task-web.mjs";
 
 test("web titles render queen, spinoff, and nested queen roles", () => {
@@ -127,6 +128,42 @@ test("marker-only titles parse explicitly and cannot be rendered", () => {
       }),
     /task title must not be empty/,
   );
+});
+
+test("queen-mark resolution shares requested, live, and record precedence", () => {
+  assert.equal(resolveQueenMarked(), false);
+  assert.equal(
+    resolveQueenMarked({ requestedTitle: "👑 · Requested queen" }),
+    true,
+  );
+  assert.equal(
+    resolveQueenMarked({ liveTitle: "🕸️ A1 👑 · Live queen" }),
+    true,
+  );
+  assert.equal(
+    resolveQueenMarked({ webRecord: { outboundWebId: "A1" } }),
+    true,
+  );
+  assert.equal(
+    resolveQueenMarked({ webRecord: { queenMarked: true } }),
+    true,
+  );
+  assert.equal(
+    resolveQueenMarked({
+      webRecord: { renderedTitle: "👑 · Legacy record queen" },
+    }),
+    true,
+  );
+  assert.equal(
+    resolveQueenMarked({
+      webRecord: {
+        queenMarked: false,
+        renderedTitle: "👑 · Stale rendered title",
+      },
+    }),
+    false,
+  );
+  assert.equal(resolveQueenMarked({ outboundWebId: "A1.1" }), true);
 });
 
 test("lowercase web IDs normalize without duplicating title markers", () => {

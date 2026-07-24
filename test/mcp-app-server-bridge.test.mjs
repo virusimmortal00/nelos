@@ -179,28 +179,30 @@ test("the bridge contract matches the checked-in generated-schema fixture", asyn
       "utf8",
     ),
   );
-  assert.deepEqual(
+  assert.deepStrictEqual(
     SUPPORTED_CODEX_APP_SERVER_VERSIONS,
     fixture.compatibleCodexVersions,
   );
-  assert.deepEqual(
+  assert.deepStrictEqual(
     REQUIRED_CODEX_APP_SERVER_METHODS,
     Object.keys(fixture.methods),
   );
-  assert.deepEqual(
+  assert.deepStrictEqual(
     REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS,
     fixture.initialize.requiredResponseFields,
   );
-  assert.deepEqual(fixture.methods["thread/read"].requiredParams, ["threadId"]);
-  assert.deepEqual(
+  assert.deepStrictEqual(fixture.methods["thread/read"].requiredParams, [
+    "threadId",
+  ]);
+  assert.deepStrictEqual(
     fixture.methods["thread/name/set"].requiredParams,
     ["name", "threadId"],
   );
-  assert.deepEqual(
+  assert.deepStrictEqual(
     SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
     fixture.threadStatus.types,
   );
-  assert.deepEqual(
+  assert.deepStrictEqual(
     SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS,
     fixture.threadStatus.activeFlags,
   );

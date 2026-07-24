@@ -2296,6 +2296,90 @@ test("both title CLIs preserve a live MCP crown without a web record", async () 
   }
 });
 
+test("both title CLIs reject archived tasks before sending a rename", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-title-archived-"));
+  const socketPath = join(root, "app.sock");
+  const stateHome = join(root, "state");
+  const mainThread = {
+    ...mockThread("archived-main", "Original main title"),
+    status: { type: "archived" },
+  };
+  const compatibilityThread = {
+    ...mockThread("archived-compatibility", "Original compatibility title"),
+    archived: true,
+  };
+  const threads = new Map([
+    [mainThread.id, mainThread],
+    [compatibilityThread.id, compatibilityThread],
+  ]);
+  const server = await startMockAppServer(socketPath, async ({ method, params }) => {
+    if (method === "initialize") return {};
+    if (method === "thread/read") return { thread: threads.get(params.threadId) };
+    if (method === "thread/name/set") {
+      threads.get(params.threadId).name = params.name;
+      return {};
+    }
+    throw new Error(`unexpected method: ${method}`);
+  });
+
+  try {
+    const main = await runAsync(
+      cli,
+      [
+        "title",
+        "set",
+        "Mutated main title",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: mainThread.id,
+      },
+    );
+    assert.equal(main.status, 1);
+    assert.match(main.stderr, /archived and cannot be renamed/);
+
+    const compatibility = await runAsync(
+      titleCli,
+      [
+        "set",
+        "Mutated compatibility title",
+        "--socket",
+        socketPath,
+        "--timeout-ms",
+        "1000",
+      ],
+      {
+        XDG_STATE_HOME: stateHome,
+        CODEX_THREAD_ID: compatibilityThread.id,
+      },
+    );
+    assert.equal(compatibility.status, 1);
+    assert.match(compatibility.stderr, /archived and cannot be renamed/);
+
+    assert.equal(mainThread.name, "Original main title");
+    assert.equal(compatibilityThread.name, "Original compatibility title");
+    assert.equal(
+      server.requests.some(({ method }) => method === "thread/name/set"),
+      false,
+    );
+    for (const threadId of [mainThread.id, compatibilityThread.id]) {
+      assert.deepEqual(
+        server.requests
+          .filter(({ params }) => params?.threadId === threadId)
+          .map(({ method }) => method),
+        ["thread/read"],
+      );
+    }
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("registry-only web setup supports desktop-native task creation without a socket", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-native-web-"));
   const stateHome = join(root, "state");

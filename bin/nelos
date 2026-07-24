@@ -14,6 +14,7 @@ import {
   renderWebTitle,
   resolveThreadId,
 } from "../src/app-server-client.mjs";
+import { resolveQueenMarked } from "../src/task-web.mjs";
 import {
   listTaskRegistryRecords as listRegistryRecords,
   listWebRecords,
@@ -1367,13 +1368,6 @@ function webMetadata(record) {
   };
 }
 
-function webRecordQueenMarked(record) {
-  if (!record) return false;
-  if (record.outboundWebId) return true;
-  if (typeof record.queenMarked === "boolean") return record.queenMarked;
-  return parseWebTitle(record.renderedTitle || "").queenMarked;
-}
-
 async function syncTaskRegistryWebRecord(record, lifecycle = null) {
   await patchRegistryRecord(record.threadId, {
     title: record.renderedTitle,
@@ -1428,10 +1422,12 @@ async function beginWeb(
       current?.outboundWebId || parsedOutboundWebId || null;
     const outboundWebId =
       existingOutboundWebId || allocateWebId(await listWebRecords(), inboundWebId);
-    const priorQueenMarked =
-      parsed.queenMarked ||
-      requestedParsed?.queenMarked === true ||
-      webRecordQueenMarked(current);
+    const priorQueenMarked = resolveQueenMarked({
+      requestedTitle,
+      liveTitle:
+        liveResult?.thread?.name || liveResult?.thread?.preview || "",
+      webRecord: current,
+    });
     const renderedTitle = renderWebTitle({
       baseTitle,
       inboundWebId,
@@ -1517,11 +1513,13 @@ async function joinWeb(
     if (!baseTitle) throw new Error("web join requires --title when the task has no title");
     const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
     const outboundWebId = current?.outboundWebId || parsedOutboundWebId || null;
-    const queenMarked =
-      requestedParsed?.queenMarked === true ||
-      parsed.queenMarked ||
-      webRecordQueenMarked(current) ||
-      Boolean(outboundWebId);
+    const queenMarked = resolveQueenMarked({
+      requestedTitle,
+      liveTitle:
+        liveResult?.thread?.name || liveResult?.thread?.preview || "",
+      webRecord: current,
+      outboundWebId,
+    });
     const renderedTitle = renderWebTitle({
       baseTitle,
       inboundWebId,
@@ -2489,11 +2487,14 @@ async function runTitle(options, client) {
         includeTurns: false,
       });
       if (!before?.thread) throw new Error(`task not found: ${threadId}`);
-      const liveQueenMarked = parseWebTitle(before.thread.name || "").queenMarked;
-      const queenMarked =
-        parsedTitle.queenMarked ||
-        liveQueenMarked ||
-        webRecordQueenMarked(activeWebRecord);
+      if (isArchivedThread(before.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot be renamed`);
+      }
+      const queenMarked = resolveQueenMarked({
+        requestedTitle: title,
+        liveTitle: before.thread.name || "",
+        webRecord: activeWebRecord,
+      });
       const effectiveTitle =
         activeWebRecord &&
         (activeWebRecord.inboundWebId || activeWebRecord.outboundWebId)

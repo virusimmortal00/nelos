@@ -8,6 +8,7 @@ import {
   renderWebTitle,
   resolveThreadId,
 } from "../src/app-server-client.mjs";
+import { resolveQueenMarked } from "../src/task-web.mjs";
 import {
   patchTaskRegistryRecord,
   readWebRecord,
@@ -15,11 +16,15 @@ import {
   writeWebRecord,
 } from "../src/task-state.mjs";
 
-function webRecordQueenMarked(record) {
-  if (!record) return false;
-  if (record.outboundWebId) return true;
-  if (typeof record.queenMarked === "boolean") return record.queenMarked;
-  return parseWebTitle(record.renderedTitle || "").queenMarked;
+function normalizedThreadStatus(value) {
+  if (value && typeof value === "object") return normalizedThreadStatus(value.type);
+  return String(value || "").replaceAll(/[_\s-]/g, "").toLowerCase();
+}
+
+function isArchivedThread(thread) {
+  if (!thread || typeof thread !== "object") return false;
+  if (thread.archivedAt || thread.archived === true) return true;
+  return ["archived", "archive"].includes(normalizedThreadStatus(thread.status));
 }
 
 function printUsage() {
@@ -118,11 +123,14 @@ async function main() {
         includeTurns: false,
       });
       if (!before?.thread) throw new Error(`task not found: ${threadId}`);
-      const liveQueenMarked = parseWebTitle(before.thread.name || "").queenMarked;
-      const queenMarked =
-        parsedTitle.queenMarked ||
-        liveQueenMarked ||
-        webRecordQueenMarked(activeWebRecord);
+      if (isArchivedThread(before.thread)) {
+        throw new Error(`task ${threadId} is archived and cannot be renamed`);
+      }
+      const queenMarked = resolveQueenMarked({
+        requestedTitle: options.title,
+        liveTitle: before.thread.name || "",
+        webRecord: activeWebRecord,
+      });
       const effectiveTitle =
         activeWebRecord &&
         (activeWebRecord.inboundWebId || activeWebRecord.outboundWebId)

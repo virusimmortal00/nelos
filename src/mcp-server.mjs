@@ -501,7 +501,11 @@ export function startNelosMcpServer({
             );
           });
       } else {
-        processing = processing.then(() => handle(message));
+        processing = processing
+          .then(() => handle(message))
+          .catch(() => {
+            process.stderr.write("nelos-mcp: request failed unexpectedly\n");
+          });
       }
     }
   });

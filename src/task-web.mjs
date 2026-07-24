@@ -2,6 +2,10 @@ const WEB_ID_PATTERN = /^[A-Z][1-9]\d*(?:\.[1-9]\d*)*$/;
 const INBOUND_MARKER = "🕸️";
 const OUTBOUND_MARKER = "🕷️";
 const QUEEN_MARKER = "👑";
+const QUEEN_MARKER_PATTERN = new RegExp(
+  `^${QUEEN_MARKER}(?:\\s*·)?\\s*`,
+  "u",
+);
 
 export const QUEEN_TITLE_PREFIX = `${QUEEN_MARKER} ·`;
 
@@ -17,7 +21,7 @@ function consumeQueenMarkers(title) {
   let remaining = title.trim();
   let queenMarked = false;
   while (remaining.startsWith(QUEEN_MARKER)) {
-    const queen = remaining.match(/^👑(?:\s*·)?\s*/u);
+    const queen = remaining.match(QUEEN_MARKER_PATTERN);
     queenMarked = true;
     remaining = remaining.slice(queen[0].length).trim();
   }
@@ -72,6 +76,25 @@ export function parseWebTitle(title) {
     outboundWebId: parsed.outboundWebId,
     queenMarked: parsed.queenMarked,
   };
+}
+
+export function resolveQueenMarked({
+  requestedTitle = "",
+  liveTitle = "",
+  webRecord = null,
+  outboundWebId = null,
+} = {}) {
+  if (parseTitleMarkers(requestedTitle).queenMarked) return true;
+  if (parseTitleMarkers(liveTitle).queenMarked) return true;
+  if (outboundWebId) return true;
+  if (!webRecord || typeof webRecord !== "object") return false;
+  if (webRecord.outboundWebId) return true;
+  if (typeof webRecord.queenMarked === "boolean") {
+    return webRecord.queenMarked;
+  }
+  return parseTitleMarkers(
+    webRecord.renderedTitle || webRecord.baseTitle || "",
+  ).queenMarked;
 }
 
 function renderTitleMarkers({

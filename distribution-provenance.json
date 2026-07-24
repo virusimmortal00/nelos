@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "nelos",
   "revision": "0.3.2",
-  "integrity": "sha256:611a87533d90a75d7ad377cd9f59109be9fca47981fb31bd7c0acd48db9a591b",
+  "integrity": "sha256:7c9f8c5c73977954ba1ea932d2bc9c94d5a24b6c5d45c57400cf269f1b8d8fdd",
   "skillIntegrity": "sha256:1e199b16003f22c7acbeebe22ab4e91eb15c2a49ddeefc1406589cda25f53539",
   "requiredCliCommands": [
     "doctor",
