@@ -20,7 +20,9 @@ app-server process.
 
 The caller executes returned effects and submits the receipt on the next call.
 An exact receipt replay is a no-op. Reusing an action ID with different content
-fails closed.
+fails closed. Receipt digests retain the newest 1,000-action replay window;
+older identities are compacted before persistence so long-running timeout loops
+cannot exceed the checkpoint schema bound.
 
 ## Durable checkpoint
 
@@ -64,6 +66,9 @@ carry the exact action ID.
   exact target set. Every target carries revision, attempt, binding generation,
   member/host IDs, expected `afterCursor`, opaque `nextCursor`, lifecycle,
   latest turn ID, and attention state. Cursors are compared only for equality.
+  Completed and failed lifecycles require a non-null latest turn ID. A failed
+  lifecycle always moves execution to attention even if the host's explicit
+  attention flag is false.
   Every accepted timeout increments the wait generation even when cursors do
   not change.
 - `native-result-read` carries the requested latest turn, actual source turn,

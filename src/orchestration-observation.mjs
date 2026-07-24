@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { validateOrchestrationCheckpointV1 } from "./orchestration-checkpoint-store.mjs";
+import {
+  MAX_CONSUMED_OBSERVATION_RECEIPTS,
+  validateOrchestrationCheckpointV1,
+} from "./orchestration-checkpoint-store.mjs";
 import { validateResultEnvelopeV1 } from "./work-result.mjs";
 
 export const OBSERVATION_RECEIPT_SCHEMA_VERSION = 1;
@@ -84,6 +87,16 @@ function validateWaitTarget(value) {
   if (!LIFECYCLES.has(target.lifecycle) || typeof target.attentionRequired !== "boolean") {
     throw new Error("native wait target lifecycle is invalid");
   }
+  const latestTurnId = nullableId(
+    target.latestTurnId,
+    "native wait target latestTurnId",
+  );
+  if (
+    ["completed", "failed"].includes(target.lifecycle) &&
+    latestTurnId === null
+  ) {
+    throw new Error("native wait target terminal lifecycle requires latestTurnId");
+  }
   return {
     workUnitId: id(target.workUnitId, "native wait target workUnitId", WORK_UNIT_ID),
     specRevision: positive(target.specRevision, "native wait target specRevision"),
@@ -94,7 +107,7 @@ function validateWaitTarget(value) {
     afterCursor: nullableId(target.afterCursor, "native wait target afterCursor"),
     nextCursor: nullableId(target.nextCursor, "native wait target nextCursor"),
     lifecycle: target.lifecycle,
-    latestTurnId: nullableId(target.latestTurnId, "native wait target latestTurnId"),
+    latestTurnId,
     attentionRequired: target.attentionRequired,
   };
 }
@@ -264,6 +277,7 @@ export function reduceObservationJoinV1(value) {
 
   const hasAttention = activeRequired.some(
     (member) =>
+      member.title.state === "attention" ||
       member.execution.state === "attention" ||
       member.execution.attentionRequired ||
       ["stale", "malformed"].includes(member.result.state) ||
@@ -370,11 +384,14 @@ export function applyObservationReceiptV1(value, rawReceipt) {
       member.execution.hostId = target.hostId;
       member.execution.cursor = target.nextCursor;
       member.execution.latestTurnId = target.latestTurnId;
-      member.execution.attentionRequired = target.attentionRequired;
+      const requiresAttention =
+        target.attentionRequired ||
+        ["failed", "unavailable"].includes(target.lifecycle);
+      member.execution.attentionRequired = requiresAttention;
       member.execution.state =
-        target.attentionRequired || target.lifecycle === "unavailable"
+        requiresAttention
           ? "attention"
-          : ["completed", "failed"].includes(target.lifecycle)
+          : target.lifecycle === "completed"
             ? "terminal"
             : target.lifecycle;
       if (member.coordination.state === "unjoined") member.coordination.state = "waiting";
@@ -441,7 +458,7 @@ export function applyObservationReceiptV1(value, rawReceipt) {
       consumedReceipts: [
         ...checkpoint.consumedReceipts,
         { actionId: receipt.actionId, digest },
-      ],
+      ].slice(-MAX_CONSUMED_OBSERVATION_RECEIPTS),
     },
     replayed: false,
   };

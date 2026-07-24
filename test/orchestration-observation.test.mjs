@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   OrchestrationCheckpointStoreV1,
+  MAX_CONSUMED_OBSERVATION_RECEIPTS,
 } from "../src/orchestration-checkpoint-store.mjs";
 import {
   applyObservationReceiptV1,
@@ -202,6 +203,10 @@ test("title observations are strict, retry-bounded, idempotent, and orthogonal",
   assert.equal(state.members[0].execution.state, "terminal");
   assert.equal(state.members[0].result.state, "current");
   assert.equal(state.members[0].coordination.state, "collected");
+  assert.deepEqual(reduceObservationJoinV1(state).boundary, {
+    type: "attention",
+    reason: "member-evidence-requires-review",
+  });
 
   const first = checkpoint();
   const effect = reduceObservationJoinV1(first).effects[0];
@@ -246,6 +251,61 @@ test("wait receipts are cursor-safe across timeouts, order, and conflicts", () =
   assert.throws(
     () => applyObservationReceiptV1(applied, conflict),
     /conflicts with a consumed actionId/,
+  );
+});
+
+test("terminal wait targets require turn identity and failed turns force attention", () => {
+  const first = checkpoint([
+    member({ title: { state: "verified" } }),
+  ]);
+  const effect = reduceObservationJoinV1(first).effects[0];
+  assert.throws(
+    () =>
+      applyObservationReceiptV1(
+        first,
+        waitReceipt(effect, {
+          lifecycle: "completed",
+          latestTurnId: null,
+        }),
+      ),
+    /terminal lifecycle requires latestTurnId/,
+  );
+
+  const failed = applyObservationReceiptV1(
+    first,
+    waitReceipt(effect, {
+      lifecycle: "failed",
+      latestTurnId: "turn-failed",
+      attentionRequired: false,
+    }),
+  ).checkpoint;
+  assert.equal(failed.members[0].execution.state, "attention");
+  assert.equal(failed.members[0].execution.attentionRequired, true);
+  assert.deepEqual(reduceObservationJoinV1(failed).boundary, {
+    type: "attention",
+    reason: "member-evidence-requires-review",
+  });
+});
+
+test("receipt replay history retains a bounded newest-first window", () => {
+  const consumedReceipts = Array.from(
+    { length: MAX_CONSUMED_OBSERVATION_RECEIPTS },
+    (_, index) => ({
+      actionId: `old-${index}`,
+      digest: index.toString(16).padStart(64, "0"),
+    }),
+  );
+  const first = checkpoint(undefined, { consumedReceipts });
+  const effect = reduceObservationJoinV1(first).effects[0];
+  const applied = applyObservationReceiptV1(first, titleReceipt(effect)).checkpoint;
+  assert.equal(
+    applied.consumedReceipts.length,
+    MAX_CONSUMED_OBSERVATION_RECEIPTS,
+  );
+  assert.equal(applied.consumedReceipts[0].actionId, "old-1");
+  assert.equal(
+    applied.consumedReceipts.at(-1).actionId,
+    effect.actionId,
   );
 });
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { taskStateDirectory } from "./task-state.mjs";
 
 export const ORCHESTRATION_CHECKPOINT_SCHEMA_VERSION = 1;
+export const MAX_CONSUMED_OBSERVATION_RECEIPTS = 1000;
 const MAX_BYTES = 256 * 1024;
 const ID = /^[^\s\u0000-\u001f\u007f]{1,256}$/u;
 const WORK_UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -108,7 +109,10 @@ export function validateOrchestrationCheckpointV1(value) {
   ], "record");
   if (value.schemaVersion !== ORCHESTRATION_CHECKPOINT_SCHEMA_VERSION) fail("schemaVersion is unsupported");
   if (!Array.isArray(value.members) || value.members.length > 100) fail("members are invalid");
-  if (!Array.isArray(value.consumedReceipts) || value.consumedReceipts.length > 1000) {
+  if (
+    !Array.isArray(value.consumedReceipts) ||
+    value.consumedReceipts.length > MAX_CONSUMED_OBSERVATION_RECEIPTS
+  ) {
     fail("receipt history is invalid");
   }
   const members = value.members.map(member);
