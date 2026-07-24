@@ -163,7 +163,9 @@ prompt and its current `CODEX_THREAD_ID`. Nelos writes the completion record
 before app-server mutation. It reads at most 20 recent turns solely to reconcile
 the deterministic `clientUserMessageId`; message content is neither retained
 nor returned. If the server reports older pages, Nelos records attention rather
-than concluding the wake was absent and risking a duplicate. A known active
+than concluding a previously attempted wake was absent and risking a duplicate.
+A persisted pre-mutation `delivering` state distinguishes that crash-recovery
+case from a fresh wake, which may proceed despite older pages. A known active
 queen receives `turn/steer` with its exact active turn ID. An idle or unloaded
 queen receives `thread/resume` as needed, followed by `turn/start`. This covers
 both a live join and an already-ended queen without installing a background

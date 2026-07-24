@@ -14,7 +14,13 @@ const MAX_SUMMARY_CHARACTERS = 2_000;
 const ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const WORK_UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const OUTCOMES = new Set(["succeeded", "blocked", "failed"]);
-const WAKE_STATES = new Set(["pending", "deferred", "delivered", "attention"]);
+const WAKE_STATES = new Set([
+  "pending",
+  "delivering",
+  "deferred",
+  "delivered",
+  "attention",
+]);
 const CLEANUP_STATES = new Set(["pending", "kept", "archiving", "archived", "attention"]);
 
 export const SPINOFF_COMPLETE_INPUT_SCHEMA = Object.freeze({
@@ -415,16 +421,28 @@ export class SpinoffLifecycleAdapterV1 {
         return { schemaVersion: 1, replayed: true, record };
       }
       try {
+        let reconciliationRequired = record.wakeState === "delivering";
         for (
           let deliveryAttempt = 0;
           deliveryAttempt <= this.#wakeRetryDelays.length;
           deliveryAttempt += 1
         ) {
+          if (record.wakeState !== "delivering") {
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              wakeState: "delivering",
+              wakeReason: null,
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+          }
           const delivery = await appServerBridge.deliverParentWake({
             queenThreadId: completion.queenThreadId,
             clientUserMessageId: record.clientUserMessageId,
             message: wakeMessage(completion),
+            reconciliationRequired,
           });
+          reconciliationRequired = false;
           record = await this.#store.write({
             ...record,
             revision: record.revision + 1,

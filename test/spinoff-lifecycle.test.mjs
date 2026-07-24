@@ -119,6 +119,7 @@ test("spin-off completion persists and delivers exactly one queen wake", async (
   const second = await adapter.complete(completion(), bridge);
   assert.equal(second.replayed, true);
   assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].reconciliationRequired, false);
   assert.match(deliveries[0].message, /member-a/u);
   assert.match(deliveries[0].message, /\nOutcome:/u);
 });
@@ -203,6 +204,40 @@ test("spin-off completion retries deferred wakes before returning", async (t) =>
   assert.equal(result.record.wakeState, "delivered");
   assert.equal(result.deliveryAttempts, 3);
   assert.deepEqual(delays, [10, 20]);
+});
+
+test("spin-off completion reconciles a persisted delivering state", async (t) => {
+  const { adapter, store } = await fixture(t);
+  const value = completion();
+  const wakeId = spinoffWakeIdV1(value);
+  await store.write({
+    schemaVersion: 1,
+    revision: 1,
+    wakeId,
+    clientUserMessageId: wakeId,
+    ...value,
+    wakeState: "delivering",
+    wakeReason: null,
+    queenTurnId: null,
+    cleanupState: "pending",
+    cleanupPolicy: null,
+    createdAt: "2026-07-24T12:00:00.000Z",
+    updatedAt: "2026-07-24T12:00:01.000Z",
+  }, {
+    expectedRevision: 0,
+  });
+  await assert.rejects(
+    adapter.complete(value, {
+      async deliverParentWake(request) {
+        assert.equal(request.reconciliationRequired, true);
+        const error = new Error("bounded history is truncated");
+        error.mutationUncertain = true;
+        throw error;
+      },
+    }),
+    /persisted as attention/u,
+  );
+  assert.equal((await store.read(wakeId)).wakeState, "attention");
 });
 
 test("cleanup asks with exact accepted candidates before archiving", async (t) => {

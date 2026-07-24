@@ -229,10 +229,11 @@ that gap at the application layer: every durable launch prompt carries an exact
 before its final response and the MCP-owned app-server bridge reconciles a
 stable client message ID before mutation. A known active queen turn is steered;
 an unloaded queen is resumed; and an idle queen receives one new continuation
-turn. Deferred delivery receives bounded in-call retries, and the member retries
-the same idempotent callback before final if the persisted state remains
-`deferred`. Ambiguous delivery is retained as `attention` and never blindly
-replayed.
+turn. A pre-mutation `delivering` revision distinguishes crash recovery from a
+fresh first attempt when the bounded queen history is truncated. Deferred
+delivery receives bounded in-call retries, and the member retries the same
+idempotent callback before final if the persisted state remains `deferred`.
+Ambiguous delivery is retained as `attention` and never blindly replayed.
 
 The callback complements rather than replaces the queen join loop. A member can
 crash before making its callback, so a live queen still uses bounded native

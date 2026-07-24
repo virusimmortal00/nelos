@@ -1055,7 +1055,11 @@ export class CodexAppServerBridgeV1 {
     queenThreadId,
     clientUserMessageId,
     message,
+    reconciliationRequired = false,
   } = {}) {
+    if (typeof reconciliationRequired !== "boolean") {
+      throw new Error("app-server reconciliationRequired must be a boolean");
+    }
     const resolvedQueenThreadId = threadId(queenThreadId);
     const resolvedClientId = boundedText(
       clientUserMessageId,
@@ -1081,7 +1085,7 @@ export class CodexAppServerBridgeV1 {
         deliveryMode: "replay",
       };
     }
-    if (!existing.searchComplete) {
+    if (reconciliationRequired && !existing.searchComplete) {
       const error = bridgeError(
         "Codex app-server wake reconciliation exceeded its bounded history",
         "wake-history-truncated",

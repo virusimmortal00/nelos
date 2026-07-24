@@ -1113,6 +1113,7 @@ test("parent wake stops when bounded reconciliation is truncated", async () => {
       queenThreadId: "queen",
       clientUserMessageId: "wake-older-than-window",
       message: "Member A completed.",
+      reconciliationRequired: true,
     }),
     (error) => {
       assert.equal(error.bridgeCode, "wake-history-truncated");
@@ -1125,6 +1126,36 @@ test("parent wake stops when bounded reconciliation is truncated", async () => {
       ["turn/start", "turn/steer"].includes(method),
     ),
     false,
+  );
+  await bridge.close();
+});
+
+test("a fresh wake can proceed despite older turn pages", async () => {
+  const initialTurns = Array.from({ length: 21 }, (_, index) => ({
+    id: `old-turn-${index}`,
+    status: "completed",
+    items: [],
+  }));
+  const fake = fakeCodexAppServer({
+    initialTurns,
+    threadOverrides: {
+      queen: { status: { type: "idle" } },
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const result = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "fresh-wake",
+    message: "Member A completed.",
+    reconciliationRequired: false,
+  });
+  assert.equal(result.deliveryMode, "start");
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "turn/start").length,
+    1,
   );
   await bridge.close();
 });
