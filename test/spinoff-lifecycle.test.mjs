@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import {
   SpinoffLifecycleAdapterV1,
   SpinoffLifecycleStoreV1,
 } from "../src/spinoff-lifecycle.mjs";
+
+const testStateHome = await mkdtemp(join(tmpdir(), "nelos-lifecycle-state-"));
+process.env.XDG_STATE_HOME = testStateHome;
+after(() => rm(testStateHome, { recursive: true, force: true }));
 
 function workUnit() {
   return {
@@ -19,6 +23,7 @@ function workUnit() {
     memberKind: "spinoff",
     required: true,
     title: "Member A",
+    capabilities: ["observe", "archive"],
     binding: {
       state: "bound",
       memberThreadId: "member-thread",
@@ -55,12 +60,18 @@ function acceptance() {
   };
 }
 
-async function fixture(t, callerThreadId = "member-thread") {
+async function fixture(
+  t,
+  callerThreadId = "member-thread",
+  {
+    units = [workUnit()],
+    decisions = [acceptance()],
+    storeDecorator = (store) => store,
+  } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-spinoff-lifecycle-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const unit = workUnit();
-  const decisions = [acceptance()];
-  const store = new SpinoffLifecycleStoreV1({ directory });
+  const store = storeDecorator(new SpinoffLifecycleStoreV1({ directory }));
   const adapter = new SpinoffLifecycleAdapterV1({
     store,
     callerThreadId: () => callerThreadId,
@@ -70,10 +81,10 @@ async function fixture(t, callerThreadId = "member-thread") {
     })(),
     executionStore: {
       async read(id) {
-        return id === unit.workUnitId ? unit : null;
+        return units.find(({ workUnitId }) => workUnitId === id) ?? null;
       },
       async list() {
-        return [unit];
+        return units;
       },
     },
     acceptanceStore: {
@@ -82,7 +93,7 @@ async function fixture(t, callerThreadId = "member-thread") {
       },
     },
   });
-  return { adapter, store, decisions };
+  return { adapter, store, decisions, units };
 }
 
 test("spin-off completion persists and delivers exactly one queen wake", async (t) => {
@@ -94,19 +105,19 @@ test("spin-off completion persists and delivers exactly one queen wake", async (
       return {
         delivered: true,
         replayed: false,
-        deferred: false,
-        reason: null,
         queenTurnId: "queen-turn",
       };
     },
   };
   const first = await adapter.complete(completion(), bridge);
   assert.equal(first.record.wakeState, "delivered");
+  assert.equal(first.record.wakeReason, null);
   assert.equal(first.record.queenTurnId, "queen-turn");
   const second = await adapter.complete(completion(), bridge);
   assert.equal(second.replayed, true);
   assert.equal(deliveries.length, 1);
   assert.match(deliveries[0].message, /member-a/u);
+  assert.match(deliveries[0].message, /\nOutcome:/u);
 });
 
 test("spin-off completion rejects a caller outside its durable identity", async (t) => {
@@ -212,15 +223,18 @@ test("remembered auto and keep policies are durable", async (t) => {
 });
 
 test("cleanup rejects ineligible confirmation IDs", async (t) => {
-  const { adapter } = await fixture(t, "queen");
+  const { adapter, store } = await fixture(t, "queen");
   await assert.rejects(
     adapter.cleanup({
       webId: "A1",
       queenThreadId: "queen",
+      policy: "auto",
+      rememberPolicy: true,
       confirmedThreadIds: ["unrelated-thread"],
     }, {}),
     /ineligible spin-off/u,
   );
+  assert.equal(await store.preference(), "ask");
 });
 
 test("cleanup excludes accepted failed or blocked outcomes", async (t) => {
@@ -240,6 +254,79 @@ test("cleanup excludes accepted failed or blocked outcomes", async (t) => {
     state: "complete",
     candidates: [],
   });
+});
+
+test("cleanup excludes work units without archive capability", async (t) => {
+  const { adapter, units } = await fixture(t, "queen");
+  units[0].capabilities = ["observe"];
+  const preview = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+  }, {
+    async archiveThread() {
+      assert.fail("unauthorized work must not be archived");
+    },
+  });
+  assert.deepEqual(preview.candidates, []);
+  assert.equal(preview.state, "complete");
+});
+
+test("cleanup keeps per-candidate progress when persistence fails", async (t) => {
+  const first = workUnit();
+  const second = {
+    ...workUnit(),
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: {
+      state: "bound",
+      memberThreadId: "member-thread-b",
+    },
+  };
+  const secondDecision = {
+    ...acceptance(),
+    workUnitId: second.workUnitId,
+    memberThreadId: second.binding.memberThreadId,
+  };
+  const { adapter } = await fixture(t, "queen", {
+    units: [first, second],
+    decisions: [acceptance(), secondDecision],
+    storeDecorator(base) {
+      return {
+        preference: (...args) => base.preference(...args),
+        rememberPreference: (...args) => base.rememberPreference(...args),
+        read: (...args) => base.read(...args),
+        async write(record, options) {
+          if (record.memberThreadId === first.binding.memberThreadId) {
+            throw new Error("simulated persistence failure");
+          }
+          return base.write(record, options);
+        },
+      };
+    },
+  });
+  const archived = [];
+  const result = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, {
+    async archiveThread({ threadId }) {
+      archived.push(threadId);
+    },
+  });
+  assert.deepEqual(result.results, [
+    {
+      threadId: "member-thread",
+      state: "attention",
+      reason: "cleanup-candidate-failed",
+    },
+    {
+      threadId: "member-thread-b",
+      state: "archived",
+      replayed: false,
+    },
+  ]);
+  assert.deepEqual(archived, ["member-thread-b"]);
 });
 
 test("cleanup does not blindly retry an uncertain archive", async (t) => {

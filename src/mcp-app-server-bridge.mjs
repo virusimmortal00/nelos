@@ -80,6 +80,18 @@ function boundedText(value, field, maximum, { nullable = false } = {}) {
   return value;
 }
 
+function boundedMultilineText(value, field, maximum) {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > maximum ||
+    /[\u0000-\u0008\u000b-\u001f\u007f]/u.test(value)
+  ) {
+    throw new Error(`app-server ${field} is invalid`);
+  }
+  return value;
+}
+
 function threadId(value) {
   return boundedText(value, "thread ID", MAX_IDENTIFIER_CHARACTERS);
 }
@@ -251,10 +263,16 @@ function publicFailure(error) {
   };
 }
 
+const CERTAINLY_UNAPPLIED_MUTATION_CODES = new Set([
+  "request-rejected",
+  "bridge-closed",
+  "input-unavailable",
+]);
+
 function mutationFailure(error) {
   return {
     ...publicFailure(error),
-    uncertain: error?.bridgeCode !== "request-rejected",
+    uncertain: !CERTAINLY_UNAPPLIED_MUTATION_CODES.has(error?.bridgeCode),
   };
 }
 
@@ -964,7 +982,18 @@ export class CodexAppServerBridgeV1 {
       sortDirection: "desc",
       itemsView: "full",
     });
-    if (!Array.isArray(result?.data) || result.data.length > 20) {
+    if (
+      !Array.isArray(result?.data) ||
+      result.data.length > 20 ||
+      !(
+        result.nextCursor === null ||
+        (
+          typeof result.nextCursor === "string" &&
+          result.nextCursor.length > 0 &&
+          result.nextCursor.length <= MAX_IDENTIFIER_CHARACTERS
+        )
+      )
+    ) {
       throw bridgeError(
         "Codex app-server returned an incompatible turn page",
         "invalid-response",
@@ -987,10 +1016,14 @@ export class CodexAppServerBridgeV1 {
             item.clientId === resolvedClientId,
         )
       ) {
-        return { found: true, turnId: turn.id };
+        return { found: true, turnId: turn.id, searchComplete: true };
       }
     }
-    return { found: false, turnId: null };
+    return {
+      found: false,
+      turnId: null,
+      searchComplete: result.nextCursor === null,
+    };
   }
 
   async latestActiveTurnId({ threadId: requestedThreadId } = {}) {
@@ -1023,7 +1056,7 @@ export class CodexAppServerBridgeV1 {
       "client user message ID",
       MAX_IDENTIFIER_CHARACTERS,
     );
-    const resolvedMessage = boundedText(
+    const resolvedMessage = boundedMultilineText(
       message,
       "parent wake message",
       MAX_WAKE_MESSAGE_CHARACTERS,
@@ -1036,8 +1069,19 @@ export class CodexAppServerBridgeV1 {
       return {
         delivered: true,
         replayed: true,
+        deferred: false,
+        reason: null,
         queenTurnId: existing.turnId,
+        deliveryMode: "replay",
       };
+    }
+    if (!existing.searchComplete) {
+      const error = bridgeError(
+        "Codex app-server wake reconciliation exceeded its bounded history",
+        "wake-history-truncated",
+      );
+      error.mutationUncertain = true;
+      throw error;
     }
 
     let queen = await this.inspect({ threadId: resolvedQueenThreadId });
@@ -1100,24 +1144,24 @@ export class CodexAppServerBridgeV1 {
         queenTurnId: null,
       };
     }
+    if (queen.status === "notLoaded") {
+      await this.#request(
+        "thread/resume",
+        { threadId: resolvedQueenThreadId, excludeTurns: true },
+        { mutation: true },
+      );
+      queen = await this.inspect({ threadId: resolvedQueenThreadId });
+    }
+    if (queen.status !== "idle") {
+      return {
+        delivered: false,
+        replayed: false,
+        deferred: true,
+        reason: `queen-${queen.status}`,
+        queenTurnId: null,
+      };
+    }
     try {
-      if (queen.status === "notLoaded") {
-        await this.#request(
-          "thread/resume",
-          { threadId: resolvedQueenThreadId, excludeTurns: true },
-          { mutation: true },
-        );
-        queen = await this.inspect({ threadId: resolvedQueenThreadId });
-      }
-      if (queen.status !== "idle") {
-        return {
-          delivered: false,
-          replayed: false,
-          deferred: true,
-          reason: `queen-${queen.status}`,
-          queenTurnId: null,
-        };
-      }
       const result = await this.#request(
         "turn/start",
         {

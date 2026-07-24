@@ -18,11 +18,13 @@ function fakeCodexAppServer({
   codexVersion = "0.144.6",
   ignoreNameSetCount = 0,
   ignoreReadCount = 0,
+  ignoredMethods = [],
   ignoredReadOrdinals = [],
   initializeOverrides = {},
   initialTurns = [],
   initialTitle = "Release coordination",
   persistRename = true,
+  rejectedMethods = [],
   readDelays = {},
   readErrors = {},
   readSequences = {},
@@ -86,6 +88,16 @@ function fakeCodexAppServer({
           ignoredNameSets += 1;
           continue;
         }
+        if (ignoredMethods.includes(message.method)) continue;
+        if (rejectedMethods.includes(message.method)) {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: message.id,
+              error: { message: `${message.method} rejected` },
+            })}\n`,
+          );
+          continue;
+        }
 
         let result;
         let responseDelay = 0;
@@ -135,8 +147,26 @@ function fakeCodexAppServer({
           if (persistRename) title = message.params.name;
           result = {};
         } else if (message.method === "thread/turns/list") {
-          result = { data: [...turns].reverse().slice(0, 20), nextCursor: null };
+          const ordered = message.params.sortDirection === "asc"
+            ? [...turns]
+            : [...turns].reverse();
+          const offset = message.params.cursor === undefined
+            ? 0
+            : Number.parseInt(message.params.cursor.slice("cursor:".length), 10);
+          const limit = message.params.limit ?? 20;
+          result = {
+            data: ordered.slice(offset, offset + limit),
+            nextCursor:
+              offset + limit < ordered.length
+                ? `cursor:${offset + limit}`
+                : null,
+          };
         } else if (message.method === "thread/resume") {
+          const current = threads.get(message.params.threadId) ?? {};
+          threads.set(message.params.threadId, {
+            ...current,
+            status: { type: "idle" },
+          });
           result = {
             thread: {
               id: message.params.threadId,
@@ -249,15 +279,33 @@ test("the bridge contract matches the checked-in generated-schema fixture", asyn
     fixture.methods["thread/turns/list"].requiredParams,
     ["threadId"],
   );
+  assert.deepStrictEqual(
+    fixture.methods["thread/turns/list"].requiredResponseFields,
+    [
+      "data",
+      "nextCursor",
+      "data[].id",
+      "data[].items[].clientId",
+      "data[].status",
+    ],
+  );
   assert.deepStrictEqual(fixture.methods["turn/start"].requiredParams, [
     "input",
     "threadId",
   ]);
+  assert.deepStrictEqual(
+    fixture.methods["turn/start"].requiredResponseFields,
+    ["turn.id"],
+  );
   assert.deepStrictEqual(fixture.methods["turn/steer"].requiredParams, [
     "expectedTurnId",
     "input",
     "threadId",
   ]);
+  assert.deepStrictEqual(
+    fixture.methods["turn/steer"].requiredResponseFields,
+    ["turnId"],
+  );
   assert.deepStrictEqual(fixture.methods["thread/archive"].requiredParams, [
     "threadId",
   ]);
@@ -951,7 +999,7 @@ test("parent wake delivery starts one queen turn and reconciles replay", async (
   const first = await bridge.deliverParentWake({
     queenThreadId: "queen",
     clientUserMessageId: "wake-1",
-    message: "Member A completed.",
+    message: "Member A completed.\nResume the persisted join.",
   });
   assert.deepEqual(first, {
     delivered: true,
@@ -964,18 +1012,202 @@ test("parent wake delivery starts one queen turn and reconciles replay", async (
   const second = await bridge.deliverParentWake({
     queenThreadId: "queen",
     clientUserMessageId: "wake-1",
-    message: "Member A completed.",
+    message: "Member A completed.\nResume the persisted join.",
   });
   assert.deepEqual(second, {
     delivered: true,
     replayed: true,
+    deferred: false,
+    reason: null,
     queenTurnId: "turn-1",
+    deliveryMode: "replay",
   });
   assert.equal(
     fake.requests.filter(({ method }) => method === "turn/start").length,
     1,
   );
   await bridge.close();
+});
+
+test("parent wake resumes an unloaded queen before starting one turn", async () => {
+  const fake = fakeCodexAppServer({
+    threadOverrides: {
+      queen: { status: { type: "notLoaded" } },
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const result = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "wake-resume",
+    message: "Member A completed.",
+  });
+  assert.equal(result.deliveryMode, "start");
+  assert.deepEqual(
+    fake.requests
+      .filter(({ method }) =>
+        ["thread/resume", "turn/start"].includes(method),
+      )
+      .map(({ method }) => method),
+    ["thread/resume", "turn/start"],
+  );
+  await bridge.close();
+});
+
+test("a post-resume read failure is not classified as an uncertain wake mutation", async () => {
+  const fake = fakeCodexAppServer({
+    readSequences: {
+      queen: [
+        { status: { type: "notLoaded" } },
+        { id: "unexpected-thread", status: { type: "idle" } },
+      ],
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  await assert.rejects(
+    bridge.deliverParentWake({
+      queenThreadId: "queen",
+      clientUserMessageId: "wake-resume-read-failure",
+      message: "Member A completed.",
+    }),
+    (error) => {
+      assert.notEqual(error.mutationUncertain, true);
+      return true;
+    },
+  );
+  assert.equal(
+    fake.requests.some(({ method }) => method === "turn/start"),
+    false,
+  );
+  await bridge.close();
+});
+
+test("parent wake stops when bounded reconciliation is truncated", async () => {
+  const initialTurns = Array.from({ length: 21 }, (_, index) => ({
+    id: `old-turn-${index}`,
+    status: "completed",
+    items: [],
+  }));
+  const fake = fakeCodexAppServer({
+    initialTurns,
+    threadOverrides: {
+      queen: { status: { type: "idle" } },
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  await assert.rejects(
+    bridge.deliverParentWake({
+      queenThreadId: "queen",
+      clientUserMessageId: "wake-older-than-window",
+      message: "Member A completed.",
+    }),
+    (error) => {
+      assert.equal(error.bridgeCode, "wake-history-truncated");
+      assert.equal(error.mutationUncertain, true);
+      return true;
+    },
+  );
+  assert.equal(
+    fake.requests.some(({ method }) =>
+      ["turn/start", "turn/steer"].includes(method),
+    ),
+    false,
+  );
+  await bridge.close();
+});
+
+test("rejected wake mutations are certainly unapplied", async () => {
+  const fake = fakeCodexAppServer({
+    rejectedMethods: ["turn/start"],
+    threadOverrides: {
+      queen: { status: { type: "idle" } },
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  await assert.rejects(
+    bridge.deliverParentWake({
+      queenThreadId: "queen",
+      clientUserMessageId: "wake-rejected",
+      message: "Member A completed.",
+    }),
+    (error) => {
+      assert.equal(error.bridgeCode, "request-rejected");
+      assert.equal(error.mutationUncertain, false);
+      return true;
+    },
+  );
+  await bridge.close();
+});
+
+test("timed-out wake and archive mutations remain uncertain", async () => {
+  const wakeFake = fakeCodexAppServer({
+    ignoredMethods: ["turn/start"],
+    threadOverrides: {
+      queen: { status: { type: "idle" } },
+    },
+  });
+  const wakeBridge = new CodexAppServerBridgeV1({
+    spawnProcess: wakeFake.spawnProcess,
+    requestTimeoutMs: 20,
+  });
+  await assert.rejects(
+    wakeBridge.deliverParentWake({
+      queenThreadId: "queen",
+      clientUserMessageId: "wake-timeout",
+      message: "Member A completed.",
+    }),
+    (error) => {
+      assert.equal(error.bridgeCode, "timeout");
+      assert.equal(error.mutationUncertain, true);
+      return true;
+    },
+  );
+  await wakeBridge.close();
+
+  const timedOutArchiveFake = fakeCodexAppServer({
+    ignoredMethods: ["thread/archive"],
+  });
+  const timedOutArchiveBridge = new CodexAppServerBridgeV1({
+    spawnProcess: timedOutArchiveFake.spawnProcess,
+    requestTimeoutMs: 20,
+  });
+  await assert.rejects(
+    timedOutArchiveBridge.archiveThread({ threadId: "member-thread" }),
+    (error) => {
+      assert.equal(error.bridgeCode, "timeout");
+      assert.equal(error.mutationUncertain, true);
+      return true;
+    },
+  );
+  await timedOutArchiveBridge.close();
+});
+
+test("archiveThread performs one exact native archive", async () => {
+  const archiveFake = fakeCodexAppServer();
+  const archiveBridge = new CodexAppServerBridgeV1({
+    spawnProcess: archiveFake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  assert.deepEqual(
+    await archiveBridge.archiveThread({ threadId: "member-thread" }),
+    { archived: true, threadId: "member-thread" },
+  );
+  assert.equal(
+    archiveFake.requests.filter(({ method }) => method === "thread/archive").length,
+    1,
+  );
+  await archiveBridge.close();
 });
 
 test("parent wake defers instead of starting a concurrent queen turn", async () => {

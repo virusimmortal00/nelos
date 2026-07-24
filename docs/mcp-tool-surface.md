@@ -62,9 +62,10 @@ operations use one lazily started, long-lived
   Ambiguous mutations stop in `attention` rather than blindly duplicating a
   turn; and
 - `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
-  queen acceptances. It previews a named confirmation list under the default
-  `ask` policy, or applies remembered `auto` and `keep` policies. Native archive
-  receipts are persisted per spin-off and partial failures remain visible.
+  queen acceptances with an explicit `archive` capability. It previews a named
+  confirmation list under the default `ask` policy, or applies remembered
+  `auto` and `keep` policies. Native archive receipts are persisted per spin-off
+  and partial failures remain visible.
 
 Thread inspection, routing, and verification are explicitly read-only. Planning
 is non-read-only and idempotent because a spinoff plan may synchronize the queen
@@ -159,11 +160,13 @@ calls `nelos_spinoff_complete` using the fixed identity embedded in its launch
 prompt and its current `CODEX_THREAD_ID`. Nelos writes the completion record
 before app-server mutation. It reads at most 20 recent turns solely to reconcile
 the deterministic `clientUserMessageId`; message content is neither retained
-nor returned. A known active queen receives `turn/steer` with its exact active
-turn ID. An idle or unloaded queen receives `thread/resume` as needed followed
-by `turn/start`. This covers both a live join and an already-ended queen without
-installing a background daemon. Native waiting remains authoritative if a
-member terminates before executing its callback.
+nor returned. If the server reports older pages, Nelos records attention rather
+than concluding the wake was absent and risking a duplicate. A known active
+queen receives `turn/steer` with its exact active turn ID. An idle or unloaded
+queen receives `thread/resume` as needed, followed by `turn/start`. This covers
+both a live join and an already-ended queen without installing a background
+daemon. Native waiting remains authoritative if a member terminates before
+executing its callback.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if

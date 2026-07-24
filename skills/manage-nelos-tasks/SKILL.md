@@ -77,7 +77,7 @@ The launch prompt requires a bounded result and, for spinoffs, an exact
 `nelos_spinoff_complete` call before final response; only the member may call it.
 After current queen acceptance, call `nelos_spinoff_cleanup`: `ask` names exact
 candidates before confirmation, `auto` archives, and `keep` preserves them.
-Never clean up failed, blocked, detached, unaccepted, or stale-attempt work.
+Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
 
 Registry-only topology has an unobserved lifecycle cache;
 never write lifecycle or archival state from a native action.

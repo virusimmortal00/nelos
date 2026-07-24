@@ -400,7 +400,7 @@ export class SpinoffLifecycleAdapterV1 {
           ...record,
           revision: record.revision + 1,
           wakeState: delivery.delivered ? "delivered" : "deferred",
-          wakeReason: delivery.reason,
+          wakeReason: delivery.reason ?? null,
           queenTurnId: delivery.queenTurnId,
           updatedAt: this.#now(),
         }, { expectedRevision: record.revision });
@@ -461,8 +461,6 @@ export class SpinoffLifecycleAdapterV1 {
     if (!SPINOFF_CLEANUP_POLICIES.includes(resolvedPolicy)) {
       throw new Error("cleanup policy is invalid");
     }
-    if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
-
     const [workUnits, decisions] = await Promise.all([
       this.#executionStore.list(),
       this.#acceptanceStore.list(identity),
@@ -480,6 +478,7 @@ export class SpinoffLifecycleAdapterV1 {
           workUnit.queenThreadId === identity.queenThreadId &&
           workUnit.memberKind === "spinoff" &&
           workUnit.required &&
+          workUnit.capabilities.includes("archive") &&
           workUnit.binding.state === "bound" &&
           decision?.result?.outcome === "succeeded" &&
           decision?.specRevision === workUnit.specRevision &&
@@ -516,6 +515,7 @@ export class SpinoffLifecycleAdapterV1 {
     );
 
     if (resolvedPolicy === "ask" && confirmedThreadIds === undefined) {
+      if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
       return {
         schemaVersion: 1,
         policy: resolvedPolicy,
@@ -535,74 +535,93 @@ export class SpinoffLifecycleAdapterV1 {
     if ([...confirmed].some((thread) => !candidateIds.has(thread))) {
       throw new Error("cleanup confirmation contains an ineligible spin-off");
     }
+    if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
     const selected = candidates.filter(({ threadId }) => confirmed.has(threadId));
     const results = [];
     for (const candidate of selected) {
       const completion = candidate.completion;
-      await withQueenSpinoffLock(identity.queenThreadId, async () => {
-        const wakeId = spinoffWakeIdV1(completion);
-        let record = await this.#store.read(wakeId);
-        if (!record) {
-          record = await this.#store.write(
-            initialRecord(completion, this.#now()),
-            { expectedRevision: 0 },
-          );
-        }
-        if (resolvedPolicy === "keep") {
-          if (record.cleanupState !== "kept") {
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "kept",
-              cleanupPolicy: resolvedPolicy,
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
+      try {
+        await withQueenSpinoffLock(identity.queenThreadId, async () => {
+          const wakeId = spinoffWakeIdV1(completion);
+          let record = await this.#store.read(wakeId);
+          if (!record) {
+            record = await this.#store.write(
+              initialRecord(completion, this.#now()),
+              { expectedRevision: 0 },
+            );
           }
-          results.push({ threadId: candidate.threadId, state: "kept" });
-          return;
-        }
-        if (record.cleanupState === "archived") {
-          results.push({ threadId: candidate.threadId, state: "archived", replayed: true });
-          return;
-        }
-        if (record.cleanupState === "attention") {
-          results.push({
-            threadId: candidate.threadId,
-            state: "attention",
-            reason: "prior-archive-attention",
-          });
-          return;
-        }
-        record = await this.#store.write({
-          ...record,
-          revision: record.revision + 1,
-          cleanupState: "archiving",
-          cleanupPolicy: resolvedPolicy,
-          updatedAt: this.#now(),
-        }, { expectedRevision: record.revision });
-        try {
-          await appServerBridge.archiveThread({ threadId: candidate.threadId });
+          if (resolvedPolicy === "keep") {
+            if (record.cleanupState !== "kept") {
+              record = await this.#store.write({
+                ...record,
+                revision: record.revision + 1,
+                cleanupState: "kept",
+                cleanupPolicy: resolvedPolicy,
+                updatedAt: this.#now(),
+              }, { expectedRevision: record.revision });
+            }
+            results.push({ threadId: candidate.threadId, state: "kept" });
+            return;
+          }
+          if (record.cleanupState === "archived") {
+            results.push({
+              threadId: candidate.threadId,
+              state: "archived",
+              replayed: true,
+            });
+            return;
+          }
+          if (record.cleanupState === "attention") {
+            results.push({
+              threadId: candidate.threadId,
+              state: "attention",
+              reason: "prior-archive-attention",
+            });
+            return;
+          }
           record = await this.#store.write({
             ...record,
             revision: record.revision + 1,
-            cleanupState: "archived",
+            cleanupState: "archiving",
+            cleanupPolicy: resolvedPolicy,
             updatedAt: this.#now(),
           }, { expectedRevision: record.revision });
-          results.push({ threadId: candidate.threadId, state: "archived", replayed: false });
-        } catch (error) {
-          await this.#store.write({
-            ...record,
-            revision: record.revision + 1,
-            cleanupState: "attention",
-            updatedAt: this.#now(),
-          }, { expectedRevision: record.revision });
-          results.push({
-            threadId: candidate.threadId,
-            state: "attention",
-            reason: error?.mutationUncertain ? "archive-uncertain" : "archive-rejected",
-          });
-        }
-      });
+          try {
+            await appServerBridge.archiveThread({ threadId: candidate.threadId });
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "archived",
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "archived",
+              replayed: false,
+            });
+          } catch (error) {
+            await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "attention",
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "attention",
+              reason: error?.mutationUncertain
+                ? "archive-uncertain"
+                : "archive-rejected",
+            });
+          }
+        });
+      } catch {
+        results.push({
+          threadId: candidate.threadId,
+          state: "attention",
+          reason: "cleanup-candidate-failed",
+        });
+      }
     }
     return {
       schemaVersion: 1,

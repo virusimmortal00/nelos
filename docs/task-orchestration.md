@@ -247,9 +247,10 @@ candidate set from the durable execution and acceptance records:
 - `keep` records the decision without archiving; and
 - `rememberPolicy: true` persists the chosen default.
 
-Failed, blocked, detached, unaccepted, stale-attempt, and non-spinoff work is
-never eligible. Archive is a native app-server mutation and each outcome is
-recorded independently so partial cleanup remains recoverable.
+Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
+without an explicit `archive` capability is never eligible. Archive is a native
+app-server mutation and each outcome is recorded independently so partial
+cleanup remains recoverable.
 
 ## Upstream Native API Improvements
 

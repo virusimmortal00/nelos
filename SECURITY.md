@@ -40,7 +40,8 @@ are created with mode `0700`. The records contain coordination metadata
 such as task and turn IDs, titles, working directories, web relationships,
 timestamps, task URLs, archive state, bounded completion summaries,
 wake-delivery state, and the user's cleanup policy. Wake reconciliation reads
-at most 20 recent queen turns and examines only turn and client-message IDs.
+at most 20 recent queen turns and examines only turn and client-message IDs; a
+truncated history requires attention rather than risking a duplicate mutation.
 Nelos does not intentionally persist task prompts, transcripts, tokens, raw
 turn content, or raw environment dumps.
 
