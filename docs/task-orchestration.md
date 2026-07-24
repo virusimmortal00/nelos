@@ -96,10 +96,10 @@ those host semantics explicit. Otherwise, use the shared-session compatibility
 path only for capabilities verified across both processes, and retain native
 effects for host-only operations.
 
-The currently shipped Nelos MCP server exposes only three socket-free,
-read-only tools. Adding stateful orchestration tools is therefore a deliberate
-MCP permission and persistence expansion; it should not be hidden inside the
-existing read-only contract.
+The Nelos MCP server previously exposed only three socket-free, read-only
+tools. The orchestration tools added here are therefore a deliberate MCP
+permission and persistence expansion, not something hidden inside the prior
+read-only contract.
 
 ## State Model
 

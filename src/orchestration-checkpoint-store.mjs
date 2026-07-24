@@ -13,6 +13,7 @@ const TITLE_STATES = new Set(["pending", "verified", "attention"]);
 const EXECUTION_STATES = new Set(["unknown", "waiting", "running", "terminal", "attention"]);
 const RESULT_STATES = new Set(["absent", "current", "stale", "malformed"]);
 const COORDINATION_STATES = new Set(["unjoined", "waiting", "collected", "accepted", "detached"]);
+const CAPABILITIES = new Set(["observe", "read-result", "follow-up", "archive"]);
 
 function fail(message) {
   throw new Error(`orchestration checkpoint ${message}`);
@@ -44,7 +45,8 @@ function nullableId(value, label) {
 function member(value) {
   exact(value, [
     "workUnitId", "specRevision", "attempt", "bindingGeneration",
-    "memberThreadId", "required", "title", "execution", "result", "coordination",
+    "memberThreadId", "capabilities", "required", "title", "execution", "result",
+    "coordination",
   ], "member");
   const title = exact(value.title, [
     "state", "requestedTitle", "observedTitle", "retryOrdinal",
@@ -69,6 +71,14 @@ function member(value) {
   if (typeof value.required !== "boolean" || typeof execution.attentionRequired !== "boolean") {
     fail("member flags are invalid");
   }
+  if (
+    !Array.isArray(value.capabilities) ||
+    value.capabilities.length === 0 ||
+    value.capabilities.some((capability) => !CAPABILITIES.has(capability)) ||
+    new Set(value.capabilities).size !== value.capabilities.length
+  ) {
+    fail("member capabilities are invalid");
+  }
   if (result.errorCode !== null && !/^[a-z][a-z0-9_-]{0,63}$/u.test(result.errorCode)) {
     fail("result error code is invalid");
   }
@@ -78,6 +88,7 @@ function member(value) {
     attempt: integer(value.attempt, "attempt"),
     bindingGeneration: integer(value.bindingGeneration, "bindingGeneration"),
     memberThreadId: id(value.memberThreadId, "memberThreadId"),
+    capabilities: [...value.capabilities],
     required: value.required,
     title: {
       state: title.state,

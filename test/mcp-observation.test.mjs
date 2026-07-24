@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -140,6 +140,21 @@ test("unknown webs fail closed instead of implying parent continuation", async (
     }),
     /found no execution work units/,
   );
+});
+
+test("malformed records from another orchestration do not block advance", async (t) => {
+  const current = await fixture(t);
+  await bind(current.executionStore, workUnit());
+  await writeFile(
+    join(current.root, "executions", "unrelated.json"),
+    "{not-json\n",
+  );
+  const advanced = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  assert.equal(advanced.checkpoint.members[0].workUnitId, "alpha");
 });
 
 test("bound v1 records migrate lazily and reconstruct byte-stable effects after restart", async (t) => {

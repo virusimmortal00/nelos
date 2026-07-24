@@ -413,9 +413,9 @@ test("malformed records are isolated without exposing their contents", async (t)
     ["healthy-a", "healthy-b"],
   );
   assert.deepEqual(scan.malformedRecords, [
-    { fileName: "broken.json", reason: "invalid_json" },
-    { fileName: "future.json", reason: "unsupported_schema_version" },
-    { fileName: "wrong.json", reason: "identity_mismatch" },
+    { fileName: "broken.json", workUnitId: "broken", reason: "invalid_json" },
+    { fileName: "future.json", workUnitId: "future", reason: "unsupported_schema_version" },
+    { fileName: "wrong.json", workUnitId: "wrong", reason: "identity_mismatch" },
   ]);
   assert.doesNotMatch(JSON.stringify(scan), new RegExp(secret));
   await assert.rejects(

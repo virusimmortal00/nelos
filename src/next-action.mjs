@@ -1,6 +1,7 @@
 import {
   RECOMMENDED_SEEDED_TITLE_CHARACTERS,
   buildTaskLaunchPromptV1,
+  createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
@@ -37,24 +38,16 @@ function readTaskResult(threadId, turnId = null) {
 }
 
 function memberPrompt(slice) {
-  const resultTemplate = {
-    schemaVersion: 1,
-    workUnitId: slice.id,
-    specRevision: 1,
-    attempt: 1,
-    outcome: "succeeded",
-    summary: "concise result summary",
-    artifacts: [],
-    verification: [],
-    blockers: [],
-    recoveryHint: null,
-  };
   return buildTaskLaunchPromptV1({
     title: slice.title,
     objective: slice.objective,
     deliverable: slice.deliverable,
     acceptanceCriteria: slice.acceptanceCriteria,
-    resultTemplate,
+    resultTemplate: createTaskResultTemplateV1({
+      workUnitId: slice.id,
+      specRevision: 1,
+      attempt: 1,
+    }),
   });
 }
 

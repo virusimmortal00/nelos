@@ -36,6 +36,7 @@ function member(overrides = {}) {
     attempt: 1,
     bindingGeneration: 1,
     memberThreadId: "thread-alpha",
+    capabilities: ["observe", "read-result"],
     required: true,
     title: {
       state: "pending",
@@ -254,6 +255,32 @@ test("wait receipts are cursor-safe across timeouts, order, and conflicts", () =
   );
 });
 
+test("the first wait discovers a host ID and later waits enforce it", () => {
+  const first = checkpoint([
+    member({ title: { state: "verified" } }),
+  ]);
+  const initialWait = reduceObservationJoinV1(first).effects[0];
+  const discovered = applyObservationReceiptV1(
+    first,
+    waitReceipt(initialWait, {
+      hostId: "desktop-host",
+      nextCursor: "cursor-1",
+    }),
+  ).checkpoint;
+  assert.equal(discovered.members[0].execution.hostId, "desktop-host");
+
+  const nextWait = reduceObservationJoinV1(discovered).effects[0];
+  assert.equal(nextWait.targets[0].hostId, "desktop-host");
+  assert.throws(
+    () =>
+      applyObservationReceiptV1(
+        discovered,
+        waitReceipt(nextWait, { hostId: "different-host" }),
+      ),
+    /stale or conflicting cursor target/,
+  );
+});
+
 test("terminal wait targets require turn identity and failed turns force attention", () => {
   const first = checkpoint([
     member({ title: { state: "verified" } }),
@@ -282,6 +309,25 @@ test("terminal wait targets require turn identity and failed turns force attenti
   assert.equal(failed.members[0].execution.state, "attention");
   assert.equal(failed.members[0].execution.attentionRequired, true);
   assert.deepEqual(reduceObservationJoinV1(failed).boundary, {
+    type: "attention",
+    reason: "member-evidence-requires-review",
+  });
+});
+
+test("terminal members without read-result capability require attention", () => {
+  const terminal = checkpoint([
+    member({
+      capabilities: ["observe"],
+      title: { state: "verified" },
+      execution: { state: "terminal", latestTurnId: "turn-1" },
+    }),
+  ]);
+  const reduced = reduceObservationJoinV1(terminal);
+  assert.equal(
+    reduced.effects.some(({ type }) => type === "native-read-result"),
+    false,
+  );
+  assert.deepEqual(reduced.boundary, {
     type: "attention",
     reason: "member-evidence-requires-review",
   });

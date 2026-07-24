@@ -17,6 +17,7 @@ function initialMember(workUnit) {
     attempt: workUnit.attempt,
     bindingGeneration: workUnit.binding.generation,
     memberThreadId: workUnit.binding.memberThreadId,
+    capabilities: [...workUnit.capabilities],
     required: workUnit.required,
     title: {
       state: "pending",
@@ -126,9 +127,6 @@ export class McpJoinAdapterV1 {
     const normalizedReceipt = receipt === null ? null : validateObservationReceiptV1(receipt);
     return withObservationCheckpointLock(webId, queenThreadId, async () => {
       const scan = await this.#executionStore.scan();
-      if (scan.malformedRecords.length > 0) {
-        throw new Error("execution state contains malformed records");
-      }
       const workUnits = scan.workUnits.filter(
         (workUnit) =>
           workUnit.webId === webId && workUnit.queenThreadId === queenThreadId,
@@ -136,10 +134,22 @@ export class McpJoinAdapterV1 {
       if (workUnits.length === 0) {
         throw new Error("orchestration advance found no execution work units");
       }
+      const stored = await this.#checkpointStore.read(webId, queenThreadId);
+      const scopedWorkUnitIds = new Set([
+        ...workUnits.map(({ workUnitId }) => workUnitId),
+        ...(stored?.members ?? []).map(({ workUnitId }) => workUnitId),
+      ]);
+      if (
+        scan.malformedRecords.some(
+          ({ workUnitId }) =>
+            workUnitId !== null && scopedWorkUnitIds.has(workUnitId),
+        )
+      ) {
+        throw new Error("execution state contains malformed records for this orchestration");
+      }
       const hasUnboundRequired = workUnits.some(
         (workUnit) => workUnit.required && workUnit.binding.state !== "bound",
       );
-      const stored = await this.#checkpointStore.read(webId, queenThreadId);
       let checkpoint = synthesize(stored, workUnits, webId, queenThreadId);
       const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
       checkpoint = applyAcceptances(checkpoint, decisions);

@@ -662,6 +662,7 @@ export class ExecutionStoreV1 {
       } catch (error) {
         malformedRecords.push({
           fileName: entry.name,
+          workUnitId: expectedWorkUnitId ?? null,
           reason:
             error instanceof ExecutionStoreRecordError
               ? error.code

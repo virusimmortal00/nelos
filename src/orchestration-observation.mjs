@@ -266,6 +266,7 @@ export function reduceObservationJoinV1(value) {
       (member) =>
         member.execution.state === "terminal" &&
         member.execution.latestTurnId !== null &&
+        member.capabilities.includes("read-result") &&
         member.result.state !== "current",
     )
     .map(readEffect);
@@ -280,6 +281,8 @@ export function reduceObservationJoinV1(value) {
       member.title.state === "attention" ||
       member.execution.state === "attention" ||
       member.execution.attentionRequired ||
+      (member.execution.state === "terminal" &&
+        !member.capabilities.includes("read-result")) ||
       ["stale", "malformed"].includes(member.result.state) ||
       (member.result.state === "current" && member.result.envelope.outcome !== "succeeded"),
   );
@@ -375,7 +378,7 @@ export function applyObservationReceiptV1(value, rawReceipt) {
         requested.specRevision !== target.specRevision ||
         requested.attempt !== target.attempt ||
         requested.bindingGeneration !== target.bindingGeneration ||
-        requested.hostId !== target.hostId ||
+        (requested.hostId !== null && requested.hostId !== target.hostId) ||
         requested.afterCursor !== target.afterCursor
       ) {
         throw new Error("native wait receipt has a stale or conflicting cursor target");

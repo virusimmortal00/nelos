@@ -6,7 +6,10 @@ import {
 import { reconcileExecutionRecord } from "./execution-reconciliation.mjs";
 import { nativeTitleEffectV1 } from "./orchestration-observation.mjs";
 import { withExecutionOrchestrationLock } from "./task-state.mjs";
-import { buildTaskLaunchPromptV1 } from "./task-launch-prompt.mjs";
+import {
+  buildTaskLaunchPromptV1,
+  createTaskResultTemplateV1,
+} from "./task-launch-prompt.mjs";
 
 export const MCP_ORCHESTRATION_SCHEMA_VERSION = 1;
 export const HOST_CREATE_RECEIPT_SCHEMA_VERSION = 1;
@@ -155,28 +158,13 @@ function sameDefinition(left, right) {
   );
 }
 
-function resultTemplateFor(record) {
-  return {
-    schemaVersion: 1,
-    workUnitId: record.workUnitId,
-    specRevision: record.specRevision,
-    attempt: record.attempt,
-    outcome: "succeeded",
-    summary: "concise result summary",
-    artifacts: [],
-    verification: [],
-    blockers: [],
-    recoveryHint: null,
-  };
-}
-
 function launchPromptFor(record) {
   return buildTaskLaunchPromptV1({
     title: record.title,
     objective: record.objectiveSummary,
     deliverable: record.deliverable,
     acceptanceCriteria: record.acceptanceCriteria,
-    resultTemplate: resultTemplateFor(record),
+    resultTemplate: createTaskResultTemplateV1(record),
   });
 }
 
