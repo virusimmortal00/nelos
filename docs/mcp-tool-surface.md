@@ -15,9 +15,11 @@ operations now use one lazily started, long-lived
 `codex app-server --stdio` child:
 
 - `nelos_plan_slices` — validates and computes the plan locally. When the plan
-  contains at least one spinoff, it reads the current task, idempotently prefixes
-  its settled title with `👑 ·`, and verifies the persisted title before
-  returning a launch action. A subagent-only plan does not start the bridge;
+  contains at least one spinoff, it reads the current task, preserves any
+  inbound and outbound web markers, renders the canonical
+  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, and verifies the persisted
+  title before returning a launch action. Legacy outer-crown forms are
+  normalized. A subagent-only plan does not start the bridge;
 - `nelos_thread_inspect` — reads one task by ID (defaulting to the current
   `CODEX_THREAD_ID`) and returns only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never
@@ -140,11 +142,13 @@ observation/join contract.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if
-they disagree, writes once, and verifies the result. Nelos serializes its own
-non-wait MCP operations, but it cannot make an independent manual Desktop
-rename atomic with that write. Operators must not manually rename the current
-task during this short synchronization window; adding true concurrent-writer
-safety is explicitly gated on a future versioned CAS or revision precondition.
+they disagree, canonically orders the inbound, outbound, and crown markers
+without discarding web lineage, writes once, and verifies the result. Nelos
+serializes its own non-wait MCP operations, but it cannot make an independent
+manual Desktop rename atomic with that write. Operators must not manually
+rename the current task during this short synchronization window; adding true
+concurrent-writer safety is explicitly gated on a future versioned CAS or
+revision precondition.
 
 ## Launch mechanism: inline self-locating bootstrap
 

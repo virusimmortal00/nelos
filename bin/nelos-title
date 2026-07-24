@@ -15,6 +15,13 @@ import {
   writeWebRecord,
 } from "../src/task-state.mjs";
 
+function webRecordQueenMarked(record) {
+  if (!record) return false;
+  if (record.outboundWebId) return true;
+  if (typeof record.queenMarked === "boolean") return record.queenMarked;
+  return parseWebTitle(record.renderedTitle || "").queenMarked;
+}
+
 function printUsage() {
   process.stdout.write(`Usage:
   nelos-title set TITLE [options]
@@ -103,16 +110,34 @@ async function main() {
 
     const liveTitle = await withWebRegistryLock(async () => {
       const webRecord = await readWebRecord(threadId);
+      const activeWebRecord =
+        webRecord && !webRecord.archivedAt ? webRecord : null;
+      const parsedTitle = parseWebTitle(options.title);
+      const before = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (!before?.thread) throw new Error(`task not found: ${threadId}`);
+      const liveQueenMarked = parseWebTitle(before.thread.name || "").queenMarked;
+      const queenMarked =
+        parsedTitle.queenMarked ||
+        liveQueenMarked ||
+        webRecordQueenMarked(activeWebRecord);
       const effectiveTitle =
-        webRecord &&
-        !webRecord.archivedAt &&
-        (webRecord.inboundWebId || webRecord.outboundWebId)
+        activeWebRecord &&
+        (activeWebRecord.inboundWebId || activeWebRecord.outboundWebId)
           ? renderWebTitle({
-              baseTitle: options.title,
-              inboundWebId: webRecord.inboundWebId,
-              outboundWebId: webRecord.outboundWebId,
+              baseTitle: parsedTitle.baseTitle,
+              inboundWebId: activeWebRecord.inboundWebId,
+              outboundWebId: activeWebRecord.outboundWebId,
+              queenMarked,
             })
-          : options.title;
+          : queenMarked
+            ? renderWebTitle({
+                baseTitle: parsedTitle.baseTitle,
+                queenMarked: true,
+              })
+            : options.title;
       await client.request("thread/name/set", { threadId, name: effectiveTitle });
       const result = await client.request("thread/read", {
         threadId,
@@ -124,12 +149,13 @@ async function main() {
         );
       }
 
-      const baseTitle = parseWebTitle(options.title).baseTitle;
+      const baseTitle = parsedTitle.baseTitle;
       await patchTaskRegistryRecord(threadId, { title: effectiveTitle, baseTitle });
-      if (webRecord) {
+      if (activeWebRecord) {
         await writeWebRecord({
-          ...webRecord,
+          ...activeWebRecord,
           baseTitle,
+          queenMarked,
           renderedTitle: effectiveTitle,
           updatedAt: new Date().toISOString(),
         });

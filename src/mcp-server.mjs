@@ -478,8 +478,23 @@ export function startNelosMcpServer({
         // out-of-order responses, while stateful non-wait operations retain
         // their existing serialized ordering. Waits serialize with each other
         // so their per-call read bounds cannot multiply without limit.
-        waitProcessing = Promise.all([processing, waitProcessing])
-          .then(() => handle(message))
+        const waitPrerequisites = Promise.all([processing, waitProcessing]);
+        waitProcessing = waitPrerequisites
+          .then(
+            () => handle(message),
+            () => {
+              if (message.id !== undefined && message.id !== null) {
+                send({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  error: {
+                    code: -32603,
+                    message: "internal wait scheduling failure",
+                  },
+                });
+              }
+            },
+          )
           .catch(() => {
             process.stderr.write(
               "nelos-mcp: wait request failed unexpectedly\n",

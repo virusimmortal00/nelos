@@ -11,6 +11,24 @@ test("queen titles are visibly marked and idempotent", () => {
   assert.equal(renderQueenTitle("Research"), "👑 · Research");
   assert.equal(renderQueenTitle(" 👑 · Research "), "👑 · Research");
   assert.equal(renderQueenTitle("👑 Research"), "👑 · Research");
+  assert.equal(
+    renderQueenTitle("🕷️ a1 · Release planning"),
+    "🕷️ A1 👑 · Release planning",
+  );
+  const nestedQueen = "🕸️ A1 🕷️ A1.1 👑 · Contract tests";
+  assert.equal(
+    renderQueenTitle("🕸️ A1 🕷️ A1.1 · Contract tests"),
+    nestedQueen,
+  );
+  assert.equal(
+    renderQueenTitle("👑 · 🕸️ A1 🕷️ A1.1 · Contract tests"),
+    nestedQueen,
+  );
+  assert.equal(
+    renderQueenTitle("🕸️ A1 🕷️ A1.1 · 👑 · Contract tests"),
+    nestedQueen,
+  );
+  assert.equal(renderQueenTitle(nestedQueen), nestedQueen);
   assert.throws(
     () => renderQueenTitle("👑"),
     /must include text after the queen marker/,

@@ -25,9 +25,10 @@ Delivered:
 
 - [x] add one lazy, reusable `codex app-server --stdio` bridge with bounded
   JSONL requests, initialization, shutdown, and fail-closed errors;
-- [x] automatically mark the current task as the queen (`👑 · …`) whenever a
-  validated Nelos plan contains spinoffs, and verify the persisted title before
-  returning the launch action; and
+- [x] automatically mark the current task as the queen whenever a validated
+  Nelos plan contains spinoffs, preserving web-lineage markers and rendering
+  `[🕸️ inbound] [🕷️ outbound] [👑] · base title` before verifying the persisted
+  title and returning the launch action; and
 - [x] expose bounded read-only task inspection without turns, previews, prompts,
   or transcripts.
 

@@ -46,9 +46,9 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
   `nativeTask`, and generated `prompt`. `create-thread` launches a durable
   spinoff; `spawn-subagent` launches a bounded joined subagent. Never translate
-  these fields by inference. For plans containing a spinoff, the planning tool
-  has already prefixed and verified the current queen title with `👑 ·`; a tool
-  error means stop before launch. Child titles remain exact and undecorated.
+  these fields by inference. For spinoff plans, the tool has rendered and
+  verified `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, preserving web
+  markers; a tool error stops launch. Child titles remain exact and undecorated.
   The generated prompt begins with `Task title: <short intended title>` so
   Desktop can assign the intended title during creation. After the task ID
   resolves, observe its settled native title. If it matches, do not rename it;

@@ -75,10 +75,13 @@ Nelos is one Codex plugin with two parts:
 
 - **An MCP server with a scoped Codex app-server bridge.**
   `nelos_plan_slices` plans dependency-safe waves and, when the plan contains
-  spinoffs, automatically marks the current task as the queen (`👑 · …`) before
-  returning a launch action. The bridge detects a title change during its
-  preflight reads; Codex `0.144.x` has no compare-and-set title operation, so a
-  simultaneous manual Desktop rename is not supported. `nelos_thread_inspect`
+  spinoffs, automatically marks the current task as the queen before returning
+  a launch action. Crown synchronization uses the canonical title grammar
+  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, preserving any web-lineage
+  markers rather than blindly prepending `👑 ·`. The bridge detects a title
+  change during its preflight reads; Codex `0.144.x` has no compare-and-set
+  title operation, so a simultaneous manual Desktop rename is not supported.
+  `nelos_thread_inspect`
   exposes bounded, read-only
   task metadata; `nelos_thread_inventory` batches known IDs and projects direct
   parent edges; `nelos_thread_wait` performs bounded current-state polling; and

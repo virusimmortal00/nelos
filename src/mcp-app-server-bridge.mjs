@@ -8,13 +8,30 @@ export const SUPPORTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
   "0.144.5",
   "0.144.6",
 ]);
+export const REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS = Object.freeze([
+  "codexHome",
+  "platformFamily",
+  "platformOs",
+  "userAgent",
+]);
 export const REQUIRED_CODEX_APP_SERVER_METHODS = Object.freeze([
   "thread/read",
   "thread/name/set",
 ]);
+export const SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES = Object.freeze([
+  "notLoaded",
+  "idle",
+  "systemError",
+  "active",
+]);
+export const SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS = Object.freeze([
+  "waitingOnApproval",
+  "waitingOnUserInput",
+]);
 export const MCP_APP_SERVER_MAX_BATCH_THREADS = 16;
 export const MCP_APP_SERVER_MAX_WAIT_THREADS = 8;
 export const MCP_APP_SERVER_MAX_WAIT_MS = 30_000;
+export const MCP_APP_SERVER_TITLE_SYNC_TIMEOUT_MS = 30_000;
 
 const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IDENTIFIER_CHARACTERS = 512;
@@ -26,16 +43,10 @@ const DEFAULT_WAIT_POLL_INTERVAL_MS = 250;
 const MIN_WAIT_POLL_INTERVAL_MS = 50;
 const WAIT_INITIAL_INSPECTION_ALLOWANCE_MS = 5_000;
 const BATCH_CONCURRENCY = 4;
-const THREAD_STATUS_TYPES = new Set([
-  "notLoaded",
-  "idle",
-  "systemError",
-  "active",
-]);
-const ACTIVE_FLAG_TYPES = new Set([
-  "waitingOnApproval",
-  "waitingOnUserInput",
-]);
+const THREAD_STATUS_TYPES = new Set(
+  SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
+);
+const ACTIVE_FLAG_TYPES = new Set(SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS);
 
 class AppServerBridgeError extends Error {
   constructor(message, { code, retriable = false } = {}) {
@@ -137,11 +148,17 @@ function initializeCompatibility(result, supportedVersions) {
   let platformFamily;
   let platformOs;
   try {
+    for (const field of REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS) {
+      if (!(field in result)) {
+        throw new Error(`missing initialize field ${field}`);
+      }
+    }
     userAgent = boundedText(
       result.userAgent,
       "user agent",
       MAX_USER_AGENT_CHARACTERS,
     );
+    boundedText(result.codexHome, "Codex home", MAX_PATH_CHARACTERS);
     platformFamily = boundedText(result.platformFamily, "platform family", 64);
     platformOs = boundedText(result.platformOs, "platform OS", 64);
   } catch {
@@ -151,7 +168,7 @@ function initializeCompatibility(result, supportedVersions) {
     );
   }
   const versionMatch = userAgent.match(
-    /\b(?:Codex Desktop|codex-cli)\/(\d+\.\d+\.\d+)\b/iu,
+    /\b(?:Codex Desktop|codex-cli)\/(\d+\.\d+\.\d+)(?![\w.+-])/iu,
   );
   if (!versionMatch) {
     throw bridgeError(
@@ -251,15 +268,26 @@ function buildTopology(items) {
   };
 }
 
-function positiveInteger(value, field, { minimum = 0, maximum } = {}) {
+function positiveInteger(value, field, { minimum = 1, maximum } = {}) {
+  if (!Number.isSafeInteger(minimum) || minimum < 0) {
+    throw new Error(`${field} minimum bound is invalid`);
+  }
+  const hasMaximum = maximum !== undefined;
+  if (
+    hasMaximum &&
+    (!Number.isSafeInteger(maximum) || maximum < minimum)
+  ) {
+    throw new Error(`${field} maximum bound is invalid`);
+  }
   if (
     !Number.isSafeInteger(value) ||
     value < minimum ||
-    value > maximum
+    (hasMaximum && value > maximum)
   ) {
-    throw new Error(
-      `${field} must be an integer between ${minimum} and ${maximum}`,
-    );
+    const range = hasMaximum
+      ? `between ${minimum} and ${maximum}`
+      : `of at least ${minimum}`;
+    throw new Error(`${field} must be an integer ${range}`);
   }
   return value;
 }
@@ -299,6 +327,7 @@ export class CodexAppServerBridgeV1 {
   #batchItemsSucceeded = 0;
   #batchRequests = 0;
   #child = null;
+  #closed = false;
   #command;
   #compatibility = {
     state: "idle",
@@ -339,9 +368,7 @@ export class CodexAppServerBridgeV1 {
     if (typeof command !== "string" || !command.trim()) {
       throw new Error("app-server command must be a non-empty string");
     }
-    if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs <= 0) {
-      throw new Error("app-server request timeout must be a positive integer");
-    }
+    positiveInteger(requestTimeoutMs, "app-server request timeout");
     if (typeof spawnProcess !== "function") {
       throw new Error("app-server spawnProcess must be a function");
     }
@@ -376,6 +403,9 @@ export class CodexAppServerBridgeV1 {
   }
 
   async #connect({ deadlineAt = null } = {}) {
+    if (this.#closed) {
+      throw bridgeError("Codex app-server bridge is closed", "bridge-closed");
+    }
     if (this.#ready) {
       return beforeDeadline(this.#ready, deadlineAt, "initialize");
     }
@@ -710,7 +740,7 @@ export class CodexAppServerBridgeV1 {
     this.#batchRequests += 1;
     this.#batchItemsRequested += resolvedThreadIds.length;
     const items = new Array(resolvedThreadIds.length);
-    let incompatibleError = null;
+    let fatalError = null;
     let nextIndex = 0;
     const worker = async () => {
       while (nextIndex < resolvedThreadIds.length) {
@@ -728,8 +758,11 @@ export class CodexAppServerBridgeV1 {
           };
           this.#batchItemsSucceeded += 1;
         } catch (error) {
-          if (error?.bridgeCode?.startsWith("incompatible-")) {
-            incompatibleError ??= error;
+          if (
+            error?.bridgeCode?.startsWith("incompatible-") ||
+            error?.bridgeCode === "bridge-closed"
+          ) {
+            fatalError ??= error;
           }
           items[index] = {
             threadId: resolvedThreadId,
@@ -746,7 +779,7 @@ export class CodexAppServerBridgeV1 {
         () => worker(),
       ),
     );
-    if (incompatibleError) throw incompatibleError;
+    if (fatalError) throw fatalError;
     const succeeded = items.filter((item) => item.state === "ready").length;
     const failed = items.length - succeeded;
     if (succeeded > 0 && failed > 0) this.#partialBatches += 1;
@@ -904,12 +937,25 @@ export class CodexAppServerBridgeV1 {
 
   async synchronizeQueenTitle({
     threadId: requestedThreadId = process.env.CODEX_THREAD_ID,
+    deadlineAt: requestedDeadlineAt = null,
   } = {}) {
-    const before = await this.inspect({ threadId: requestedThreadId });
+    const deadlineAt =
+      requestedDeadlineAt ??
+      Date.now() + MCP_APP_SERVER_TITLE_SYNC_TIMEOUT_MS;
+    if (!Number.isFinite(deadlineAt)) {
+      throw new Error("queen title synchronization deadline must be finite");
+    }
+    const before = await this.inspect({
+      threadId: requestedThreadId,
+      deadlineAt,
+    });
     if (!before.title) {
       throw new Error("current queen task has no settled title");
     }
-    const preflight = await this.inspect({ threadId: before.threadId });
+    const preflight = await this.inspect({
+      threadId: before.threadId,
+      deadlineAt,
+    });
     if (preflight.title !== before.title) {
       throw bridgeError(
         "queen title changed during synchronization",
@@ -925,12 +971,19 @@ export class CodexAppServerBridgeV1 {
       throw new Error("queen title exceeds the app-server title limit");
     }
     if (requestedTitle !== before.title) {
-      await this.#request("thread/name/set", {
-        threadId: before.threadId,
-        name: requestedTitle,
-      }, { mutation: true });
+      await this.#request(
+        "thread/name/set",
+        {
+          threadId: before.threadId,
+          name: requestedTitle,
+        },
+        { deadlineAt, mutation: true },
+      );
     }
-    const after = await this.inspect({ threadId: before.threadId });
+    const after = await this.inspect({
+      threadId: before.threadId,
+      deadlineAt,
+    });
     if (after.title !== requestedTitle) {
       throw new Error("queen title verification failed");
     }
@@ -948,10 +1001,19 @@ export class CodexAppServerBridgeV1 {
     const child = this.#child;
     this.#child = null;
     this.#ready = null;
+    this.#closed = true;
+    this.#compatibility = {
+      ...this.#compatibility,
+      state: "idle",
+    };
     if (!child) return;
+    const closeError = bridgeError(
+      "Codex app-server bridge closed",
+      "bridge-closed",
+    );
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error("Codex app-server bridge closed"));
+      pending.reject(closeError);
     }
     this.#pending.clear();
     child.stdin?.end();

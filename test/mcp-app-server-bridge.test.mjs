@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   CodexAppServerBridgeV1,
+  REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS,
   REQUIRED_CODEX_APP_SERVER_METHODS,
+  SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS,
+  SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
   SUPPORTED_CODEX_APP_SERVER_VERSIONS,
 } from "../src/mcp-app-server-bridge.mjs";
 
@@ -15,6 +18,8 @@ function fakeCodexAppServer({
   codexVersion = "0.144.6",
   ignoreNameSetCount = 0,
   ignoreReadCount = 0,
+  ignoredReadOrdinals = [],
+  initializeOverrides = {},
   initialTitle = "Release coordination",
   persistRename = true,
   readDelays = {},
@@ -24,6 +29,7 @@ function fakeCodexAppServer({
 } = {}) {
   let ignoredNameSets = 0;
   let ignoredReads = 0;
+  let readOrdinal = 0;
   let title = initialTitle;
   let spawnCount = 0;
   let activeReads = 0;
@@ -60,9 +66,15 @@ function fakeCodexAppServer({
         const message = JSON.parse(line);
         requests.push(message);
         if (message.id === undefined) continue;
-        if (message.method === "thread/read" && ignoredReads < ignoreReadCount) {
-          ignoredReads += 1;
-          continue;
+        if (message.method === "thread/read") {
+          readOrdinal += 1;
+          if (
+            ignoredReads < ignoreReadCount ||
+            ignoredReadOrdinals.includes(readOrdinal)
+          ) {
+            ignoredReads += 1;
+            continue;
+          }
         }
         if (
           message.method === "thread/name/set" &&
@@ -80,6 +92,7 @@ function fakeCodexAppServer({
             codexHome: "/codex-home",
             platformFamily: "unix",
             platformOs: "macos",
+            ...initializeOverrides,
           };
         } else if (message.method === "thread/read") {
           const resolvedThreadId = message.params.threadId;
@@ -174,17 +187,42 @@ test("the bridge contract matches the checked-in generated-schema fixture", asyn
     REQUIRED_CODEX_APP_SERVER_METHODS,
     Object.keys(fixture.methods),
   );
+  assert.deepEqual(
+    REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS,
+    fixture.initialize.requiredResponseFields,
+  );
   assert.deepEqual(fixture.methods["thread/read"].requiredParams, ["threadId"]);
   assert.deepEqual(
     fixture.methods["thread/name/set"].requiredParams,
     ["name", "threadId"],
   );
-  assert.deepEqual(fixture.threadStatus.types, [
-    "notLoaded",
-    "idle",
-    "systemError",
-    "active",
-  ]);
+  assert.deepEqual(
+    SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
+    fixture.threadStatus.types,
+  );
+  assert.deepEqual(
+    SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS,
+    fixture.threadStatus.activeFlags,
+  );
+});
+
+test("positive integer validation has a strict default and no undefined bound", () => {
+  for (const requestTimeoutMs of [-1, 0, 1.5, Number.NaN]) {
+    assert.throws(
+      () => new CodexAppServerBridgeV1({ requestTimeoutMs }),
+      (error) => {
+        assert.equal(
+          error.message,
+          "app-server request timeout must be an integer of at least 1",
+        );
+        assert.equal(error.message.includes("undefined"), false);
+        return true;
+      },
+    );
+  }
+  assert.doesNotThrow(
+    () => new CodexAppServerBridgeV1({ requestTimeoutMs: 1 }),
+  );
 });
 
 test("inspection lazily starts one app server and returns bounded metadata", async () => {
@@ -257,6 +295,37 @@ test("public stable Codex 0.144.5 passes the reviewed schema gate", async () => 
   await bridge.close();
 });
 
+test("version and initialize gates reject unreviewed runtime identities", async () => {
+  for (const codexVersion of [
+    "0.144.5-rc.1",
+    "0.144.6+nightly",
+    "0.144.6.1",
+  ]) {
+    const fake = fakeCodexAppServer({ codexVersion });
+    const bridge = new CodexAppServerBridgeV1({
+      spawnProcess: fake.spawnProcess,
+    });
+    await assert.rejects(
+      bridge.inspect({ threadId: "thread-1" }),
+      /did not identify a versioned Codex runtime/,
+    );
+    assert.equal((await bridge.health()).state, "incompatible");
+    await bridge.close();
+  }
+
+  const fake = fakeCodexAppServer({
+    initializeOverrides: { codexHome: undefined },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+  });
+  await assert.rejects(
+    bridge.inspect({ threadId: "thread-1" }),
+    /initialize response is incompatible/,
+  );
+  await bridge.close();
+});
+
 test("queen title synchronization is verified, idempotent, and connection-reusing", async () => {
   const fake = fakeCodexAppServer();
   const bridge = new CodexAppServerBridgeV1({
@@ -323,6 +392,35 @@ test("queen title synchronization detects a preflight title change", async () =>
   assert.equal(
     fake.requests.filter(({ method }) => method === "thread/name/set").length,
     0,
+  );
+  await bridge.close();
+});
+
+test("queen title synchronization canonicalizes legacy web-marker ordering once", async () => {
+  const legacyTitle = "👑 · 🕸️ A1 · Release coordination";
+  const canonicalTitle = "🕸️ A1 👑 · Release coordination";
+  const fake = fakeCodexAppServer({ initialTitle: legacyTitle });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+
+  const synchronized = await bridge.synchronizeQueenTitle({
+    threadId: "queen-1",
+  });
+  assert.equal(synchronized.previousTitle, legacyTitle);
+  assert.equal(synchronized.title, canonicalTitle);
+  assert.equal(synchronized.changed, true);
+  assert.equal(fake.title(), canonicalTitle);
+
+  const replay = await bridge.synchronizeQueenTitle({
+    threadId: "queen-1",
+  });
+  assert.equal(replay.title, canonicalTitle);
+  assert.equal(replay.changed, false);
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "thread/name/set").length,
+    1,
   );
   await bridge.close();
 });
@@ -522,6 +620,45 @@ test("batch input rejects duplicates before starting the app server", async () =
   await bridge.close();
 });
 
+test("wait input bounds reject before starting the app server", async () => {
+  const fake = fakeCodexAppServer();
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+  });
+  const target = { threadId: "worker", afterCursor: null };
+  const cases = [
+    [
+      { targets: [{ ...target, unexpected: true }] },
+      /only threadId and afterCursor/,
+    ],
+    [
+      {
+        targets: Array.from(
+          { length: 9 },
+          (_, index) => ({ threadId: `worker-${index}` }),
+        ),
+      },
+      /between 1 and 8 entries/,
+    ],
+    [
+      { targets: [target, target] },
+      /must not contain duplicate thread IDs/,
+    ],
+    [{ targets: [target], timeoutMs: -1 }, /between 0 and 30000/],
+    [{ targets: [target], timeoutMs: 30_001 }, /between 0 and 30000/],
+    [{ targets: [target], timeoutMs: 1.5 }, /between 0 and 30000/],
+    [{ targets: [target], pollIntervalMs: 49 }, /between 50 and 5000/],
+    [{ targets: [target], pollIntervalMs: 5_001 }, /between 50 and 5000/],
+    [{ targets: [target], pollIntervalMs: 50.5 }, /between 50 and 5000/],
+  ];
+
+  for (const [args, pattern] of cases) {
+    await assert.rejects(bridge.waitForThreads(args), pattern);
+  }
+  assert.equal(fake.spawnCount(), 0);
+  await bridge.close();
+});
+
 test("batch inspection caps read concurrency at four across 16 tasks", async () => {
   const threadIds = Array.from({ length: 16 }, (_, index) => `thread-${index}`);
   const fake = fakeCodexAppServer({
@@ -628,17 +765,86 @@ test("snapshot wait enforces a hard deadline on slow reads", async () => {
   await bridge.close();
 });
 
-test("an uncertain title mutation is never replayed", async () => {
+test("queen title synchronization applies one deadline to its verification read", async () => {
+  const fake = fakeCodexAppServer({ ignoredReadOrdinals: [3] });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    bridge.synchronizeQueenTitle({
+      threadId: "queen-1",
+      deadlineAt: Date.now() + 30,
+    }),
+    /thread\/read timed out/,
+  );
+  assert.ok(Date.now() - startedAt < 500);
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "thread/read").length,
+    3,
+  );
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "thread/name/set").length,
+    1,
+  );
+  assert.equal((await bridge.health()).readRetries, 0);
+  await bridge.close();
+});
+
+test("close rejects an in-flight wait and resets health to idle", async () => {
+  const fake = fakeCodexAppServer({
+    readDelays: { worker: 100 },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const pending = bridge.waitForThreads({
+    targets: [{ threadId: "worker" }],
+    timeoutMs: 500,
+  });
+  while (!fake.requests.some(({ method }) => method === "thread/read")) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  await bridge.close();
+  await assert.rejects(pending, (error) => {
+    assert.equal(error.bridgeCode, "bridge-closed");
+    assert.match(error.message, /bridge closed/);
+    return true;
+  });
+  const health = await bridge.health();
+  assert.equal(health.state, "idle");
+  assert.equal(health.compatible, false);
+  assert.equal(health.version, "0.144.6");
+  assert.equal(health.platformFamily, "unix");
+  assert.equal(health.platformOs, "macos");
+  assert.equal((await bridge.health({ probe: true })).state, "idle");
+  assert.equal(fake.spawnCount(), 1);
+  await assert.rejects(
+    bridge.inspect({ threadId: "worker" }),
+    /bridge is closed/,
+  );
+});
+
+test("an uncertain title mutation respects its deadline and is never replayed", async () => {
   const fake = fakeCodexAppServer({ ignoreNameSetCount: 1 });
   const bridge = new CodexAppServerBridgeV1({
     spawnProcess: fake.spawnProcess,
-    requestTimeoutMs: 25,
+    requestTimeoutMs: 1_000,
   });
+  const startedAt = Date.now();
 
   await assert.rejects(
-    bridge.synchronizeQueenTitle({ threadId: "queen-1" }),
+    bridge.synchronizeQueenTitle({
+      threadId: "queen-1",
+      deadlineAt: Date.now() + 30,
+    }),
     /thread\/name\/set timed out/,
   );
+  assert.ok(Date.now() - startedAt < 500);
   assert.equal(
     fake.requests.filter(({ method }) => method === "thread/name/set").length,
     1,

@@ -161,8 +161,10 @@ reuse of an `intentId` with different inputs.
      not commit.
 4. **Mark the queen, then verify seeded child titles.** When a valid plan
    contains a durable spinoff, the MCP planner uses its lazy app-server bridge
-   to read the current task title, idempotently prefix it with `👑 ·`, and
-   verify the mutation before returning any launch action. A failed inspection,
+   to read the current task title, preserve its web-lineage markers, render the
+   crown in canonical order (`[🕸️ inbound] [🕷️ outbound] [👑] · base title`),
+   and verify the mutation before returning any launch action. Legacy titles
+   with an outer crown are normalized into that order. A failed inspection,
    preflight title change, rename, or verification makes the planning tool fail
    closed. Codex `0.144.x` offers no title compare-and-set, so a simultaneous
    manual Desktop rename during the final read/write window is unsupported.

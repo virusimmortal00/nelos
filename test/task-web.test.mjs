@@ -33,6 +33,7 @@ test("web title parsing makes rendering idempotent", () => {
     baseTitle: "Documentation",
     inboundWebId: "B2",
     outboundWebId: "B2.1",
+    queenMarked: false,
   });
   assert.equal(
     renderWebTitle({
@@ -44,12 +45,97 @@ test("web title parsing makes rendering idempotent", () => {
   );
 });
 
+test("crown and web markers share one idempotent topology-preserving grammar", () => {
+  const title = "🕸️ B2 🕷️ B2.1 👑 · Documentation";
+  assert.deepEqual(parseWebTitle(title), {
+    baseTitle: "Documentation",
+    inboundWebId: "B2",
+    outboundWebId: "B2.1",
+    queenMarked: true,
+  });
+  assert.equal(
+    renderWebTitle({
+      baseTitle: title,
+      inboundWebId: "B2",
+      outboundWebId: "B2.1",
+    }),
+    title,
+  );
+});
+
+test("legacy outer crowns normalize after web markers without duplication", () => {
+  const canonical = "🕸️ A1 🕷️ A1.1 👑 · Documentation";
+  for (const legacy of [
+    "👑 · 🕸️ a1 🕷️ a1.1 · Documentation",
+    "🕸️ a1 🕷️ a1.1 · 👑 · Documentation",
+    "👑 · 👑 · 🕸️ a1 🕷️ a1.1 · 👑 · Documentation",
+  ]) {
+    assert.deepEqual(parseWebTitle(legacy), {
+      baseTitle: "Documentation",
+      inboundWebId: "A1",
+      outboundWebId: "A1.1",
+      queenMarked: true,
+    });
+    assert.equal(
+      renderWebTitle({
+        baseTitle: legacy,
+        inboundWebId: "a1",
+        outboundWebId: "a1.1",
+      }),
+      canonical,
+    );
+  }
+});
+
+test("explicit crown state preserves or removes the marker deterministically", () => {
+  assert.equal(
+    renderWebTitle({
+      baseTitle: "Documentation",
+      inboundWebId: "A1",
+      outboundWebId: "A1.1",
+      queenMarked: true,
+    }),
+    "🕸️ A1 🕷️ A1.1 👑 · Documentation",
+  );
+  assert.equal(
+    renderWebTitle({
+      baseTitle: "🕸️ A1 🕷️ A1.1 👑 · Documentation",
+      inboundWebId: "A1",
+      outboundWebId: "A1.1",
+      queenMarked: false,
+    }),
+    "🕸️ A1 🕷️ A1.1 · Documentation",
+  );
+  assert.throws(
+    () => renderWebTitle({ baseTitle: "Documentation", queenMarked: "true" }),
+    /queenMarked must be a boolean/,
+  );
+});
+
+test("marker-only titles parse explicitly and cannot be rendered", () => {
+  assert.deepEqual(parseWebTitle("🕷️ A1 👑 ·"), {
+    baseTitle: "",
+    inboundWebId: null,
+    outboundWebId: "A1",
+    queenMarked: true,
+  });
+  assert.throws(
+    () =>
+      renderWebTitle({
+        baseTitle: "🕷️ A1 👑 ·",
+        outboundWebId: "A1",
+      }),
+    /task title must not be empty/,
+  );
+});
+
 test("lowercase web IDs normalize without duplicating title markers", () => {
   const title = "🕸️ a1 🕷️ a1.1 · Documentation";
   assert.deepEqual(parseWebTitle(title), {
     baseTitle: "Documentation",
     inboundWebId: "A1",
     outboundWebId: "A1.1",
+    queenMarked: false,
   });
   assert.equal(
     renderWebTitle({

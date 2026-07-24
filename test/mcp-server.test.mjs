@@ -763,6 +763,67 @@ test("thread waits serialize with each other without blocking later MCP requests
   assert.equal(maxConcurrentWaits, 1);
 });
 
+test("a wait receives a JSON-RPC error when prerequisite handling fails", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks = [];
+  output.on("data", (chunk) => chunks.push(chunk));
+  const write = output.write.bind(output);
+  let writes = 0;
+  output.write = (chunk, ...args) => {
+    writes += 1;
+    if (writes === 2) {
+      throw new Error("simulated prior response failure");
+    }
+    return write(chunk, ...args);
+  };
+  let waitCalls = 0;
+  const exited = new Promise((resolve) => {
+    startNelosMcpServer({
+      input,
+      output,
+      serverVersion: "0.0.0-test",
+      onExit: resolve,
+      appServerBridge: {
+        async waitForThreads() {
+          waitCalls += 1;
+          return { schemaVersion: 1, status: "timeout", snapshots: [] };
+        },
+      },
+    });
+  });
+
+  for (const message of [
+    INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "ping" },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "nelos_thread_wait",
+        arguments: { targets: [{ threadId: "child-1" }] },
+      },
+    },
+  ]) {
+    input.write(`${JSON.stringify(message)}\n`);
+  }
+  input.end();
+
+  assert.equal(await exited, 0);
+  const responses = Buffer.concat(chunks)
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(responses.map(({ id }) => id), [1, 3]);
+  assert.deepEqual(responses[1].error, {
+    code: -32603,
+    message: "internal wait scheduling failure",
+  });
+  assert.equal(waitCalls, 0);
+});
+
 test("nelos_app_server_health forwards the probe and bounded telemetry", async () => {
   const health = {
     schemaVersion: 1,
