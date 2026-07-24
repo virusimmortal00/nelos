@@ -148,6 +148,21 @@ These ideas are intentionally outside the compact-hierarchy slice:
 Any future task mutation or task-history exposure needs its own explicit
 permission design, confirmation path, and audit model.
 
+## Proposed Adaptive Intelligence Routing
+
+- Instrument current route decisions with stable identity and content-free
+  outcome observations before changing launch behavior.
+- Replace the three-way task-shape input with an evidence-backed task profile,
+  retaining a compatibility translation for persisted plans.
+- Add live host-capability filtering, a versioned deterministic scorecard,
+  independent model/effort selection, alternatives, and confidence.
+- Run the new policy in shadow and advisory modes before making it the default.
+- Add evidence-specific bounded escalation and empirical calibration only after
+  evaluation and rollback gates are in place.
+
+See [Adaptive Intelligence Routing](intelligence-routing-v2.md) for contracts,
+module boundaries, safety rules, and rollout criteria.
+
 ## Done
 
 - Complete the executable-web golden loop: deterministic durable spinoffs,
