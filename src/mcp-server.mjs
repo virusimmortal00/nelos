@@ -13,12 +13,19 @@ import {
   MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
   McpJoinAdapterV1,
 } from "./mcp-observation.mjs";
+import {
+  CodexAppServerBridgeV1,
+  MCP_APP_SERVER_MAX_BATCH_THREADS,
+  MCP_APP_SERVER_MAX_WAIT_MS,
+  MCP_APP_SERVER_MAX_WAIT_THREADS,
+} from "./mcp-app-server-bridge.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
 // newline-delimited JSON-RPC over stdio, the framing the Codex host was
-// observed to use (codex-cli 0.144.6). The original tools remain read-only;
-// orchestration writes private execution state and returns a callback effect.
+// observed to use (codex-cli 0.144.6). The planner owns one narrowly scoped
+// queen-title mutation through a lazy Codex app-server child; inspection is
+// bounded and read-only. Orchestration otherwise remains callback-driven.
 
 export const MCP_SERVER_NAME = "nelos";
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
@@ -43,7 +50,8 @@ const TOOLS = [
     description:
       "Validate a queen-authored slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
-      "machine-generated nextAction. Equivalent to `nelos plan slices`.",
+      "machine-generated nextAction. Plans containing spinoffs first " +
+      "synchronize and verify the current queen title through Codex.",
     inputSchema: {
       type: "object",
       properties: {
@@ -59,11 +67,158 @@ const TOOLS = [
       required: ["plan"],
       additionalProperties: false,
     },
-    async run(args) {
-      return withNextAction({
-        command: "plan slices",
-        plan: planWorkSlices(args.plan),
-      });
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge }) {
+      const plan = planWorkSlices(args.plan);
+      const queenTitleSync =
+        plan.summary.spinoffs > 0
+          ? await appServerBridge.synchronizeQueenTitle()
+          : null;
+      return {
+        ...withNextAction({
+          command: "plan slices",
+          plan,
+        }),
+        ...(queenTitleSync ? { queenTitleSync } : {}),
+      };
+    },
+  },
+  {
+    name: "nelos_thread_inspect",
+    description:
+      "Read bounded metadata for one Codex task through the MCP-owned " +
+      "app-server bridge. Returns no prompts, previews, turns, or transcripts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: {
+          type: "string",
+          description: "Task/thread ID; defaults to the current Codex task",
+        },
+      },
+      additionalProperties: false,
+    },
+    async run(args, { appServerBridge }) {
+      return {
+        command: "thread inspect",
+        thread: await appServerBridge.inspect({
+          threadId: args.threadId ?? undefined,
+        }),
+      };
+    },
+  },
+  {
+    name: "nelos_thread_inventory",
+    description:
+      "Inspect up to 16 explicit Codex tasks concurrently and optionally " +
+      "project authoritative direct parent edges. Partial read failures are " +
+      "bounded per task; no turns, prompts, previews, or transcripts are returned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: MCP_APP_SERVER_MAX_BATCH_THREADS,
+          uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 512 },
+          description: "Unique task/thread IDs in desired output order",
+        },
+        includeTopology: {
+          type: "boolean",
+          description: "Include direct parent edges among successful tasks",
+        },
+      },
+      required: ["threadIds"],
+      additionalProperties: false,
+    },
+    async run(args, { appServerBridge }) {
+      return {
+        command: "thread inventory",
+        inventory: await appServerBridge.inspectMany({
+          threadIds: args.threadIds,
+          includeTopology: args.includeTopology ?? true,
+        }),
+      };
+    },
+  },
+  {
+    name: "nelos_thread_wait",
+    description:
+      "Perform bounded current-state polling for up to eight Codex tasks. " +
+      "Nelos snapshot cursors suppress unchanged snapshots; they are not " +
+      "native event cursors and do not prove completion or result provenance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        targets: {
+          type: "array",
+          minItems: 1,
+          maxItems: MCP_APP_SERVER_MAX_WAIT_THREADS,
+          items: {
+            type: "object",
+            properties: {
+              threadId: {
+                type: "string",
+                minLength: 1,
+                maxLength: 512,
+              },
+              afterCursor: {
+                type: ["string", "null"],
+                minLength: 1,
+                maxLength: 512,
+              },
+            },
+            required: ["threadId"],
+            additionalProperties: false,
+          },
+        },
+        timeoutMs: {
+          type: "integer",
+          minimum: 0,
+          maximum: MCP_APP_SERVER_MAX_WAIT_MS,
+        },
+        pollIntervalMs: {
+          type: "integer",
+          minimum: 50,
+          maximum: 5_000,
+        },
+      },
+      required: ["targets"],
+      additionalProperties: false,
+    },
+    async run(args, { appServerBridge }) {
+      return {
+        command: "thread wait",
+        wait: await appServerBridge.waitForThreads({
+          targets: args.targets,
+          timeoutMs: args.timeoutMs ?? 0,
+          pollIntervalMs: args.pollIntervalMs ?? 250,
+        }),
+      };
+    },
+  },
+  {
+    name: "nelos_app_server_health",
+    description:
+      "Report bounded, content-free compatibility and connection telemetry " +
+      "for Nelos's Codex app-server bridge. An optional probe performs only " +
+      "the initialization handshake.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        probe: {
+          type: "boolean",
+          description: "Initialize the bridge before reporting health",
+        },
+      },
+      additionalProperties: false,
+    },
+    async run(args, { appServerBridge }) {
+      return {
+        command: "app-server health",
+        health: await appServerBridge.health({ probe: args.probe === true }),
+      };
     },
   },
   {
@@ -206,6 +361,7 @@ export function startNelosMcpServer({
   onExit = (code) => process.exit(code),
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
+  appServerBridge = new CodexAppServerBridgeV1(),
 } = {}) {
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -221,6 +377,7 @@ export function startNelosMcpServer({
     let result;
     try {
       result = await tool.run(assertToolArguments(tool, params.arguments), {
+        appServerBridge,
         orchestrationAdapter,
         joinAdapter,
       });
@@ -290,6 +447,7 @@ export function startNelosMcpServer({
 
   let buffer = "";
   let processing = Promise.resolve();
+  let waitProcessing = Promise.resolve();
   input.setEncoding("utf8");
   input.on("data", (chunk) => {
     buffer += chunk;
@@ -312,11 +470,29 @@ export function startNelosMcpServer({
         process.stderr.write("nelos-mcp: ignored unparseable message\n");
         continue;
       }
-      // Serialize handling so responses keep request order.
-      processing = processing.then(() => handle(message));
+      if (
+        message.method === "tools/call" &&
+        message.params?.name === "nelos_thread_wait"
+      ) {
+        // A bounded wait may run beside later requests. JSON-RPC permits
+        // out-of-order responses, while stateful non-wait operations retain
+        // their existing serialized ordering. Waits serialize with each other
+        // so their per-call read bounds cannot multiply without limit.
+        waitProcessing = Promise.all([processing, waitProcessing])
+          .then(() => handle(message))
+          .catch(() => {
+            process.stderr.write(
+              "nelos-mcp: wait request failed unexpectedly\n",
+            );
+          });
+      } else {
+        processing = processing.then(() => handle(message));
+      }
     }
   });
   input.on("end", () => {
-    processing.then(() => onExit(0));
+    Promise.allSettled([processing, waitProcessing])
+      .then(() => appServerBridge.close?.())
+      .then(() => onExit(0));
   });
 }

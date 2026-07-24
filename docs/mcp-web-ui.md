@@ -1,7 +1,9 @@
 # Future Host Integration
 
-Status: not implemented; no live-state integration is shipped in the
-installed plugin.
+Status: broad live-state UI integration is not implemented. The installed
+plugin has only bounded task inspection/polling, direct-parent projection, and
+queen-title synchronization described in
+[MCP tool surface](mcp-tool-surface.md).
 
 Nelos's current product surface is the queen skill, the offline planner
 and router, the native Codex task lifecycle, and locally synchronized web
@@ -10,16 +12,12 @@ the plugin cannot safely read on ordinary installations.
 
 ## Scope: live host state, not tool transport
 
-This gate governs anything that reads **live host state** — Desktop threads,
-turns, or lifecycle — from the installed plugin. It does not govern MCP as a
-transport. The plugin ships a bundled MCP server whose tools are strictly
-socket-free: three read-only tools (the offline planner, router, and bounded
-local runtime-intelligence verification) plus stateful callback-only adapters
-that journal native-create intent, refuse blind create replay, and advance
-strict title/wait/result observations through host-owned effects. That surface
-is specified in [MCP tool surface](mcp-tool-surface.md) and reads no live host
-state directly. Any tool that would contact an app server belongs to this gate,
-not to that surface.
+This gate governs broad **live host state** exposure—turns, lifecycle streams,
+dashboards, or general-purpose controls—from the installed plugin. It does not
+govern MCP as a transport or the narrowly allowlisted app-server operations
+already specified in [MCP tool surface](mcp-tool-surface.md). Those operations
+read bounded task metadata and synchronize one current-task title; they expose
+no turns, prompts, transcripts, socket endpoint, or UI.
 
 ## Host Capability Required
 
@@ -51,11 +49,10 @@ demonstrated on a fresh Desktop task:
    in the Desktop sidebar.
 4. Disconnects, endpoint rotation, archived tasks, and denied access render as
    explicit unavailable states rather than stale or invented activity.
-5. The host remains the sole owner of process startup, permissions, and
-   shutdown.
+5. Process ownership, permissions, and shutdown are explicit and testable.
 
 The earlier prototype was intentionally removed from the source tree as well
 as the distributed plugin. Git history retains it for future reference. The
-later socket-free tool surface is not a reintroduction of that prototype: it
-exposes no live host state and passes none of the above gates, because it
-needs none of them.
+later bounded tool surface is not a reintroduction of that prototype: it has no
+UI or general-purpose state exposure and is governed by its own narrow allowlist
+and fail-closed contract.

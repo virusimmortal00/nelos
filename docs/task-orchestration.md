@@ -75,11 +75,14 @@ state.
 
 An MCP server does not automatically inherit the Codex host's native task
 tools, and it cannot call a sibling tool merely because the model can see that
-tool. Without a host-provided control endpoint, task creation, title mutation,
-native waiting, reads, follow-ups, and archival remain explicit `nativeEffect`
-callbacks executed by the agent. If Codex later injects an authorized
-host-owned endpoint, the same reducer can execute those effects internally and
-offer a single `nelos_orchestration_run` tool.
+tool. Nelos now starts a separate stdio app-server lazily for bounded task
+inspection, batched current-state polling, direct-parent topology projection,
+and current-queen title synchronization. The polling cursor is Nelos-owned and
+does not claim native event replay or result provenance. Task creation,
+follow-ups, archival, durable result collection, and other unverified effects
+remain explicit `nativeEffect` callbacks executed by the agent. Each additional
+migration requires its own capability, permission, concurrency, and failure
+contract.
 
 Local CLI and app-server processes that use the same Codex home write to the
 shared session inventory, so tasks they create can be discovered in Desktop.
@@ -97,9 +100,9 @@ path only for capabilities verified across both processes, and retain native
 effects for host-only operations.
 
 The Nelos MCP server previously exposed only three socket-free, read-only
-tools. The orchestration tools added here are therefore a deliberate MCP
-permission and persistence expansion, not something hidden inside the prior
-read-only contract.
+tools. Orchestration state and the narrowly scoped app-server bridge are
+therefore deliberate MCP permission expansions, not behavior hidden inside the
+prior read-only contract.
 
 ## State Model
 
@@ -156,8 +159,16 @@ reuse of an `intentId` with different inputs.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Verify the seeded title as soon as a `threadId` exists.** Every launch
-   prompt starts with `Task title: <short intended title>`. Observe the settled
+4. **Mark the queen, then verify seeded child titles.** When a valid plan
+   contains a durable spinoff, the MCP planner uses its lazy app-server bridge
+   to read the current task title, idempotently prefix it with `👑 ·`, and
+   verify the mutation before returning any launch action. A failed inspection,
+   preflight title change, rename, or verification makes the planning tool fail
+   closed. Codex `0.144.x` offers no title compare-and-set, so a simultaneous
+   manual Desktop rename during the final read/write window is unsupported.
+   Child launch
+   prompts retain their semantic titles and start with
+   `Task title: <short intended title>`. Once a child exists, observe its settled
    native title first. Exact equality completes title synchronization without a
    mutation. Only a mismatch emits an idempotent native rename followed by
    verification. A title failure changes only `titleState`; it does not relaunch

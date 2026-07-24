@@ -1,5 +1,17 @@
 export const TASK_TITLE_PROMPT_PREFIX = "Task title:";
 export const RECOMMENDED_SEEDED_TITLE_CHARACTERS = 48;
+export const QUEEN_TITLE_PREFIX = "👑 ·";
+
+export function renderQueenTitle(title) {
+  if (typeof title !== "string" || !title.trim()) {
+    throw new Error("task launch title must be a non-empty string");
+  }
+  const baseTitle = title.trim().replace(/^👑(?:\s*·)?\s*/u, "").trim();
+  if (!baseTitle) {
+    throw new Error("task launch title must include text after the queen marker");
+  }
+  return `${QUEEN_TITLE_PREFIX} ${baseTitle}`;
+}
 
 export function taskTitlePromptLine(title) {
   if (typeof title !== "string" || !title.trim()) {

@@ -1,7 +1,7 @@
 # ADR: MCP tool surface for the marketplace plugin
 
-Status: accepted July 2026; launch mechanics pinned to behavior observed on
-`codex-cli 0.144.6`.
+Status: accepted July 2026, amended 2026-07-24; launch mechanics and app-server
+protocol pinned to behavior observed on `codex-cli 0.144.6`.
 
 ## Decision
 
@@ -10,10 +10,33 @@ marketplace install is self-sufficient. The skill calls named tools instead of
 a `nelos` shell command; the CLI remains a developer and automation surface
 installed separately via the distribution installer.
 
-The MCP surface is limited to **socket-free** operations — commands that never
-open an app-server control endpoint:
+Most MCP operations remain local and socket-free. Two deliberately scoped
+operations now use one lazily started, long-lived
+`codex app-server --stdio` child:
 
-- `nelos_plan_slices` — the offline slice planner (pure computation);
+- `nelos_plan_slices` — validates and computes the plan locally. When the plan
+  contains at least one spinoff, it reads the current task, idempotently prefixes
+  its settled title with `👑 ·`, and verifies the persisted title before
+  returning a launch action. A subagent-only plan does not start the bridge;
+- `nelos_thread_inspect` — reads one task by ID (defaulting to the current
+  `CODEX_THREAD_ID`) and returns only bounded identity, title, status, working
+  directory, parent, and timestamp fields. It requests no turns and never
+  returns previews, prompts, or transcripts;
+- `nelos_thread_inventory` — concurrently reads 1–16 unique caller-supplied
+  task IDs with four reads maximum in flight, preserves caller order, returns
+  bounded per-task failures, and optionally projects only authoritative direct
+  parent edges among successful reads;
+- `nelos_thread_wait` — polls current state for 1–8 known tasks for at most 30
+  seconds total. `timeoutMs` controls the change-poll window; an initial
+  inspection may use up to five seconds of bounded I/O allowance, while the
+  whole call remains capped at 30 seconds. Deterministic Nelos snapshot cursors
+  suppress unchanged snapshots; attention flags or any changed snapshot wake
+  the call. Wait calls run beside later MCP requests, so they do not block
+  ping, health, or unrelated tools; wait calls themselves are serialized so
+  their per-call read bounds cannot multiply without limit;
+- `nelos_app_server_health` — reports content-free compatibility, version,
+  connection, batch, poll, retry, and mutation-attempt telemetry. With
+  `probe: true`, it performs only the initialization handshake;
 - `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
@@ -31,14 +54,13 @@ open an app-server control endpoint:
   and result receipts, and returns typed host-owned effects. See
   [Durable Host Observation and Parent Join](observation-join.md).
 
-The original three tools remain explicitly read-only. Both orchestration tools
-are explicitly non-read-only and idempotent: they write private Nelos state
-but do not themselves perform native host effects. Tools that would contact
-an app server remain out of scope here and stay behind the
-reintroduction gate in [Future Host Integration](mcp-web-ui.md). This ADR does
-not reverse the earlier removal of the MCP/UI prototype: that removal retired
-a live-state surface the plugin could not safely read; this surface reads no
-live host state at all.
+Thread inspection, routing, and verification are explicitly read-only. Planning
+is non-read-only and idempotent because a spinoff plan may synchronize the queen
+title. Both orchestration tools remain non-read-only and idempotent: they write
+private Nelos state but do not themselves perform native host effects. This
+small bridge does not restore the retired MCP/UI prototype; it exposes no web
+server, task dashboard, transcript surface, or general-purpose app-server
+proxy.
 
 ## Why not the alternatives
 
@@ -79,6 +101,51 @@ rounds; repro and findings preserved with the draft upstream issue):
 - `HOME` and `PATH` are present and sane; `CODEX_HOME` is absent, so sessions
   resolution uses the conventional `~/.codex` fallback.
 
+Additional app-server behavior was verified on 2026-07-24:
+
+- the Codex desktop app runs its own `app-server` child over private pipes;
+- a separately started `codex app-server --stdio` process can read the same
+  persisted task identified by `CODEX_THREAD_ID`;
+- the generated protocol schema exposes `thread/read` and
+  `thread/name/set`; and
+- the separate process shares persisted Codex task state, but does not attach
+  to or reuse the desktop app's private transport.
+
+## Experimental protocol compatibility
+
+Codex does not currently advertise an app-server method list during
+initialization. Nelos therefore treats the checked-in compact fixture generated
+by `codex app-server generate-json-schema --experimental` as the capability
+attestation. The relevant initialization, `thread/read`, `thread/name/set`,
+thread-status, and active-flag shapes are identical in public stable `0.144.5`
+and Desktop `0.144.6`; both are supported. The bridge parses the version from
+the initialized server's `userAgent` and rejects unknown versions before any
+thread operation.
+
+Read transport failures receive exactly one reconnect and replay. A second
+failure is returned. Mutations are attempted once and are never replayed after
+a timeout, disconnect, or malformed response. The health tool exposes only
+bounded counters, compatibility state, platform labels, version, required
+methods, and classified failure codes—never raw stderr or task content.
+
+Codex `0.144.x` has no native wait method, notification cursor, sequence,
+replay token, or catch-up request. `nelos_thread_wait` therefore polls
+`thread/read`; its `snapshot-v1:` cursor is a hash of the allowlisted current
+status, flags, and update timestamp. It cannot prove that an intermediate state
+was never missed, and `idle` is quiescence—not successful completion or result
+provenance. A deadline-limited read is canceled locally and any later response
+is ignored; this does not terminate the shared app-server connection or block
+other MCP requests. Result collection continues through the durable
+observation/join contract.
+
+The same protocol exposes no title compare-and-set field or expected revision.
+Queen synchronization therefore performs two preflight title reads, aborts if
+they disagree, writes once, and verifies the result. Nelos serializes its own
+non-wait MCP operations, but it cannot make an independent manual Desktop
+rename atomic with that write. Operators must not manually rename the current
+task during this short synchronization window; adding true concurrent-writer
+safety is explicitly gated on a future versioned CAS or revision precondition.
+
 ## Launch mechanism: inline self-locating bootstrap
 
 Because no supported mechanism lets a bundled server reference its own files,
@@ -105,27 +172,36 @@ probe repro.
 
 ## Trust model
 
-The planner, router, and verifier advertise `readOnlyHint: true`; verification
-performs bounded reads of local rollout metadata (never prompts or transcripts,
-per `src/runtime-intelligence-verification.mjs`). Orchestration advertises
-`readOnlyHint: false`, `destructiveHint: false`, and `idempotentHint: true`.
+Thread inspection, routing, and verification advertise `readOnlyHint: true`.
+Planning advertises `readOnlyHint: false`, `destructiveHint: false`, and
+`idempotentHint: true`; its sole host mutation is `thread/name/set` for the
+current queen title. Validation completes before that mutation, and any read,
+rename, or verification uncertainty fails closed before a launch action is
+returned. Verification performs bounded reads of local rollout metadata (never
+prompts or transcripts, per `src/runtime-intelligence-verification.mjs`).
+Orchestration advertises `readOnlyHint: false`, `destructiveHint: false`, and
+`idempotentHint: true`.
 Creation writes atomic private execution records through `ExecutionStoreV1`;
 observation writes a separate revision-checked web checkpoint.
 One work-unit decision is protected by a cross-process state lock so
 conflicting callbacks cannot both bind independent store instances.
 
-The server opens no sockets and spawns no processes. Native creation remains a
-host-owned effect: the server returns a deterministic action ID, and it accepts
-only an exact receipt containing that action identity and a bounded member
-thread ID. Receipt shape, revision, attempt, and action identity are validated
-before a state transition. Stale receipts and a second thread ID for an already
-bound action fail closed. The requested title is carried in a complete launch
-prompt whose first line is `Task title: <short intended title>`. After binding,
-the adapter emits a read-only title observation. The observation adapter emits
-a rename only when that native title differs, advances opaque wait cursors,
-validates current-turn result
-provenance, and returns a deterministic parent boundary. App-server transport
-remains outside this surface.
+The server opens no sockets. It starts at most one app-server child on first
+inspection, health probe, or required title synchronization, completes the
+experimental API handshake and version check, reuses the child for subsequent
+requests, and closes it when MCP stdin ends. Responses and errors are
+size-bounded. Protocol failures fail closed.
+
+Native creation remains a host-owned effect: the server returns a deterministic
+action ID, and it accepts only an exact receipt containing that action identity
+and a bounded member thread ID. Receipt shape, revision, attempt, and action
+identity are validated before a state transition. Stale receipts and a second
+thread ID for an already bound action fail closed. The requested child title is
+carried undecorated in a complete launch prompt whose first line is
+`Task title: <short intended title>`. After binding, the callback adapter emits
+a read-only title observation and an idempotent rename effect only on mismatch.
+It also advances opaque wait cursors, validates current-turn result provenance,
+and returns a deterministic parent boundary.
 
 ## Callback contract
 

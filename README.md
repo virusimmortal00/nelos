@@ -73,19 +73,24 @@ No installer, no manual copying, no `PATH` changes.
 
 Nelos is one Codex plugin with two parts:
 
-- **A socket-free MCP server.** Three tools are pure, read-only computation:
-  `nelos_plan_slices` (dependency-safe parallel waves), `nelos_intelligence_route`
-  (the smart model + reasoning router), and `nelos_intelligence_verify` (confirms a
-  task ran on the model and effort it was routed to, failing closed). Two
-  callback-only orchestration tools (`nelos_orchestrate_create`,
-  `nelos_orchestrate_advance`) durably journal a single native task-create and
-  drive a title/wait/result checkpoint — without ever opening a socket or running
-  a native effect themselves.
+- **An MCP server with a scoped Codex app-server bridge.**
+  `nelos_plan_slices` plans dependency-safe waves and, when the plan contains
+  spinoffs, automatically marks the current task as the queen (`👑 · …`) before
+  returning a launch action. The bridge detects a title change during its
+  preflight reads; Codex `0.144.x` has no compare-and-set title operation, so a
+  simultaneous manual Desktop rename is not supported. `nelos_thread_inspect`
+  exposes bounded, read-only
+  task metadata; `nelos_thread_inventory` batches known IDs and projects direct
+  parent edges; `nelos_thread_wait` performs bounded current-state polling; and
+  `nelos_app_server_health` reports content-free compatibility telemetry. The
+  intelligence router and verifier remain read-only, while the two callback
+  orchestration tools durably journal native task effects. The bridge starts one
+  `codex app-server --stdio` child lazily and never exposes prompts, turns, or
+  transcripts.
 - **A skill** — `manage-nelos-tasks`, the playbook that decides when a slice is a
   quick **subagent** or a durable **spinoff** and executes each tool's next action.
 
-Native lifecycle effects stay with Codex's own task tools, so spinoffs are
-ordinary top-level threads on the **app server** — visible and steerable in the
+Spinoffs remain ordinary top-level Codex tasks—visible and steerable in the
 desktop sidebar while Nelos coordinates. Nelos plans and coordinates; you still
 own Git branches, merges, and final review.
 

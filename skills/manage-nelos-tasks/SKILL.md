@@ -46,7 +46,9 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
   `nativeTask`, and generated `prompt`. `create-thread` launches a durable
   spinoff; `spawn-subagent` launches a bounded joined subagent. Never translate
-  these fields by inference.
+  these fields by inference. For plans containing a spinoff, the planning tool
+  has already prefixed and verified the current queen title with `👑 ·`; a tool
+  error means stop before launch. Child titles remain exact and undecorated.
   The generated prompt begins with `Task title: <short intended title>` so
   Desktop can assign the intended title during creation. After the task ID
   resolves, observe its settled native title. If it matches, do not rename it;
@@ -62,8 +64,8 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   the wave. A subagent launcher result without a native child `threadId` is
   `attention`; never bind its agent name as though it were a thread ID.
   Do not launch a later wave until required current results are accepted.
-- `native-wait` and `native-read`: use the native multi-task wait or read tool
-  with the supplied IDs. Never serially poll a web.
+- `native-wait` and `native-read`: use native controls for receipts; for checks
+  call `nelos_thread_wait`, then `nelos_thread_inventory`. Never serially poll a web.
 - `attach-native-task-options`: pass the returned `nativeTask` object unchanged
   to the next native launch and apply the same exact-route verification.
 - `decide`: author the slice plan or decide whether current evidence satisfies

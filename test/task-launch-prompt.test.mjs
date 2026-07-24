@@ -2,9 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  renderQueenTitle,
   buildTaskLaunchPromptV1,
   createTaskResultTemplateV1,
 } from "../src/task-launch-prompt.mjs";
+
+test("queen titles are visibly marked and idempotent", () => {
+  assert.equal(renderQueenTitle("Research"), "👑 · Research");
+  assert.equal(renderQueenTitle(" 👑 · Research "), "👑 · Research");
+  assert.equal(renderQueenTitle("👑 Research"), "👑 · Research");
+  assert.throws(
+    () => renderQueenTitle("👑"),
+    /must include text after the queen marker/,
+  );
+});
 
 function prompt(overrides = {}) {
   return buildTaskLaunchPromptV1({
