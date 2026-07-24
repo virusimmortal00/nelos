@@ -92,6 +92,10 @@ precision should be introduced only after calibration data exists.
     "value": "medium",
     "evidence": ["No prior implementation is identified"]
   },
+  "crossDomainJudgment": {
+    "value": "high",
+    "evidence": ["The decision spans storage, security, and user experience"]
+  },
   "consequence": {
     "value": "high",
     "evidence": ["The change affects persisted user data"]
@@ -127,7 +131,7 @@ Initial enums:
 
 | Field | Values |
 | --- | --- |
-| ambiguity, novelty, consequence | `low`, `medium`, `high` |
+| ambiguity, novelty, crossDomainJudgment, consequence | `low`, `medium`, `high` |
 | reversibility, verificationStrength | `low`, `medium`, `high` |
 | contextSize | `small`, `medium`, `large` |
 | toolComplexity | `low`, `medium`, `high` |
@@ -169,10 +173,19 @@ current host observation:
 }
 ```
 
-The snapshot is capability evidence, not a durable entitlement. Give it a
-short maximum age and recheck at launch. If no snapshot is available, the
-policy may issue an advisory recommendation, but exact launch behavior remains
-fail-closed.
+The snapshot is capability evidence, not a durable entitlement. Capability
+policy v1 uses a maximum age of 10 minutes and permits at most 60 seconds of
+positive clock skew. Age is computed from the policy evaluator's UTC clock:
+
+- an invalid timestamp or one more than 60 seconds in the future is invalid;
+- a timestamp up to 60 seconds in the future is treated as age zero;
+- an age from zero through 10 minutes, inclusive, is current;
+- an age greater than 10 minutes is stale.
+
+Only a current snapshot may filter executable candidates. An invalid, stale, or
+missing snapshot may support an explicitly advisory recommendation, but an
+executable recommendation returns `attention`. Launch must obtain a fresh
+observation and remains fail-closed; it never substitutes a catalog route.
 
 This removes wire-value guesses such as `xhigh` from the launch path when the
 host does not explicitly advertise them.
@@ -207,7 +220,7 @@ Examples of conservative policy rules:
 - High consequence plus low reversibility cannot use the efficient model band.
 - Strong deterministic verification may lower effort by one band for routine,
   reversible work.
-- Low profile confidence raises one dimension or returns `attention`.
+- Low task-profile confidence raises one dimension or returns `attention`.
 
 The exact table belongs in versioned data so policy changes are reviewed
 separately from routing code.
@@ -231,10 +244,13 @@ The engine should return the whole decision, not merely the winner:
 ```json
 {
   "schemaVersion": 3,
-  "decisionId": "route:...",
+  "routeDecisionId": "route:...",
+  "parentRouteDecisionId": null,
   "policyVersion": 3,
   "catalogVersion": "openai-...",
   "profileSource": "queen-authored",
+  "modelSelection": "recommended",
+  "effortSelection": "recommended",
   "selected": {
     "model": "gpt-5.6-sol",
     "effort": "high"
@@ -257,8 +273,14 @@ The engine should return the whole decision, not merely the winner:
       "thinking": "high"
     }
   },
+  "authorizations": {
+    "safetyFloorBypass": null,
+    "nativeFanout": null
+  },
   "escalationPolicy": {
+    "maxAttempts": 3,
     "maxRouteChanges": 1,
+    "onExhausted": "queen-review",
     "on": ["queen-rejected", "verification-inconclusive"],
     "next": {
       "model": "gpt-5.6-sol",
@@ -267,6 +289,13 @@ The engine should return the whole decision, not merely the winner:
   }
 }
 ```
+
+`routeDecisionId` is a routing identity, distinct from the existing queen
+acceptance `decisionId`. A root recommendation has
+`parentRouteDecisionId: null`; every escalated recommendation names the
+immediately preceding `routeDecisionId`. `modelSelection` and
+`effortSelection` each use `inherit`, `recommended`, or `override`, preserving
+the current per-dimension provenance.
 
 ## Overrides and Safety
 
@@ -281,13 +310,36 @@ catalog and live-capability validation. The decision record should preserve
 which dimensions were overridden and which were recommended.
 
 High-consequence safety floors should not be silently bypassed. An override
-below a floor must either:
+below a floor must carry a validated safety-floor authorization or fail with
+`attention`. Ultra remains a separate execution policy because it changes
+fan-out behavior, not merely reasoning intensity, and requires a validated
+native-fan-out authorization.
 
-- carry an explicit `allowBelowSafetyFloor` authorization with a reason; or
-- fail with `attention`.
+Neither a worker, queen-authored profile, task prompt, nor untrusted MCP caller
+may self-authorize these controls. The trusted boundary is an explicit user
+decision captured by a host-owned authorization receipt, or a host policy
+receipt whose configured authority explicitly covers the control. Each
+authorization record must contain:
 
-Ultra remains a separate execution policy because it changes fan-out behavior,
-not merely reasoning intensity.
+```json
+{
+  "control": "safety-floor-bypass",
+  "authorized": true,
+  "source": "user",
+  "principal": "host-user",
+  "receiptId": "host-authorization:...",
+  "reason": "Bounded reversible experiment approved by the user",
+  "recordedAt": "2026-07-24T12:00:00.000Z"
+}
+```
+
+The alternative `control` is `native-fanout`; `source` is `user` or
+`host-policy`. The router validates the receipt's schema, trusted issuer,
+control, positive decision, non-empty reason, and applicability to the current
+launch, then copies the bounded audit fields into `authorizations`. Raw
+`allowBelowSafetyFloor` or `allowNativeFanout` booleans are not sufficient in
+the v2 contract. The compatibility facade may accept the existing fan-out flag
+only at a trusted host boundary that also supplies the equivalent receipt.
 
 ## Adaptive Escalation
 
@@ -305,7 +357,12 @@ separate:
 | Repeated failure at policy limit | Stop for queen/user review |
 
 Every escalation creates a new route decision linked to the prior decision.
-Attempts and route changes remain bounded. A route must never be escalated
+The root decision has no parent; an escalation sets `parentRouteDecisionId` to
+the immediately preceding route decision. `maxAttempts` counts the initial
+attempt plus every same-route correction and escalated-route attempt across the
+chain. `maxRouteChanges` independently bounds route changes. Once either limit
+would be exceeded, the reducer emits the configured terminal `queen-review`
+state rather than another correction or launch. A route must never be escalated
 merely because a task timed out or evidence is unavailable.
 
 ## Outcome Observation
@@ -315,23 +372,30 @@ Routing telemetry should be local, bounded, and content-free:
 ```json
 {
   "schemaVersion": 1,
-  "decisionId": "route:...",
+  "routeDecisionId": "route:...",
+  "parentRouteDecisionId": null,
   "policyVersion": 3,
   "catalogVersion": "openai-...",
   "profile": {
     "ambiguity": "high",
     "novelty": "medium",
+    "crossDomainJudgment": "high",
     "consequence": "high",
     "reversibility": "low",
     "verificationStrength": "medium",
     "contextSize": "large",
     "toolComplexity": "medium",
+    "interactionMode": "autonomous",
     "qualityTarget": "critical",
+    "latencyPreference": "balanced",
+    "costPreference": "balanced",
     "confidence": "medium"
   },
   "route": {
     "model": "gpt-5.6-sol",
-    "effort": "high"
+    "effort": "high",
+    "modelSelection": "recommended",
+    "effortSelection": "recommended"
   },
   "outcome": {
     "routeVerified": true,
@@ -344,6 +408,10 @@ Routing telemetry should be local, bounded, and content-free:
   }
 }
 ```
+
+The observation persists every content-free enum used by candidate filtering or
+ranking, so offline replay never invents defaults. It also records both route
+identities so escalation chains can be reconstructed.
 
 Do not persist task titles, objectives, prompts, acceptance-criterion text,
 messages, reasoning, artifacts, source paths, tool output, environment values,
@@ -412,18 +480,43 @@ can translate legacy task shapes and call the recommender while preserving the
 existing launch output. Do not mix telemetry persistence into the pure routing
 function.
 
-The slice-plan schema should evolve additively:
+The slice-plan schema should evolve additively while enforcing an exclusive
+choice. A valid legacy slice contains only `taskShape`:
 
 ```json
 {
-  "taskShape": "complex/open-ended",
-  "intelligenceProfile": {}
+  "taskShape": "complex/open-ended"
 }
 ```
 
-During migration, exactly one may be supplied. A later schema version can make
-`intelligenceProfile` primary while retaining a legacy reader for persisted
-plans.
+A valid v2 slice contains only a complete profile:
+
+```json
+{
+  "intelligenceProfile": {
+    "schemaVersion": 1,
+    "ambiguity": { "value": "low", "evidence": ["The procedure is explicit"] },
+    "novelty": { "value": "low", "evidence": ["An existing pattern is named"] },
+    "crossDomainJudgment": { "value": "low", "evidence": ["One module owns the change"] },
+    "consequence": { "value": "low", "evidence": ["The change is non-production"] },
+    "reversibility": { "value": "high", "evidence": ["The patch can be reverted"] },
+    "verificationStrength": { "value": "high", "evidence": ["A deterministic test exists"] },
+    "contextSize": { "value": "small", "evidence": ["One bounded file is in scope"] },
+    "toolComplexity": { "value": "low", "evidence": ["Only local edits and tests are needed"] },
+    "interactionMode": { "value": "autonomous", "evidence": ["No user decision is expected"] },
+    "qualityTarget": "routine",
+    "latencyPreference": "balanced",
+    "costPreference": "minimize",
+    "confidence": "high"
+  }
+}
+```
+
+The persisted-plan JSON Schema uses `oneOf`: one branch requires `taskShape`
+and forbids `intelligenceProfile`; the other requires a non-empty, valid
+`TaskIntelligenceProfileV1` and forbids `taskShape`. It rejects both fields,
+neither field, and `{ "intelligenceProfile": {} }`. A later schema version can
+make `intelligenceProfile` primary while retaining a legacy reader.
 
 The MCP surface should eventually distinguish:
 
@@ -439,8 +532,12 @@ outcome writes must not be hidden inside that call.
 
 ### Phase 0 — Decision identity and observation
 
-- Add `decisionId` to current route output.
-- Join route decisions to existing runtime verification and queen acceptance.
+- Add `routeDecisionId` to current route output without changing the existing
+  queen acceptance `decisionId`.
+- Persist `routeDecisionId` on the work-unit launch binding and runtime
+  verification receipt.
+- Introduce `QueenAcceptanceV2` with a required `routeDecisionId`; retain a v1
+  reader and migrate v1 records through the persisted work-unit/turn mapping.
 - Persist only the content-free observation contract.
 - Produce a local aggregate report.
 
@@ -498,9 +595,11 @@ report and an explicit rollback target.
 The safest useful first slice is Phase 0 plus the profile schema from Phase 1:
 
 1. Define and test `TaskIntelligenceProfileV1`.
-2. Add stable decision identity without changing current route selection.
+2. Add stable `routeDecisionId` identity without changing current route
+   selection or queen acceptance identity.
 3. Define the content-free observation envelope.
-4. Join route verification and queen acceptance to that identity.
+4. Persist the route identity through launch, verification, and
+   `QueenAcceptanceV2`, with a v1 migration reader.
 5. Add a read-only aggregate report.
 6. Run the future scorecard only in shadow mode.
 
