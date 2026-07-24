@@ -30,6 +30,31 @@
       ],
       "optionalParams": [],
       "readOnly": false
+    },
+    "thread/resume": {
+      "requiredParams": ["threadId"],
+      "optionalParams": ["excludeTurns"],
+      "readOnly": false
+    },
+    "thread/turns/list": {
+      "requiredParams": ["threadId"],
+      "optionalParams": ["cursor", "itemsView", "limit", "sortDirection"],
+      "readOnly": true
+    },
+    "turn/start": {
+      "requiredParams": ["input", "threadId"],
+      "optionalParams": ["clientUserMessageId"],
+      "readOnly": false
+    },
+    "turn/steer": {
+      "requiredParams": ["expectedTurnId", "input", "threadId"],
+      "optionalParams": ["clientUserMessageId"],
+      "readOnly": false
+    },
+    "thread/archive": {
+      "requiredParams": ["threadId"],
+      "optionalParams": [],
+      "readOnly": false
     }
   },
   "threadStatus": {

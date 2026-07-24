@@ -170,6 +170,16 @@ function launchPromptFor(record) {
     deliverable: record.deliverable,
     acceptanceCriteria: record.acceptanceCriteria,
     resultTemplate: createTaskResultTemplateV1(record),
+    completionWake:
+      record.memberKind === "spinoff"
+        ? {
+            webId: record.webId,
+            queenThreadId: record.queenThreadId,
+            workUnitId: record.workUnitId,
+            specRevision: record.specRevision,
+            attempt: record.attempt,
+          }
+        : null,
   });
 }
 

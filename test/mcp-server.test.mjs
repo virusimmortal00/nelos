@@ -104,6 +104,8 @@ test("tools/list honestly annotates app-server and orchestration effects", async
       "nelos_intelligence_verify",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
+      "nelos_spinoff_complete",
+      "nelos_spinoff_cleanup",
     ],
   );
   for (const tool of tools.slice(1, 7)) {
@@ -140,6 +142,20 @@ test("tools/list honestly annotates app-server and orchestration effects", async
   });
   assert.equal(advance.inputSchema.additionalProperties, false);
   assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
+  const complete = tools[9];
+  assert.deepEqual(complete.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  const cleanup = tools[10];
+  assert.deepEqual(cleanup.annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
   assert.deepEqual(tools, listNelosMcpTools());
 
   const planner = tools.find(({ name }) => name === "nelos_plan_slices");
@@ -186,6 +202,63 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
   const result = toolBody(response);
   assert.equal(result.isError, false);
   assert.equal(result.body.join.effects[0].type, "native-wait");
+});
+
+test("spin-off lifecycle tools forward exact bounded arguments", async () => {
+  const calls = [];
+  const completion = {
+    webId: "A1",
+    queenThreadId: "queen",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "member",
+    outcome: "succeeded",
+    summary: "Verified result.",
+  };
+  const cleanup = {
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "ask",
+    confirmedThreadIds: ["member"],
+  };
+  const [, completeResponse, cleanupResponse] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_spinoff_complete", arguments: completion },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "nelos_spinoff_cleanup", arguments: cleanup },
+      },
+    ],
+    {
+      lifecycleAdapter: {
+        async complete(value, bridge) {
+          calls.push(["complete", value, bridge]);
+          return { state: "delivered" };
+        },
+        async cleanup(value, bridge) {
+          calls.push(["cleanup", value, bridge]);
+          return { state: "complete" };
+        },
+      },
+      appServerBridge: { async close() {} },
+    },
+  );
+  assert.deepEqual(calls.map(([method, value]) => [method, value]), [
+    ["complete", completion],
+    ["cleanup", cleanup],
+  ]);
+  assert.equal(calls[0][2], calls[1][2]);
+  assert.equal(toolBody(completeResponse).body.state, "delivered");
+  assert.equal(toolBody(cleanupResponse).body.state, "complete");
 });
 
 function workUnitInput(overrides = {}) {
@@ -255,6 +328,11 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.body.effects.length, 1);
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
+  assert.match(launchPrompt, /call `nelos_spinoff_complete` exactly once/u);
+  assert.match(
+    launchPrompt,
+    /"queenThreadId":"queen-thread".*"workUnitId":"member-a"/u,
+  );
   assert.deepEqual(launchEffect, {
     schemaVersion: 1,
     actionId:

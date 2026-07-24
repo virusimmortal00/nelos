@@ -19,6 +19,11 @@ import {
   MCP_APP_SERVER_MAX_WAIT_MS,
   MCP_APP_SERVER_MAX_WAIT_THREADS,
 } from "./mcp-app-server-bridge.mjs";
+import {
+  SPINOFF_CLEANUP_INPUT_SCHEMA,
+  SPINOFF_COMPLETE_INPUT_SCHEMA,
+  SpinoffLifecycleAdapterV1,
+} from "./spinoff-lifecycle.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -40,6 +45,13 @@ const READ_ONLY_ANNOTATIONS = Object.freeze({
 const STATEFUL_ANNOTATIONS = Object.freeze({
   readOnlyHint: false,
   destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+});
+
+const DESTRUCTIVE_STATEFUL_ANNOTATIONS = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: true,
   idempotentHint: true,
   openWorldHint: false,
 });
@@ -324,6 +336,30 @@ const TOOLS = [
       return joinAdapter.advance(args);
     },
   },
+  {
+    name: "nelos_spinoff_complete",
+    description:
+      "Persist one bound spin-off completion and deliver an idempotent wake " +
+      "turn to its queen when the queen is idle. A prior delivery is reconciled " +
+      "by its stable client message ID before any new turn is started.",
+    inputSchema: SPINOFF_COMPLETE_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge, lifecycleAdapter }) {
+      return lifecycleAdapter.complete(args, appServerBridge);
+    },
+  },
+  {
+    name: "nelos_spinoff_cleanup",
+    description:
+      "Derive accepted spin-offs eligible for cleanup, ask with an exact named " +
+      "candidate list by default, or apply a remembered ask/auto/keep policy. " +
+      "Only confirmed eligible native tasks are archived.",
+    inputSchema: SPINOFF_CLEANUP_INPUT_SCHEMA,
+    annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge, lifecycleAdapter }) {
+      return lifecycleAdapter.cleanup(args, appServerBridge);
+    },
+  },
 ];
 
 export function listNelosMcpTools() {
@@ -361,6 +397,7 @@ export function startNelosMcpServer({
   onExit = (code) => process.exit(code),
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
+  lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
   appServerBridge = new CodexAppServerBridgeV1(),
 } = {}) {
   function send(payload) {
@@ -380,6 +417,7 @@ export function startNelosMcpServer({
         appServerBridge,
         orchestrationAdapter,
         joinAdapter,
+        lifecycleAdapter,
       });
     } catch (error) {
       return {

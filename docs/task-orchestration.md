@@ -223,16 +223,33 @@ without replaying launches:
 On resume, reconcile native state, verify any still-pending bound titles, then
 continue the join loop.
 
-Automatic restart after the queen has already ended requires a native
-persistent completion subscription that targets the queen. That capability is
-not currently part of the task-creation/wait contract. A July 2026 live Desktop
-probe confirmed that a child completed after its parent ended while the parent
-remained idle and received no new turn. Until a subscription exists:
+Codex still exposes no native persistent completion subscription. Nelos closes
+that gap at the application layer: every durable launch prompt carries an exact
+`nelos_spinoff_complete` callback identity. The member persists its completion
+before its final response and the MCP-owned app-server bridge reconciles a
+stable client message ID before mutation. A known active queen turn is steered;
+an unloaded queen is resumed; and an idle queen receives one new continuation
+turn. Ambiguous delivery is retained as `attention` and never blindly replayed.
 
-- keep the queen turn alive with bounded native waits for normal joined work;
-- use a thread heartbeat only as an explicit durability fallback when the user
-  asks to detach or a host time limit prevents a continuous wait;
-- do not market heartbeat polling as event-driven child completion.
+The callback complements rather than replaces the queen join loop. A member can
+crash before making its callback, so a live queen still uses bounded native
+waits and reconstructs them from receipts after interruption. No heartbeat or
+silently installed daemon is required for normal successful completion.
+
+## Spin-off Cleanup
+
+Completion, queen acceptance, and archival remain separate. Once all required
+current spin-off results are accepted, `nelos_spinoff_cleanup` derives an exact
+candidate set from the durable execution and acceptance records:
+
+- `ask` is the default and returns names and task IDs without mutation;
+- `auto` archives all eligible candidates;
+- `keep` records the decision without archiving; and
+- `rememberPolicy: true` persists the chosen default.
+
+Failed, blocked, detached, unaccepted, stale-attempt, and non-spinoff work is
+never eligible. Archive is a native app-server mutation and each outcome is
+recorded independently so partial cleanup remains recoverable.
 
 ## Upstream Native API Improvements
 
@@ -242,7 +259,8 @@ Nelos should feature-detect and use these if Codex adds them:
 2. `create_thread.idempotencyKey`: let an ambiguous create be safely retried.
 3. A durable mapping/event from `clientThreadId` to the eventual `threadId`.
 4. `resumeParentOnCompletion` or a persistent wait subscription for a set of
-   independently owned tasks.
+   independently owned tasks, which can eventually replace the application
+   completion callback.
 
 Until then, the title receipt and queen join loop are the compatibility layer.
 

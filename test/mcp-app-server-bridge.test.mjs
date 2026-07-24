@@ -20,6 +20,7 @@ function fakeCodexAppServer({
   ignoreReadCount = 0,
   ignoredReadOrdinals = [],
   initializeOverrides = {},
+  initialTurns = [],
   initialTitle = "Release coordination",
   persistRename = true,
   readDelays = {},
@@ -34,7 +35,9 @@ function fakeCodexAppServer({
   let spawnCount = 0;
   let activeReads = 0;
   let maxConcurrentReads = 0;
+  let turnOrdinal = 0;
   const requests = [];
+  const turns = [...initialTurns];
   const threads = new Map(Object.entries(threadOverrides));
   const sequences = new Map(
     Object.entries(readSequences).map(([id, values]) => [id, [...values]]),
@@ -131,6 +134,47 @@ function fakeCodexAppServer({
         } else if (message.method === "thread/name/set") {
           if (persistRename) title = message.params.name;
           result = {};
+        } else if (message.method === "thread/turns/list") {
+          result = { data: [...turns].reverse().slice(0, 20), nextCursor: null };
+        } else if (message.method === "thread/resume") {
+          result = {
+            thread: {
+              id: message.params.threadId,
+              status: { type: "idle" },
+            },
+          };
+        } else if (message.method === "turn/start") {
+          turnOrdinal += 1;
+          const turn = {
+            id: `turn-${turnOrdinal}`,
+            status: "inProgress",
+            items: [{
+              type: "userMessage",
+              clientId: message.params.clientUserMessageId ?? null,
+              content: message.params.input,
+            }],
+          };
+          turns.push(turn);
+          result = { turn };
+        } else if (message.method === "turn/steer") {
+          const turn = turns.find(({ id }) => id === message.params.expectedTurnId);
+          if (!turn) {
+            child.stdout.write(
+              `${JSON.stringify({
+                id: message.id,
+                error: { message: "active turn not found" },
+              })}\n`,
+            );
+            continue;
+          }
+          turn.items.push({
+            type: "userMessage",
+            clientId: message.params.clientUserMessageId ?? null,
+            content: message.params.input,
+          });
+          result = { turnId: turn.id };
+        } else if (message.method === "thread/archive") {
+          result = {};
         } else {
           child.stdout.write(
             `${JSON.stringify({
@@ -198,6 +242,25 @@ test("the bridge contract matches the checked-in generated-schema fixture", asyn
     fixture.methods["thread/name/set"].requiredParams,
     ["name", "threadId"],
   );
+  assert.deepStrictEqual(fixture.methods["thread/resume"].requiredParams, [
+    "threadId",
+  ]);
+  assert.deepStrictEqual(
+    fixture.methods["thread/turns/list"].requiredParams,
+    ["threadId"],
+  );
+  assert.deepStrictEqual(fixture.methods["turn/start"].requiredParams, [
+    "input",
+    "threadId",
+  ]);
+  assert.deepStrictEqual(fixture.methods["turn/steer"].requiredParams, [
+    "expectedTurnId",
+    "input",
+    "threadId",
+  ]);
+  assert.deepStrictEqual(fixture.methods["thread/archive"].requiredParams, [
+    "threadId",
+  ]);
   assert.deepStrictEqual(
     SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
     fixture.threadStatus.types,
@@ -261,7 +324,15 @@ test("inspection lazily starts one app server and returns bounded metadata", asy
     platformFamily: "unix",
     platformOs: "macos",
     supportedVersions: ["0.144.5", "0.144.6"],
-    requiredMethods: ["thread/read", "thread/name/set"],
+    requiredMethods: [
+      "thread/read",
+      "thread/name/set",
+      "thread/resume",
+      "thread/turns/list",
+      "turn/start",
+      "turn/steer",
+      "thread/archive",
+    ],
     connectionAttempts: 1,
     reconnects: 0,
     requestsSucceeded: 2,
@@ -520,7 +591,15 @@ test("unsupported app-server versions fail closed with actionable health", async
     platformFamily: null,
     platformOs: null,
     supportedVersions: ["0.144.5", "0.144.6"],
-    requiredMethods: ["thread/read", "thread/name/set"],
+    requiredMethods: [
+      "thread/read",
+      "thread/name/set",
+      "thread/resume",
+      "thread/turns/list",
+      "turn/start",
+      "turn/steer",
+      "thread/archive",
+    ],
     connectionAttempts: 1,
     reconnects: 0,
     requestsSucceeded: 1,
@@ -856,5 +935,106 @@ test("an uncertain title mutation respects its deadline and is never replayed", 
   assert.equal(health.mutationAttempts, 1);
   assert.equal(health.readRetries, 0);
   assert.equal(health.state, "unavailable");
+  await bridge.close();
+});
+
+test("parent wake delivery starts one queen turn and reconciles replay", async () => {
+  const fake = fakeCodexAppServer({
+    threadOverrides: {
+      queen: { status: { type: "idle" } },
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const first = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "wake-1",
+    message: "Member A completed.",
+  });
+  assert.deepEqual(first, {
+    delivered: true,
+    replayed: false,
+    deferred: false,
+    reason: null,
+    queenTurnId: "turn-1",
+    deliveryMode: "start",
+  });
+  const second = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "wake-1",
+    message: "Member A completed.",
+  });
+  assert.deepEqual(second, {
+    delivered: true,
+    replayed: true,
+    queenTurnId: "turn-1",
+  });
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "turn/start").length,
+    1,
+  );
+  await bridge.close();
+});
+
+test("parent wake defers instead of starting a concurrent queen turn", async () => {
+  const fake = fakeCodexAppServer();
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const result = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "wake-1",
+    message: "Member A completed.",
+  });
+  assert.deepEqual(result, {
+    delivered: false,
+    replayed: false,
+    deferred: true,
+    reason: "queen-active-turn-unknown",
+    queenTurnId: null,
+  });
+  assert.equal(
+    fake.requests.some(({ method }) => method === "turn/start"),
+    false,
+  );
+  await bridge.close();
+});
+
+test("parent wake steers the known active queen turn", async () => {
+  const fake = fakeCodexAppServer({
+    initialTurns: [{
+      id: "queen-active-turn",
+      status: "inProgress",
+      items: [],
+    }],
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+  const result = await bridge.deliverParentWake({
+    queenThreadId: "queen",
+    clientUserMessageId: "wake-active",
+    message: "Member A completed.",
+  });
+  assert.deepEqual(result, {
+    delivered: true,
+    replayed: false,
+    deferred: false,
+    reason: null,
+    queenTurnId: "queen-active-turn",
+    deliveryMode: "steer",
+  });
+  assert.equal(
+    fake.requests.filter(({ method }) => method === "turn/steer").length,
+    1,
+  );
+  assert.equal(
+    fake.requests.some(({ method }) => method === "turn/start"),
+    false,
+  );
   await bridge.close();
 });

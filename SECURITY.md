@@ -13,12 +13,13 @@ permissions, symbolic links, and a Unix-domain app-server control socket.
 
 ## Security boundaries
 
-The installed plugin contains no MCP server. Desktop lifecycle evidence comes
-from Codex's native task controls; local web topology comes from the
-Nelos registry. Task creation, rename, steering, interruption, and
-archival belong to the `nelos` CLI or Codex's native controls and require
-access to the local Codex app server. Treat any grant that exposes those
-controls as a task-mutation grant, not as read-only monitoring access.
+The installed plugin contains a local MCP server. Most orchestration tools
+only read or update Nelos's private registry, but title synchronization,
+spin-off completion wake delivery, and spin-off cleanup can mutate Codex
+threads through the local app server. Wake delivery starts a queen turn or
+steers its known active turn; cleanup archives only exact, accepted, required
+spin-off thread IDs. Treat access to those tools and the app-server endpoint as
+a task-mutation grant, not as read-only monitoring access.
 
 Control currently uses a local Unix socket. An explicit CLI socket, the
 `CODEX_APP_SERVER_CONTROL_ENDPOINT` process-environment descriptor, or the
@@ -32,13 +33,16 @@ reachability or the descriptor's `protocolVersion` as authentication. See
 [Host-owned Codex control](docs/host-owned-control.md) for the exact proposal
 and current limitations.
 
-Nelos keeps local task and web registry records under
+Nelos keeps local task, web, and spin-off lifecycle records under
 `$XDG_STATE_HOME/nelos` (or `~/.local/state/nelos` when that variable
 is unset). Registry files are written with mode `0600` and their directories
 are created with mode `0700`. The records contain coordination metadata
 such as task and turn IDs, titles, working directories, web relationships,
-timestamps, task URLs, and archive state. They do not intentionally store task
-prompts, transcripts, tokens, or raw environment dumps.
+timestamps, task URLs, archive state, bounded completion summaries,
+wake-delivery state, and the user's cleanup policy. Wake reconciliation reads
+at most 20 recent queen turns and examines only turn and client-message IDs.
+Nelos does not intentionally persist task prompts, transcripts, tokens, raw
+turn content, or raw environment dumps.
 
 Installation also creates local immutable releases, launchers, a user-wide
 skill, a configured local plugin source and cache, provenance records,

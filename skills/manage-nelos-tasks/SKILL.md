@@ -5,12 +5,11 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 
 # Manage Nelos Tasks
 
-Use this skill for work that genuinely benefits from delegation or coordination.
-The only judgment this skill asks the queen to make before launch is the shape
-of the work: whether a slice is a bounded **subagent** or a durable **spinoff**,
-and what a good slice contract says. The queen also decides whether current
-evidence meets the written acceptance criteria. Nelos's bundled tools own
-protocol, sequencing, titles, result format, and launch settings.
+Use this for coordinated work.
+The only judgment this skill asks the queen to make before launch is whether
+each slice is a bounded **subagent** or durable **spinoff**, and its contract.
+The queen also decides whether evidence meets the acceptance criteria; Nelos
+owns protocol, sequencing, titles, result format, and launch settings.
 
 ## Make the Two Judgments
 
@@ -74,10 +73,11 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.
 
-The generated launch prompt contains the required bounded result envelope.
-Use native task creation, wait, read, follow-up, and archive controls for
-desktop work. Treat unavailable reads and timed-out waits as unknown evidence,
-not a failed result.
+The launch prompt requires a bounded result and, for spinoffs, an exact
+`nelos_spinoff_complete` call before final response; only the member may call it.
+After current queen acceptance, call `nelos_spinoff_cleanup`: `ask` names exact
+candidates before confirmation, `auto` archives, and `keep` preserves them.
+Never clean up failed, blocked, detached, unaccepted, or stale-attempt work.
 
 Registry-only topology has an unobserved lifecycle cache;
 never write lifecycle or archival state from a native action.

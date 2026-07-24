@@ -17,6 +17,11 @@ export const REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS = Object.freeze([
 export const REQUIRED_CODEX_APP_SERVER_METHODS = Object.freeze([
   "thread/read",
   "thread/name/set",
+  "thread/resume",
+  "thread/turns/list",
+  "turn/start",
+  "turn/steer",
+  "thread/archive",
 ]);
 export const SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES = Object.freeze([
   "notLoaded",
@@ -38,6 +43,7 @@ const MAX_IDENTIFIER_CHARACTERS = 512;
 const MAX_TITLE_CHARACTERS = 512;
 const MAX_PATH_CHARACTERS = 4096;
 const MAX_USER_AGENT_CHARACTERS = 512;
+const MAX_WAKE_MESSAGE_CHARACTERS = 4_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 250;
 const MIN_WAIT_POLL_INTERVAL_MS = 50;
@@ -242,6 +248,13 @@ function publicFailure(error) {
   return {
     code,
     retriable: error?.retriable === true,
+  };
+}
+
+function mutationFailure(error) {
+  return {
+    ...publicFailure(error),
+    uncertain: error?.bridgeCode !== "request-rejected",
   };
 }
 
@@ -932,6 +945,227 @@ export class CodexAppServerBridgeV1 {
           ),
         ),
       );
+    }
+  }
+
+  async findTurnByClientMessageId({
+    threadId: requestedThreadId,
+    clientUserMessageId,
+  } = {}) {
+    const resolvedThreadId = threadId(requestedThreadId);
+    const resolvedClientId = boundedText(
+      clientUserMessageId,
+      "client user message ID",
+      MAX_IDENTIFIER_CHARACTERS,
+    );
+    const result = await this.#readRequest("thread/turns/list", {
+      threadId: resolvedThreadId,
+      limit: 20,
+      sortDirection: "desc",
+      itemsView: "full",
+    });
+    if (!Array.isArray(result?.data) || result.data.length > 20) {
+      throw bridgeError(
+        "Codex app-server returned an incompatible turn page",
+        "invalid-response",
+      );
+    }
+    for (const turn of result.data) {
+      if (
+        typeof turn?.id !== "string" ||
+        !Array.isArray(turn.items)
+      ) {
+        throw bridgeError(
+          "Codex app-server returned an incompatible turn",
+          "invalid-response",
+        );
+      }
+      if (
+        turn.items.some(
+          (item) =>
+            item?.type === "userMessage" &&
+            item.clientId === resolvedClientId,
+        )
+      ) {
+        return { found: true, turnId: turn.id };
+      }
+    }
+    return { found: false, turnId: null };
+  }
+
+  async latestActiveTurnId({ threadId: requestedThreadId } = {}) {
+    const resolvedThreadId = threadId(requestedThreadId);
+    const result = await this.#readRequest("thread/turns/list", {
+      threadId: resolvedThreadId,
+      limit: 1,
+      sortDirection: "desc",
+      itemsView: "summary",
+    });
+    if (!Array.isArray(result?.data) || result.data.length > 1) {
+      throw bridgeError(
+        "Codex app-server returned an incompatible active turn page",
+        "invalid-response",
+      );
+    }
+    const turn = result.data[0];
+    if (!turn || turn.status !== "inProgress") return null;
+    return threadId(turn.id);
+  }
+
+  async deliverParentWake({
+    queenThreadId,
+    clientUserMessageId,
+    message,
+  } = {}) {
+    const resolvedQueenThreadId = threadId(queenThreadId);
+    const resolvedClientId = boundedText(
+      clientUserMessageId,
+      "client user message ID",
+      MAX_IDENTIFIER_CHARACTERS,
+    );
+    const resolvedMessage = boundedText(
+      message,
+      "parent wake message",
+      MAX_WAKE_MESSAGE_CHARACTERS,
+    );
+    const existing = await this.findTurnByClientMessageId({
+      threadId: resolvedQueenThreadId,
+      clientUserMessageId: resolvedClientId,
+    });
+    if (existing.found) {
+      return {
+        delivered: true,
+        replayed: true,
+        queenTurnId: existing.turnId,
+      };
+    }
+
+    let queen = await this.inspect({ threadId: resolvedQueenThreadId });
+    if (queen.status === "active") {
+      const activeTurnId = await this.latestActiveTurnId({
+        threadId: resolvedQueenThreadId,
+      });
+      if (activeTurnId === null) {
+        return {
+          delivered: false,
+          replayed: false,
+          deferred: true,
+          reason: "queen-active-turn-unknown",
+          queenTurnId: null,
+        };
+      }
+      try {
+        const result = await this.#request(
+          "turn/steer",
+          {
+            threadId: resolvedQueenThreadId,
+            expectedTurnId: activeTurnId,
+            clientUserMessageId: resolvedClientId,
+            input: [{ type: "text", text: resolvedMessage }],
+          },
+          { mutation: true },
+        );
+        const queenTurnId = threadId(result?.turnId);
+        if (queenTurnId !== activeTurnId) {
+          throw bridgeError(
+            "Codex app-server steered a different queen turn",
+            "invalid-response",
+          );
+        }
+        return {
+          delivered: true,
+          replayed: false,
+          deferred: false,
+          reason: null,
+          queenTurnId,
+          deliveryMode: "steer",
+        };
+      } catch (error) {
+        const failure = mutationFailure(error);
+        const wrapped = bridgeError(
+          "Codex app-server active parent wake delivery failed",
+          failure.code,
+          { retriable: !failure.uncertain },
+        );
+        wrapped.mutationUncertain = failure.uncertain;
+        throw wrapped;
+      }
+    }
+    if (queen.status === "systemError") {
+      return {
+        delivered: false,
+        replayed: false,
+        deferred: true,
+        reason: "queen-system-error",
+        queenTurnId: null,
+      };
+    }
+    try {
+      if (queen.status === "notLoaded") {
+        await this.#request(
+          "thread/resume",
+          { threadId: resolvedQueenThreadId, excludeTurns: true },
+          { mutation: true },
+        );
+        queen = await this.inspect({ threadId: resolvedQueenThreadId });
+      }
+      if (queen.status !== "idle") {
+        return {
+          delivered: false,
+          replayed: false,
+          deferred: true,
+          reason: `queen-${queen.status}`,
+          queenTurnId: null,
+        };
+      }
+      const result = await this.#request(
+        "turn/start",
+        {
+          threadId: resolvedQueenThreadId,
+          clientUserMessageId: resolvedClientId,
+          input: [{ type: "text", text: resolvedMessage }],
+        },
+        { mutation: true },
+      );
+      const queenTurnId = threadId(result?.turn?.id);
+      return {
+        delivered: true,
+        replayed: false,
+        deferred: false,
+        reason: null,
+        queenTurnId,
+        deliveryMode: "start",
+      };
+    } catch (error) {
+      const failure = mutationFailure(error);
+      const wrapped = bridgeError(
+        "Codex app-server parent wake delivery failed",
+        failure.code,
+        { retriable: !failure.uncertain },
+      );
+      wrapped.mutationUncertain = failure.uncertain;
+      throw wrapped;
+    }
+  }
+
+  async archiveThread({ threadId: requestedThreadId } = {}) {
+    const resolvedThreadId = threadId(requestedThreadId);
+    try {
+      await this.#request(
+        "thread/archive",
+        { threadId: resolvedThreadId },
+        { mutation: true },
+      );
+      return { archived: true, threadId: resolvedThreadId };
+    } catch (error) {
+      const failure = mutationFailure(error);
+      const wrapped = bridgeError(
+        "Codex app-server archive failed",
+        failure.code,
+        { retriable: !failure.uncertain },
+      );
+      wrapped.mutationUncertain = failure.uncertain;
+      throw wrapped;
     }
   }
 

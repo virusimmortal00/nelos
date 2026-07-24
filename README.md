@@ -85,11 +85,15 @@ Nelos is one Codex plugin with two parts:
   exposes bounded, read-only
   task metadata; `nelos_thread_inventory` batches known IDs and projects direct
   parent edges; `nelos_thread_wait` performs bounded current-state polling; and
-  `nelos_app_server_health` reports content-free compatibility telemetry. The
+  `nelos_app_server_health` reports content-free compatibility telemetry.
+  A finishing durable member calls `nelos_spinoff_complete`, which durably
+  records its handoff and idempotently steers or resumes the queen.
+  `nelos_spinoff_cleanup` then derives only current accepted members and applies
+  a remembered `ask`, `auto`, or `keep` archival policy. The
   intelligence router and verifier remain read-only, while the two callback
   orchestration tools durably journal native task effects. The bridge starts one
   `codex app-server --stdio` child lazily and never exposes prompts, turns, or
-  transcripts.
+  transcripts; wake reconciliation examines only bounded client message IDs.
 - **A skill** — `manage-nelos-tasks`, the playbook that decides when a slice is a
   quick **subagent** or a durable **spinoff** and executes each tool's next action.
 

@@ -16,6 +16,7 @@ export function buildTaskLaunchPromptV1({
   acceptanceCriteria,
   resultFence = "nelos-result",
   resultTemplate,
+  completionWake = null,
 }) {
   if (typeof objective !== "string" || !objective.trim()) {
     throw new Error("task launch objective must be a non-empty string");
@@ -32,6 +33,14 @@ export function buildTaskLaunchPromptV1({
   const criteria = acceptanceCriteria
     .map((criterion) => `- ${criterion}`)
     .join("\n");
+  const wakeInstructions = completionWake
+    ? [
+        "Before your final response, call `nelos_spinoff_complete` exactly once.",
+        "Use the outcome and concise summary you will place in the result block,",
+        "set memberThreadId to this task's CODEX_THREAD_ID, and use these fixed fields:",
+        JSON.stringify(completionWake),
+      ]
+    : [];
   return [
     taskTitlePromptLine(title),
     "",
@@ -39,6 +48,7 @@ export function buildTaskLaunchPromptV1({
     `Deliverable: ${deliverable}`,
     "Acceptance criteria:",
     criteria,
+    ...wakeInstructions,
     `Finish with exactly one final fenced ${resultFence} block and no trailing prose.`,
     "Use this result shape. Change outcome when needed; succeeded has no blockers, while blocked has at least one blocker and a recoveryHint:",
     `\`\`\`${resultFence}`,
