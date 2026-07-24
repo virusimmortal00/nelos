@@ -113,3 +113,9 @@ The catalog and shape mappings are reviewed release data, re-evaluated over time
 not a live capability check. Quality, latency, and cost outcomes still warrant
 ongoing evaluation — the value Nelos adds is making the choice *explicit,
 per-slice, and verified*, rather than promising a fixed model is always best.
+
+The proposed successor to this heuristic is described in
+[Adaptive Intelligence Routing](intelligence-routing-v2.md). It introduces a
+structured task profile, live capability filtering, independent model/effort
+selection, bounded escalation, and a content-free evaluation loop while
+preserving exact launch verification.
