@@ -1,8 +1,5 @@
 import { createWorkUnitSpecV1 } from "./execution-store.mjs";
-import {
-  memberKindForLifecycle,
-  normalizeNativeLaunchV1,
-} from "./launch-contract.mjs";
+import { normalizeLaunchMemberV1 } from "./launch-contract.mjs";
 
 export const PLAN_ORCHESTRATION_BRIDGE_SCHEMA_VERSION = 1;
 
@@ -12,6 +9,9 @@ function capabilitiesFor(memberKind) {
     : ["observe", "read-result", "follow-up"];
 }
 
+/**
+ * Convert one planned launch member into the durable work-unit contract.
+ */
 export function workUnitFromLaunchMemberV1(
   member,
   {
@@ -23,21 +23,7 @@ export function workUnitFromLaunchMemberV1(
     maxAttempts = 3,
   },
 ) {
-  if (!member || typeof member !== "object" || Array.isArray(member)) {
-    throw new Error("launch member must be a JSON object");
-  }
-  const memberKind =
-    member.memberKind ?? memberKindForLifecycle(member.lifecycle);
-  if (memberKind !== memberKindForLifecycle(member.lifecycle)) {
-    throw new Error("launch member lifecycle and memberKind conflict");
-  }
-  const launch = normalizeNativeLaunchV1(
-    {
-      workspaceMode: member.workspaceMode,
-      nativeTask: member.nativeTask,
-    },
-    memberKind,
-  );
+  const { memberKind, launch } = normalizeLaunchMemberV1(member);
 
   return createWorkUnitSpecV1({
     schemaVersion: 1,

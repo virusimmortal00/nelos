@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { reconcileExecutionRecord } from "../src/execution-reconciliation.mjs";
 import { executeNativeLaunchWaveV1 } from "../src/native-launch-adapter.mjs";
 import { withNextAction } from "../src/next-action.mjs";
 import { workUnitFromLaunchMemberV1 } from "../src/plan-orchestration-bridge.mjs";
@@ -153,6 +154,47 @@ test("a subagent without a thread ID fails closed instead of inventing a binding
   );
 });
 
+test("route verification errors preserve the committed native launch receipt", async () => {
+  const action = mixedLaunchAction();
+  const result = await executeNativeLaunchWaveV1(action, {
+    async authorizeLaunch() {
+      return { authorized: true };
+    },
+    async createSpinoff() {
+      return {
+        threadId: "spinoff-thread",
+        hostId: "local",
+        turnId: "spinoff-turn",
+      };
+    },
+    async spawnSubagent() {
+      return {
+        threadId: "subagent-thread",
+        turnId: "subagent-turn",
+      };
+    },
+    async verifyRoute({ threadId }) {
+      if (threadId === "spinoff-thread") {
+        throw new Error("observation timed out");
+      }
+      return { verified: true };
+    },
+  });
+
+  assert.deepEqual(result.members[0], {
+    sliceId: "implementation",
+    lifecycle: "spinoff",
+    memberKind: "spinoff",
+    launcher: "create-thread",
+    threadId: "spinoff-thread",
+    hostId: "local",
+    turnId: "spinoff-turn",
+    status: "attention",
+    attentionReason: "route-verification-unavailable",
+    error: "observation timed out",
+  });
+});
+
 test("route authorization fails the whole wave before either native mutation", async () => {
   const action = mixedLaunchAction();
   const launched = [];
@@ -217,4 +259,10 @@ test("launch members bridge into durable lifecycle-specific work units", () => {
       },
     ],
   );
+
+  for (const workUnit of workUnits) {
+    const reconciliation = reconcileExecutionRecord(workUnit);
+    assert.equal(reconciliation.orchestrationPhase, "ready");
+    assert.equal(reconciliation.proposedActions[0].type, "launch");
+  }
 });

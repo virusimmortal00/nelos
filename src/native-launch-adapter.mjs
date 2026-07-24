@@ -1,8 +1,4 @@
-import {
-  launcherForMemberKind,
-  memberKindForLifecycle,
-  normalizeNativeLaunchV1,
-} from "./launch-contract.mjs";
+import { normalizeLaunchMemberV1 } from "./launch-contract.mjs";
 
 export const NATIVE_LAUNCH_ADAPTER_SCHEMA_VERSION = 1;
 
@@ -13,23 +9,13 @@ function normalizedError(error) {
 }
 
 function launchRequest(member) {
-  const memberKind =
-    member.memberKind ?? memberKindForLifecycle(member.lifecycle);
-  if (memberKind !== memberKindForLifecycle(member.lifecycle)) {
-    throw new Error("launch member lifecycle and memberKind conflict");
-  }
-  const launch = normalizeNativeLaunchV1(
-    {
-      workspaceMode: member.workspaceMode,
-      nativeTask: member.nativeTask,
-    },
-    memberKind,
-  );
+  const { lifecycle, memberKind, launcher, launch } =
+    normalizeLaunchMemberV1(member);
   return {
     sliceId: member.sliceId,
-    lifecycle: member.lifecycle,
+    lifecycle,
     memberKind,
-    launcher: launcherForMemberKind(memberKind),
+    launcher,
     title: member.title,
     prompt: member.prompt,
     workspaceMode: launch.workspaceMode,
@@ -41,52 +27,12 @@ function launchRequest(member) {
 }
 
 async function launchOne(request, adapters) {
+  let launch;
   try {
-    const launch =
+    launch =
       request.launcher === "create-thread"
         ? await adapters.createSpinoff(request)
         : await adapters.spawnSubagent(request);
-    if (!launch || typeof launch.threadId !== "string" || !launch.threadId) {
-      return {
-        sliceId: request.sliceId,
-        lifecycle: request.lifecycle,
-        memberKind: request.memberKind,
-        launcher: request.launcher,
-        status: "attention",
-        attentionReason: "missing-thread-id",
-      };
-    }
-
-    const verification = await adapters.verifyRoute({
-      threadId: launch.threadId,
-      ...(launch.turnId ? { turnId: launch.turnId } : {}),
-      model: request.nativeTask.model ?? null,
-      effort: request.nativeTask.thinking ?? null,
-    });
-    if (verification?.verified !== true) {
-      return {
-        sliceId: request.sliceId,
-        lifecycle: request.lifecycle,
-        memberKind: request.memberKind,
-        launcher: request.launcher,
-        threadId: launch.threadId,
-        ...(launch.hostId ? { hostId: launch.hostId } : {}),
-        status: "attention",
-        attentionReason: "exact-route-mismatch",
-      };
-    }
-
-    return {
-      sliceId: request.sliceId,
-      lifecycle: request.lifecycle,
-      memberKind: request.memberKind,
-      launcher: request.launcher,
-      threadId: launch.threadId,
-      ...(launch.hostId ? { hostId: launch.hostId } : {}),
-      ...(launch.turnId ? { turnId: launch.turnId } : {}),
-      status: "verified",
-      nativeTask: request.nativeTask,
-    };
   } catch (error) {
     return {
       sliceId: request.sliceId,
@@ -98,8 +44,68 @@ async function launchOne(request, adapters) {
       error: normalizedError(error),
     };
   }
+  if (!launch || typeof launch.threadId !== "string" || !launch.threadId) {
+    return {
+      sliceId: request.sliceId,
+      lifecycle: request.lifecycle,
+      memberKind: request.memberKind,
+      launcher: request.launcher,
+      status: "attention",
+      attentionReason: "missing-thread-id",
+    };
+  }
+
+  const launchIdentity = {
+    threadId: launch.threadId,
+    ...(launch.hostId ? { hostId: launch.hostId } : {}),
+    ...(launch.turnId ? { turnId: launch.turnId } : {}),
+  };
+  let verification;
+  try {
+    verification = await adapters.verifyRoute({
+      threadId: launch.threadId,
+      ...(launch.turnId ? { turnId: launch.turnId } : {}),
+      model: request.nativeTask.model ?? null,
+      effort: request.nativeTask.thinking ?? null,
+    });
+  } catch (error) {
+    return {
+      sliceId: request.sliceId,
+      lifecycle: request.lifecycle,
+      memberKind: request.memberKind,
+      launcher: request.launcher,
+      ...launchIdentity,
+      status: "attention",
+      attentionReason: "route-verification-unavailable",
+      error: normalizedError(error),
+    };
+  }
+  if (verification?.verified !== true) {
+    return {
+      sliceId: request.sliceId,
+      lifecycle: request.lifecycle,
+      memberKind: request.memberKind,
+      launcher: request.launcher,
+      ...launchIdentity,
+      status: "attention",
+      attentionReason: "exact-route-mismatch",
+    };
+  }
+
+  return {
+    sliceId: request.sliceId,
+    lifecycle: request.lifecycle,
+    memberKind: request.memberKind,
+    launcher: request.launcher,
+    ...launchIdentity,
+    status: "verified",
+    nativeTask: request.nativeTask,
+  };
 }
 
+/**
+ * Preflight and concurrently execute one lifecycle-specific native launch wave.
+ */
 export async function executeNativeLaunchWaveV1(
   action,
   { authorizeLaunch, createSpinoff, spawnSubagent, verifyRoute },

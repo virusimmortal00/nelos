@@ -48,6 +48,9 @@ function normalizeOptionalText(value, field, maximum) {
   return value;
 }
 
+/**
+ * Translate the planner lifecycle vocabulary into the durable work-unit kind.
+ */
 export function memberKindForLifecycle(lifecycle) {
   const memberKind = LIFECYCLE_MEMBER_KINDS[lifecycle];
   if (!memberKind) {
@@ -56,6 +59,9 @@ export function memberKindForLifecycle(lifecycle) {
   return memberKind;
 }
 
+/**
+ * Select the host-owned native launcher for one durable member kind.
+ */
 export function launcherForMemberKind(memberKind) {
   const launcher = NATIVE_LAUNCHERS[memberKind];
   if (!launcher) {
@@ -64,6 +70,9 @@ export function launcherForMemberKind(memberKind) {
   return launcher;
 }
 
+/**
+ * Validate and canonicalize the launch metadata persisted with a work unit.
+ */
 export function normalizeNativeLaunchV1(value, memberKind) {
   launcherForMemberKind(memberKind);
   if (value === undefined || value === null) return null;
@@ -130,5 +139,36 @@ export function normalizeNativeLaunchV1(value, memberKind) {
     nativeTask: normalizedNativeTask,
     requiresThreadId: true,
     onMissingThreadId: "attention",
+  };
+}
+
+/**
+ * Resolve one planner launch member into a shared lifecycle-specific contract.
+ *
+ * Callers retain responsibility for their output-specific fields, while
+ * lifecycle translation, conflict detection, and launch normalization stay
+ * centralized here.
+ */
+export function normalizeLaunchMemberV1(member) {
+  if (!member || typeof member !== "object" || Array.isArray(member)) {
+    throw new Error("launch member must be a JSON object");
+  }
+  const expectedMemberKind = memberKindForLifecycle(member.lifecycle);
+  const memberKind = member.memberKind ?? expectedMemberKind;
+  if (memberKind !== expectedMemberKind) {
+    throw new Error("launch member lifecycle and memberKind conflict");
+  }
+  const launch = normalizeNativeLaunchV1(
+    {
+      workspaceMode: member.workspaceMode,
+      nativeTask: member.nativeTask,
+    },
+    memberKind,
+  );
+  return {
+    lifecycle: member.lifecycle,
+    memberKind,
+    launcher: launcherForMemberKind(memberKind),
+    launch,
   };
 }

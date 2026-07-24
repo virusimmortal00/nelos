@@ -176,7 +176,7 @@ function validateSpec(value) {
   if (!capabilitySet.has("observe")) reject("malformed_spec");
   if (
     spec.memberKind === "joined-subagent" &&
-    (capabilitySet.size !== 1 || !capabilitySet.has("observe"))
+    capabilitySet.has("archive")
   ) {
     reject("malformed_spec");
   }

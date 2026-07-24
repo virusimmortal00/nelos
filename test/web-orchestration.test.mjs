@@ -466,7 +466,7 @@ test("unsupported member capabilities never produce durable task actions", () =>
     input({
       spec: spec({
         memberKind: "joined-subagent",
-        capabilities: ["observe"],
+        capabilities: ["observe", "read-result", "follow-up"],
       }),
       binding: binding({
         state: "unbound",
