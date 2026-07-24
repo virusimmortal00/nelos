@@ -10,6 +10,7 @@ import {
   buildTaskLaunchPromptV1,
   createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
+import { launcherForMemberKind } from "./launch-contract.mjs";
 
 export const MCP_ORCHESTRATION_SCHEMA_VERSION = 1;
 export const HOST_CREATE_RECEIPT_SCHEMA_VERSION = 1;
@@ -36,6 +37,7 @@ const DEFINITION_FIELDS = [
   "attempt",
   "memberKind",
   "capabilities",
+  "launch",
   "title",
   "objectiveSummary",
   "deliverable",
@@ -44,6 +46,9 @@ const DEFINITION_FIELDS = [
   "required",
   "policy",
 ];
+const REQUIRED_DEFINITION_FIELDS = DEFINITION_FIELDS.filter(
+  (field) => field !== "launch",
+);
 
 function assertExactObject(value, label, fields) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -177,6 +182,9 @@ function nativeCreateEffect(action, record) {
     workUnitId: action.workUnitId,
     specRevision: action.specRevision,
     attempt: action.attempt,
+    memberKind: record.memberKind,
+    launcher: launcherForMemberKind(record.memberKind),
+    launch: record.launch,
     title: record.title,
     prompt: launchPromptFor(record),
     preconditions: { ...action.preconditions },
@@ -193,6 +201,9 @@ function nativeReconcileCreateEffect(action, record) {
     workUnitId: action.workUnitId,
     specRevision: action.specRevision,
     attempt: action.attempt,
+    memberKind: record.memberKind,
+    launcher: launcherForMemberKind(record.memberKind),
+    launch: record.launch,
     title: record.title,
     prompt: launchPromptFor(record),
     policy: {
@@ -333,6 +344,33 @@ export const MCP_ORCHESTRATE_INPUT_SCHEMA = Object.freeze({
         attempt: { type: "integer", minimum: 1 },
         memberKind: { enum: ["spinoff", "joined-subagent"] },
         capabilities: STRING_ARRAY_SCHEMA,
+        launch: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object",
+              properties: {
+                schemaVersion: { const: 1 },
+                launcher: { enum: ["create-thread", "spawn-subagent"] },
+                workspaceMode: {
+                  enum: ["shared-read-only", "isolated-write"],
+                },
+                nativeTask: {
+                  type: "object",
+                  properties: {
+                    model: { type: "string" },
+                    thinking: { type: "string" },
+                  },
+                  additionalProperties: false,
+                },
+                requiresThreadId: { const: true },
+                onMissingThreadId: { const: "attention" },
+              },
+              required: ["workspaceMode", "nativeTask"],
+              additionalProperties: false,
+            },
+          ],
+        },
         title: { type: "string" },
         objectiveSummary: { type: "string" },
         deliverable: { type: "string" },
@@ -350,7 +388,7 @@ export const MCP_ORCHESTRATE_INPUT_SCHEMA = Object.freeze({
           additionalProperties: false,
         },
       },
-      required: [...DEFINITION_FIELDS],
+      required: [...REQUIRED_DEFINITION_FIELDS],
       additionalProperties: false,
     },
     receipt: {

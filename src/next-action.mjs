@@ -3,6 +3,10 @@ import {
   buildTaskLaunchPromptV1,
   createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
+import {
+  launcherForMemberKind,
+  memberKindForLifecycle,
+} from "./launch-contract.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
 
@@ -52,10 +56,17 @@ function memberPrompt(slice) {
 }
 
 function launchMember(slice) {
+  const memberKind = memberKindForLifecycle(slice.lifecycle);
   return {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
+    memberKind,
+    launcher: launcherForMemberKind(memberKind),
     title: slice.title,
+    objective: slice.objective,
+    deliverable: slice.deliverable,
+    acceptanceCriteria: [...slice.acceptanceCriteria],
+    dependsOn: [...(slice.dependsOn ?? [])],
     titlePolicy: {
       mode: "prompt-seeded",
       recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,

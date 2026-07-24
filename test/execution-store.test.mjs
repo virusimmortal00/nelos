@@ -92,9 +92,9 @@ test("work-unit validation rejects incompatible, ambiguous, and unbounded record
     [
       specInput({
         memberKind: "joined-subagent",
-        capabilities: ["observe", "follow-up"],
+        capabilities: ["observe", "archive"],
       }),
-      /limited to observe/,
+      /do not include archive/,
     ],
     [
       specInput({
@@ -111,6 +111,29 @@ test("work-unit validation rejects incompatible, ambiguous, and unbounded record
   for (const [input, expected] of invalidInputs) {
     assert.throws(() => createWorkUnitSpecV1(input), expected);
   }
+
+  const joined = workUnit({
+    memberKind: "joined-subagent",
+    capabilities: ["observe", "read-result", "follow-up"],
+    launch: {
+      workspaceMode: "shared-read-only",
+      nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+    },
+  });
+  assert.equal(joined.launch.launcher, "spawn-subagent");
+  assert.equal(joined.launch.requiresThreadId, true);
+  assert.throws(
+    () =>
+      workUnit({
+        memberKind: "joined-subagent",
+        capabilities: ["observe"],
+        launch: {
+          workspaceMode: "isolated-write",
+          nativeTask: {},
+        },
+      }),
+    /must use shared-read-only/,
+  );
 
   assert.throws(
     () => validateWorkUnitSpecV1({ ...valid, schemaVersion: 2 }),

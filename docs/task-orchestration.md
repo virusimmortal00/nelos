@@ -144,9 +144,12 @@ reuse of an `intentId` with different inputs.
 1. **Prepare the intent before mutation.** Write `planned` with the desired
    title, target, route, queen, and work-unit provenance.
 2. **Claim creation once.** Move to `creating` under the existing queen/action
-   lock, then call native task creation exactly once.
+   lock, then dispatch the persisted launcher exactly once:
+   `create-thread` for a spinoff or `spawn-subagent` for a joined subagent.
 3. **Record the native receipt before further effects.**
    - A returned `threadId` moves launch directly to `bound`.
+   - A subagent result that exposes only an agent name moves launch to
+     `attention`; the name is not a native child thread identity.
    - A returned `clientThreadId` moves launch to `provisioning`. It must be
      resolved to a `threadId` through a host-provided creation result before
      the task can be titled or waited on.
@@ -170,8 +173,9 @@ observation and conditional rename remain the compatibility fallback.
 
 ## Queen Join Loop
 
-For required spinoffs, the queen should remain active and use the native
-multi-task wait primitive rather than serial status polling:
+For required spinoffs and joined subagents with verified child thread IDs, the
+queen should remain active and use the native multi-task wait primitive rather
+than serial status polling:
 
 1. Call one wait with all nonterminal required `threadId`/`hostId` pairs.
 2. When the first member completes or needs attention, persist its returned

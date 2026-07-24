@@ -39,7 +39,13 @@ test("slice planning returns an executable current-wave launch action", () => {
       {
         sliceId: "research",
         lifecycle: "subagent",
+        memberKind: "joined-subagent",
+        launcher: "spawn-subagent",
         title: "Research the design",
+        objective: "Resolve the open design question.",
+        deliverable: "A short evidence-backed recommendation.",
+        acceptanceCriteria: ["The tradeoff is explicit."],
+        dependsOn: [],
         titlePolicy: {
           mode: "prompt-seeded",
           recommendedMaxCharacters: 48,

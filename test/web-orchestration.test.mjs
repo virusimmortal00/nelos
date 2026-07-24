@@ -466,7 +466,7 @@ test("unsupported member capabilities never produce durable task actions", () =>
     input({
       spec: spec({
         memberKind: "joined-subagent",
-        capabilities: ["observe"],
+        capabilities: ["observe", "read-result", "follow-up"],
       }),
       binding: binding({
         state: "unbound",
@@ -477,8 +477,9 @@ test("unsupported member capabilities never produce durable task actions", () =>
       resultEnvelope: null,
     }),
   );
-  assert.equal(joinedUnbound.attentionReason, "unsupported_capability");
-  assert.deepEqual(joinedUnbound.proposedActions, []);
+  assert.equal(joinedUnbound.attentionReason, null);
+  assert.equal(joinedUnbound.orchestrationPhase, "ready");
+  assert.equal(joinedUnbound.proposedActions[0].type, "launch");
 });
 
 test("bounded versioned contracts reject unknown fields and oversized history", () => {

@@ -176,7 +176,7 @@ function validateSpec(value) {
   if (!capabilitySet.has("observe")) reject("malformed_spec");
   if (
     spec.memberKind === "joined-subagent" &&
-    (capabilitySet.size !== 1 || !capabilitySet.has("observe"))
+    capabilitySet.has("archive")
   ) {
     reject("malformed_spec");
   }
@@ -619,9 +619,6 @@ export function reduceWebOrchestration(input = null) {
   if (binding.state === "unbound") {
     if (observation !== null) return closedState(identity, "stale_observation");
     if (resultEnvelope !== null) return closedState(identity, "stale_result");
-    if (spec.memberKind !== "spinoff") {
-      return closedState(identity, "unsupported_capability");
-    }
     const actions = actionUnlessReceived(
       spec,
       binding,

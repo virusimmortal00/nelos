@@ -254,6 +254,9 @@ test("stdio orchestration creates once, then requires reconciliation before any 
     workUnitId: "member-a",
     specRevision: 1,
     attempt: 1,
+    memberKind: "spinoff",
+    launcher: "create-thread",
+    launch: null,
     title: "Member A",
     preconditions: {
       expectedSpecRevision: 1,
@@ -275,6 +278,9 @@ test("stdio orchestration creates once, then requires reconciliation before any 
       workUnitId: "member-a",
       specRevision: 1,
       attempt: 1,
+      memberKind: "spinoff",
+      launcher: "create-thread",
+      launch: null,
       title: "Member A",
       policy: {
         onFound: "return-native-create-receipt",
@@ -455,7 +461,13 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
       {
         sliceId: "explore",
         lifecycle: "subagent",
+        memberKind: "joined-subagent",
+        launcher: "spawn-subagent",
         title: "Explore",
+        objective: "bounded exploration",
+        deliverable: "notes",
+        acceptanceCriteria: ["notes recorded"],
+        dependsOn: [],
         titlePolicy: {
           mode: "prompt-seeded",
           recommendedMaxCharacters: 48,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { taskStateDirectory } from "./task-state.mjs";
 import { assertWebId } from "./task-web.mjs";
+import { normalizeNativeLaunchV1 } from "./launch-contract.mjs";
 
 export const EXECUTION_STORE_SCHEMA_VERSION = 1;
 export const WORK_UNIT_SPEC_SCHEMA_VERSION = 1;
@@ -43,6 +44,7 @@ const SPEC_FIELDS = new Set([
   "replacementHistory",
   "memberKind",
   "capabilities",
+  "launch",
   "title",
   "objectiveSummary",
   "deliverable",
@@ -170,8 +172,11 @@ function normalizeCapabilities(value, memberKind) {
   if (!unique.has("observe")) {
     throw new Error("capabilities must include observe");
   }
-  if (memberKind === "joined-subagent" && capabilities.length !== 1) {
-    throw new Error("joined-subagent capabilities are limited to observe");
+  if (
+    memberKind === "joined-subagent" &&
+    unique.has("archive")
+  ) {
+    throw new Error("joined-subagent capabilities do not include archive");
   }
   return WORK_UNIT_CAPABILITIES.filter((capability) => unique.has(capability));
 }
@@ -355,6 +360,7 @@ export function validateWorkUnitSpecV1(value) {
     throw new Error("attempt must not precede the binding generation");
   }
   const capabilities = normalizeCapabilities(value.capabilities, memberKind);
+  const launch = normalizeNativeLaunchV1(value.launch, memberKind);
   const acceptanceCriteria = normalizeStringList(
     value.acceptanceCriteria,
     "acceptanceCriteria",
@@ -377,6 +383,7 @@ export function validateWorkUnitSpecV1(value) {
     replacementHistory,
     memberKind,
     capabilities,
+    launch,
     title: normalizeText(value.title, "title", MAX_TITLE_CHARACTERS),
     objectiveSummary: normalizeText(
       value.objectiveSummary,

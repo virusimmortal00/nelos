@@ -43,7 +43,10 @@ returned `nextAction`; do not reconstruct a procedure from memory.
 - `native-set-title`: use the native title tool with its exact `threadId` and
   `title`, then verify it natively.
 - `launch-wave`: create only the listed current-wave members concurrently. Use
-  each member's exact `lifecycle`, `title`, `nativeTask`, and generated `prompt`.
+  each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
+  `nativeTask`, and generated `prompt`. `create-thread` launches a durable
+  spinoff; `spawn-subagent` launches a bounded joined subagent. Never translate
+  these fields by inference.
   The generated prompt begins with `Task title: <short intended title>` so
   Desktop can assign the intended title during creation. After the task ID
   resolves, observe its settled native title. If it matches, do not rename it;
@@ -56,7 +59,8 @@ returned `nextAction`; do not reconstruct a procedure from memory.
   with that ID and the exact `model`/`thinking` values (`thinking` maps to
   `effort`). Include `turnId` when known. Do not wait, read, accept, or
   synthesize the task until it returns `verified: true`; any mismatch stops
-  the wave.
+  the wave. A subagent launcher result without a native child `threadId` is
+  `attention`; never bind its agent name as though it were a thread ID.
   Do not launch a later wave until required current results are accepted.
 - `native-wait` and `native-read`: use the native multi-task wait or read tool
   with the supplied IDs. Never serially poll a web.
