@@ -7,6 +7,7 @@ import test, { after } from "node:test";
 import {
   SpinoffLifecycleAdapterV1,
   SpinoffLifecycleStoreV1,
+  spinoffWakeIdV1,
 } from "../src/spinoff-lifecycle.mjs";
 
 const testStateHome = await mkdtemp(join(tmpdir(), "nelos-lifecycle-state-"));
@@ -126,6 +127,24 @@ test("spin-off completion rejects a caller outside its durable identity", async 
     adapter.complete(completion(), {}),
     /only the bound spin-off/u,
   );
+});
+
+test("spin-off completion accepts the full result-summary contract", async (t) => {
+  const { adapter } = await fixture(t);
+  const value = {
+    ...completion(),
+    summary: "x".repeat(2_000),
+  };
+  const result = await adapter.complete(value, {
+    async deliverParentWake() {
+      return {
+        delivered: true,
+        replayed: false,
+        queenTurnId: "queen-turn",
+      };
+    },
+  });
+  assert.equal(result.record.summary.length, 2_000);
 });
 
 test("spin-off completion does not blindly retry an uncertain wake", async (t) => {
@@ -248,12 +267,42 @@ test("cleanup excludes accepted failed or blocked outcomes", async (t) => {
       assert.fail("blocked work must not be archived");
     },
   });
-  assert.deepEqual(preview, {
-    schemaVersion: 1,
-    policy: "ask",
-    state: "complete",
-    candidates: [],
+  assert.equal(preview.state, "not-ready");
+  assert.deepEqual(preview.pending.map(({ workUnitId }) => workUnitId), [
+    "member-a",
+  ]);
+});
+
+test("cleanup waits for every required current spin-off acceptance", async (t) => {
+  const first = workUnit();
+  const second = {
+    ...workUnit(),
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: {
+      state: "bound",
+      memberThreadId: "member-thread-b",
+    },
+  };
+  const { adapter } = await fixture(t, "queen", {
+    units: [first, second],
+    decisions: [acceptance()],
   });
+  const result = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, {
+    async archiveThread() {
+      assert.fail("cleanup must wait for every required result");
+    },
+  });
+  assert.equal(result.state, "not-ready");
+  assert.deepEqual(result.pending, [{
+    workUnitId: "member-b",
+    threadId: "member-thread-b",
+    title: "Member B",
+  }]);
 });
 
 test("cleanup excludes work units without archive capability", async (t) => {
@@ -356,4 +405,40 @@ test("cleanup does not blindly retry an uncertain archive", async (t) => {
   assert.equal(replay.state, "attention");
   assert.equal(replay.results[0].reason, "prior-archive-attention");
   assert.equal(calls, 1);
+});
+
+test("cleanup does not replay a persisted archiving operation", async (t) => {
+  const { adapter, store } = await fixture(t, "queen");
+  const value = completion();
+  const wakeId = spinoffWakeIdV1(value);
+  await store.write({
+    schemaVersion: 1,
+    revision: 1,
+    wakeId,
+    clientUserMessageId: wakeId,
+    ...value,
+    wakeState: "delivered",
+    wakeReason: null,
+    queenTurnId: "queen-turn",
+    cleanupState: "archiving",
+    cleanupPolicy: "auto",
+    createdAt: "2026-07-24T12:00:00.000Z",
+    updatedAt: "2026-07-24T12:00:01.000Z",
+  }, {
+    expectedRevision: 0,
+  });
+  let archives = 0;
+  const bridge = {
+    async archiveThread() {
+      archives += 1;
+    },
+  };
+  const replay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, bridge);
+  assert.equal(replay.state, "attention");
+  assert.equal(replay.results[0].reason, "prior-archive-in-flight");
+  assert.equal(archives, 0);
 });

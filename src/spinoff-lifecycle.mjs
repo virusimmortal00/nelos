@@ -10,6 +10,7 @@ export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
 export const SPINOFF_CLEANUP_POLICIES = Object.freeze(["ask", "auto", "keep"]);
 
 const MAX_RECORD_BYTES = 32 * 1024;
+const MAX_SUMMARY_CHARACTERS = 2_000;
 const ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const WORK_UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const OUTCOMES = new Set(["succeeded", "blocked", "failed"]);
@@ -26,7 +27,11 @@ export const SPINOFF_COMPLETE_INPUT_SCHEMA = Object.freeze({
     attempt: { type: "integer", minimum: 1 },
     memberThreadId: { type: "string", minLength: 1, maxLength: 512 },
     outcome: { type: "string", enum: [...OUTCOMES] },
-    summary: { type: "string", minLength: 1, maxLength: 1_000 },
+    summary: {
+      type: "string",
+      minLength: 1,
+      maxLength: MAX_SUMMARY_CHARACTERS,
+    },
   },
   required: [
     "webId", "queenThreadId", "workUnitId", "specRevision", "attempt",
@@ -128,7 +133,7 @@ export function validateSpinoffCompletionV1(value) {
   return {
     ...identity,
     outcome: value.outcome,
-    summary: text(value.summary, "summary"),
+    summary: text(value.summary, "summary", MAX_SUMMARY_CHARACTERS),
   };
 }
 
@@ -166,7 +171,7 @@ function validateRecord(value) {
     clientUserMessageId: wakeId,
     ...identity,
     outcome: value.outcome,
-    summary: text(value.summary, "summary"),
+    summary: text(value.summary, "summary", MAX_SUMMARY_CHARACTERS),
     wakeState: value.wakeState,
     wakeReason:
       value.wakeReason === null ? null : text(value.wakeReason, "wakeReason", 128),
@@ -470,6 +475,42 @@ export class SpinoffLifecycleAdapterV1 {
         .filter((decision) => decision.decision === "accepted")
         .map((decision) => [decision.workUnitId, decision]),
     );
+    const requiredCurrent = workUnits.filter(
+      (workUnit) =>
+        workUnit.webId === identity.webId &&
+        workUnit.queenThreadId === identity.queenThreadId &&
+        workUnit.memberKind === "spinoff" &&
+        workUnit.required,
+    );
+    const pendingRequired = requiredCurrent.filter((workUnit) => {
+      const decision = accepted.get(workUnit.workUnitId);
+      return !(
+        workUnit.binding.state === "bound" &&
+        decision?.result?.outcome === "succeeded" &&
+        decision?.specRevision === workUnit.specRevision &&
+        decision?.attempt === workUnit.attempt &&
+        decision?.memberThreadId === workUnit.binding.memberThreadId
+      );
+    });
+    if (pendingRequired.length > 0) {
+      return {
+        schemaVersion: 1,
+        policy: resolvedPolicy,
+        state: "not-ready",
+        pending: pendingRequired
+          .sort((left, right) =>
+            left.workUnitId.localeCompare(right.workUnitId),
+          )
+          .map((workUnit) => ({
+            workUnitId: workUnit.workUnitId,
+            threadId:
+              workUnit.binding.state === "bound"
+                ? workUnit.binding.memberThreadId
+                : null,
+            title: workUnit.title,
+          })),
+      };
+    }
     const eligible = workUnits
       .filter((workUnit) => {
         const decision = accepted.get(workUnit.workUnitId);
@@ -576,6 +617,20 @@ export class SpinoffLifecycleAdapterV1 {
               threadId: candidate.threadId,
               state: "attention",
               reason: "prior-archive-attention",
+            });
+            return;
+          }
+          if (record.cleanupState === "archiving") {
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "attention",
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "attention",
+              reason: "prior-archive-in-flight",
             });
             return;
           }

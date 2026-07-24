@@ -127,11 +127,17 @@ function publicStatus(value) {
 
 function publicThread(thread, expectedThreadId) {
   if (!thread || typeof thread !== "object" || Array.isArray(thread)) {
-    throw new Error("app-server thread/read returned no thread");
+    throw bridgeError(
+      "Codex app-server thread/read returned no thread",
+      "invalid-response",
+    );
   }
   const observedThreadId = threadId(thread.id);
   if (observedThreadId !== expectedThreadId) {
-    throw new Error("app-server thread/read returned a different thread");
+    throw bridgeError(
+      "Codex app-server thread/read returned a different thread",
+      "invalid-response",
+    );
   }
   const status = publicStatus(thread.status);
   return {

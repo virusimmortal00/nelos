@@ -1076,9 +1076,14 @@ test("a post-resume read failure is not classified as an uncertain wake mutation
       message: "Member A completed.",
     }),
     (error) => {
+      assert.equal(error.bridgeCode, "invalid-response");
       assert.notEqual(error.mutationUncertain, true);
       return true;
     },
+  );
+  assert.equal(
+    fake.requests.some(({ method }) => method === "thread/resume"),
+    true,
   );
   assert.equal(
     fake.requests.some(({ method }) => method === "turn/start"),

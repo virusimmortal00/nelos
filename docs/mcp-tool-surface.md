@@ -64,8 +64,9 @@ operations use one lazily started, long-lived
 - `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
   queen acceptances with an explicit `archive` capability. It previews a named
   confirmation list under the default `ask` policy, or applies remembered
-  `auto` and `keep` policies. Native archive receipts are persisted per spin-off
-  and partial failures remain visible.
+  `auto` and `keep` policies only after every required current result is
+  accepted. Native archive receipts are persisted per spin-off; partial and
+  in-flight outcomes remain visible without replaying an archive.
 
 Thread inspection, routing, and verification are explicitly read-only. Planning
 is non-read-only and idempotent because a spinoff plan may synchronize the queen

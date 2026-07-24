@@ -247,10 +247,13 @@ candidate set from the durable execution and acceptance records:
 - `keep` records the decision without archiving; and
 - `rememberPolicy: true` persists the chosen default.
 
+If any required current spin-off lacks a successful current acceptance, cleanup
+returns `not-ready` with the exact pending work units and performs no mutation.
 Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
 without an explicit `archive` capability is never eligible. Archive is a native
 app-server mutation and each outcome is recorded independently so partial
-cleanup remains recoverable.
+cleanup remains recoverable. A persisted `archiving` state requires attention
+and is never replayed as a second archive request.
 
 ## Upstream Native API Improvements
 
