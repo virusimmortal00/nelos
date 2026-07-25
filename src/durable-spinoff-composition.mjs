@@ -164,8 +164,8 @@ export class DurableSpinoffCompositionV1 {
     });
   }
 
-  async complete(value, appServerBridge) {
-    return this.#lifecycle.complete(value, appServerBridge);
+  async complete(value) {
+    return this.#lifecycle.complete(value);
   }
 
   /**
@@ -242,7 +242,7 @@ export class DurableSpinoffCompositionV1 {
     };
   }
 
-  async cleanup(value, appServerBridge) {
-    return this.#lifecycle.cleanup(value, appServerBridge);
+  async cleanup(value) {
+    return this.#lifecycle.cleanup(value);
   }
 }

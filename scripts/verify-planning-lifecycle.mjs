@@ -362,7 +362,7 @@ export async function runPlanningLifecycleScenario() {
       maxParallel: 2,
       slices: plannedSlices,
     };
-    const planned = await mcp.tool("nelos_plan_lifecycle", {
+    const completedPlanningRequest = {
       ...lifecycleRequest,
       bootstrapId,
       receipt: {
@@ -374,7 +374,22 @@ export async function runPlanningLifecycleScenario() {
         turnId: "planner-turn",
         response: fencedPlan(bootstrapId, rawPlan),
       },
-    });
+    };
+    let planned = await mcp.tool(
+      "nelos_plan_lifecycle",
+      completedPlanningRequest,
+    );
+    if (planned.nextAction.kind === "native-set-title") {
+      await mutateState(appStatePath, (value) => {
+        value.threads[planned.nextAction.threadId].name =
+          planned.nextAction.title;
+        value.threads[planned.nextAction.threadId].updatedAt += 1;
+      });
+      planned = await mcp.tool(
+        "nelos_plan_lifecycle",
+        completedPlanningRequest,
+      );
+    }
     assert.equal(planned.nextAction.kind, "launch-wave");
     assert.equal(planned.nextAction.members.length, 2);
     const stateAfterPlan = JSON.parse(await readFile(appStatePath, "utf8"));
