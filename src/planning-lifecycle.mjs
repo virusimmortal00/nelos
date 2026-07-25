@@ -536,7 +536,6 @@ export class PlanningLifecycleCoordinatorV1 {
   #resolveSubagent;
   #verifyRoute;
   #withLock;
-  #currentThreadId;
 
   constructor({
     store = new PlanningLifecycleStoreV1(),
@@ -544,14 +543,12 @@ export class PlanningLifecycleCoordinatorV1 {
     resolveSubagent = resolveNativeSubagentThreadV1,
     verifyRoute = verifyRuntimeIntelligenceV1,
     withLock = withPlanningLifecycleLock,
-    currentThreadId = () => process.env.CODEX_THREAD_ID,
   } = {}) {
     this.#store = store;
     this.#sessionsRoot = sessionsRoot;
     this.#resolveSubagent = resolveSubagent;
     this.#verifyRoute = verifyRoute;
     this.#withLock = withLock;
-    this.#currentThreadId = currentThreadId;
   }
 
   async #inspectVerified(record, request, appServerBridge) {
@@ -591,16 +588,6 @@ export class PlanningLifecycleCoordinatorV1 {
 
   async advance(value, { appServerBridge }) {
     const request = normalizeRequest(value);
-    const hostThreadId = this.#currentThreadId();
-    if (
-      typeof hostThreadId !== "string" ||
-      !IDENTIFIER.test(hostThreadId) ||
-      hostThreadId !== request.queenThreadId
-    ) {
-      throw new Error(
-        "queenThreadId must match the current host task identity",
-      );
-    }
     const receipt = normalizeReceipt(value.receipt);
     const bootstrap = createPlanningBootstrapV1({
       objective: request.objective,

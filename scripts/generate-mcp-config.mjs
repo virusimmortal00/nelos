@@ -66,7 +66,10 @@ export function buildMcpBootstrap() {
 }
 
 export function buildMcpConfig(version) {
-  if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
+  if (
+    typeof version !== "string" ||
+    !/^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/u.test(version)
+  ) {
     throw new Error(`mcp config requires a release version, got: ${version}`);
   }
   return {

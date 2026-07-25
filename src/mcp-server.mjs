@@ -50,13 +50,14 @@ import {
   SPINOFF_COMPLETE_INPUT_SCHEMA,
   SpinoffLifecycleAdapterV1,
 } from "./spinoff-lifecycle.mjs";
+import { renderQueenTitle } from "./task-web.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
 // newline-delimited JSON-RPC over stdio, the framing the Codex host was
 // observed to use (codex-cli 0.144.6). The planner owns one narrowly scoped
-// queen-title mutation through a lazy Codex app-server child; inspection is
-// bounded and read-only. Orchestration otherwise remains callback-driven.
+// queen-title observation through a lazy Codex app-server child; inspection is
+// bounded and read-only. Native mutations remain host-owned effects.
 
 export const MCP_SERVER_NAME = "nelos";
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
@@ -101,18 +102,48 @@ async function plannedSlicesOutput(
   const planRun = await planRunStore.create(
     createPlanRunV1(plan, { queenThreadId, sourceId, parentPlanRun }),
   );
-  const queenTitleSync =
-    plan.summary.spinoffs > 0
-      ? await appServerBridge.synchronizeQueenTitle()
-      : null;
-  return {
+  const output = {
     ...withNextAction({
       command: "plan slices",
       plan,
       planRun,
       ...additionalFields,
     }),
-    ...(queenTitleSync ? { queenTitleSync } : {}),
+  };
+  if (plan.summary.spinoffs === 0) return output;
+
+  const before = await appServerBridge.inspect({ threadId: queenThreadId });
+  if (!before.title) {
+    throw new Error("current queen task has no settled title");
+  }
+  const preflight = await appServerBridge.inspect({ threadId: queenThreadId });
+  if (preflight.title !== before.title) {
+    throw new Error("queen title changed during synchronization");
+  }
+  const requestedTitle = renderQueenTitle(preflight.title);
+  const changed = requestedTitle !== preflight.title;
+  return {
+    ...output,
+    queenTitleSync: {
+      schemaVersion: 1,
+      threadId: queenThreadId,
+      previousTitle: preflight.title,
+      title: requestedTitle,
+      changed,
+      verified: !changed,
+    },
+    ...(changed
+      ? {
+          nextAction: {
+            schemaVersion: 1,
+            kind: "native-set-title",
+            threadId: queenThreadId,
+            title: requestedTitle,
+            verify: true,
+            after: "repeat-plan-slices",
+          },
+        }
+      : {}),
   };
 }
 
@@ -127,9 +158,15 @@ const TOOLS = [
       "should use nelos_plan_slices directly.",
     inputSchema: PLANNING_BOOTSTRAP_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, currentThreadId, planRunStore }) {
+    async run(args, { appServerBridge, planRunStore }) {
+      const { queenThreadId, ...bootstrapArgs } = args;
       if (args.response !== undefined) {
-        const { response, ...request } = args;
+        if (typeof queenThreadId !== "string" || !queenThreadId.trim()) {
+          throw new Error(
+            "queenThreadId is required when finalizing a planning bootstrap",
+          );
+        }
+        const { response, ...request } = bootstrapArgs;
         const finalized = finalizePlanningBootstrapV1(request, response);
         if (!finalized.ready) {
           return withNextAction({
@@ -147,12 +184,12 @@ const TOOLS = [
               classificationEvidence: finalized.classificationEvidence,
             },
           },
-          { queenThreadId: currentThreadId(), planRunStore },
+          { queenThreadId, planRunStore },
         );
       }
       return withNextAction({
         command: "plan bootstrap",
-        bootstrap: createPlanningBootstrapV1(args),
+        bootstrap: createPlanningBootstrapV1(bootstrapArgs),
       });
     },
   },
@@ -252,18 +289,25 @@ const TOOLS = [
             "taskShape).",
           ...SLICE_PLAN_INPUT_SCHEMA,
         },
+        queenThreadId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 512,
+          description:
+            "Explicit current queen task ID; required when any slice is a spinoff",
+        },
       },
-      required: ["plan"],
+      required: ["plan", "queenThreadId"],
       additionalProperties: false,
     },
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, currentThreadId, planRunStore }) {
+    async run(args, { appServerBridge, planRunStore }) {
       const plan = planWorkSlices(args.plan);
       return plannedSlicesOutput(
         plan,
         appServerBridge,
         {},
-        { queenThreadId: currentThreadId(), planRunStore },
+        { queenThreadId: args.queenThreadId, planRunStore },
       );
     },
   },
@@ -278,13 +322,7 @@ const TOOLS = [
       appServerBridge,
       launchBatchVerifier,
       planRunStore,
-      currentThreadId,
     }) {
-      if (currentThreadId() !== args.parentThreadId) {
-        throw new Error(
-          "launch batch parentThreadId must match the current host task",
-        );
-      }
       const { wave } = await planRunStore.requireWave({
         planRunId: args.planRunId,
         queenThreadId: args.parentThreadId,
@@ -326,16 +364,19 @@ const TOOLS = [
       properties: {
         threadId: {
           type: "string",
-          description: "Task/thread ID; defaults to the current Codex task",
+          minLength: 1,
+          maxLength: 512,
+          description: "Explicit task/thread ID",
         },
       },
+      required: ["threadId"],
       additionalProperties: false,
     },
     async run(args, { appServerBridge }) {
       return {
         command: "thread inspect",
         thread: await appServerBridge.inspect({
-          threadId: args.threadId ?? undefined,
+          threadId: args.threadId,
         }),
       };
     },
@@ -550,12 +591,7 @@ const TOOLS = [
       required: ["parentThreadId", "agentPath", "model", "effort"],
       additionalProperties: false,
     },
-    async run(args, { currentThreadId }) {
-      if (currentThreadId() !== args.parentThreadId) {
-        throw new Error(
-          "parentThreadId must match the current host task identity",
-        );
-      }
+    async run(args) {
       const resolved = await resolveNativeSubagentThreadV1({
         parentThreadId: args.parentThreadId,
         agentPath: args.agentPath,
@@ -594,13 +630,13 @@ const TOOLS = [
   {
     name: "nelos_spinoff_complete",
     description:
-      "Persist one bound spin-off completion and deliver an idempotent wake " +
-      "turn to its queen when the queen is idle. A prior delivery is reconciled " +
-      "by its stable client message ID before any new turn is started.",
+      "Persist one bound spin-off completion and return one host-owned native " +
+      "send-message effect, or validate its exact receipt. Replays return a " +
+      "non-sending reconciliation effect instead of duplicating the wake.",
     inputSchema: SPINOFF_COMPLETE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, lifecycleAdapter }) {
-      return lifecycleAdapter.complete(args, appServerBridge);
+    async run(args, { lifecycleAdapter }) {
+      return lifecycleAdapter.complete(args);
     },
   },
   {
@@ -608,11 +644,12 @@ const TOOLS = [
     description:
       "Derive accepted spin-offs eligible for cleanup, ask with an exact named " +
       "candidate list by default, or apply a remembered ask/auto/keep policy. " +
-      "Only confirmed eligible native tasks are archived.",
+      "Confirmed archives are returned as host-owned effects and become durable " +
+      "only after exact native receipts.",
     inputSchema: SPINOFF_CLEANUP_INPUT_SCHEMA,
     annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, lifecycleAdapter }) {
-      return lifecycleAdapter.cleanup(args, appServerBridge);
+    async run(args, { lifecycleAdapter }) {
+      return lifecycleAdapter.cleanup(args);
     },
   },
 ];
@@ -654,9 +691,8 @@ export function startNelosMcpServer({
   joinAdapter = new McpJoinAdapterV1(),
   lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
   appServerBridge = new CodexAppServerBridgeV1(),
-  currentThreadId = () => process.env.CODEX_THREAD_ID,
   planRunStore = new PlanRunStoreV1(),
-  planningLifecycle = new PlanningLifecycleCoordinatorV1({ currentThreadId }),
+  planningLifecycle = new PlanningLifecycleCoordinatorV1(),
   exceptionReplanning = new ExceptionReplanningCoordinatorV1({
     planningLifecycle,
     planRunStore,
@@ -678,7 +714,6 @@ export function startNelosMcpServer({
     try {
       result = await tool.run(assertToolArguments(tool, params.arguments), {
         appServerBridge,
-        currentThreadId,
         exceptionReplanning,
         launchBatchVerifier,
         orchestrationAdapter,

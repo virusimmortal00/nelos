@@ -76,16 +76,18 @@ Nelos is one Codex plugin with two parts:
 - **An MCP server with a scoped Codex app-server bridge.**
   `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
   typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
-  waves and, for spinoffs, synchronizes the queen title as
+  waves and, for spinoffs, returns a host-owned native title effect before any
+  launch action. A repeated call verifies the canonical queen title as
   `[🕸️ inbound] [🕷️ outbound] [👑] · base title`. Thread inspection,
   inventory, bounded waiting, and health tools expose no prompts or transcripts.
   Batch launch verification gates every wave on exact identity, topology,
   title, and route evidence. Typed exceptions can trigger one bounded Sol
   replan without relaunching completed slices. Finishing spinoffs durably hand
-  off through `nelos_spinoff_complete`; accepted members follow an explicit
-  `ask`, `auto`, or `keep` cleanup policy. Intelligence routing, verification,
-  and native subagent identity resolution remain read-only; callback
-  orchestration tools journal native effects. The bridge starts one
+  off through receipt-bound host wake effects from `nelos_spinoff_complete`;
+  accepted members follow an explicit `ask`, `auto`, or `keep` cleanup policy
+  through receipt-bound native archive effects. Intelligence routing,
+  verification, and native subagent identity resolution remain read-only;
+  callback orchestration tools journal native effects. The bridge starts one
   `codex app-server --stdio` child lazily and exposes no prompts or transcripts.
 - **A skill** — `manage-nelos-tasks`, the playbook that bootstraps planning
   independently of the starting model and executes each tool's next action.

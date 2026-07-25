@@ -7,14 +7,13 @@ import test, { after } from "node:test";
 import {
   SpinoffLifecycleAdapterV1,
   SpinoffLifecycleStoreV1,
-  spinoffWakeIdV1,
 } from "../src/spinoff-lifecycle.mjs";
 
 const testStateHome = await mkdtemp(join(tmpdir(), "nelos-lifecycle-state-"));
 process.env.XDG_STATE_HOME = testStateHome;
 after(() => rm(testStateHome, { recursive: true, force: true }));
 
-function workUnit() {
+function workUnit(overrides = {}) {
   return {
     webId: "A1",
     queenThreadId: "queen",
@@ -29,10 +28,11 @@ function workUnit() {
       state: "bound",
       memberThreadId: "member-thread",
     },
+    ...overrides,
   };
 }
 
-function completion() {
+function completion(overrides = {}) {
   return {
     webId: "A1",
     queenThreadId: "queen",
@@ -42,18 +42,20 @@ function completion() {
     memberThreadId: "member-thread",
     outcome: "succeeded",
     summary: "Implemented and verified the bounded change.",
+    receipt: null,
+    ...overrides,
   };
 }
 
-function acceptance() {
+function acceptance(unit = workUnit()) {
   return {
     decision: "accepted",
-    webId: "A1",
-    queenThreadId: "queen",
-    workUnitId: "member-a",
-    specRevision: 1,
-    attempt: 1,
-    memberThreadId: "member-thread",
+    webId: unit.webId,
+    queenThreadId: unit.queenThreadId,
+    workUnitId: unit.workUnitId,
+    specRevision: unit.specRevision,
+    attempt: unit.attempt,
+    memberThreadId: unit.binding.memberThreadId,
     result: {
       outcome: "succeeded",
       summary: "Implemented and verified the bounded change.",
@@ -63,25 +65,20 @@ function acceptance() {
 
 async function fixture(
   t,
-  callerThreadId = "member-thread",
   {
     units = [workUnit()],
-    decisions = [acceptance()],
+    decisions = units.map(acceptance),
     storeDecorator = (store) => store,
-    adapterOptions = {},
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-spinoff-lifecycle-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const store = storeDecorator(new SpinoffLifecycleStoreV1({ directory }));
+  let ordinal = 0;
   const adapter = new SpinoffLifecycleAdapterV1({
-    ...adapterOptions,
     store,
-    callerThreadId: () => callerThreadId,
-    now: (() => {
-      let ordinal = 0;
-      return () => new Date(Date.UTC(2026, 6, 24, 12, 0, ordinal++)).toISOString();
-    })(),
+    now: () =>
+      new Date(Date.UTC(2026, 6, 24, 12, 0, ordinal++)).toISOString(),
     executionStore: {
       async read(id) {
         return units.find(({ workUnitId }) => workUnitId === id) ?? null;
@@ -99,160 +96,95 @@ async function fixture(
   return { adapter, store, decisions, units };
 }
 
-test("spin-off completion persists and delivers exactly one queen wake", async (t) => {
-  const { adapter } = await fixture(t);
-  const deliveries = [];
-  const bridge = {
-    async deliverParentWake(value) {
-      deliveries.push(value);
-      return {
-        delivered: true,
-        replayed: false,
-        queenTurnId: "queen-turn",
-      };
-    },
+function wakeReceipt(effect, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    actionId: effect.actionId,
+    type: "native-send-message",
+    threadId: effect.threadId,
+    memberThreadId: "member-thread",
+    delivered: true,
+    turnId: "queen-turn",
+    ...overrides,
   };
-  const first = await adapter.complete(completion(), bridge);
-  assert.equal(first.record.wakeState, "delivered");
-  assert.equal(first.record.wakeReason, null);
-  assert.equal(first.record.queenTurnId, "queen-turn");
-  const second = await adapter.complete(completion(), bridge);
-  assert.equal(second.replayed, true);
-  assert.equal(deliveries.length, 1);
-  assert.equal(deliveries[0].reconciliationRequired, false);
-  assert.match(deliveries[0].message, /member-a/u);
-  assert.match(deliveries[0].message, /\nOutcome:/u);
+}
+
+function archiveReceipt(effect, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    actionId: effect.actionId,
+    type: "native-archive",
+    threadId: effect.threadId,
+    archived: true,
+    ...overrides,
+  };
+}
+
+test("spin-off completion persists before returning one host-owned wake effect", async (t) => {
+  const { adapter } = await fixture(t);
+  const first = await adapter.complete(completion());
+  assert.equal(first.record.wakeState, "delivering");
+  assert.equal(first.effects.length, 1);
+  assert.equal(first.effects[0].type, "native-send-message");
+  assert.equal(first.effects[0].threadId, "queen");
+  assert.equal(
+    first.effects[0].preconditions.expectedCallerThreadId,
+    "member-thread",
+  );
+  assert.match(first.effects[0].prompt, /member-a/u);
+
+  const delivered = await adapter.complete(
+    completion({ receipt: wakeReceipt(first.effects[0]) }),
+  );
+  assert.equal(delivered.record.wakeState, "delivered");
+  assert.equal(delivered.record.queenTurnId, "queen-turn");
+  assert.deepEqual(delivered.effects, []);
+
+  const replay = await adapter.complete(completion());
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.record.wakeState, "delivered");
 });
 
-test("spin-off completion rejects a caller outside its durable identity", async (t) => {
-  const { adapter } = await fixture(t, "another-thread");
+test("spin-off completion never blindly re-emits an in-flight wake", async (t) => {
+  const { adapter } = await fixture(t);
+  const first = await adapter.complete(completion());
+  const replay = await adapter.complete(completion());
+  assert.equal(replay.effects.length, 1);
+  assert.equal(replay.effects[0].type, "native-reconcile-send-message");
+  assert.equal(replay.effects[0].originalActionId, first.effects[0].actionId);
+});
+
+test("spin-off completion rejects stale receipts and unbound identities", async (t) => {
+  const { adapter } = await fixture(t);
+  const first = await adapter.complete(completion());
   await assert.rejects(
-    adapter.complete(completion(), {}),
-    /only the bound spin-off/u,
+    adapter.complete(
+      completion({
+        receipt: wakeReceipt(first.effects[0], { memberThreadId: "other" }),
+      }),
+    ),
+    /stale or conflicting/u,
+  );
+  await assert.rejects(
+    adapter.complete(completion({ memberThreadId: "other" })),
+    /bound durable work unit/u,
   );
 });
 
 test("spin-off completion accepts the full result-summary contract", async (t) => {
   const { adapter } = await fixture(t);
-  const value = {
-    ...completion(),
-    summary: "x".repeat(2_000),
-  };
-  const result = await adapter.complete(value, {
-    async deliverParentWake() {
-      return {
-        delivered: true,
-        replayed: false,
-        queenTurnId: "queen-turn",
-      };
-    },
-  });
+  const result = await adapter.complete(
+    completion({ summary: "x".repeat(2_000) }),
+  );
   assert.equal(result.record.summary.length, 2_000);
 });
 
-test("spin-off completion does not blindly retry an uncertain wake", async (t) => {
+test("cleanup asks before returning host-owned archive effects", async (t) => {
   const { adapter } = await fixture(t);
-  let calls = 0;
-  const bridge = {
-    async deliverParentWake() {
-      calls += 1;
-      const error = new Error("connection closed after mutation");
-      error.mutationUncertain = true;
-      throw error;
-    },
-  };
-  await assert.rejects(
-    adapter.complete(completion(), bridge),
-    /persisted as attention/u,
-  );
-  const replay = await adapter.complete(completion(), bridge);
-  assert.equal(replay.replayed, true);
-  assert.equal(replay.record.wakeState, "attention");
-  assert.equal(calls, 1);
-});
-
-test("spin-off completion retries deferred wakes before returning", async (t) => {
-  const delays = [];
-  const { adapter } = await fixture(t, "member-thread", {
-    adapterOptions: {
-      wakeRetryDelays: [10, 20],
-      sleep: async (delay) => delays.push(delay),
-    },
-  });
-  let calls = 0;
-  const result = await adapter.complete(completion(), {
-    async deliverParentWake() {
-      calls += 1;
-      if (calls < 3) {
-        return {
-          delivered: false,
-          replayed: false,
-          deferred: true,
-          reason: "queen-system-error",
-          queenTurnId: null,
-        };
-      }
-      return {
-        delivered: true,
-        replayed: false,
-        deferred: false,
-        reason: null,
-        queenTurnId: "queen-turn",
-      };
-    },
-  });
-  assert.equal(result.record.wakeState, "delivered");
-  assert.equal(result.deliveryAttempts, 3);
-  assert.deepEqual(delays, [10, 20]);
-});
-
-test("spin-off completion reconciles a persisted delivering state", async (t) => {
-  const { adapter, store } = await fixture(t);
-  const value = completion();
-  const wakeId = spinoffWakeIdV1(value);
-  await store.write({
-    schemaVersion: 1,
-    revision: 1,
-    wakeId,
-    clientUserMessageId: wakeId,
-    ...value,
-    wakeState: "delivering",
-    wakeReason: null,
-    queenTurnId: null,
-    cleanupState: "pending",
-    cleanupPolicy: null,
-    createdAt: "2026-07-24T12:00:00.000Z",
-    updatedAt: "2026-07-24T12:00:01.000Z",
-  }, {
-    expectedRevision: 0,
-  });
-  await assert.rejects(
-    adapter.complete(value, {
-      async deliverParentWake(request) {
-        assert.equal(request.reconciliationRequired, true);
-        const error = new Error("bounded history is truncated");
-        error.mutationUncertain = true;
-        throw error;
-      },
-    }),
-    /persisted as attention/u,
-  );
-  assert.equal((await store.read(wakeId)).wakeState, "attention");
-});
-
-test("cleanup asks with exact accepted candidates before archiving", async (t) => {
-  const { adapter } = await fixture(t, "queen");
-  const archived = [];
-  const bridge = {
-    async archiveThread({ threadId }) {
-      archived.push(threadId);
-      return { archived: true, threadId };
-    },
-  };
   const preview = await adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
-  }, bridge);
+  });
   assert.deepEqual(preview, {
     schemaVersion: 1,
     policy: "ask",
@@ -263,71 +195,77 @@ test("cleanup asks with exact accepted candidates before archiving", async (t) =
       title: "Member A",
     }],
   });
-  assert.deepEqual(archived, []);
+
+  const requested = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    confirmedThreadIds: ["member-thread"],
+  });
+  assert.equal(requested.state, "effects-required");
+  assert.equal(requested.results[0].state, "archiving");
+  assert.equal(requested.effects[0].type, "native-archive");
 
   const applied = await adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     confirmedThreadIds: ["member-thread"],
-  }, bridge);
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
   assert.equal(applied.state, "complete");
-  assert.deepEqual(applied.results, [{
-    threadId: "member-thread",
-    state: "archived",
-    replayed: false,
-  }]);
-  assert.deepEqual(archived, ["member-thread"]);
+  assert.deepEqual(applied.effects, []);
+  assert.equal(applied.results[0].state, "archived");
 
   const replay = await adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     confirmedThreadIds: ["member-thread"],
-  }, bridge);
-  assert.deepEqual(replay.results, [{
-    threadId: "member-thread",
-    state: "archived",
-    replayed: true,
-  }]);
-  assert.deepEqual(archived, ["member-thread"]);
+  });
+  assert.equal(replay.results[0].state, "archived");
+  assert.equal(replay.results[0].replayed, true);
 });
 
-test("remembered auto and keep policies are durable", async (t) => {
-  const autoFixture = await fixture(t, "queen");
-  const archived = [];
-  await autoFixture.adapter.cleanup({
+test("cleanup never blindly re-emits an in-flight archive", async (t) => {
+  const { adapter } = await fixture(t);
+  const first = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  });
+  const replay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  });
+  assert.equal(replay.state, "effects-required");
+  assert.equal(replay.effects[0].type, "native-reconcile-archive");
+  assert.equal(replay.effects[0].originalActionId, first.effects[0].actionId);
+});
+
+test("remembered auto and keep policies remain durable", async (t) => {
+  const autoFixture = await fixture(t);
+  const requested = await autoFixture.adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     policy: "auto",
     rememberPolicy: true,
-  }, {
-    async archiveThread({ threadId }) {
-      archived.push(threadId);
-    },
   });
+  assert.equal(requested.state, "effects-required");
   assert.equal(await autoFixture.store.preference(), "auto");
-  assert.deepEqual(archived, ["member-thread"]);
 
-  const keepFixture = await fixture(t, "queen");
+  const keepFixture = await fixture(t);
   const kept = await keepFixture.adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     policy: "keep",
     rememberPolicy: true,
-  }, {
-    async archiveThread() {
-      assert.fail("keep must not archive");
-    },
   });
   assert.equal(await keepFixture.store.preference(), "keep");
-  assert.deepEqual(kept.results, [{
-    threadId: "member-thread",
-    state: "kept",
-    replayed: false,
-  }]);
+  assert.deepEqual(kept.effects, []);
+  assert.equal(kept.results[0].state, "kept");
 });
 
-test("cleanup rejects ineligible confirmation IDs", async (t) => {
-  const { adapter, store } = await fixture(t, "queen");
+test("cleanup rejects ineligible confirmations and receipts", async (t) => {
+  const { adapter, store } = await fixture(t);
   await assert.rejects(
     adapter.cleanup({
       webId: "A1",
@@ -335,52 +273,46 @@ test("cleanup rejects ineligible confirmation IDs", async (t) => {
       policy: "auto",
       rememberPolicy: true,
       confirmedThreadIds: ["unrelated-thread"],
-    }, {}),
+    }),
     /ineligible spin-off/u,
   );
   assert.equal(await store.preference(), "ask");
-});
 
-test("cleanup excludes accepted failed or blocked outcomes", async (t) => {
-  const { adapter, decisions } = await fixture(t, "queen");
-  decisions[0].result.outcome = "blocked";
-  const preview = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-  }, {
-    async archiveThread() {
-      assert.fail("blocked work must not be archived");
-    },
-  });
-  assert.equal(preview.state, "not-ready");
-  assert.deepEqual(preview.pending.map(({ workUnitId }) => workUnitId), [
-    "member-a",
-  ]);
+  await assert.rejects(
+    adapter.cleanup({
+      webId: "A1",
+      queenThreadId: "queen",
+      policy: "auto",
+      archiveReceipts: [{
+        schemaVersion: 1,
+        actionId: "stale",
+        type: "native-archive",
+        threadId: "unrelated-thread",
+        archived: true,
+      }],
+    }),
+    /unselected spin-off/u,
+  );
 });
 
 test("cleanup waits for every required current spin-off acceptance", async (t) => {
   const first = workUnit();
-  const second = {
-    ...workUnit(),
+  const second = workUnit({
     workUnitId: "member-b",
     title: "Member B",
     binding: {
       state: "bound",
       memberThreadId: "member-thread-b",
     },
-  };
-  const { adapter } = await fixture(t, "queen", {
+  });
+  const { adapter } = await fixture(t, {
     units: [first, second],
-    decisions: [acceptance()],
+    decisions: [acceptance(first)],
   });
   const result = await adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     policy: "auto",
-  }, {
-    async archiveThread() {
-      assert.fail("cleanup must wait for every required result");
-    },
   });
   assert.equal(result.state, "not-ready");
   assert.deepEqual(result.pending, [{
@@ -390,222 +322,27 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
   }]);
 });
 
-test("cleanup excludes work units without archive capability", async (t) => {
-  const { adapter, units } = await fixture(t, "queen");
-  units[0].capabilities = ["observe"];
-  const preview = await adapter.cleanup({
+test("cleanup excludes failed outcomes and units without archive capability", async (t) => {
+  const blocked = acceptance();
+  blocked.result.outcome = "blocked";
+  const blockedFixture = await fixture(t, { decisions: [blocked] });
+  assert.equal(
+    (await blockedFixture.adapter.cleanup({
+      webId: "A1",
+      queenThreadId: "queen",
+    })).state,
+    "not-ready",
+  );
+
+  const noArchive = workUnit({ capabilities: ["observe"] });
+  const noArchiveFixture = await fixture(t, {
+    units: [noArchive],
+    decisions: [acceptance(noArchive)],
+  });
+  const preview = await noArchiveFixture.adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
-  }, {
-    async archiveThread() {
-      assert.fail("unauthorized work must not be archived");
-    },
   });
   assert.deepEqual(preview.candidates, []);
   assert.equal(preview.state, "complete");
-});
-
-test("cleanup keeps per-candidate progress when persistence fails", async (t) => {
-  const first = workUnit();
-  const second = {
-    ...workUnit(),
-    workUnitId: "member-b",
-    title: "Member B",
-    binding: {
-      state: "bound",
-      memberThreadId: "member-thread-b",
-    },
-  };
-  const secondDecision = {
-    ...acceptance(),
-    workUnitId: second.workUnitId,
-    memberThreadId: second.binding.memberThreadId,
-  };
-  const { adapter } = await fixture(t, "queen", {
-    units: [first, second],
-    decisions: [acceptance(), secondDecision],
-    storeDecorator(base) {
-      return {
-        preference: (...args) => base.preference(...args),
-        rememberPreference: (...args) => base.rememberPreference(...args),
-        read: (...args) => base.read(...args),
-        async write(record, options) {
-          if (record.memberThreadId === first.binding.memberThreadId) {
-            throw new Error("simulated persistence failure");
-          }
-          return base.write(record, options);
-        },
-      };
-    },
-  });
-  const archived = [];
-  const result = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, {
-    async archiveThread({ threadId }) {
-      archived.push(threadId);
-    },
-  });
-  assert.deepEqual(result.results, [
-    {
-      threadId: "member-thread",
-      state: "attention",
-      reason: "cleanup-candidate-failed",
-    },
-    {
-      threadId: "member-thread-b",
-      state: "archived",
-      replayed: false,
-    },
-  ]);
-  assert.deepEqual(archived, ["member-thread-b"]);
-});
-
-test("cleanup does not blindly retry an uncertain archive", async (t) => {
-  const { adapter } = await fixture(t, "queen");
-  let calls = 0;
-  const bridge = {
-    async archiveThread() {
-      calls += 1;
-      const error = new Error("connection closed after mutation");
-      error.mutationUncertain = true;
-      throw error;
-    },
-  };
-  const first = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.equal(first.state, "attention");
-  assert.equal(first.results[0].reason, "archive-uncertain");
-
-  const replay = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.equal(replay.state, "attention");
-  assert.equal(replay.results[0].reason, "prior-archive-attention");
-  assert.equal(calls, 1);
-});
-
-test("cleanup does not retry an archive after its success state fails to persist", async (t) => {
-  let failArchivedWrite = true;
-  const { adapter } = await fixture(t, "queen", {
-    storeDecorator(base) {
-      return {
-        preference: (...args) => base.preference(...args),
-        rememberPreference: (...args) => base.rememberPreference(...args),
-        read: (...args) => base.read(...args),
-        async write(record, options) {
-          if (record.cleanupState === "archived" && failArchivedWrite) {
-            failArchivedWrite = false;
-            throw new Error("simulated post-archive persistence failure");
-          }
-          return base.write(record, options);
-        },
-      };
-    },
-  });
-  let calls = 0;
-  const bridge = {
-    async archiveThread() {
-      calls += 1;
-    },
-  };
-  const first = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.deepEqual(first.results, [{
-    threadId: "member-thread",
-    state: "attention",
-    reason: "archive-committed-persistence-failed",
-  }]);
-  const second = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.deepEqual(second.results, [{
-    threadId: "member-thread",
-    state: "attention",
-    reason: "prior-archive-attention",
-  }]);
-  assert.equal(calls, 1);
-});
-
-test("cleanup can retry a certainly rejected archive", async (t) => {
-  const { adapter } = await fixture(t, "queen");
-  let calls = 0;
-  const bridge = {
-    async archiveThread() {
-      calls += 1;
-      if (calls === 1) {
-        const error = new Error("archive rejected before mutation");
-        error.mutationUncertain = false;
-        throw error;
-      }
-    },
-  };
-  const rejected = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.equal(rejected.state, "pending");
-  assert.deepEqual(rejected.results, [{
-    threadId: "member-thread",
-    state: "pending",
-    reason: "archive-rejected",
-  }]);
-
-  const retried = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.equal(retried.state, "complete");
-  assert.equal(retried.results[0].state, "archived");
-  assert.equal(calls, 2);
-});
-
-test("cleanup does not replay a persisted archiving operation", async (t) => {
-  const { adapter, store } = await fixture(t, "queen");
-  const value = completion();
-  const wakeId = spinoffWakeIdV1(value);
-  await store.write({
-    schemaVersion: 1,
-    revision: 1,
-    wakeId,
-    clientUserMessageId: wakeId,
-    ...value,
-    wakeState: "delivered",
-    wakeReason: null,
-    queenTurnId: "queen-turn",
-    cleanupState: "archiving",
-    cleanupPolicy: "auto",
-    createdAt: "2026-07-24T12:00:00.000Z",
-    updatedAt: "2026-07-24T12:00:01.000Z",
-  }, {
-    expectedRevision: 0,
-  });
-  let archives = 0;
-  const bridge = {
-    async archiveThread() {
-      archives += 1;
-    },
-  };
-  const replay = await adapter.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-    policy: "auto",
-  }, bridge);
-  assert.equal(replay.state, "attention");
-  assert.equal(replay.results[0].reason, "prior-archive-in-flight");
-  assert.equal(archives, 0);
 });

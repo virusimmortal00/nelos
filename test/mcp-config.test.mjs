@@ -45,9 +45,14 @@ test("the generated launch form is the verified inline bootstrap", () => {
   assert.equal(server.command, "node");
   assert.equal(server.args[0], "-e");
   assert.deepEqual(server.env, { [MCP_PLUGIN_VERSION_ENV]: "1.2.3" });
+  assert.deepEqual(
+    buildMcpConfig("1.2.3+codex.20260725014918")[MCP_SERVER_CONFIG_KEY].env,
+    { [MCP_PLUGIN_VERSION_ENV]: "1.2.3+codex.20260725014918" },
+  );
   assert.ok(!server.args[1].includes("${"), "bootstrap must not rely on substitution");
   assert.ok(!server.args[1].includes("`"), "bootstrap must stay embeddable");
   assert.throws(() => buildMcpConfig("not-a-version"));
+  assert.throws(() => buildMcpConfig("1.2.3+other.build"));
 });
 
 async function bootstrapFixture() {

@@ -226,14 +226,10 @@ continue the join loop.
 Codex still exposes no native persistent completion subscription. Nelos closes
 that gap at the application layer: every durable launch prompt carries an exact
 `nelos_spinoff_complete` callback identity. The member persists its completion
-before its final response and the MCP-owned app-server bridge reconciles a
-stable client message ID before mutation. A known active queen turn is steered;
-an unloaded queen is resumed; and an idle queen receives one new continuation
-turn. A pre-mutation `delivering` revision distinguishes crash recovery from a
-fresh first attempt when the bounded queen history is truncated. Deferred
-delivery receives bounded in-call retries, and the member retries the same
-idempotent callback before final if the persisted state remains `deferred`.
-Ambiguous delivery is retained as `attention` and never blindly replayed.
+before its final response and receives one deterministic host-owned native
+send-message effect. After the host performs it, the member supplies the exact
+receipt to finish the durable transition. A persisted in-flight operation
+returns a reconciliation effect rather than another send.
 
 The callback complements rather than replaces the queen join loop. A member can
 crash before making its callback, so a live queen still uses bounded native
@@ -247,20 +243,19 @@ current spin-off results are accepted, `nelos_spinoff_cleanup` derives an exact
 candidate set from the durable execution and acceptance records:
 
 - `ask` is the default and returns names and task IDs without mutation;
-- `auto` archives all eligible candidates;
+- `auto` returns native archive effects for all eligible candidates;
 - `keep` records the decision without archiving; and
 - `rememberPolicy: true` persists the chosen default.
 
 If any required current spin-off lacks a successful current acceptance, cleanup
 returns `not-ready` with the exact pending work units and performs no mutation.
 Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
-without an explicit `archive` capability is never eligible. Archive is a native
-app-server mutation and each outcome is recorded independently so partial
-cleanup remains recoverable. A persisted `archiving` state requires attention
-and is never replayed as a second archive request. A certainly rejected archive
-returns to `pending` so a later cleanup can safely retry it. Terminal `archived`
-and `kept` records remain addressable by an exact confirmation replay, allowing
-a lost MCP response to be reconciled without another native mutation.
+without an explicit `archive` capability is never eligible. Archive remains a
+host-owned native mutation. Each exact host receipt is recorded independently
+so partial cleanup remains recoverable. A persisted `archiving` state returns a
+reconciliation effect and is never replayed as a second archive request.
+Terminal `archived` and `kept` records remain addressable by an exact
+confirmation replay.
 
 ## Upstream Native API Improvements
 

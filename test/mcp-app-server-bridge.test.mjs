@@ -444,6 +444,23 @@ test("public stable Codex 0.144.5 passes the reviewed schema gate", async () => 
   await bridge.close();
 });
 
+test("the clean MCP environment identity passes the reviewed schema gate", async () => {
+  const fake = fakeCodexAppServer({
+    initializeOverrides: {
+      userAgent: "nelos_mcp/0.144.6 (Mac OS; arm64) unknown (nelos_mcp; 1.0.0)",
+    },
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+  });
+  assert.equal(
+    (await bridge.inspect({ threadId: "thread-1" })).threadId,
+    "thread-1",
+  );
+  assert.equal((await bridge.health()).version, "0.144.6");
+  await bridge.close();
+});
+
 test("version and initialize gates reject unreviewed runtime identities", async () => {
   for (const codexVersion of [
     "0.144.5-rc.1",

@@ -12,8 +12,9 @@ work. The queen identifies user-supplied plans and judges result acceptance.
 ## Choose the Planning Path
 
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
-`objective`, and bounded `slices`, call `nelos_plan_slices` directly. A
-queen-authored plan is not user-supplied and must not use this fast path.
+`objective`, and bounded `slices`, call `nelos_plan_slices` directly with the
+explicit current queen task ID. A queen-authored plan is not user-supplied and
+must not use this fast path.
 
 Otherwise call `nelos_plan_lifecycle` with schema version 1, the current queen
 task ID, a caller-stable idempotency key, the unstructured objective, optional
@@ -33,7 +34,9 @@ After the fast path or validated bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
 - `native-set-title`: use the native title tool with its exact `threadId` and
-  `title`, then verify it natively.
+  `title`, verify it natively, then repeat the tool that returned the action
+  with the same plan and explicit queen ID. The MCP never performs the title
+  mutation itself.
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
@@ -63,10 +66,16 @@ After the fast path or validated bootstrap, execute only the returned
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.
 
-For durable web spinoffs, follow fixed `nelos_spinoff_complete` fields in the
-launch prompt before the final response; only the member calls it. After queen acceptance, call
-`nelos_spinoff_cleanup`: `ask` confirms names, `auto` archives, and `keep`
-preserves. Never clean up ineligible work.
+The launch prompt requires a bounded result and, for spinoffs, an exact
+`nelos_spinoff_complete` callback cycle before final response. Call first with
+`receipt: null`, execute only the returned native send-message effect, and call
+again with the exact host receipt. A reconciliation effect is `attention`;
+never blindly repeat the send.
+After current queen acceptance, call `nelos_spinoff_cleanup`: `ask` names exact
+candidates before confirmation, `auto` returns native archive effects, and
+`keep` preserves them. Execute only returned archive effects and call cleanup
+again with their exact receipts.
+Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
 
 Use `nelos_plan_replan` only for a typed terminal failure/block, user
 requirements change, or insufficient-confidence event. Supply the current

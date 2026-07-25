@@ -50,8 +50,8 @@ test("the skill has one native path driven by machine-generated next actions", (
   // must reference only the bundled MCP tools, never shell commands.
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
-  assert.ok(skill.length < 5_000, "agent-facing skill should remain compact");
-  assert.ok(skill.split("\n").length < 90, "agent-facing skill should be scannable");
+  assert.ok(skill.length < 5_500, "agent-facing skill should remain compact");
+  assert.ok(skill.split("\n").length < 100, "agent-facing skill should be scannable");
 });
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {

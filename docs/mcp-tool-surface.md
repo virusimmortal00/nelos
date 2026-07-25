@@ -30,11 +30,14 @@ long-lived
   durable digest, preserves completed slice semantics, and removes them from
   the executable revised plan;
 - `nelos_plan_slices` — validates and computes the plan locally. When the plan
-  contains at least one spinoff, it reads the current task, preserves any
+  contains at least one spinoff, it requires the explicit queen task ID, reads
+  that task, and preserves any
   inbound and outbound web markers, renders the canonical
   `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, and verifies the persisted
-  title before returning a launch action. Legacy outer-crown forms are
-  normalized. A subagent-only plan does not start the bridge;
+  title. When synchronization is needed it returns a host-owned native title
+  effect; a repeated call verifies the persisted title before returning a
+  launch action. Legacy outer-crown forms are normalized. A subagent-only plan
+  does not start the bridge;
 - `nelos_launch_verify_batch` — performs one all-or-nothing read-only gate for
   1–16 launched wave members. It binds receipts to a persisted plan-run,
   wave index, digest, and authoritative member contract; resolves subagents
@@ -42,8 +45,8 @@ long-lived
   duplicate identities; performs one bounded inventory and topology
   projection; and verifies exact settled titles and route metadata. Any member
   failure prevents the downstream wait/read action;
-- `nelos_thread_inspect` — reads one task by ID (defaulting to the current
-  `CODEX_THREAD_ID`) and returns only bounded identity, title, status, working
+- `nelos_thread_inspect` — reads one explicitly identified task and returns
+  only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never
   returns previews, prompts, or transcripts;
 - `nelos_thread_inventory` — concurrently reads 1–16 unique caller-supplied
@@ -79,31 +82,32 @@ long-lived
   It writes a separate private web checkpoint, validates exact title, wait,
   and result receipts, and returns typed host-owned effects. See
   [Durable Host Observation and Parent Join](observation-join.md);
-- `nelos_spinoff_complete` — validates the calling task against its exact bound
-  durable work unit, persists a bounded completion record, and delivers one
-  idempotent queen wake. It reconciles the stable client message ID first,
-  steers a known active queen turn, or resumes and starts an idle queen turn.
-  Deferred delivery receives bounded retries and remains safely callable by the
-  member with the same identity. Ambiguous mutations stop in `attention` rather
-  than blindly duplicating a turn; and
+- `nelos_spinoff_complete` — validates the completion against its exact bound
+  durable work unit, persists a bounded completion record, and returns one
+  host-owned native send-message effect. A later call validates the exact host
+  receipt. An uncertain replay returns a non-sending reconciliation effect
+  rather than blindly duplicating a turn; and
 - `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
   queen acceptances with an explicit `archive` capability. It previews a named
   confirmation list under the default `ask` policy, or applies remembered
   `auto` and `keep` policies only after every required current result is
-  accepted. Native archive receipts are persisted per spin-off; partial and
-  in-flight outcomes remain visible without replaying an archive.
+  accepted. It returns host-owned native archive effects and persists exact
+  receipts per spin-off; partial and in-flight outcomes remain visible without
+  replaying an archive.
 
 Bootstrap preparation, batch launch verification, thread inspection,
 inventory, wait, health, routing, verification, and subagent identity
 resolution perform read-only work. Lifecycle planning, exception replanning,
 the bootstrap compatibility tool, and structured planning are annotated
-non-read-only and idempotent because they write private checkpoints or may
-synchronize the queen title.
+non-read-only and idempotent because they write private checkpoints. Queen
+title synchronization is returned as a host-owned effect.
 Both orchestration tools remain non-read-only and idempotent: they write
 private Nelos state but do not perform native host effects. Completion
-delivery is a non-destructive idempotent mutation; cleanup is destructive
-because it archives native tasks. This small bridge exposes no web server,
-task dashboard, transcript surface, or general-purpose app-server proxy.
+delivery persists private state and returns a receipt-bound host wake effect;
+cleanup remains declared destructive because its requested native effect
+archives tasks. This small bridge exposes no web
+server, task dashboard, transcript surface, or general-purpose app-server
+proxy.
 
 ## Why not the alternatives
 
@@ -148,7 +152,7 @@ Additional app-server behavior was verified on 2026-07-24:
 
 - the Codex desktop app runs its own `app-server` child over private pipes;
 - a separately started `codex app-server --stdio` process can read the same
-  persisted task identified by `CODEX_THREAD_ID`;
+  persisted task when given its explicit task ID;
 - the generated protocol schema exposes the reviewed read, title, resume,
   turn-list, turn-start, turn-steer, and archive methods used by the bridge; and
 - the separate process shares persisted Codex task state, but does not attach
@@ -165,6 +169,11 @@ attestation. The relevant initialization, `thread/read`, `thread/name/set`,
 stable `0.144.5` and Desktop `0.144.6`; both are supported. The bridge parses
 the version from the initialized server's `userAgent` and rejects unknown
 versions before any thread operation.
+
+In a clean plugin MCP environment, the app server identifies itself with the
+initialized client name (`nelos_mcp/<version>`); interactive shells may instead
+report `Codex Desktop/<version>` or `codex-cli/<version>`. All three reviewed
+forms are version-gated.
 
 Read transport failures receive exactly one reconnect and replay. A second
 failure is returned. Mutations are attempted once and are never replayed after
@@ -185,28 +194,18 @@ observation/join contract.
 Parent wake delivery is an application-level completion callback rather than a
 native subscription. Before returning its final result, a durable spin-off
 calls `nelos_spinoff_complete` using the fixed identity embedded in its launch
-prompt and its current `CODEX_THREAD_ID`. Nelos writes the completion record
-before app-server mutation. It reads at most 20 recent turns solely to reconcile
-the deterministic `clientUserMessageId`; message content is neither retained
-nor returned. If the server reports older pages, Nelos records attention rather
-than concluding a previously attempted wake was absent and risking a duplicate.
-A persisted pre-mutation `delivering` state distinguishes that crash-recovery
-case from a fresh wake, which may proceed despite older pages. A known active
-queen receives `turn/steer` with its exact active turn ID. An idle or unloaded
-queen receives `thread/resume` as needed, followed by `turn/start`. This covers
-both a live join and an already-ended queen without installing a background
-daemon. Native waiting remains authoritative if a member terminates before
-executing its callback.
+prompt and its current task ID. Nelos writes the completion record before
+returning one deterministic `native-send-message` effect. The member executes
+that effect through the host and returns its exact receipt. A persisted
+in-flight state returns only a reconciliation effect, never another send.
+Native waiting remains authoritative if a member terminates before completing
+the callback cycle.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if
 they disagree, canonically orders the inbound, outbound, and crown markers
-without discarding web lineage, writes once, and verifies the result. Nelos
-serializes its own non-wait MCP operations, but it cannot make an independent
-manual Desktop rename atomic with that write. Operators must not manually
-rename the current task during this short synchronization window; adding true
-concurrent-writer safety is explicitly gated on a future versioned CAS or
-revision precondition.
+without discarding web lineage, and returns a host-owned title effect. A repeat
+call verifies the persisted result before launch.
 
 ## Launch mechanism: inline self-locating bootstrap
 
@@ -239,8 +238,8 @@ subagent identity resolution advertise `readOnlyHint: true`. Planning
 lifecycle, exception replanning, compatibility bootstrap, and structured
 planning advertise `readOnlyHint: false`, `destructiveHint: false`, and
 `idempotentHint: true`; they write private digest-only lifecycle state and
-their sole host mutation is `thread/name/set` for the current queen title after
-planner-result validation. Uncertainty fails closed before launch.
+return a host-owned title effect when synchronization is needed. A repeat call
+must observe that title before launch. Uncertainty fails closed before launch.
 Verification reads bounded rollout metadata only.
 Orchestration also advertises `readOnlyHint: false`, `destructiveHint: false`,
 and `idempotentHint: true`.
@@ -250,7 +249,7 @@ One work-unit decision is protected by a cross-process state lock so
 conflicting callbacks cannot both bind independent store instances.
 
 The server opens no sockets. It starts at most one app-server child on first
-inspection, health probe, or required title synchronization, completes the
+inspection, health probe, or required title observation, completes the
 experimental API handshake and version check, reuses the child for subsequent
 requests, and closes it when MCP stdin ends. Responses and errors are
 size-bounded. Protocol failures fail closed.

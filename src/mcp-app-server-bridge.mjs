@@ -192,7 +192,7 @@ function initializeCompatibility(result, supportedVersions) {
     );
   }
   const versionMatch = userAgent.match(
-    /\b(?:Codex Desktop|codex-cli)\/(\d+\.\d+\.\d+)(?![\w.+-])/iu,
+    /\b(?:Codex Desktop|codex-cli|nelos_mcp)\/(\d+\.\d+\.\d+)(?![\w.+-])/iu,
   );
   if (!versionMatch) {
     throw bridgeError(

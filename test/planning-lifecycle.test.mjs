@@ -576,20 +576,17 @@ test("planning lifecycle rejects idempotency-key reuse with different intent", a
   }
 });
 
-test("planning lifecycle binds queen identity to the current host task", async () => {
+test("planning lifecycle uses the explicit queen identity without ambient host state", async () => {
   const value = await fixture();
   try {
     value.coordinator = new PlanningLifecycleCoordinatorV1({
       store: value.store,
       withLock: async (_id, callback) => callback(),
-      currentThreadId: () => "other-queen",
     });
-    await assert.rejects(
-      value.coordinator.advance(request(), {
-        appServerBridge: value.bridge,
-      }),
-      /must match the current host task identity/u,
-    );
+    const result = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    assert.equal(result.nextAction.kind, "launch-planner");
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }

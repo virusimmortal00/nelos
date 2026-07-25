@@ -264,7 +264,12 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
       method: "tools/call",
       params: {
         name: "nelos_plan_bootstrap",
-        arguments: { ...request, bootstrapId, response: responseText },
+        arguments: {
+          ...request,
+          queenThreadId: "queen-1",
+          bootstrapId,
+          response: responseText,
+        },
       },
     },
   ]);
@@ -275,7 +280,7 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
   assert.equal(body.nextAction.kind, "launch-wave");
 });
 
-test("nelos_plan_bootstrap synchronizes the queen before launching a planned spinoff", async () => {
+test("nelos_plan_bootstrap returns a host-owned queen-title effect for a planned spinoff", async () => {
   const request = { objective: "Ship an isolated implementation" };
   const bootstrapId = (await import("../src/planning-bootstrap.mjs"))
     .createPlanningBootstrapV1(request).bootstrapId;
@@ -306,21 +311,24 @@ test("nelos_plan_bootstrap synchronizes the queen before launching a planned spi
         method: "tools/call",
         params: {
           name: "nelos_plan_bootstrap",
-          arguments: { ...request, bootstrapId, response: responseText },
+          arguments: {
+            ...request,
+            queenThreadId: "queen-1",
+            bootstrapId,
+            response: responseText,
+          },
         },
       },
     ],
     {
       appServerBridge: {
-        async synchronizeQueenTitle() {
-          calls.push("synchronizeQueenTitle");
+        async inspect({ threadId }) {
+          calls.push(["inspect", threadId]);
           return {
             schemaVersion: 1,
             threadId: "queen-1",
-            previousTitle: "Release",
-            title: "👑 · Release",
-            changed: true,
-            verified: true,
+            title: "Release",
+            status: "idle",
           };
         },
         async close() {
@@ -331,10 +339,13 @@ test("nelos_plan_bootstrap synchronizes the queen before launching a planned spi
   );
   const { isError, body } = toolBody(response);
   assert.equal(isError, false);
-  assert.equal(body.nextAction.kind, "launch-wave");
-  assert.equal(body.nextAction.members[0].lifecycle, "spinoff");
-  assert.equal(body.queenTitleSync.verified, true);
-  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+  assert.equal(body.nextAction.kind, "native-set-title");
+  assert.equal(body.queenTitleSync.verified, false);
+  assert.deepEqual(calls, [
+    ["inspect", "queen-1"],
+    ["inspect", "queen-1"],
+    "close",
+  ]);
 });
 
 test("nelos_plan_lifecycle forwards exact receipts and emits a planned launch wave", async () => {
@@ -558,7 +569,7 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
   }
 });
 
-test("nelos_launch_verify_batch rejects a parent outside the current host task", async () => {
+test("nelos_launch_verify_batch relies on persisted queen ownership", async () => {
   const args = {
     planRunId: "run:1234567890abcdef1234567890abcdef12345678",
     waveIndex: 1,
@@ -597,7 +608,7 @@ test("nelos_launch_verify_batch rejects a parent outside the current host task",
   );
   const { isError, body } = toolBody(response);
   assert.equal(isError, true);
-  assert.match(body.error, /must match the current host task/u);
+  assert.match(body.error, /must not read a foreign wave/u);
 });
 
 test("nelos_launch_verify_batch rejects another queen's persisted run", async () => {
@@ -701,6 +712,7 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     memberThreadId: "member",
     outcome: "succeeded",
     summary: "Verified result.",
+    receipt: null,
   };
   const cleanup = {
     webId: "A1",
@@ -726,12 +738,12 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     ],
     {
       lifecycleAdapter: {
-        async complete(value, bridge) {
-          calls.push(["complete", value, bridge]);
+        async complete(value) {
+          calls.push(["complete", value]);
           return { state: "delivered" };
         },
-        async cleanup(value, bridge) {
-          calls.push(["cleanup", value, bridge]);
+        async cleanup(value) {
+          calls.push(["cleanup", value]);
           return { state: "complete" };
         },
       },
@@ -742,7 +754,6 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     ["complete", completion],
     ["cleanup", cleanup],
   ]);
-  assert.equal(calls[0][2], calls[1][2]);
   assert.equal(toolBody(completeResponse).body.state, "delivered");
   assert.equal(toolBody(cleanupResponse).body.state, "complete");
 });
@@ -815,7 +826,7 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
   assert.match(launchPrompt, /call `nelos_spinoff_complete`/u);
-  assert.match(launchPrompt, /wakeState is `deferred`/u);
+  assert.match(launchPrompt, /Set receipt to null/u);
   assert.match(
     launchPrompt,
     /"queenThreadId":"queen-thread".*"workUnitId":"member-a"/u,
@@ -1018,7 +1029,10 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "nelos_plan_slices", arguments: { plan: validPlan() } },
+      params: {
+        name: "nelos_plan_slices",
+        arguments: { plan: validPlan(), queenThreadId: "queen-1" },
+      },
     },
   ]);
   const { isError, body } = toolBody(response);
@@ -1070,7 +1084,7 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
   assert.match(body.nextAction.members[0].prompt, /^Task title: Explore\n\n/u);
 });
 
-test("nelos_plan_slices synchronizes the queen before returning a spinoff", async () => {
+test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff", async () => {
   const plan = validPlan();
   plan.slices[0] = {
     ...plan.slices[0],
@@ -1079,15 +1093,13 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
   };
   const calls = [];
   const appServerBridge = {
-    async synchronizeQueenTitle() {
-      calls.push("synchronizeQueenTitle");
+    async inspect({ threadId }) {
+      calls.push(["inspect", threadId]);
       return {
         schemaVersion: 1,
         threadId: "queen-1",
-        previousTitle: "Release",
-        title: "👑 · Release",
-        changed: true,
-        verified: true,
+        title: "Release",
+        status: "idle",
       };
     },
     async close() {
@@ -1101,7 +1113,10 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "nelos_plan_slices", arguments: { plan } },
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan, queenThreadId: "queen-1" },
+        },
       },
     ],
     { appServerBridge },
@@ -1114,13 +1129,24 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
     previousTitle: "Release",
     title: "👑 · Release",
     changed: true,
-    verified: true,
+    verified: false,
   });
-  assert.equal(body.nextAction.members[0].title, "Explore");
-  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+  assert.deepEqual(body.nextAction, {
+    schemaVersion: 1,
+    kind: "native-set-title",
+    threadId: "queen-1",
+    title: "👑 · Release",
+    verify: true,
+    after: "repeat-plan-slices",
+  });
+  assert.deepEqual(calls, [
+    ["inspect", "queen-1"],
+    ["inspect", "queen-1"],
+    "close",
+  ]);
 });
 
-test("nelos_plan_slices fails closed when queen title synchronization fails", async () => {
+test("nelos_plan_slices launches only after the host-owned title is observed", async () => {
   const plan = validPlan();
   plan.slices[0] = {
     ...plan.slices[0],
@@ -1134,21 +1160,50 @@ test("nelos_plan_slices fails closed when queen title synchronization fails", as
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "nelos_plan_slices", arguments: { plan } },
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan, queenThreadId: "queen-1" },
+        },
       },
     ],
     {
       appServerBridge: {
-        async synchronizeQueenTitle() {
-          throw new Error("queen title verification failed");
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "👑 · Release",
+            status: "idle",
+          };
         },
       },
     },
   );
   const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.queenTitleSync.verified, true);
+  assert.equal(body.nextAction.kind, "launch-wave");
+});
+
+test("nelos_plan_slices requires an explicit queen ID", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "nelos_plan_slices", arguments: { plan } },
+    },
+  ]);
+  const { isError, body } = toolBody(response);
   assert.equal(isError, true);
-  assert.match(body.error, /queen title verification failed/);
-  assert.equal(body.nextAction, undefined);
+  assert.match(body.error, /requires argument queenThreadId/u);
 });
 
 test("nelos_thread_inspect returns only bridge-bounded metadata", async () => {

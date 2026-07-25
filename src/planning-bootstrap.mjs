@@ -42,6 +42,13 @@ export const PLANNING_BOOTSTRAP_INPUT_SCHEMA = Object.freeze({
       minimum: 1,
       maximum: MAX_PARALLEL_SLICES,
     },
+    queenThreadId: {
+      type: "string",
+      minLength: 1,
+      maxLength: 512,
+      description:
+        "Explicit queen task ID; required when a completed response is finalized.",
+    },
     bootstrapId: {
       type: "string",
       pattern: "^plan:[a-f0-9]{24}$",
