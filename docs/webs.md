@@ -61,9 +61,13 @@ compact visual labels, not substitutes for stable task IDs.
 
 When Codex exposes native project/thread tools, create durable members through
 those tools so the desktop sidebar receives the host's normal lifecycle events.
-For a high-level objective, run the queen-authored contract through
-`nelos plan slices --spec-file -`, launch only its current dependency wave,
-and pass each slice's `route.launch.nativeTask` to native creation. See
+For an unstructured high-level objective, use the receipt-driven MCP planning
+lifecycle to launch and verify the bounded Sol planner. After launching a
+wave, pass all receipts through the atomic batch gate before waiting or reading.
+Typed terminal exceptions may invoke one bounded Sol replan; completed slices
+are preserved and not relaunched. The CLI `nelos plan slices --spec-file -`
+remains the structured-plan fast path. Pass each accepted slice's
+`route.launch.nativeTask` to native creation. See
 [Slice Planning and Intelligence Routing](slice-planning.md).
 Record topology without connecting to an app-server socket:
 

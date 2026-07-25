@@ -86,7 +86,7 @@ test("initialize returns the tools capability and server identity", async () => 
   });
 });
 
-test("tools/list honestly annotates app-server and orchestration effects", async () => {
+test("tools/list honestly annotates planning, app-server, and orchestration effects", async () => {
   const [, response] = await roundTrip([
     INITIALIZE,
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
@@ -95,33 +95,60 @@ test("tools/list honestly annotates app-server and orchestration effects", async
   assert.deepEqual(
     tools.map((tool) => tool.name),
     [
+      "nelos_plan_bootstrap",
+      "nelos_plan_lifecycle",
+      "nelos_plan_replan",
       "nelos_plan_slices",
+      "nelos_launch_verify_batch",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
       "nelos_thread_wait",
       "nelos_app_server_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
+      "nelos_intelligence_resolve_subagent",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
       "nelos_spinoff_complete",
       "nelos_spinoff_cleanup",
     ],
   );
-  for (const tool of tools.slice(1, 7)) {
+  for (const tool of tools.filter(({ name }) =>
+    [
+      "nelos_launch_verify_batch",
+      "nelos_thread_inspect",
+      "nelos_thread_inventory",
+      "nelos_thread_wait",
+      "nelos_app_server_health",
+      "nelos_intelligence_route",
+      "nelos_intelligence_verify",
+      "nelos_intelligence_resolve_subagent",
+    ].includes(name),
+  )) {
     assert.equal(tool.annotations.readOnlyHint, true);
     assert.equal(tool.annotations.destructiveHint, false);
     assert.equal(tool.annotations.openWorldHint, false);
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
-  assert.deepEqual(tools[0].annotations, {
-    readOnlyHint: false,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  });
-  const orchestration = tools[7];
+  for (const planningTool of tools.filter(({ name }) =>
+    [
+      "nelos_plan_bootstrap",
+      "nelos_plan_lifecycle",
+      "nelos_plan_replan",
+      "nelos_plan_slices",
+    ].includes(name),
+  )) {
+    assert.deepEqual(planningTool.annotations, {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  }
+  const orchestration = tools.find(
+    ({ name }) => name === "nelos_orchestrate_create",
+  );
   assert.deepEqual(orchestration.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
@@ -133,7 +160,9 @@ test("tools/list honestly annotates app-server and orchestration effects", async
     orchestration.inputSchema.properties.receipt.anyOf[1].additionalProperties,
     false,
   );
-  const advance = tools[8];
+  const advance = tools.find(
+    ({ name }) => name === "nelos_orchestrate_advance",
+  );
   assert.deepEqual(advance.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
@@ -142,14 +171,18 @@ test("tools/list honestly annotates app-server and orchestration effects", async
   });
   assert.equal(advance.inputSchema.additionalProperties, false);
   assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
-  const complete = tools[9];
+  const complete = tools.find(
+    ({ name }) => name === "nelos_spinoff_complete",
+  );
   assert.deepEqual(complete.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
   });
-  const cleanup = tools[10];
+  const cleanup = tools.find(
+    ({ name }) => name === "nelos_spinoff_cleanup",
+  );
   assert.deepEqual(cleanup.annotations, {
     readOnlyHint: false,
     destructiveHint: true,
@@ -167,6 +200,396 @@ test("tools/list honestly annotates app-server and orchestration effects", async
     "spinoff",
     "subagent",
   ]);
+});
+
+test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_bootstrap",
+        arguments: {
+          objective: "Design and ship a task-history view",
+          maxParallel: 2,
+        },
+      },
+    },
+  ]);
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.command, "plan bootstrap");
+  assert.deepEqual(body.bootstrap.planner.nativeTask, {
+    model: "gpt-5.6-sol",
+    thinking: "medium",
+  });
+  assert.equal(body.nextAction.kind, "launch-planner");
+  assert.deepEqual(
+    body.nextAction.member,
+    body.bootstrap.planner,
+  );
+});
+
+test("nelos_plan_bootstrap validates the planner response before launching slices", async () => {
+  const request = {
+    objective: "Design and ship a task-history view",
+    maxParallel: 2,
+  };
+  const bootstrapId = (await import("../src/planning-bootstrap.mjs"))
+    .createPlanningBootstrapV1(request).bootstrapId;
+  const responseText = [
+    "```nelos-plan",
+    JSON.stringify({
+      schemaVersion: 1,
+      bootstrapId,
+      confidence: "high",
+      classificationEvidence: ["The bounded exploration is ordinary work."],
+      plan: validPlan(),
+    }),
+    "```",
+  ].join("\n");
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_bootstrap",
+        arguments: { ...request, bootstrapId, response: responseText },
+      },
+    },
+  ]);
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.command, "plan slices");
+  assert.equal(body.planning.bootstrapId, bootstrapId);
+  assert.equal(body.nextAction.kind, "launch-wave");
+});
+
+test("nelos_plan_bootstrap synchronizes the queen before launching a planned spinoff", async () => {
+  const request = { objective: "Ship an isolated implementation" };
+  const bootstrapId = (await import("../src/planning-bootstrap.mjs"))
+    .createPlanningBootstrapV1(request).bootstrapId;
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const responseText = [
+    "```nelos-plan",
+    JSON.stringify({
+      schemaVersion: 1,
+      bootstrapId,
+      confidence: "high",
+      classificationEvidence: ["The implementation requires an isolated workspace."],
+      plan,
+    }),
+    "```",
+  ].join("\n");
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_bootstrap",
+          arguments: { ...request, bootstrapId, response: responseText },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async synchronizeQueenTitle() {
+          calls.push("synchronizeQueenTitle");
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            previousTitle: "Release",
+            title: "👑 · Release",
+            changed: true,
+            verified: true,
+          };
+        },
+        async close() {
+          calls.push("close");
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.nextAction.kind, "launch-wave");
+  assert.equal(body.nextAction.members[0].lifecycle, "spinoff");
+  assert.equal(body.queenTitleSync.verified, true);
+  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+});
+
+test("nelos_plan_lifecycle forwards exact receipts and emits a planned launch wave", async () => {
+  const args = {
+    schemaVersion: 1,
+    idempotencyKey: "history-view",
+    queenThreadId: "queen-1",
+    objective: "Ship the history view",
+    receipt: null,
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_plan_lifecycle", arguments: args },
+      },
+    ],
+    {
+      planningLifecycle: {
+        async advance(value, context) {
+          calls.push({ value, context });
+          return {
+            lifecycle: {
+              bootstrapId: "plan:1234567890abcdef12345678",
+              revision: 4,
+              phase: "completed",
+              plannerThreadId: "planner-1",
+            },
+            bootstrap: { bootstrapId: "plan:1234567890abcdef12345678" },
+            planning: {
+              bootstrapId: "plan:1234567890abcdef12345678",
+              confidence: "high",
+              classificationEvidence: ["bounded"],
+            },
+            plan: (await import("../src/slice-planner.mjs")).planWorkSlices(
+              validPlan(),
+            ),
+          };
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.command, "plan slices");
+  assert.equal(body.lifecycle.phase, "completed");
+  assert.equal(body.nextAction.kind, "launch-wave");
+  assert.deepEqual(calls[0].value, args);
+  assert.equal(typeof calls[0].context.appServerBridge.inspect, "function");
+});
+
+test("nelos_plan_replan forwards typed exceptions and excludes completed work from the launch wave", async () => {
+  const args = {
+    schemaVersion: 1,
+    idempotencyKey: "failure-1",
+    queenThreadId: "queen-1",
+    basePlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    basePlanDigest: "b".repeat(64),
+    basePlan: validPlan(),
+    trigger: {
+      type: "execution-failed",
+      eventId: "failure-1",
+      summary: "The current result failed verification",
+      affectedSliceIds: ["explore"],
+      completedSliceIds: [],
+      evidence: ["A terminal current result reports failure."],
+    },
+    generation: 1,
+    receipt: null,
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_plan_replan", arguments: args },
+      },
+    ],
+    {
+      exceptionReplanning: {
+        async advance(value) {
+          assert.deepEqual(value, args);
+          return {
+            lifecycle: {
+              bootstrapId: "plan:1234567890abcdef12345678",
+              revision: 4,
+              phase: "completed",
+              plannerThreadId: "planner-1",
+            },
+            bootstrap: {},
+            planning: { confidence: "high" },
+            replanning: {
+              generation: 1,
+              basePlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
+              completedSliceIds: [],
+              executionComplete: false,
+            },
+            plan: (await import("../src/slice-planner.mjs")).planWorkSlices(
+              validPlan(),
+            ),
+          };
+        },
+      },
+      planRunStore: {
+        async read() {
+          return {
+            planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+            rootPlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
+            replanGeneration: 0,
+          };
+        },
+        async create(record) {
+          return record;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.command, "plan slices");
+  assert.equal(body.replanning.generation, 1);
+  assert.equal(body.nextAction.kind, "launch-wave");
+});
+
+test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
+  const args = {
+    planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    parentThreadId: "queen-1",
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        threadId: "member-1",
+        turnId: "turn-1",
+      },
+    ],
+  };
+  const wave = {
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        title: "Explore",
+        model: "gpt-5.6-terra",
+        effort: "low",
+      },
+    ],
+  };
+  for (const allVerified of [true, false]) {
+    const [, response] = await roundTrip(
+      [
+        INITIALIZE,
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "nelos_launch_verify_batch", arguments: args },
+        },
+      ],
+      {
+        async launchBatchVerifier(value) {
+          assert.deepEqual(value, args);
+          return {
+            schemaVersion: 1,
+            parentThreadId: "queen-1",
+            allVerified,
+            members: [
+              {
+                sliceId: "explore",
+                lifecycle: "spinoff",
+                threadId: "member-1",
+                checks: {
+                  identity: "verified",
+                  read: "verified",
+                  topology: "verified",
+                  title: "verified",
+                  route: allVerified ? "verified" : "failed",
+                },
+                ...(allVerified
+                  ? {}
+                  : { attentionReason: "exact-route-mismatch" }),
+                verified: allVerified,
+              },
+            ],
+          };
+        },
+        planRunStore: {
+          async read() {
+            return null;
+          },
+          async requireWave(value) {
+            assert.deepEqual(value, {
+              planRunId: args.planRunId,
+              waveIndex: args.waveIndex,
+              waveDigest: args.waveDigest,
+            });
+            return { record: {}, wave };
+          },
+        },
+        currentThreadId: () => "queen-1",
+      },
+    );
+    const { isError, body } = toolBody(response);
+    assert.equal(isError, false);
+    assert.equal(
+      body.nextAction.kind,
+      allVerified ? "native-wait" : "attention",
+    );
+  }
+});
+
+test("nelos_launch_verify_batch rejects a parent outside the current host task", async () => {
+  const args = {
+    planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    parentThreadId: "other-queen",
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        threadId: "member-1",
+        turnId: "turn-1",
+      },
+    ],
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_launch_verify_batch", arguments: args },
+      },
+    ],
+    {
+      currentThreadId: () => "queen-1",
+      planRunStore: {
+        async read() {
+          return null;
+        },
+        async requireWave() {
+          throw new Error("must not read a foreign wave");
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, true);
+  assert.match(body.error, /must match the current host task/u);
 });
 
 test("nelos_orchestrate_advance is callback-only and forwards exact arguments", async () => {
@@ -573,6 +996,11 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
         prompt: body.nextAction.members[0].prompt,
       },
     ],
+    verification: {
+      planRunId: body.planRun.planRunId,
+      waveIndex: body.planRun.waves[0].waveIndex,
+      waveDigest: body.planRun.waves[0].waveDigest,
+    },
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 0,
   });
@@ -1057,6 +1485,63 @@ test("nelos_intelligence_verify confirms an exact route", async () => {
     assert.equal(body.command, "intelligence verify");
     assert.equal(body.verified, true);
     assert.equal(body.nextAction.kind, "complete");
+  });
+});
+
+test("nelos_intelligence_resolve_subagent returns exact verification arguments", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-mcp-subagent-"));
+  const directory = join(root, "sessions", "2026", "07", "24");
+  await mkdir(directory, { recursive: true });
+  const childThreadId = "child-thread";
+  await writeFile(
+    join(directory, `rollout-2026-07-24T12-00-00-${childThreadId}.jsonl`),
+    `${JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: childThreadId,
+        parent_thread_id: "parent-thread",
+        source: {
+          subagent: {
+            thread_spawn: {
+              parent_thread_id: "parent-thread",
+              agent_path: "/root/nelos_planner_abc123",
+            },
+          },
+        },
+      },
+    })}\n`,
+  );
+  await withCodexHome(root, async () => {
+    const [, response] = await roundTrip([
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_resolve_subagent",
+          arguments: {
+            parentThreadId: "parent-thread",
+            agentPath: "/root/nelos_planner_abc123",
+            model: "gpt-5.6-sol",
+            effort: "medium",
+          },
+        },
+      },
+    ]);
+    const { isError, body } = toolBody(response);
+    assert.equal(isError, false);
+    assert.equal(body.threadId, childThreadId);
+    assert.deepEqual(body.nextAction, {
+      schemaVersion: 1,
+      kind: "verify-route",
+      tool: "nelos_intelligence_verify",
+      arguments: {
+        threadId: childThreadId,
+        model: "gpt-5.6-sol",
+        effort: "medium",
+      },
+    });
   });
 });
 

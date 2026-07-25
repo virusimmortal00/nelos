@@ -74,28 +74,21 @@ No installer, no manual copying, no `PATH` changes.
 Nelos is one Codex plugin with two parts:
 
 - **An MCP server with a scoped Codex app-server bridge.**
-  `nelos_plan_slices` plans dependency-safe waves and, when the plan contains
-  spinoffs, automatically marks the current task as the queen before returning
-  a launch action. Crown synchronization uses the canonical title grammar
-  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, preserving any web-lineage
-  markers rather than blindly prepending `👑 ·`. The bridge detects a title
-  change during its preflight reads; Codex `0.144.x` has no compare-and-set
-  title operation, so a simultaneous manual Desktop rename is not supported.
-  `nelos_thread_inspect`
-  exposes bounded, read-only
-  task metadata; `nelos_thread_inventory` batches known IDs and projects direct
-  parent edges; `nelos_thread_wait` performs bounded current-state polling; and
-  `nelos_app_server_health` reports content-free compatibility telemetry.
-  A finishing durable member calls `nelos_spinoff_complete`, which durably
-  records its handoff and idempotently steers or resumes the queen.
-  `nelos_spinoff_cleanup` then derives only current accepted members and applies
-  a remembered `ask`, `auto`, or `keep` archival policy. The
-  intelligence router and verifier remain read-only, while the two callback
-  orchestration tools durably journal native task effects. The bridge starts one
-  `codex app-server --stdio` child lazily and never exposes prompts, turns, or
-  transcripts; wake reconciliation examines only bounded client message IDs.
-- **A skill** — `manage-nelos-tasks`, the playbook that decides when a slice is a
-  quick **subagent** or a durable **spinoff** and executes each tool's next action.
+  `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
+  typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
+  waves and, for spinoffs, synchronizes the queen title as
+  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`. Thread inspection,
+  inventory, bounded waiting, and health tools expose no prompts or transcripts.
+  Batch launch verification gates every wave on exact identity, topology,
+  title, and route evidence. Typed exceptions can trigger one bounded Sol
+  replan without relaunching completed slices. Finishing spinoffs durably hand
+  off through `nelos_spinoff_complete`; accepted members follow an explicit
+  `ask`, `auto`, or `keep` cleanup policy. Intelligence routing, verification,
+  and native subagent identity resolution remain read-only; callback
+  orchestration tools journal native effects. The bridge starts one
+  `codex app-server --stdio` child lazily and exposes no prompts or transcripts.
+- **A skill** — `manage-nelos-tasks`, the playbook that bootstraps planning
+  independently of the starting model and executes each tool's next action.
 
 Spinoffs remain ordinary top-level Codex tasks—visible and steerable in the
 desktop sidebar while Nelos coordinates. Nelos plans and coordinates; you still

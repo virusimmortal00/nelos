@@ -10,16 +10,38 @@ marketplace install is self-sufficient. The skill calls named tools instead of
 a `nelos` shell command; the CLI remains a developer and automation surface
 installed separately via the distribution installer.
 
-Most MCP operations remain local and socket-free. Deliberately scoped
-operations use one lazily started, long-lived
+Most MCP operations remain local and socket-free. Deliberately scoped planning
+finalization, lifecycle, and thread-control operations use one lazily started,
+long-lived
 `codex app-server --stdio` child:
 
+- `nelos_plan_bootstrap` — prepares an exact Sol/medium planning launch for an
+  unstructured objective, then validates the returned planning envelope on a
+  second local call. This remains the stateless compatibility primitive;
+- `nelos_plan_lifecycle` — derives a durable bootstrap identity from the queen
+  task and caller-stable idempotency key, accepts exact native launch/result
+  receipts, resolves the planner child, verifies parent topology, title, and
+  Sol/medium result-turn metadata, and returns one replay-safe next action.
+  Checkpoints persist request/response digests, identities, phases, and receipt
+  digests, never raw planner responses;
+- `nelos_plan_replan` — reuses the lifecycle only for typed failure, blocking,
+  requirements-change, or insufficient-confidence evidence. It permits one
+  persisted plan-run generation, requires the supplied base plan to match its
+  durable digest, preserves completed slice semantics, and removes them from
+  the executable revised plan;
 - `nelos_plan_slices` — validates and computes the plan locally. When the plan
   contains at least one spinoff, it reads the current task, preserves any
   inbound and outbound web markers, renders the canonical
   `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, and verifies the persisted
   title before returning a launch action. Legacy outer-crown forms are
   normalized. A subagent-only plan does not start the bridge;
+- `nelos_launch_verify_batch` — performs one all-or-nothing read-only gate for
+  1–16 launched wave members. It binds receipts to a persisted plan-run,
+  wave index, digest, and authoritative member contract; resolves subagents
+  from parent plus canonical agent path; rejects altered member sets and
+  duplicate identities; performs one bounded inventory and topology
+  projection; and verifies exact settled titles and route metadata. Any member
+  failure prevents the downstream wait/read action;
 - `nelos_thread_inspect` — reads one task by ID (defaulting to the current
   `CODEX_THREAD_ID`) and returns only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never
@@ -43,7 +65,9 @@ operations use one lazily started, long-lived
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
   reads only bounded turn-context metadata from local rollout files under the
-  Codex sessions directory and fails closed on any mismatch; and
+  Codex sessions directory and fails closed on any mismatch;
+- `nelos_intelligence_resolve_subagent` — resolves one exact native child task
+  from bounded parent/agent session metadata before route verification; and
 - `nelos_orchestrate_create` — a callback-only durable effect adapter. It
   creates one private `WorkUnitSpecV1` execution record, advances its
   deterministic reducer action to `launch-pending`, and returns exactly one
@@ -69,15 +93,17 @@ operations use one lazily started, long-lived
   accepted. Native archive receipts are persisted per spin-off; partial and
   in-flight outcomes remain visible without replaying an archive.
 
-Thread inspection, routing, and verification are explicitly read-only. Planning
-is non-read-only and idempotent because a spinoff plan may synchronize the queen
-title. Both orchestration tools remain non-read-only and idempotent: they write
-private Nelos state but do not themselves perform native host effects.
-Completion delivery is a non-destructive idempotent mutation; cleanup is
-declared destructive because it archives native tasks. This
-small bridge does not restore the retired MCP/UI prototype; it exposes no web
-server, task dashboard, transcript surface, or general-purpose app-server
-proxy.
+Bootstrap preparation, batch launch verification, thread inspection,
+inventory, wait, health, routing, verification, and subagent identity
+resolution perform read-only work. Lifecycle planning, exception replanning,
+the bootstrap compatibility tool, and structured planning are annotated
+non-read-only and idempotent because they write private checkpoints or may
+synchronize the queen title.
+Both orchestration tools remain non-read-only and idempotent: they write
+private Nelos state but do not perform native host effects. Completion
+delivery is a non-destructive idempotent mutation; cleanup is destructive
+because it archives native tasks. This small bridge exposes no web server,
+task dashboard, transcript surface, or general-purpose app-server proxy.
 
 ## Why not the alternatives
 
@@ -208,15 +234,16 @@ probe repro.
 
 ## Trust model
 
-Thread inspection, routing, and verification advertise `readOnlyHint: true`.
-Planning advertises `readOnlyHint: false`, `destructiveHint: false`, and
-`idempotentHint: true`; its sole host mutation is `thread/name/set` for the
-current queen title. Validation completes before that mutation, and any read,
-rename, or verification uncertainty fails closed before a launch action is
-returned. Verification performs bounded reads of local rollout metadata (never
-prompts or transcripts, per `src/runtime-intelligence-verification.mjs`).
-Orchestration advertises `readOnlyHint: false`, `destructiveHint: false`, and
-`idempotentHint: true`.
+Thread controls, batch launch verification, routing, verification, and
+subagent identity resolution advertise `readOnlyHint: true`. Planning
+lifecycle, exception replanning, compatibility bootstrap, and structured
+planning advertise `readOnlyHint: false`, `destructiveHint: false`, and
+`idempotentHint: true`; they write private digest-only lifecycle state and
+their sole host mutation is `thread/name/set` for the current queen title after
+planner-result validation. Uncertainty fails closed before launch.
+Verification reads bounded rollout metadata only.
+Orchestration also advertises `readOnlyHint: false`, `destructiveHint: false`,
+and `idempotentHint: true`.
 Creation writes atomic private execution records through `ExecutionStoreV1`;
 observation writes a separate revision-checked web checkpoint.
 One work-unit decision is protected by a cross-process state lock so

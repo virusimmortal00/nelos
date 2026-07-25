@@ -324,7 +324,7 @@ function incrementCount(counts, key) {
 }
 
 /**
- * Validate a queen-authored semantic decomposition, route every slice through
+ * Validate a structured semantic decomposition, route every slice through
  * the reviewed model catalog, and return deterministic dependency waves.
  */
 export function planWorkSlices(value) {

@@ -14,6 +14,7 @@ const MAX_ROLLOUT_BYTES = 128 * 1024 * 1024;
 const MAX_JSONL_LINE_BYTES = 4 * 1024 * 1024;
 const MAX_TURN_CONTEXTS = 1_000;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const AGENT_PATH_PATTERN = /^\/[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:-]*){0,15}$/u;
 
 function assertIdentifier(value, field) {
   if (typeof value !== "string" || !IDENTIFIER_PATTERN.test(value)) {
@@ -69,6 +70,115 @@ async function findRolloutFiles(root, threadId) {
 
   await visit(root, 0);
   return matches;
+}
+
+async function listRolloutFiles(root) {
+  const matches = [];
+  let visitedEntries = 0;
+
+  async function visit(directory, depth) {
+    if (depth > MAX_DIRECTORY_DEPTH) return;
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      visitedEntries += 1;
+      if (visitedEntries > MAX_DIRECTORY_ENTRIES) {
+        throw new Error(
+          `session discovery exceeded ${MAX_DIRECTORY_ENTRIES} entries`,
+        );
+      }
+      if (entry.isSymbolicLink()) continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path, depth + 1);
+      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        matches.push(path);
+      }
+    }
+  }
+
+  await visit(root, 0);
+  return matches;
+}
+
+async function readPrimarySessionIdentity(path) {
+  const metadata = await lstat(path);
+  if (!metadata.isFile() || metadata.size > MAX_ROLLOUT_BYTES) return null;
+  const lines = createInterface({
+    input: createReadStream(path, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of lines) {
+    if (Buffer.byteLength(line, "utf8") > MAX_JSONL_LINE_BYTES) {
+      lines.close();
+      return null;
+    }
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      lines.close();
+      return null;
+    }
+    if (event?.type !== "session_meta") continue;
+    lines.close();
+    return {
+      id: event.payload?.id,
+      parentThreadId: event.payload?.parent_thread_id,
+      spawn: event.payload?.source?.subagent?.thread_spawn ?? null,
+    };
+  }
+  return null;
+}
+
+/**
+ * Resolve only the native child task identity for one exact native subagent
+ * launch. Agent path plus parent task identity must match a unique rollout.
+ */
+export async function resolveNativeSubagentThreadV1({
+  parentThreadId,
+  agentPath,
+  sessionsRoot = defaultCodexSessionsRoot(),
+}) {
+  const normalizedParent = assertIdentifier(parentThreadId, "parent thread ID");
+  if (typeof agentPath !== "string" || !AGENT_PATH_PATTERN.test(agentPath)) {
+    throw new Error("agent path has an invalid format");
+  }
+  const matches = [];
+  for (const path of await listRolloutFiles(sessionsRoot)) {
+    const identity = await readPrimarySessionIdentity(path);
+    if (
+      identity?.parentThreadId === normalizedParent &&
+      identity.spawn?.parent_thread_id === normalizedParent &&
+      identity.spawn?.agent_path === agentPath
+    ) {
+      const threadId = assertIdentifier(identity.id, "resolved child thread ID");
+      if (!path.endsWith(`-${threadId}.jsonl`)) {
+        throw new Error("resolved child identity conflicts with its rollout filename");
+      }
+      matches.push(threadId);
+    }
+  }
+  const unique = [...new Set(matches)];
+  if (unique.length === 0) {
+    throw new Error("no native child task matches the subagent launch");
+  }
+  if (unique.length > 1) {
+    throw new Error("multiple native child tasks match the subagent launch");
+  }
+  return Object.freeze({
+    schemaVersion: RUNTIME_INTELLIGENCE_VERIFICATION_SCHEMA_VERSION,
+    parentThreadId: normalizedParent,
+    agentPath,
+    threadId: unique[0],
+  });
 }
 
 async function readTurnContexts(path) {

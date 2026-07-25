@@ -20,6 +20,47 @@ function slice(overrides = {}) {
   };
 }
 
+test("unstructured planning returns one exact planner launch action", () => {
+  const planner = {
+    bootstrapId: "plan:abc",
+    launcher: "spawn-subagent",
+    nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+  };
+  assert.deepEqual(
+    deriveNextAction({
+      command: "plan bootstrap",
+      bootstrap: { planner },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "launch-planner",
+      member: planner,
+    },
+  );
+});
+
+test("low-confidence planning stops before execution", () => {
+  assert.deepEqual(
+    deriveNextAction({
+      command: "plan bootstrap review",
+      bootstrap: {
+        bootstrapId: "plan:abc",
+        confidence: "low",
+        classificationEvidence: ["Repository boundaries remain unknown."],
+        reason: "low-planner-confidence",
+      },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "attention",
+      reason: "low-planner-confidence",
+      bootstrapId: "plan:abc",
+      confidence: "low",
+      classificationEvidence: ["Repository boundaries remain unknown."],
+    },
+  );
+});
+
 test("slice planning returns an executable current-wave launch action", () => {
   const output = withNextAction({
     command: "plan slices",
@@ -127,6 +168,26 @@ test("runtime route verification either completes exactly or stops the wave", ()
       threadId: "member-1",
       expected: { model: "gpt-5.6-luna", effort: "low" },
       observed,
+    },
+  );
+});
+
+test("resolved subagent identity leads to exact route verification", () => {
+  assert.deepEqual(
+    deriveNextAction({
+      command: "intelligence resolve subagent",
+      threadId: "child-thread",
+      expected: { model: "gpt-5.6-sol", effort: "medium" },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "verify-route",
+      tool: "nelos_intelligence_verify",
+      arguments: {
+        threadId: "child-thread",
+        model: "gpt-5.6-sol",
+        effort: "medium",
+      },
     },
   );
 });

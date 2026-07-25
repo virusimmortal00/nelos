@@ -1,9 +1,35 @@
+import { createHash } from "node:crypto";
+
 import {
   planWorkSlices,
   SLICE_PLAN_INPUT_SCHEMA,
 } from "./slice-planner.mjs";
+import {
+  createPlanningBootstrapV1,
+  finalizePlanningBootstrapV1,
+  PLANNING_BOOTSTRAP_INPUT_SCHEMA,
+} from "./planning-bootstrap.mjs";
+import {
+  PlanningLifecycleCoordinatorV1,
+  PLANNING_LIFECYCLE_INPUT_SCHEMA,
+} from "./planning-lifecycle.mjs";
+import {
+  ExceptionReplanningCoordinatorV1,
+  EXCEPTION_REPLANNING_INPUT_SCHEMA,
+} from "./exception-replanning.mjs";
+import {
+  LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA,
+  verifyLaunchBatchV1,
+} from "./launch-batch-verification.mjs";
+import {
+  createPlanRunV1,
+  PlanRunStoreV1,
+} from "./plan-run-store.mjs";
 import { routeIntelligenceProfile } from "./intelligence-profile-router.mjs";
-import { verifyRuntimeIntelligenceV1 } from "./runtime-intelligence-verification.mjs";
+import {
+  resolveNativeSubagentThreadV1,
+  verifyRuntimeIntelligenceV1,
+} from "./runtime-intelligence-verification.mjs";
 import { withNextAction } from "./next-action.mjs";
 import {
   MCP_ORCHESTRATE_INPUT_SCHEMA,
@@ -56,11 +82,152 @@ const DESTRUCTIVE_STATEFUL_ANNOTATIONS = Object.freeze({
   openWorldHint: false,
 });
 
+async function plannedSlicesOutput(
+  plan,
+  appServerBridge,
+  additionalFields = {},
+  {
+    planRunStore,
+    parentPlanRun = null,
+  },
+) {
+  const sourceId =
+    additionalFields.lifecycle?.bootstrapId ??
+    additionalFields.planning?.bootstrapId ??
+    `structured:${createHash("sha256")
+      .update(JSON.stringify(plan), "utf8")
+      .digest("hex")}`;
+  const planRun = await planRunStore.create(
+    createPlanRunV1(plan, { sourceId, parentPlanRun }),
+  );
+  const queenTitleSync =
+    plan.summary.spinoffs > 0
+      ? await appServerBridge.synchronizeQueenTitle()
+      : null;
+  return {
+    ...withNextAction({
+      command: "plan slices",
+      plan,
+      planRun,
+      ...additionalFields,
+    }),
+    ...(queenTitleSync ? { queenTitleSync } : {}),
+  };
+}
+
 const TOOLS = [
+  {
+    name: "nelos_plan_bootstrap",
+    description:
+      "Prepare one bounded Sol/medium joined planning subagent for an " +
+      "unstructured objective. Returns an exact native launch action and a " +
+      "strict result contract. Call it again with the exact planner response to " +
+      "validate and route the plan; callers with an existing structured plan " +
+      "should use nelos_plan_slices directly.",
+    inputSchema: PLANNING_BOOTSTRAP_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge, planRunStore }) {
+      if (args.response !== undefined) {
+        const { response, ...request } = args;
+        const finalized = finalizePlanningBootstrapV1(request, response);
+        if (!finalized.ready) {
+          return withNextAction({
+            command: "plan bootstrap review",
+            bootstrap: finalized,
+          });
+        }
+        return plannedSlicesOutput(
+          finalized.plan,
+          appServerBridge,
+          {
+            planning: {
+              bootstrapId: finalized.bootstrapId,
+              confidence: finalized.confidence,
+              classificationEvidence: finalized.classificationEvidence,
+            },
+          },
+          { planRunStore },
+        );
+      }
+      return withNextAction({
+        command: "plan bootstrap",
+        bootstrap: createPlanningBootstrapV1(args),
+      });
+    },
+  },
+  {
+    name: "nelos_plan_lifecycle",
+    description:
+      "Durably coordinate the exact Sol/medium planning lifecycle through " +
+      "typed native launch and result receipts. Uses a caller-stable " +
+      "idempotency key, verifies child identity, topology, title, and route, " +
+      "and returns exactly one replay-safe next action.",
+    inputSchema: PLANNING_LIFECYCLE_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge, planningLifecycle, planRunStore }) {
+      const result = await planningLifecycle.advance(args, {
+        appServerBridge,
+      });
+      if (!result.plan) return result;
+      return plannedSlicesOutput(result.plan, appServerBridge, {
+        lifecycle: result.lifecycle,
+        bootstrap: result.bootstrap,
+        planning: result.planning,
+      }, { planRunStore });
+    },
+  },
+  {
+    name: "nelos_plan_replan",
+    description:
+      "Start or advance one bounded Sol/medium replanning lifecycle only for " +
+      "typed execution failure, blocking, changed requirements, or insufficient " +
+      "confidence. Preserves completed slices and never schedules them again.",
+    inputSchema: EXCEPTION_REPLANNING_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, {
+      appServerBridge,
+      exceptionReplanning,
+      planRunStore,
+    }) {
+      const result = await exceptionReplanning.advance(args, {
+        appServerBridge,
+      });
+      if (!result.plan) {
+        if (result.replanning?.executionComplete) {
+          return {
+            ...result,
+            nextAction: {
+              schemaVersion: 1,
+              kind: "complete",
+              state: "exception-replan-has-no-pending-slices",
+            },
+          };
+        }
+        return result;
+      }
+      const parentPlanRun = await planRunStore.read(
+        result.replanning.basePlanRunId,
+      );
+      if (!parentPlanRun) {
+        throw new Error("exception replan lost its persisted base plan run");
+      }
+      return plannedSlicesOutput(
+        result.plan,
+        appServerBridge,
+        {
+          lifecycle: result.lifecycle,
+          bootstrap: result.bootstrap,
+          planning: result.planning,
+          replanning: result.replanning,
+        },
+        { planRunStore, parentPlanRun },
+      );
+    },
+  },
   {
     name: "nelos_plan_slices",
     description:
-      "Validate a queen-authored slice-plan JSON object and return " +
+      "Validate a structured slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
       "machine-generated nextAction. Plans containing spinoffs first " +
       "synchronize and verify the current queen title through Codex.",
@@ -80,18 +247,56 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge }) {
+    async run(args, { appServerBridge, planRunStore }) {
       const plan = planWorkSlices(args.plan);
-      const queenTitleSync =
-        plan.summary.spinoffs > 0
-          ? await appServerBridge.synchronizeQueenTitle()
-          : null;
+      return plannedSlicesOutput(plan, appServerBridge, {}, { planRunStore });
+    },
+  },
+  {
+    name: "nelos_launch_verify_batch",
+    description:
+      "Atomically gate one launched wave by verifying every member's unique " +
+      "native identity, available topology, exact title, and exact model/effort " +
+      "before any result is read or accepted. Any member failure blocks the batch.",
+    inputSchema: LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA,
+    async run(args, {
+      appServerBridge,
+      launchBatchVerifier,
+      planRunStore,
+      currentThreadId,
+    }) {
+      if (currentThreadId() !== args.parentThreadId) {
+        throw new Error(
+          "launch batch parentThreadId must match the current host task",
+        );
+      }
+      const { wave } = await planRunStore.requireWave({
+        planRunId: args.planRunId,
+        waveIndex: args.waveIndex,
+        waveDigest: args.waveDigest,
+      });
+      const verification = await launchBatchVerifier(args, {
+        appServerBridge,
+        waveContract: wave,
+      });
       return {
-        ...withNextAction({
-          command: "plan slices",
-          plan,
-        }),
-        ...(queenTitleSync ? { queenTitleSync } : {}),
+        command: "launch verify batch",
+        verification,
+        nextAction: verification.allVerified
+          ? {
+              schemaVersion: 1,
+              kind: "native-wait",
+              threadIds: verification.members.map(({ threadId }) => threadId),
+              after: "read-results",
+            }
+          : {
+              schemaVersion: 1,
+              kind: "attention",
+              reason: "launch-batch-verification-failed",
+              sliceIds: verification.members
+                .filter(({ verified }) => !verified)
+                .map(({ sliceId }) => sliceId),
+            },
       };
     },
   },
@@ -313,6 +518,35 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_intelligence_resolve_subagent",
+    description:
+      "Resolve a native child task ID from one exact parent task and canonical " +
+      "subagent path using bounded local session metadata, then return the " +
+      "exact route-verification action. Reads no prompts or task results.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        parentThreadId: { type: "string" },
+        agentPath: { type: "string" },
+        model: { type: "string" },
+        effort: { type: "string" },
+      },
+      required: ["parentThreadId", "agentPath", "model", "effort"],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const resolved = await resolveNativeSubagentThreadV1({
+        parentThreadId: args.parentThreadId,
+        agentPath: args.agentPath,
+      });
+      return withNextAction({
+        command: "intelligence resolve subagent",
+        ...resolved,
+        expected: { model: args.model, effort: args.effort },
+      });
+    },
+  },
+  {
     name: "nelos_orchestrate_create",
     description:
       "Durably advance one spinoff or joined-subagent work unit to " +
@@ -399,6 +633,14 @@ export function startNelosMcpServer({
   joinAdapter = new McpJoinAdapterV1(),
   lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
   appServerBridge = new CodexAppServerBridgeV1(),
+  currentThreadId = () => process.env.CODEX_THREAD_ID,
+  planRunStore = new PlanRunStoreV1(),
+  planningLifecycle = new PlanningLifecycleCoordinatorV1({ currentThreadId }),
+  exceptionReplanning = new ExceptionReplanningCoordinatorV1({
+    planningLifecycle,
+    planRunStore,
+  }),
+  launchBatchVerifier = verifyLaunchBatchV1,
 } = {}) {
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -415,7 +657,12 @@ export function startNelosMcpServer({
     try {
       result = await tool.run(assertToolArguments(tool, params.arguments), {
         appServerBridge,
+        currentThreadId,
+        exceptionReplanning,
+        launchBatchVerifier,
         orchestrationAdapter,
+        planningLifecycle,
+        planRunStore,
         joinAdapter,
         lifecycleAdapter,
       });

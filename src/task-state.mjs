@@ -267,6 +267,21 @@ export function withExecutionOrchestrationLock(
 }
 
 /**
+ * Serialize one receipt-driven planning lifecycle across MCP processes.
+ */
+export function withPlanningLifecycleLock(
+  bootstrapId,
+  callback,
+  timeoutMs = 60_000,
+) {
+  if (!/^plan:[a-f0-9]{24}$/u.test(bootstrapId)) {
+    throw new Error("planning lifecycle lock requires a valid bootstrap ID");
+  }
+  const lockId = createHash("sha256").update(bootstrapId, "utf8").digest("hex");
+  return withOwnedStateLock(`planning-${lockId}`, callback, timeoutMs);
+}
+
+/**
  * Serialize one web checkpoint read/reduce/write transaction.
  */
 export function withObservationCheckpointLock(

@@ -46,6 +46,26 @@ function hasExactMembers(events, action) {
   );
 }
 
+function exactPlannerWasLaunched(events, action) {
+  const member = action.member;
+  const launch = events.find(
+    (event) =>
+      event.type === "native-launch" &&
+      event.lifecycle === member.lifecycle &&
+      event.title === member.title &&
+      event.workspaceMode === member.workspaceMode &&
+      event.prompt === member.prompt &&
+      event.forkTurns === member.forkTurns &&
+      sameJson(event.nativeTask, member.nativeTask) &&
+      sameJson(event.routeEnforcement, member.routeEnforcement),
+  );
+  return Boolean(
+    launch?.threadId &&
+    member.threadIdentity?.required === true &&
+    exactRouteWasVerified(events, launch, member),
+  );
+}
+
 function actionWasExecuted(events, action) {
   switch (action.kind) {
     case "native-set-title":
@@ -58,6 +78,26 @@ function actionWasExecuted(events, action) {
       );
     case "launch-wave":
       return hasExactMembers(events, action);
+    case "launch-planner":
+      return exactPlannerWasLaunched(events, action);
+    case "reconcile-planner-launch":
+      return events.some(
+        (event) =>
+          event.type === "native-launch-reconciliation" &&
+          event.createActionId === action.createActionId &&
+          event.actionId === action.actionId,
+      );
+    case "verify-route":
+      return events.some(
+        (event) =>
+          event.type === "native-route-verification" &&
+          event.threadId === action.arguments.threadId &&
+          event.verified === true &&
+          sameJson(event.expected, {
+            model: action.arguments.model,
+            effort: action.arguments.effort,
+          }),
+      );
     case "native-wait":
       return events.some(
         (event) =>

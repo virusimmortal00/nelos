@@ -77,6 +77,16 @@ no-mutation-replay tests.
 
 ## Verifiers
 
+The planning lifecycle verifier runs the real `nelos-mcp` process against a
+separate protocol-compatible `codex app-server --stdio` fixture. It performs no
+model or network calls, but crosses real process, stdio, restart, durable
+checkpoint, queen-title, batch-verification, and exception-replanning
+boundaries:
+
+```bash
+npm run verify:planning-lifecycle
+```
+
 The default standalone-server verifier starts its own temporary Unix socket,
 initializes through Nelos, exercises `thread/list`, and removes its
 process and temporary state. It does not start a task or make a model call:
