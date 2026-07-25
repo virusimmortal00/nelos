@@ -31,6 +31,16 @@ const AGENT_PATH =
 const ACTION_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const PHASES = new Set(["launch-pending", "launched", "verified", "completed", "attention"]);
+const TERMINAL_TURN_STATUSES = new Set([
+  "completed",
+  "complete",
+  "succeeded",
+  "failed",
+  "error",
+  "interrupted",
+  "cancelled",
+  "canceled",
+]);
 const REQUEST_FIELDS = new Set([
   "schemaVersion",
   "idempotencyKey",
@@ -122,6 +132,12 @@ function digest(value) {
   return createHash("sha256")
     .update(typeof value === "string" ? value : JSON.stringify(value), "utf8")
     .digest("hex");
+}
+
+function terminalTurnStatus(value) {
+  return TERMINAL_TURN_STATUSES.has(
+    String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase(),
+  );
 }
 
 function bootstrapIdFor(queenThreadId, idempotencyKey) {
@@ -751,6 +767,28 @@ export class PlanningLifecycleCoordinatorV1 {
       ) {
         throw new Error("planner result conflicts with the completed lifecycle");
       }
+      if (replay && record.phase === "completed") {
+        const finalized = finalizePlanningBootstrapV1(
+          {
+            objective: request.objective,
+            ...(request.context ? { context: request.context } : {}),
+            maxParallel: request.maxParallel,
+            bootstrapId: request.bootstrapId,
+          },
+          receipt.response,
+        );
+        if (!finalized.ready) {
+          throw new Error("completed planning lifecycle has an invalid result receipt");
+        }
+        return lifecycleOutput(record, bootstrap, null, {
+          planning: {
+            bootstrapId: finalized.bootstrapId,
+            confidence: finalized.confidence,
+            classificationEvidence: finalized.classificationEvidence,
+          },
+          plan: finalized.plan,
+        });
+      }
       let thread;
       try {
         thread = await appServerBridge.inspect({ threadId: receipt.threadId });
@@ -790,6 +828,30 @@ export class PlanningLifecycleCoordinatorV1 {
           attentionAction("planner-system-error", {
             threadId: receipt.threadId,
           }),
+        );
+      }
+      let latestTurn;
+      try {
+        latestTurn = await appServerBridge.latestTurn({
+          threadId: receipt.threadId,
+        });
+      } catch {
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          attentionAction("planner-result-turn-evidence-unavailable", {
+            retryable: true,
+            actionId: receipt.actionId,
+          }),
+        );
+      }
+      if (
+        latestTurn === null ||
+        latestTurn.turnId !== receipt.turnId ||
+        !terminalTurnStatus(latestTurn.status)
+      ) {
+        throw new Error(
+          "planner result receipt turnId is not the current terminal turn",
         );
       }
       let route;

@@ -68,6 +68,10 @@ async function fixture({ title = "Plan and classify the work", status = "active"
     parentThreadId: "queen-1",
     createdAt: 1,
     updatedAt: 2,
+    latestTurn: {
+      turnId: "planner-turn",
+      status: "completed",
+    },
   };
   const dependencies = {
     store,
@@ -106,6 +110,10 @@ async function fixture({ title = "Plan and classify the work", status = "active"
     async inspect({ threadId }) {
       calls.push(["inspect", threadId]);
       return { ...thread };
+    },
+    async latestTurn({ threadId }) {
+      calls.push(["latest-turn", threadId]);
+      return thread.latestTurn === null ? null : { ...thread.latestTurn };
     },
   };
   return {
@@ -212,6 +220,40 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       { appServerBridge: value.bridge },
     );
     assert.deepEqual(completedReplay.plan, completed.plan);
+    assert.equal(completedReplay.lifecycle.phase, "completed");
+    const callsBeforeChangedHostReplay = value.calls.length;
+    value.thread.status = "systemError";
+    value.thread.parentThreadId = "other-queen";
+    value.thread.latestTurn = {
+      turnId: "newer-planner-turn",
+      status: "completed",
+    };
+    const changedHostReplay = await value.restart().advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: resultReceipt(initial, response),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(changedHostReplay.lifecycle.phase, "completed");
+    assert.deepEqual(changedHostReplay.plan, completed.plan);
+    assert.equal(value.calls.length, callsBeforeChangedHostReplay);
+    value.bridge.inspect = async () => {
+      throw new Error("host inspection unavailable after restart");
+    };
+    value.bridge.latestTurn = async () => {
+      throw new Error("host turn inspection unavailable after restart");
+    };
+    const stableReplay = await value.restart().advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: resultReceipt(initial, response),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(stableReplay.lifecycle.phase, "completed");
+    assert.deepEqual(stableReplay.plan, completed.plan);
+    assert.equal(value.calls.length, callsBeforeChangedHostReplay);
     await assert.rejects(
       value.restart().advance(
         request({
@@ -297,6 +339,44 @@ test("planning lifecycle returns title repair and blocks out-of-order or conflic
     } finally {
       await rm(separate.root, { recursive: true, force: true });
     }
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("planning lifecycle accepts responses only from the current terminal native turn", async () => {
+  const value = await fixture({ status: "idle" });
+  try {
+    const initial = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    await value.coordinator.advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    value.thread.latestTurn = {
+      turnId: "newer-planner-turn",
+      status: "completed",
+    };
+    await assert.rejects(
+      value.restart().advance(
+        request({
+          bootstrapId: initial.lifecycle.bootstrapId,
+          receipt: resultReceipt(
+            initial,
+            plannerResponse(initial.lifecycle.bootstrapId),
+          ),
+        }),
+        { appServerBridge: value.bridge },
+      ),
+      /turnId is not the current terminal turn/u,
+    );
+    const record = await value.store.read(initial.lifecycle.bootstrapId);
+    assert.equal(record.phase, "verified");
+    assert.equal(record.responseDigest, null);
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }
