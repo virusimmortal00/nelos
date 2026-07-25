@@ -53,7 +53,11 @@ function plannerResponse(bootstrapId, overrides = {}) {
   ].join("\n");
 }
 
-async function fixture({ title = "Plan and classify the work", status = "active" } = {}) {
+async function fixture({
+  title = null,
+  status = "notLoaded",
+  latestTurnStatus = "inProgress",
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), "nelos-planning-lifecycle-"));
   const store = new PlanningLifecycleStoreV1({
     directory: join(root, "records"),
@@ -70,7 +74,7 @@ async function fixture({ title = "Plan and classify the work", status = "active"
     updatedAt: 2,
     latestTurn: {
       turnId: "planner-turn",
-      status: "completed",
+      status: latestTurnStatus,
     },
   };
   const dependencies = {
@@ -187,10 +191,14 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       { appServerBridge: value.bridge },
     );
     assert.equal(launched.lifecycle.phase, "verified");
-    assert.equal(launched.nextAction.kind, "native-wait");
+    assert.equal(launched.nextAction.kind, "native-wait-subagent");
+    assert.equal(launched.identity.lifecycle, "subagent");
+    assert.equal(launched.identity.memberKind, "joined-subagent");
+    assert.equal(launched.identity.primaryId, "agentPath");
+    assert.equal(launched.identity.controlSurface, "collaboration");
     assert.equal(launched.identity.threadId, "planner-1");
 
-    value.thread.status = "idle";
+    value.thread.latestTurn.status = "completed";
     const settled = await value.restart().advance(
       request({
         bootstrapId: initial.lifecycle.bootstrapId,
@@ -198,7 +206,7 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       }),
       { appServerBridge: value.bridge },
     );
-    assert.equal(settled.nextAction.kind, "native-read");
+    assert.equal(settled.nextAction.kind, "native-read-subagent-result");
 
     const response = plannerResponse(initial.lifecycle.bootstrapId);
     const completed = await value.restart().advance(
@@ -282,7 +290,7 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
   }
 });
 
-test("planning lifecycle returns title repair and blocks out-of-order or conflicting receipts", async () => {
+test("planning lifecycle ignores unsupported subagent titles and blocks conflicting receipts", async () => {
   const value = await fixture({ title: "Unexpected planner title" });
   try {
     const initial = await value.coordinator.advance(request(), {
@@ -297,11 +305,11 @@ test("planning lifecycle returns title repair and blocks out-of-order or conflic
     );
     assert.deepEqual(launched.nextAction, {
       schemaVersion: 1,
-      kind: "native-set-title",
-      actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/set-planner-title`,
+      kind: "native-wait-subagent",
+      actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/wait`,
+      agentPath: "/root/nelos_planner_feature",
       threadId: "planner-1",
-      title: "Plan and classify the work",
-      verify: true,
+      turnId: "planner-turn",
       after: "repeat-planner-launch-receipt",
     });
 
@@ -526,8 +534,8 @@ test("planning lifecycle fails closed on topology, route, active-result, and low
         }),
         { appServerBridge: value.bridge },
       );
-      assert.equal(active.nextAction.kind, "native-wait");
-      value.thread.status = "idle";
+      assert.equal(active.nextAction.kind, "native-wait-subagent");
+      value.thread.latestTurn.status = "completed";
       const attention = await value.coordinator.advance(
         request({
           bootstrapId: initial.lifecycle.bootstrapId,

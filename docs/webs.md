@@ -121,9 +121,11 @@ new subagent child thread's ID to the queen. In that case, begin the web first:
 nelos web begin --socket "/absolute/path/app-server.sock"
 ```
 
-Pass the returned `webId`, queen `threadId`, and a short title in the subagent's
-initial instructions. The subagent renames its child thread before doing other
-work:
+Pass the returned `webId`, queen `threadId`, and a short semantic title in the
+subagent's initial instructions. Current Codex collaboration controls identify
+the joined child by agent path and do not expose native child-title mutation.
+The legacy CLI join command below records web membership; it is not the plugin
+path for controlling a joined subagent:
 
 ```bash
 nelos web join --id A1 --title "Architecture scan" \

@@ -150,16 +150,17 @@ reuse of an `intentId` with different inputs.
    lock, then dispatch the persisted launcher exactly once:
    `create-thread` for a spinoff or `spawn-subagent` for a joined subagent.
 3. **Record the native receipt before further effects.**
-   - A returned `threadId` moves launch directly to `bound`.
-   - A subagent result that exposes only an agent name moves launch to
-     `attention`; the name is not a native child thread identity.
+   - A spinoff's returned `threadId` moves launch directly to `bound`.
+   - A joined subagent's returned canonical `agentPath` is its primary control
+     identity. Its resolved internal thread ID is retained only as verification
+     evidence.
    - A returned `clientThreadId` moves launch to `provisioning`. It must be
      resolved to a `threadId` through a host-provided creation result before
      the task can be titled or waited on.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Mark the queen, then verify seeded child titles.** When a valid plan
+4. **Mark the queen, then verify seeded spinoff titles.** When a valid plan
    contains a durable spinoff, the MCP planner uses its lazy app-server bridge
    to read the current task title, preserve its web-lineage markers, render the
    crown in canonical order (`[🕸️ inbound] [🕷️ outbound] [👑] · base title`),
@@ -168,13 +169,12 @@ reuse of an `intentId` with different inputs.
    preflight title change, rename, or verification makes the planning tool fail
    closed. Codex `0.144.x` offers no title compare-and-set, so a simultaneous
    manual Desktop rename during the final read/write window is unsupported.
-   Child launch
-   prompts retain their semantic titles and start with
+   Child launch prompts retain their semantic titles and start with
    `Task title: <short intended title>`. Once a child exists, observe its settled
-   native title first. Exact equality completes title synchronization without a
-   mutation. Only a mismatch emits an idempotent native rename followed by
-   verification. A title failure changes only `titleState`; it does not relaunch
-   or misclassify the running task.
+   native title only when it is a durable spinoff. Exact equality completes
+   title synchronization without a mutation. Only a spinoff mismatch emits an
+   idempotent native rename followed by verification. Joined subagents have no
+   native title-control contract; their title check is `not-applicable`.
 5. **Join required work.** Once every required current-wave member is bound,
    enter the queen join loop. Detached members are recorded but excluded.
 
@@ -186,11 +186,11 @@ observation and conditional rename remain the compatibility fallback.
 
 ## Queen Join Loop
 
-For required spinoffs and joined subagents with verified child thread IDs, the
-queen should remain active and use the native multi-task wait primitive rather
-than serial status polling:
+For required members, the queen should remain active and wait through each
+member's actual control surface rather than serial status polling:
 
-1. Call one wait with all nonterminal required `threadId`/`hostId` pairs.
+1. Route the generated `native-wait-wave` targets independently: collaboration
+   `agentPath` for joined subagents and Codex-task `threadId` for spinoffs.
 2. When the first member completes or needs attention, persist its returned
    cursor and read only the bounded result needed for collection.
 3. Classify the result as current, stale, correctable, blocked, or failed.
@@ -297,11 +297,11 @@ Until then, the title receipt and queen join loop are the compatibility layer.
    identity. The callback adapter now serializes one work unit and emits a
    non-creating reconciliation action after an uncertain first dispatch; live
    host inventory reconciliation is still required.
-4. Make `launch-wave` emit a complete native action chain:
-   `native-create` with a title-seeded prompt → `native-bind` →
-   `native-read-title` → conditional `native-set-title` → `native-wait`.
-   The callback adapters now reach verified title, cursor-aware wait, and
-   current-turn result-read steps through strict host receipts.
+4. Make `launch-wave` emit lifecycle-specific native actions. Joined subagents
+   bind to collaboration `agentPath` and skip title mutation; durable spinoffs
+   bind to task `threadId`, verify their native title, and may emit a
+   conditional `native-set-title`. The callback adapters reach cursor-aware
+   wait and current-turn result-read steps through strict host receipts.
 5. [Implemented](observation-join.md): use a cursor-aware queen join reducer
    with at most one batched `native-wait` while required members are
    nonterminal.

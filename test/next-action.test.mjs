@@ -97,8 +97,18 @@ test("slice planning returns an executable current-wave launch action", () => {
         titlePolicy: {
           mode: "prompt-seeded",
           recommendedMaxCharacters: 48,
-          verifyAfterLaunch: true,
-          onMismatch: "native-set-title",
+          verifyAfterLaunch: false,
+          evidence: "agent-path",
+          onMismatch: "attention",
+        },
+        agentTaskName: "nelos_research_66f62d18",
+        identityContract: {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
         },
         workspaceMode: "shared-read-only",
         nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
@@ -130,6 +140,83 @@ test("slice planning returns an executable current-wave launch action", () => {
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 1,
   });
+});
+
+test("launch contracts distinguish joined subagents from durable spinoffs", () => {
+  const plan = {
+    waves: [{
+      index: 1,
+      slices: [
+        slice(),
+        slice({
+          id: "implement",
+          title: "Implement",
+          lifecycle: "spinoff",
+          workspaceMode: "isolated-write",
+        }),
+      ],
+    }],
+  };
+  const planRun = createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "identity-contract-test",
+  });
+  const { members } = withNextAction({
+    command: "plan slices",
+    plan,
+    planRun,
+  }).nextAction;
+
+  assert.deepEqual(
+    members.map((member) => ({
+      lifecycle: member.lifecycle,
+      launcher: member.launcher,
+      agentTaskName: member.agentTaskName,
+      identityContract: member.identityContract,
+      titlePolicy: member.titlePolicy,
+    })),
+    [
+      {
+        lifecycle: "subagent",
+        launcher: "spawn-subagent",
+        agentTaskName: "nelos_research_66f62d18",
+        identityContract: {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
+        },
+        titlePolicy: {
+          mode: "prompt-seeded",
+          recommendedMaxCharacters: 48,
+          verifyAfterLaunch: false,
+          evidence: "agent-path",
+          onMismatch: "attention",
+        },
+      },
+      {
+        lifecycle: "spinoff",
+        launcher: "create-thread",
+        agentTaskName: undefined,
+        identityContract: {
+          lifecycle: "spinoff",
+          memberKind: "spinoff",
+          primaryId: "threadId",
+          controlSurface: "codex-task",
+          nativeThreadIdUse: "control-and-verification",
+          nativeTitleControl: true,
+        },
+        titlePolicy: {
+          mode: "prompt-seeded",
+          recommendedMaxCharacters: 48,
+          verifyAfterLaunch: true,
+          onMismatch: "native-set-title",
+        },
+      },
+    ],
+  );
 });
 
 test("slice planning fails closed without its persisted plan-run contract", () => {

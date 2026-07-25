@@ -564,8 +564,19 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
     assert.equal(isError, false);
     assert.equal(
       body.nextAction.kind,
-      allVerified ? "native-wait" : "attention",
+      allVerified ? "native-wait-wave" : "attention",
     );
+    if (allVerified) {
+      assert.deepEqual(body.nextAction.targets, [{
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        memberKind: "spinoff",
+        controlSurface: "codex-task",
+        primaryId: "threadId",
+        threadId: "member-1",
+        turnId: "turn-1",
+      }]);
+    }
   }
 });
 
@@ -1060,8 +1071,18 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
         titlePolicy: {
           mode: "prompt-seeded",
           recommendedMaxCharacters: 48,
-          verifyAfterLaunch: true,
-          onMismatch: "native-set-title",
+          verifyAfterLaunch: false,
+          evidence: "agent-path",
+          onMismatch: "attention",
+        },
+        agentTaskName: "nelos_explore_6f281157",
+        identityContract: {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
         },
         workspaceMode: "shared-read-only",
         nativeTask: { model: "gpt-5.6-terra", thinking: "low" },

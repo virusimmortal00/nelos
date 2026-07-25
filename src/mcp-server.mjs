@@ -198,8 +198,8 @@ const TOOLS = [
     description:
       "Durably coordinate the exact Sol/medium planning lifecycle through " +
       "typed native launch and result receipts. Uses a caller-stable " +
-      "idempotency key, verifies child identity, topology, title, and route, " +
-      "and returns exactly one replay-safe next action.",
+      "idempotency key, verifies joined-subagent identity, topology, route, " +
+      "and terminal result turn, and returns exactly one replay-safe next action.",
     inputSchema: PLANNING_LIFECYCLE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { appServerBridge, planningLifecycle, planRunStore }) {
@@ -315,7 +315,8 @@ const TOOLS = [
     name: "nelos_launch_verify_batch",
     description:
       "Atomically gate one launched wave by verifying every member's unique " +
-      "native identity, available topology, exact title, and exact model/effort " +
+      "native identity, available topology, lifecycle-appropriate presentation " +
+      "(agent path for joined subagents, native title for spinoffs), and exact model/effort " +
       "before any result is read or accepted. Any member failure blocks the batch.",
     inputSchema: LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA,
     async run(args, {
@@ -339,8 +340,32 @@ const TOOLS = [
         nextAction: verification.allVerified
           ? {
               schemaVersion: 1,
-              kind: "native-wait",
-              threadIds: verification.members.map(({ threadId }) => threadId),
+              kind: "native-wait-wave",
+              targets: verification.members.map((member) => {
+                const receipt = args.members.find(
+                  ({ sliceId }) => sliceId === member.sliceId,
+                );
+                return member.lifecycle === "subagent"
+                  ? {
+                      sliceId: member.sliceId,
+                      lifecycle: "subagent",
+                      memberKind: "joined-subagent",
+                      controlSurface: "collaboration",
+                      primaryId: "agentPath",
+                      agentPath: receipt.agentPath,
+                      threadId: member.threadId,
+                      turnId: receipt.turnId,
+                    }
+                  : {
+                      sliceId: member.sliceId,
+                      lifecycle: "spinoff",
+                      memberKind: "spinoff",
+                      controlSurface: "codex-task",
+                      primaryId: "threadId",
+                      threadId: member.threadId,
+                      turnId: receipt.turnId,
+                    };
+              }),
               after: "read-results",
             }
           : {

@@ -89,7 +89,8 @@ function threads() {
   return [
     {
       threadId: "child-1",
-      title: "Research the boundary",
+      title: null,
+      status: "notLoaded",
       parentThreadId: "queen-1",
     },
     {
@@ -100,7 +101,7 @@ function threads() {
   ];
 }
 
-test("batch verification accepts exact identity, topology, title, and route evidence in one read-only batch", async () => {
+test("batch verification uses agent path for subagents and native title for spinoffs", async () => {
   const inspected = [];
   const routes = [];
   const result = await verifyLaunchBatchV1(receipt(), {
@@ -139,9 +140,19 @@ test("batch verification accepts exact identity, topology, title, and route evid
   ]);
   assert.equal(result.allVerified, true);
   assert.deepEqual(result.members.map((member) => member.checks), [
-    { identity: "verified", read: "verified", topology: "verified", title: "verified", route: "verified" },
+    { identity: "verified", read: "verified", topology: "verified", title: "not-applicable", route: "verified" },
     { identity: "verified", read: "verified", topology: "verified", title: "verified", route: "verified" },
   ]);
+  assert.deepEqual(
+    result.members.map(({ lifecycle, identityEvidence }) => ({
+      lifecycle,
+      identityEvidence,
+    })),
+    [
+      { lifecycle: "subagent", identityEvidence: "agent-path" },
+      { lifecycle: "spinoff", identityEvidence: "native-thread-title" },
+    ],
+  );
   assert.equal(typeof LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA.properties.members, "object");
   assert.equal(LAUNCH_BATCH_VERIFICATION_OUTPUT_SCHEMA.properties.allVerified.type, "boolean");
 });

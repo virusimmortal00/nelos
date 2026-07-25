@@ -304,9 +304,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["planner-1"] = thread(
         "planner-1",
-        "Plan and classify the work",
+        null,
         "queen-1",
-        "active",
+        "notLoaded",
       );
       value.threads["planner-1"].turns = [
         { id: "planner-turn", status: "inProgress", items: [] },
@@ -325,7 +325,7 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(waiting.nextAction.kind, "native-wait");
+    assert.equal(waiting.nextAction.kind, "native-wait-subagent");
     await mcp.stop();
     mcp = startMcp(environment);
     await mcp.initialize();
@@ -334,9 +334,8 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(resumed.nextAction.kind, "native-wait");
+    assert.equal(resumed.nextAction.kind, "native-wait-subagent");
     await mutateState(appStatePath, (value) => {
-      value.threads["planner-1"].status = "idle";
       value.threads["planner-1"].updatedAt += 1;
       value.threads["planner-1"].turns[0].status = "completed";
     });
@@ -345,7 +344,7 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(readable.nextAction.kind, "native-read");
+    assert.equal(readable.nextAction.kind, "native-read-subagent-result");
 
     const plannedSlices = [
       slice("research", {
@@ -412,8 +411,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["research-1"] = thread(
         "research-1",
-        "research task",
+        null,
         "queen-1",
+        "notLoaded",
       );
       value.threads["implementation-1"] = thread(
         "implementation-1",
@@ -445,7 +445,34 @@ export async function runPlanningLifecycleScenario() {
       ],
     });
     assert.equal(batch.verification.allVerified, true);
-    assert.equal(batch.nextAction.kind, "native-wait");
+    assert.equal(batch.nextAction.kind, "native-wait-wave");
+    assert.deepEqual(
+      batch.nextAction.targets.map(
+        ({ sliceId, lifecycle, memberKind, controlSurface, primaryId }) => ({
+          sliceId,
+          lifecycle,
+          memberKind,
+          controlSurface,
+          primaryId,
+        }),
+      ),
+      [
+        {
+          sliceId: "research",
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          controlSurface: "collaboration",
+          primaryId: "agentPath",
+        },
+        {
+          sliceId: "implementation",
+          lifecycle: "spinoff",
+          memberKind: "spinoff",
+          controlSurface: "codex-task",
+          primaryId: "threadId",
+        },
+      ],
+    );
 
     const replanRequest = {
       schemaVersion: 1,
@@ -478,9 +505,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["replanner-1"] = thread(
         "replanner-1",
-        "Plan and classify the work",
+        null,
         "queen-1",
-        "idle",
+        "notLoaded",
       );
       value.threads["replanner-1"].turns = [
         { id: "replanner-turn", status: "completed", items: [] },
@@ -499,7 +526,10 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId: replanBootstrapId,
       receipt: replanLaunchReceipt,
     });
-    assert.equal(replanReadable.nextAction.kind, "native-read");
+    assert.equal(
+      replanReadable.nextAction.kind,
+      "native-read-subagent-result",
+    );
     const revisedPlan = {
       schemaVersion: 1,
       objective: "Ship the revised mixed task wave",

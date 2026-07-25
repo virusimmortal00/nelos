@@ -9,6 +9,14 @@ Use this for coordinated work. Planning quality must not
 depend on the queen's model. One bounded Sol planner decomposes unstructured
 work. The queen identifies user-supplied plans and judges result acceptance.
 
+Keep native kinds exact:
+
+- A `subagent` is a joined child controlled through Codex collaboration tools.
+  Its primary identity is `agentPath`; its internal thread ID is verification
+  evidence only. Never call it a spinoff or use Codex task title controls on it.
+- A `spinoff` is a durable independent Codex task controlled by `threadId`.
+  It may be renamed, waited on, read, resumed, or archived through task controls.
+
 ## Choose the Planning Path
 
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
@@ -24,7 +32,7 @@ tool again with the unchanged request, returned `bootstrapId`, and exact typed
 native receipt. Never substitute an agent path for a task ID.
 
 The coordinator prevents duplicate planners and verifies child identity,
-parent, title, exact Sol/medium route, and result turn. Follow its actions until
+parent, exact Sol/medium route, and result turn. Follow its actions until
 it returns a wave. Invalid, stale, conflicting, low-confidence, or unverifiable
 evidence stops. `nelos_plan_bootstrap` is only a compatibility primitive.
 
@@ -33,19 +41,19 @@ evidence stops. `nelos_plan_bootstrap` is only a compatibility primitive.
 After the fast path or validated bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
-- `native-set-title`: use the native title tool with its exact `threadId` and
-  `title`, verify it natively, then repeat the tool that returned the action
-  with the same plan and explicit queen ID. The MCP never performs the title
-  mutation itself.
+- `native-set-title`: use only for the queen or a durable spinoff with its
+  exact `threadId` and `title`, verify it natively, then repeat the tool that
+  returned the action. Joined subagents do not support native title control.
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
 - `launch-wave`: create only the listed current-wave members concurrently. Use
   each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
-  `nativeTask`, and generated `prompt`. `create-thread` launches a durable
-  spinoff; `spawn-subagent` launches a joined subagent. Never translate fields
-  by inference. Follow `titlePolicy`; never omit, substitute, or inherit a decided
-  `nativeTask`. If the exact route or native identity is unavailable,
+  `nativeTask`, `identityContract`, and generated `prompt`. `create-thread`
+  launches a durable spinoff; `spawn-subagent` launches a joined subagent using
+  its exact `agentTaskName`. Never translate fields by inference or describe a
+  subagent as a spinoff. Follow `titlePolicy`; never omit, substitute, or inherit
+  a decided `nativeTask`. If the exact route or native identity is unavailable,
   stop with `attention`; never bind an agent name as a thread ID.
   Do not launch a later wave until required current results are accepted.
 - Before waiting or reading any launched wave, call
@@ -54,10 +62,19 @@ After the fast path or validated bootstrap, execute only the returned
   subagents use agent paths; spinoffs use thread IDs; both include turn IDs.
   Nelos obtains title/model/effort from the persisted wave contract. Proceed
   only when `allVerified` is true.
-  One missing, altered, duplicate, wrong-parent, wrong-title, unreadable, or
-  wrong-route member blocks the whole batch.
-- `native-wait` and `native-read`: use native controls for receipts; for checks
-  call `nelos_thread_wait`, then `nelos_thread_inventory`. Never serially poll a web.
+  Subagents verify `agent-path` identity and report title as `not-applicable`;
+  spinoffs verify `native-thread-title`. One missing, altered, duplicate,
+  wrong-parent, unreadable, or wrong-route member blocks the whole batch;
+  a spinoff title mismatch also blocks it.
+- `native-wait-subagent` and `native-read-subagent-result`: use collaboration
+  controls with the exact `agentPath`. Do not send the verification-only
+  subagent thread ID to Codex task title/read controls.
+- `native-wait-wave`: route every target independently by `controlSurface`;
+  `collaboration` targets are subagents and `codex-task` targets are spinoffs.
+  Never collapse the wave into one lifecycle kind.
+- `native-wait` and `native-read`: use Codex task controls for durable task
+  targets. For task checks call `nelos_thread_wait`, then
+  `nelos_thread_inventory`. Never serially poll a web.
 - `attach-native-task-options`: pass `nativeTask` unchanged to the next launch.
 - `decide`: author the slice plan or decide whether current evidence satisfies
   its acceptance criteria. Slice-plan authorship is permitted here only when

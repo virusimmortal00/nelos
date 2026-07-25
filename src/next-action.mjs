@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   RECOMMENDED_SEEDED_TITLE_CHARACTERS,
   buildTaskLaunchPromptV1,
@@ -56,8 +58,22 @@ function memberPrompt(slice) {
   });
 }
 
+function joinedAgentTaskName(sliceId) {
+  const stem = sliceId
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "")
+    .slice(0, 32) || "task";
+  const suffix = createHash("sha256")
+    .update(sliceId, "utf8")
+    .digest("hex")
+    .slice(0, 8);
+  return `nelos_${stem}_${suffix}`;
+}
+
 function launchMember(slice) {
   const memberKind = memberKindForLifecycle(slice.lifecycle);
+  const joinedSubagent = slice.lifecycle === "subagent";
   return {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
@@ -71,9 +87,30 @@ function launchMember(slice) {
     titlePolicy: {
       mode: "prompt-seeded",
       recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,
-      verifyAfterLaunch: true,
-      onMismatch: "native-set-title",
+      verifyAfterLaunch: !joinedSubagent,
+      ...(joinedSubagent ? { evidence: "agent-path" } : {}),
+      onMismatch: joinedSubagent ? "attention" : "native-set-title",
     },
+    ...(joinedSubagent
+      ? { agentTaskName: joinedAgentTaskName(slice.id) }
+      : {}),
+    identityContract: joinedSubagent
+      ? {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
+        }
+      : {
+          lifecycle: "spinoff",
+          memberKind: "spinoff",
+          primaryId: "threadId",
+          controlSurface: "codex-task",
+          nativeThreadIdUse: "control-and-verification",
+          nativeTitleControl: true,
+        },
     workspaceMode: slice.workspaceMode,
     nativeTask: slice.route.launch.nativeTask,
     routeEnforcement: {

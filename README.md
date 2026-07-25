@@ -80,8 +80,10 @@ Nelos is one Codex plugin with two parts:
   launch action. A repeated call verifies the canonical queen title as
   `[🕸️ inbound] [🕷️ outbound] [👑] · base title`. Thread inspection,
   inventory, bounded waiting, and health tools expose no prompts or transcripts.
-  Batch launch verification gates every wave on exact identity, topology,
-  title, and route evidence. Typed exceptions can trigger one bounded Sol
+  Batch launch verification gates every wave on lifecycle-appropriate identity,
+  topology, and route evidence: joined subagents use their collaboration
+  `agentPath`, while durable spinoffs use their task `threadId` and native
+  title. Typed exceptions can trigger one bounded Sol
   replan without relaunching completed slices. Finishing spinoffs durably hand
   off through receipt-bound host wake effects from `nelos_spinoff_complete`;
   accepted members follow an explicit `ask`, `auto`, or `keep` cleanup policy

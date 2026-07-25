@@ -20,8 +20,10 @@ long-lived
   second local call. This remains the stateless compatibility primitive;
 - `nelos_plan_lifecycle` — derives a durable bootstrap identity from the queen
   task and caller-stable idempotency key, accepts exact native launch/result
-  receipts, resolves the planner child, verifies parent topology, title, and
-  Sol/medium result-turn metadata, and returns one replay-safe next action.
+  receipts, resolves the joined planner by agent path, verifies parent topology
+  and Sol/medium terminal result-turn metadata, and returns one replay-safe
+  next action. The resolved internal thread ID is verification evidence, not a
+  durable-task control handle.
   Checkpoints persist request/response digests, identities, phases, and receipt
   digests, never raw planner responses;
 - `nelos_plan_replan` — reuses the lifecycle only for typed failure, blocking,
@@ -43,8 +45,10 @@ long-lived
   wave index, digest, and authoritative member contract; resolves subagents
   from parent plus canonical agent path; rejects altered member sets and
   duplicate identities; performs one bounded inventory and topology
-  projection; and verifies exact settled titles and route metadata. Any member
-  failure prevents the downstream wait/read action;
+  projection; and verifies lifecycle-appropriate identity plus route metadata.
+  Joined subagents use agent-path identity with title `not-applicable`;
+  spinoffs require exact settled native titles. Any member failure prevents
+  the downstream wait/read action;
 - `nelos_thread_inspect` — reads one explicitly identified task and returns
   only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never

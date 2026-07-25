@@ -192,8 +192,9 @@ export function createPlanningBootstrapV1(value) {
     titlePolicy: Object.freeze({
       mode: "prompt-seeded",
       recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,
-      verifyAfterLaunch: true,
-      onMismatch: "native-set-title",
+      verifyAfterLaunch: false,
+      evidence: "agent-path",
+      onMismatch: "attention",
     }),
     workspaceMode: "shared-read-only",
     forkTurns: "none",
@@ -209,6 +210,14 @@ export function createPlanningBootstrapV1(value) {
       resolver: "nelos_intelligence_resolve_subagent",
       parentThreadIdSource: "current-task",
       agentPathSource: "launcher-result",
+    }),
+    identityContract: Object.freeze({
+      lifecycle: "subagent",
+      memberKind: "joined-subagent",
+      primaryId: "agentPath",
+      controlSurface: "collaboration",
+      nativeThreadIdUse: "verification-only",
+      nativeTitleControl: false,
     }),
     prompt: plannerPrompt({ objective, context, maxParallel, bootstrapId }),
     resultContract: Object.freeze({
@@ -226,8 +235,8 @@ export function createPlanningBootstrapV1(value) {
         effort: PLANNER_ROUTE.requestedEffort,
         beforeRead: true,
       }),
-      wait: Object.freeze({ action: "native-wait" }),
-      read: Object.freeze({ action: "native-read" }),
+      wait: Object.freeze({ action: "native-wait-subagent" }),
+      read: Object.freeze({ action: "native-read-subagent-result" }),
       finalize: Object.freeze({
         tool: "nelos_plan_bootstrap",
         reuseRequest: true,

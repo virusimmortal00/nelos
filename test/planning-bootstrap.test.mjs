@@ -46,6 +46,21 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
     parentThreadIdSource: "current-task",
     agentPathSource: "launcher-result",
   });
+  assert.deepEqual(first.planner.identityContract, {
+    lifecycle: "subagent",
+    memberKind: "joined-subagent",
+    primaryId: "agentPath",
+    controlSurface: "collaboration",
+    nativeThreadIdUse: "verification-only",
+    nativeTitleControl: false,
+  });
+  assert.equal(first.planner.titlePolicy.verifyAfterLaunch, false);
+  assert.equal(first.planner.titlePolicy.evidence, "agent-path");
+  assert.equal(first.planner.continuation.wait.action, "native-wait-subagent");
+  assert.equal(
+    first.planner.continuation.read.action,
+    "native-read-subagent-result",
+  );
   assert.match(first.planner.agentTaskName, /^nelos_planner_[a-f0-9]{12}$/u);
   assert.deepEqual(first.planner.continuation.verify, {
     tool: "nelos_intelligence_verify",

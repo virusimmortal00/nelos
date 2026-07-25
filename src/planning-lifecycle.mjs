@@ -9,7 +9,6 @@ import {
   MAX_PLANNING_OBJECTIVE_CHARACTERS,
   MAX_PLANNING_RESPONSE_CHARACTERS,
   PLANNER_ROUTE,
-  PLANNER_TITLE,
 } from "./planning-bootstrap.mjs";
 import {
   defaultCodexSessionsRoot,
@@ -167,10 +166,6 @@ function waitActionId(bootstrapId) {
 
 function readActionId(bootstrapId) {
   return `planning-lifecycle-v1/${bootstrapId}/read-result`;
-}
-
-function titleActionId(bootstrapId) {
-  return `planning-lifecycle-v1/${bootstrapId}/set-planner-title`;
 }
 
 function normalizeRequest(value) {
@@ -492,7 +487,17 @@ function attentionAction(reason, fields = {}) {
   };
 }
 
-function statusAction(record, thread) {
+function publicPlannerIdentity(identity) {
+  return {
+    ...identity,
+    lifecycle: "subagent",
+    memberKind: "joined-subagent",
+    primaryId: "agentPath",
+    controlSurface: "collaboration",
+  };
+}
+
+function statusAction(record, thread, latestTurn) {
   if (thread.status === "systemError") {
     return {
       schemaVersion: 1,
@@ -501,31 +506,33 @@ function statusAction(record, thread) {
       threadId: thread.threadId,
     };
   }
-  if (thread.title !== PLANNER_TITLE) {
+  if (latestTurn === null || !terminalTurnStatus(latestTurn.status)) {
     return {
       schemaVersion: 1,
-      kind: "native-set-title",
-      actionId: titleActionId(record.bootstrapId),
+      kind: "native-wait-subagent",
+      actionId: waitActionId(record.bootstrapId),
+      agentPath: record.identity.agentPath,
       threadId: thread.threadId,
-      title: PLANNER_TITLE,
-      verify: true,
+      turnId: latestTurn?.turnId ?? null,
       after: "repeat-planner-launch-receipt",
     };
   }
-  if (thread.status === "active" || thread.status === "notLoaded") {
+  if (!successfulTurnStatus(latestTurn.status)) {
     return {
       schemaVersion: 1,
-      kind: "native-wait",
-      actionId: waitActionId(record.bootstrapId),
-      threadIds: [thread.threadId],
-      after: "repeat-planner-launch-receipt",
+      kind: "attention",
+      reason: "planner-turn-failed",
+      threadId: thread.threadId,
+      turnId: latestTurn.turnId,
     };
   }
   return {
     schemaVersion: 1,
-    kind: "native-read",
+    kind: "native-read-subagent-result",
     actionId: readActionId(record.bootstrapId),
+    agentPath: record.identity.agentPath,
     threadId: thread.threadId,
+    turnId: latestTurn.turnId,
     purpose: "read-planner-result",
   };
 }
@@ -551,7 +558,12 @@ export class PlanningLifecycleCoordinatorV1 {
     this.#withLock = withLock;
   }
 
-  async #inspectVerified(record, request, appServerBridge) {
+  async #inspectVerified(
+    record,
+    request,
+    appServerBridge,
+    { turnId = undefined } = {},
+  ) {
     const identity = record.identity;
     if (!identity || identity.parentThreadId !== request.queenThreadId) {
       throw new Error("planning lifecycle has no verified planner identity");
@@ -562,6 +574,7 @@ export class PlanningLifecycleCoordinatorV1 {
         threadId: identity.threadId,
         model: PLANNER_ROUTE.requestedModel,
         effort: PLANNER_ROUTE.requestedEffort,
+        ...(turnId ? { turnId } : {}),
         sessionsRoot: this.#sessionsRoot,
       });
     } catch {
@@ -583,7 +596,19 @@ export class PlanningLifecycleCoordinatorV1 {
         thread,
       };
     }
-    return { route, thread };
+    let latestTurn;
+    try {
+      latestTurn = await appServerBridge.latestTurn({
+        threadId: identity.threadId,
+      });
+    } catch {
+      return {
+        attentionReason: "planner-turn-evidence-unavailable",
+        route,
+        thread,
+      };
+    }
+    return { route, thread, latestTurn };
   }
 
   async advance(value, { appServerBridge }) {
@@ -732,7 +757,7 @@ export class PlanningLifecycleCoordinatorV1 {
             },
           );
         }
-        const { route, thread } = inspected;
+        const { route, thread, latestTurn } = inspected;
         if (record.phase !== "verified") {
           record = await this.#store.write(
             {
@@ -744,11 +769,17 @@ export class PlanningLifecycleCoordinatorV1 {
             { expectedRevision: record.revision },
           );
         }
-        return lifecycleOutput(record, bootstrap, statusAction(record, thread), {
-          identity: { ...identity },
-          route,
-          thread,
-        });
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          statusAction(record, thread, latestTurn),
+          {
+            identity: publicPlannerIdentity(identity),
+            route,
+            thread,
+            latestTurn,
+          },
+        );
       }
 
       if (!["verified", "completed", "attention"].includes(record.phase)) {
@@ -799,19 +830,28 @@ export class PlanningLifecycleCoordinatorV1 {
           plan: finalized.plan,
         });
       }
-      let thread;
-      try {
-        thread = await appServerBridge.inspect({ threadId: receipt.threadId });
-      } catch {
+      const inspected = await this.#inspectVerified(
+        record,
+        request,
+        appServerBridge,
+        { turnId: receipt.turnId },
+      );
+      if (inspected.attentionReason) {
         return lifecycleOutput(
           record,
           bootstrap,
-          attentionAction("planner-result-thread-evidence-unavailable", {
-            retryable: true,
+          attentionAction(inspected.attentionReason, {
+            retryable: inspected.attentionReason.endsWith("-unavailable"),
             actionId: receipt.actionId,
           }),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            ...(inspected.route ? { route: inspected.route } : {}),
+            ...(inspected.thread ? { thread: inspected.thread } : {}),
+          },
         );
       }
+      const { thread, latestTurn } = inspected;
       if (thread.parentThreadId !== request.queenThreadId) {
         return lifecycleOutput(
           record,
@@ -823,40 +863,22 @@ export class PlanningLifecycleCoordinatorV1 {
         );
       }
       if (
-        thread.title !== PLANNER_TITLE ||
-        ["active", "notLoaded"].includes(thread.status)
+        thread.status === "systemError" ||
+        latestTurn === null ||
+        !terminalTurnStatus(latestTurn.status)
       ) {
-        return lifecycleOutput(record, bootstrap, statusAction(record, thread), {
-          identity: { ...record.identity },
-          thread,
-        });
-      }
-      if (thread.status === "systemError") {
         return lifecycleOutput(
           record,
           bootstrap,
-          attentionAction("planner-system-error", {
-            threadId: receipt.threadId,
-          }),
-        );
-      }
-      let latestTurn;
-      try {
-        latestTurn = await appServerBridge.latestTurn({
-          threadId: receipt.threadId,
-        });
-      } catch {
-        return lifecycleOutput(
-          record,
-          bootstrap,
-          attentionAction("planner-result-turn-evidence-unavailable", {
-            retryable: true,
-            actionId: receipt.actionId,
-          }),
+          statusAction(record, thread, latestTurn),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            thread,
+            latestTurn,
+          },
         );
       }
       if (
-        latestTurn === null ||
         latestTurn.turnId !== receipt.turnId ||
         !terminalTurnStatus(latestTurn.status)
       ) {
