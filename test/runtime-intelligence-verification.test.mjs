@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { verifyRuntimeIntelligenceV1 } from "../src/runtime-intelligence-verification.mjs";
+import {
+  resolveNativeSubagentThreadV1,
+  verifyRuntimeIntelligenceV1,
+} from "../src/runtime-intelligence-verification.mjs";
 
 async function fixture(events) {
   const root = await mkdtemp(join(tmpdir(), "nelos-route-verification-"));
@@ -102,6 +105,63 @@ test("runtime verification fails closed without exact turn evidence", async () =
         sessionsRoot: root,
       }),
       /no observed context for turn turn-missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("subagent resolution uses only exact parent and canonical agent identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-subagent-resolution-"));
+  const directory = join(root, "2026", "07", "24");
+  await mkdir(directory, { recursive: true });
+  const threadId = "child-thread";
+  await writeFile(
+    join(directory, `rollout-2026-07-24T12-00-00-${threadId}.jsonl`),
+    `${JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: threadId,
+        parent_thread_id: "parent-thread",
+        source: {
+          subagent: {
+            thread_spawn: {
+              parent_thread_id: "parent-thread",
+              agent_path: "/root/nelos_planner_abc123",
+            },
+          },
+        },
+      },
+    })}\n${JSON.stringify({
+      type: "response_item",
+      payload: { transcript: "must not be inspected" },
+    })}\n`,
+  );
+  await writeFile(
+    join(directory, "rollout-2026-07-24T11-00-00-unrelated.jsonl"),
+    "not-json\n",
+  );
+  try {
+    assert.deepEqual(
+      await resolveNativeSubagentThreadV1({
+        parentThreadId: "parent-thread",
+        agentPath: "/root/nelos_planner_abc123",
+        sessionsRoot: root,
+      }),
+      {
+        schemaVersion: 1,
+        parentThreadId: "parent-thread",
+        agentPath: "/root/nelos_planner_abc123",
+        threadId,
+      },
+    );
+    await assert.rejects(
+      resolveNativeSubagentThreadV1({
+        parentThreadId: "other-parent",
+        agentPath: "/root/nelos_planner_abc123",
+        sessionsRoot: root,
+      }),
+      /no native child task matches/u,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
     "name": "Nelos Maintainers",
@@ -32,6 +32,7 @@
     "logoDark": "./assets/nelos-spider-icon-dark.png",
     "defaultPrompt": [
       "Use Nelos to plan this feature into safe parallel slices.",
+      "Bootstrap unstructured planning with the exact bounded Sol planner.",
       "Create durable spinoffs only where they need independent lifecycle.",
       "Show me the native evidence and topology for this task web."
     ]

@@ -924,7 +924,6 @@ export class CodexAppServerBridgeV1 {
         };
       });
       if (
-        Date.now() >= hardDeadlineAt &&
         snapshots.some(
           (snapshot) =>
             snapshot.state === "failed" &&
@@ -1049,6 +1048,34 @@ export class CodexAppServerBridgeV1 {
     const turn = result.data[0];
     if (!turn || turn.status !== "inProgress") return null;
     return threadId(turn.id);
+  }
+
+  async latestTurn({ threadId: requestedThreadId } = {}) {
+    const resolvedThreadId = threadId(requestedThreadId);
+    const result = await this.#readRequest("thread/turns/list", {
+      threadId: resolvedThreadId,
+      limit: 1,
+      sortDirection: "desc",
+      itemsView: "summary",
+    });
+    if (!Array.isArray(result?.data) || result.data.length > 1) {
+      throw bridgeError(
+        "Codex app-server returned an incompatible latest turn page",
+        "invalid-response",
+      );
+    }
+    const turn = result.data[0];
+    if (!turn) return null;
+    if (typeof turn.status !== "string" || !turn.status) {
+      throw bridgeError(
+        "Codex app-server returned an incompatible latest turn",
+        "invalid-response",
+      );
+    }
+    return {
+      turnId: threadId(turn.id),
+      status: turn.status,
+    };
   }
 
   async deliverParentWake({

@@ -7,6 +7,7 @@ import {
   launcherForMemberKind,
   memberKindForLifecycle,
 } from "./launch-contract.mjs";
+import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
 
@@ -99,11 +100,38 @@ function correctionPrompt(member) {
   ].join(" ");
 }
 
-function launchWave(plan) {
+function launchWave(plan, planRun = null) {
   const currentWave = plan.waves[0];
+  if (!planRun) {
+    throw new Error("launch wave requires a persisted plan run");
+  }
+  const verification = planRun.waves?.find(
+    ({ waveIndex }) => waveIndex === currentWave.index,
+  );
+  if (!verification) {
+    throw new Error(
+      `plan run ${planRun.planRunId} has no contract for wave ${currentWave.index}`,
+    );
+  }
   return action("launch-wave", {
     waveIndex: currentWave.index,
-    members: currentWave.slices.map(launchMember),
+    members: currentWave.slices.map((slice) => ({
+      ...launchMember(slice),
+      ...(slice.lifecycle === "spinoff"
+        ? {
+            actionId: planRunLaunchActionIdV1({
+              planRunId: planRun.planRunId,
+              waveIndex: currentWave.index,
+              sliceId: slice.id,
+            }),
+          }
+        : {}),
+    })),
+    verification: {
+      planRunId: planRun.planRunId,
+      waveIndex: verification.waveIndex,
+      waveDigest: verification.waveDigest,
+    },
     settleBeforeWaveIndex: currentWave.index + 1,
     remainingWaveCount: plan.waves.length - 1,
   });
@@ -196,6 +224,17 @@ export function deriveNextAction(output) {
   }
 
   switch (output.command) {
+    case "plan bootstrap":
+      return action("launch-planner", {
+        member: output.bootstrap.planner,
+      });
+    case "plan bootstrap review":
+      return action("attention", {
+        reason: output.bootstrap.reason,
+        bootstrapId: output.bootstrap.bootstrapId,
+        confidence: output.bootstrap.confidence,
+        classificationEvidence: output.bootstrap.classificationEvidence,
+      });
     case "intelligence route":
       return output.route
         ? action("attach-native-task-options", {
@@ -220,8 +259,17 @@ export function deriveNextAction(output) {
             expected: output.expected,
             observed: output.observed,
           });
+    case "intelligence resolve subagent":
+      return action("verify-route", {
+        tool: "nelos_intelligence_verify",
+        arguments: {
+          threadId: output.threadId,
+          model: output.expected.model,
+          effort: output.expected.effort,
+        },
+      });
     case "plan slices":
-      return launchWave(output.plan);
+      return launchWave(output.plan, output.planRun);
     case "web begin":
     case "web join":
       return output.requiresNativeTitleSync

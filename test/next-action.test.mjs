@@ -5,6 +5,7 @@ import {
   deriveNextAction,
   withNextAction,
 } from "../src/next-action.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 
 function slice(overrides = {}) {
   return {
@@ -20,15 +21,62 @@ function slice(overrides = {}) {
   };
 }
 
+test("unstructured planning returns one exact planner launch action", () => {
+  const planner = {
+    bootstrapId: "plan:abc",
+    launcher: "spawn-subagent",
+    nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+  };
+  assert.deepEqual(
+    deriveNextAction({
+      command: "plan bootstrap",
+      bootstrap: { planner },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "launch-planner",
+      member: planner,
+    },
+  );
+});
+
+test("low-confidence planning stops before execution", () => {
+  assert.deepEqual(
+    deriveNextAction({
+      command: "plan bootstrap review",
+      bootstrap: {
+        bootstrapId: "plan:abc",
+        confidence: "low",
+        classificationEvidence: ["Repository boundaries remain unknown."],
+        reason: "low-planner-confidence",
+      },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "attention",
+      reason: "low-planner-confidence",
+      bootstrapId: "plan:abc",
+      confidence: "low",
+      classificationEvidence: ["Repository boundaries remain unknown."],
+    },
+  );
+});
+
 test("slice planning returns an executable current-wave launch action", () => {
+  const plan = {
+    waves: [
+      { index: 1, slices: [slice()] },
+      { index: 2, slices: [slice({ id: "implement", lifecycle: "spinoff" })] },
+    ],
+  };
+  const planRun = createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "next-action-test",
+  });
   const output = withNextAction({
     command: "plan slices",
-    plan: {
-      waves: [
-        { index: 1, slices: [slice()] },
-        { index: 2, slices: [slice({ id: "implement", lifecycle: "spinoff" })] },
-      ],
-    },
+    plan,
+    planRun,
   });
 
   assert.deepEqual(output.nextAction, {
@@ -74,9 +122,34 @@ test("slice planning returns an executable current-wave launch action", () => {
           "```",
       },
     ],
+    verification: {
+      planRunId: planRun.planRunId,
+      waveIndex: 1,
+      waveDigest: planRun.waves[0].waveDigest,
+    },
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 1,
   });
+});
+
+test("slice planning fails closed without its persisted plan-run contract", () => {
+  const plan = { waves: [{ index: 1, slices: [slice()] }] };
+  assert.throws(
+    () => withNextAction({ command: "plan slices", plan }),
+    /requires a persisted plan run/u,
+  );
+  const mismatched = createPlanRunV1(
+    plan,
+    { queenThreadId: "queen-1", sourceId: "mismatched-next-action-test" },
+  );
+  assert.throws(
+    () => withNextAction({
+      command: "plan slices",
+      plan: { waves: [{ index: 2, slices: [slice()] }] },
+      planRun: mismatched,
+    }),
+    /has no contract for wave 2/u,
+  );
 });
 
 test("runtime route verification either completes exactly or stops the wave", () => {
@@ -127,6 +200,26 @@ test("runtime route verification either completes exactly or stops the wave", ()
       threadId: "member-1",
       expected: { model: "gpt-5.6-luna", effort: "low" },
       observed,
+    },
+  );
+});
+
+test("resolved subagent identity leads to exact route verification", () => {
+  assert.deepEqual(
+    deriveNextAction({
+      command: "intelligence resolve subagent",
+      threadId: "child-thread",
+      expected: { model: "gpt-5.6-sol", effort: "medium" },
+    }),
+    {
+      schemaVersion: 1,
+      kind: "verify-route",
+      tool: "nelos_intelligence_verify",
+      arguments: {
+        threadId: "child-thread",
+        model: "gpt-5.6-sol",
+        effort: "medium",
+      },
     },
   );
 });

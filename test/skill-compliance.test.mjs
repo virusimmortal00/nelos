@@ -62,3 +62,67 @@ test("compliance eval rejects a launch whose effective route was not verified", 
     [{ code: "next_action_not_executed", index: 0, kind: "launch-wave" }],
   );
 });
+
+test("planning bootstrap requires the exact fork, child identity, and verified route", () => {
+  const member = {
+    lifecycle: "subagent",
+    title: "Plan and classify the work",
+    workspaceMode: "shared-read-only",
+    prompt: "bounded planner prompt",
+    forkTurns: "none",
+    nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+    routeEnforcement: { verifyAfterLaunch: true },
+    threadIdentity: { required: true, onMissing: "attention" },
+  };
+  const nextAction = { kind: "launch-planner", member };
+  const launch = {
+    type: "native-launch",
+    threadId: "planner-thread",
+    lifecycle: "subagent",
+    title: member.title,
+    workspaceMode: member.workspaceMode,
+    prompt: member.prompt,
+    forkTurns: "none",
+    nativeTask: member.nativeTask,
+    routeEnforcement: member.routeEnforcement,
+  };
+  const verification = {
+    type: "native-route-verification",
+    threadId: "planner-thread",
+    verified: true,
+    expected: { model: "gpt-5.6-sol", effort: "medium" },
+    observed: [
+      { model: "gpt-5.6-sol", effort: "medium", matches: true },
+    ],
+  };
+  assert.deepEqual(
+    evaluateSkillTraceV1({
+      events: [
+        { type: "cli-output", output: { nextAction } },
+        launch,
+        verification,
+      ],
+    }),
+    [],
+  );
+  assert.deepEqual(
+    evaluateSkillTraceV1({
+      events: [
+        { type: "cli-output", output: { nextAction } },
+        { ...launch, threadId: null },
+        verification,
+      ],
+    }),
+    [{ code: "next_action_not_executed", index: 0, kind: "launch-planner" }],
+  );
+  assert.deepEqual(
+    evaluateSkillTraceV1({
+      events: [
+        { type: "cli-output", output: { nextAction } },
+        launch,
+        { ...verification, observed: [] },
+      ],
+    }),
+    [{ code: "next_action_not_executed", index: 0, kind: "launch-planner" }],
+  );
+});

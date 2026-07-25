@@ -1,17 +1,76 @@
 # Slice Planning and Intelligence Routing
 
-Nelos composes two tools for high-level work:
+Nelos composes a receipt-driven planning and launch-verification lifecycle for
+high-level work:
 
-1. The queen turns the user's objective into bounded semantic slices with
-   deliverables, acceptance criteria, dependencies, lifecycle, and isolation.
-2. `nelos plan slices` validates that topology, schedules deterministic
+1. For an unstructured objective, `nelos_plan_lifecycle` durably prepares and
+   coordinates one bounded, read-only Sol/medium planning subagent.
+2. Typed launch and result receipts advance a replay-safe lifecycle. Nelos
+   independently verifies child identity, direct-parent topology, title, and
+   exact route before validating the result fence, request identity,
+   confidence, evidence, parallelism, and complete plan schema.
+3. `nelos plan slices` validates that topology, schedules deterministic
    parallel waves, and applies the reviewed model/reasoning policy to every
-   slice.
+   slice. Nelos persists a content-addressed plan run with authoritative wave
+   membership, title, and route contracts.
+4. `nelos_launch_verify_batch` blocks result use until every launched member in
+   the current wave has exact identity, available topology, title, and route
+   evidence.
 
-The CLI deliberately does not pretend to understand arbitrary natural
-language. The queen supplies judgment; the planner supplies a stable, testable
-contract. Routing is a reviewed cost/intelligence heuristic, not a claim of
-mathematical optimality.
+An explicit user-supplied structured plan skips the Sol bootstrap and enters
+step 3 directly. A plan authored by the starting queen does not qualify for this
+fast path. This makes decomposition quality independent of whether the user's
+task began on Luna, Terra, or Sol while avoiding an extra model turn when no
+decomposition is needed.
+
+The MCP server deliberately does not pretend to understand arbitrary natural
+language. Sol supplies bounded planning judgment; Nelos supplies a stable,
+testable contract and deterministic routing policy. Routing remains a reviewed
+cost/intelligence heuristic, not a claim of mathematical optimality.
+
+## Receipt-driven planning lifecycle
+
+The first lifecycle call accepts schema version 1, the queen task ID, a stable
+idempotency key, objective, optional bounded context, maximum parallelism, and
+`receipt: null`. The queen ID plus key deterministically identify one durable
+checkpoint, so an uncertain replay returns reconciliation rather than creating
+a second planner. Raw planner output is never persisted.
+
+Its `launch-planner` action fixes all launch-sensitive fields:
+joined-subagent lifecycle, shared-read-only workspace, `forkTurns: "none"`,
+Sol/medium native route, required child identity, and exact verification.
+
+`forkTurns` maps to the native subagent launcher's `fork_turns` argument. The
+generated prompt is therefore self-contained rather than relying on inherited
+turns. The launcher returns a canonical agent path; Nelos resolves it together
+with the current parent task ID against bounded local `session_meta`, requiring
+one exact native child task. The agent path is never treated as the task ID.
+Missing or ambiguous identity evidence stops with `attention`.
+
+Each native action is returned with a stable action ID. The caller repeats the
+unchanged request and `bootstrapId` with the exact typed receipt. Identical
+receipts replay safely; conflicting, stale, future, or out-of-order receipts
+fail closed. The coordinator returns exactly one title, wait, read, attention,
+or launch action. Only a matching medium- or high-confidence exact result turn
+can produce `launch-wave`.
+
+## Wave gate and exception replanning
+
+After creating every current-wave member, call
+`nelos_launch_verify_batch` once with the launch action's `planRunId`,
+`waveIndex`, and `waveDigest`, plus all member identity and turn receipts.
+Expected membership, title, model, and effort come from the persisted wave
+contract rather than caller-supplied claims. Joined subagents are resolved
+from parent task plus canonical agent path; spinoffs use their returned task
+IDs. Any missing, altered, duplicate, unreadable, wrong-parent, wrong-title,
+or wrong-route member blocks the entire batch before wait, read, or acceptance.
+
+`nelos_plan_replan` reuses the same receipt lifecycle only for typed terminal
+failure/blocking, changed requirements, or insufficient confidence. Timeouts,
+unavailable reads, and normal success are not triggers. The supplied base plan
+must match its persisted plan-run digest. Persisted lineage bounds generation
+to one; completed slices must remain semantically unchanged, and the execution
+plan removes them so accepted work is never launched again.
 
 ## Example
 

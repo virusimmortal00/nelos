@@ -403,6 +403,34 @@ test("inspection lazily starts one app server and returns bounded metadata", asy
   await bridge.close();
 });
 
+test("latest turn inspection returns the current native turn identity and status", async () => {
+  const fake = fakeCodexAppServer({
+    initialTurns: [
+      { id: "older-turn", status: "completed", items: [] },
+      { id: "current-turn", status: "interrupted", items: [] },
+    ],
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+
+  assert.deepEqual(await bridge.latestTurn({ threadId: "thread-1" }), {
+    turnId: "current-turn",
+    status: "interrupted",
+  });
+  assert.deepEqual(
+    fake.requests.find(({ method }) => method === "thread/turns/list")?.params,
+    {
+      threadId: "thread-1",
+      limit: 1,
+      sortDirection: "desc",
+      itemsView: "summary",
+    },
+  );
+  await bridge.close();
+});
+
 test("public stable Codex 0.144.5 passes the reviewed schema gate", async () => {
   const fake = fakeCodexAppServer({ codexVersion: "0.144.5" });
   const bridge = new CodexAppServerBridgeV1({

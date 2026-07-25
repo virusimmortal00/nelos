@@ -423,6 +423,17 @@ export function createWorkUnitSpecV1(value) {
   });
 }
 
+/**
+ * Recover the immutable creation contract from a persisted work unit without
+ * asking callers to reconstruct the execution protocol.
+ */
+export function workUnitDefinitionV1(value) {
+  const record = validateWorkUnitSpecV1(value);
+  return Object.fromEntries(
+    [...CREATE_FIELDS].map((field) => [field, record[field]]),
+  );
+}
+
 // A named schema constructor keeps the roadmap vocabulary available to callers.
 export const WorkUnitSpecV1 = createWorkUnitSpecV1;
 

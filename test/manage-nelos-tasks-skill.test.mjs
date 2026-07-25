@@ -15,27 +15,32 @@ test("the task-management skill is discoverable for coordinated work", () => {
   assert.match(frontMatter, /machine-generated next actions/);
 });
 
-test("the skill reserves model judgment for lifecycle choice and slice authorship", () => {
-  assert.match(skill, /only judgment this skill asks the queen to make/i);
-  assert.match(skill, /bounded \*\*subagent\*\*/);
-  assert.match(skill, /durable \*\*spinoff\*\*/);
-  assert.match(skill, /Parallelism alone is not a reason to create a spinoff/);
-  assert.match(skill, /objective, concrete deliverable,\n+testable acceptance criteria, explicit dependencies/);
-  assert.match(skill, /`subagent` with `shared-read-only`/);
-  assert.match(skill, /`spinoff` with `isolated-write`/);
+test("the skill makes planning quality independent of the queen model", () => {
+  assert.match(skill, /Planning quality must not\s+depend on the queen's model/i);
+  assert.match(skill, /bounded Sol\s+planner/i);
+  assert.match(skill, /Only if the user explicitly supplied a complete plan/i);
+  assert.match(skill, /queen-authored plan is not user-supplied/i);
+  assert.match(skill, /call `nelos_plan_lifecycle`/);
+  assert.match(skill, /caller-stable idempotency key/i);
+  assert.match(skill, /Do not first author slices or\s+classify them in the queen/i);
 });
 
 test("the skill has one native path driven by machine-generated next actions", () => {
   assert.match(skill, /## Follow the One Desktop Path/);
-  assert.match(skill, /`nelos_plan_slices` tool with the plan/);
-  assert.match(skill, /execute only the\n+returned `nextAction`/);
+  assert.match(skill, /call `nelos_plan_slices` directly/);
+  assert.match(skill, /execute only the returned\n+`nextAction`/);
   assert.match(skill, /`native-set-title`/);
+  assert.match(skill, /`launch-planner`/);
   assert.match(skill, /`launch-wave`/);
   assert.match(skill, /`native-wait` and `native-read`/);
   assert.match(skill, /`attach-native-task-options`/);
-  assert.match(skill, /Never omit, substitute, or inherit a decided `nativeTask` field/);
-  assert.match(skill, /`nelos_intelligence_verify` tool/);
-  assert.match(skill, /any mismatch stops\n+  the wave/);
+  assert.match(skill, /never omit, substitute, or inherit a decided\s+`nativeTask`/i);
+  assert.match(skill, /`forkTurns` to the\s+native launcher's `fork_turns` field/);
+  assert.match(skill, /never bind an agent name as a thread ID/i);
+  assert.match(skill, /`nelos_launch_verify_batch`/);
+  assert.match(skill, /`allVerified` is true/);
+  assert.match(skill, /`nelos_plan_replan`/);
+  assert.match(skill, /second autonomous replan stops/);
   assert.match(skill, /`decide`/);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
@@ -50,10 +55,10 @@ test("the skill has one native path driven by machine-generated next actions", (
 });
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {
-  assert.match(skill, /lifecycle cache;\s*never write lifecycle or archival state/i);
-  assert.match(skill, /reconcile their lifecycle cache on every read/i);
-  assert.match(skill, /observation\nlease is informational/i);
-  assert.match(skill, /Never perform a second local lifecycle\n  mutation/i);
+  assert.match(skill, /lifecycle cache; never write lifecycle\s+or archival state/i);
+  assert.match(skill, /reconcile their\s+lifecycle cache on every read/i);
+  assert.match(skill, /observation lease is informational/i);
+  assert.match(skill, /Never perform a second local lifecycle\s+mutation/i);
   assert.doesNotMatch(skill, /archive THREAD_ID --registry-only/);
   assert.doesNotMatch(skill, /immediately\s+run/i);
   assert.doesNotMatch(skill, /run[^\n]{0,120}after[^\n]{0,120}archive/i);
