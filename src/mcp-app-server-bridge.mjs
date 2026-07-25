@@ -924,7 +924,6 @@ export class CodexAppServerBridgeV1 {
         };
       });
       if (
-        Date.now() >= hardDeadlineAt &&
         snapshots.some(
           (snapshot) =>
             snapshot.state === "failed" &&

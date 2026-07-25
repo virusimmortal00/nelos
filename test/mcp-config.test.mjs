@@ -83,7 +83,10 @@ function runBootstrap({ home, version, requests }) {
     let stderr = "";
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
-      const lines = stdout.split("\n").filter((line) => line.trim());
+      const lines = stdout
+        .split("\n")
+        .slice(0, -1)
+        .filter((line) => line.trim());
       if (lines.length >= requests.length) child.stdin.end();
     });
     child.stderr.on("data", (chunk) => {
