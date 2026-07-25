@@ -711,17 +711,6 @@ export class SpinoffLifecycleAdapterV1 {
           }, { expectedRevision: record.revision });
           try {
             await appServerBridge.archiveThread({ threadId: candidate.threadId });
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "archived",
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: "archived",
-              replayed: false,
-            });
           } catch (error) {
             const uncertain = error?.mutationUncertain === true;
             await this.#store.write({
@@ -736,6 +725,32 @@ export class SpinoffLifecycleAdapterV1 {
               reason: uncertain
                 ? "archive-uncertain"
                 : "archive-rejected",
+            });
+            return;
+          }
+          try {
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "archived",
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "archived",
+              replayed: false,
+            });
+          } catch {
+            await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "attention",
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "attention",
+              reason: "archive-committed-persistence-failed",
             });
           }
         });

@@ -492,6 +492,53 @@ test("cleanup does not blindly retry an uncertain archive", async (t) => {
   assert.equal(calls, 1);
 });
 
+test("cleanup does not retry an archive after its success state fails to persist", async (t) => {
+  let failArchivedWrite = true;
+  const { adapter } = await fixture(t, "queen", {
+    storeDecorator(base) {
+      return {
+        preference: (...args) => base.preference(...args),
+        rememberPreference: (...args) => base.rememberPreference(...args),
+        read: (...args) => base.read(...args),
+        async write(record, options) {
+          if (record.cleanupState === "archived" && failArchivedWrite) {
+            failArchivedWrite = false;
+            throw new Error("simulated post-archive persistence failure");
+          }
+          return base.write(record, options);
+        },
+      };
+    },
+  });
+  let calls = 0;
+  const bridge = {
+    async archiveThread() {
+      calls += 1;
+    },
+  };
+  const first = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, bridge);
+  assert.deepEqual(first.results, [{
+    threadId: "member-thread",
+    state: "attention",
+    reason: "archive-committed-persistence-failed",
+  }]);
+  const second = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  }, bridge);
+  assert.deepEqual(second.results, [{
+    threadId: "member-thread",
+    state: "attention",
+    reason: "prior-archive-attention",
+  }]);
+  assert.equal(calls, 1);
+});
+
 test("cleanup can retry a certainly rejected archive", async (t) => {
   const { adapter } = await fixture(t, "queen");
   let calls = 0;
