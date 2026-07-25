@@ -54,6 +54,21 @@ process.stdin.on("data", async (chunk) => {
         send({ id: message.id, result: { thread } });
         continue;
       }
+      if (message.method === "thread/turns/list") {
+        const current = await state();
+        const thread = current.threads[message.params.threadId];
+        if (!thread) throw new Error("unknown thread");
+        const limit = message.params.limit ?? 20;
+        const turns = Array.isArray(thread.turns) ? thread.turns : [];
+        send({
+          id: message.id,
+          result: {
+            data: turns.slice(0, limit),
+            nextCursor: null,
+          },
+        });
+        continue;
+      }
       if (message.method === "thread/name/set") {
         const current = await state();
         const thread = current.threads[message.params.threadId];

@@ -282,6 +282,9 @@ export async function runPlanningLifecycleScenario() {
         "queen-1",
         "active",
       );
+      value.threads["planner-1"].turns = [
+        { id: "planner-turn", status: "inProgress", items: [] },
+      ];
     });
     const launchReceipt = {
       schemaVersion: 1,
@@ -309,6 +312,7 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["planner-1"].status = "idle";
       value.threads["planner-1"].updatedAt += 1;
+      value.threads["planner-1"].turns[0].status = "completed";
     });
     const readable = await mcp.tool("nelos_plan_lifecycle", {
       ...lifecycleRequest,
@@ -434,6 +438,9 @@ export async function runPlanningLifecycleScenario() {
         "queen-1",
         "idle",
       );
+      value.threads["replanner-1"].turns = [
+        { id: "replanner-turn", status: "completed", items: [] },
+      ];
     });
     const replanLaunchReceipt = {
       schemaVersion: 1,
