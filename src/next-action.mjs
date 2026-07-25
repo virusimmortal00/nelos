@@ -6,8 +6,7 @@ import {
   createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
 import {
-  launcherForMemberKind,
-  memberKindForLifecycle,
+  normalizeLaunchMemberV1,
 } from "./launch-contract.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
@@ -72,13 +71,17 @@ function joinedAgentTaskName(sliceId) {
 }
 
 function launchMember(slice) {
-  const memberKind = memberKindForLifecycle(slice.lifecycle);
+  const normalizedLaunch = normalizeLaunchMemberV1({
+    ...slice,
+    nativeTask: slice.route.launch.nativeTask,
+  });
+  const { memberKind, launcher } = normalizedLaunch;
   const joinedSubagent = slice.lifecycle === "subagent";
   return {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
     memberKind,
-    launcher: launcherForMemberKind(memberKind),
+    launcher,
     title: slice.title,
     objective: slice.objective,
     deliverable: slice.deliverable,
@@ -112,7 +115,7 @@ function launchMember(slice) {
           nativeTitleControl: true,
         },
     workspaceMode: slice.workspaceMode,
-    nativeTask: slice.route.launch.nativeTask,
+    nativeTask: normalizedLaunch.launch.nativeTask,
     routeEnforcement: {
       mode: "exact",
       onUnavailable: "stop",

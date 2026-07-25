@@ -21,7 +21,7 @@ test("reviewed catalog records evidence and local-policy provenance", () => {
       catalogVersion: "openai-2026-07-21",
       reviewedAt: "2026-07-21",
       sourceUrl: "https://developers.openai.com/api/docs/guides/latest-model",
-      policyVersion: 2,
+      policyVersion: 3,
       evidenceKind: "verified-openai-docs",
       policyKind: "local-reviewed-policy",
       hostEvidenceKind: "current-codex-desktop-capability",
@@ -56,6 +56,38 @@ test("task shapes deterministically select reviewed profiles at lowest sufficien
       assert.match(first.rationale, /\.$/);
     });
   }
+});
+
+test("joined-subagent routing never selects Luna", () => {
+  const recommended = routeIntelligenceProfile({
+    taskShape: "clear/repeatable",
+    launchSurface: "joined-subagent",
+  });
+  assert.equal(recommended.profile, "terra");
+  assert.equal(recommended.requestedModel, "gpt-5.6-terra");
+  assert.equal(recommended.modelSelection, "recommended");
+  assert.match(recommended.rationale, /joined-subagent work uses Terra/);
+
+  for (const override of [
+    { profileOverride: "luna" },
+    { modelOverride: "gpt-5.6-luna" },
+  ]) {
+    assert.throws(
+      () =>
+        routeIntelligenceProfile({
+          taskShape: "clear/repeatable",
+          launchSurface: "joined-subagent",
+          ...override,
+        }),
+      /joined-subagent launches do not support gpt-5\.6-luna/,
+    );
+  }
+
+  const durable = routeIntelligenceProfile({
+    taskShape: "clear/repeatable",
+    launchSurface: "durable-task",
+  });
+  assert.equal(durable.requestedModel, "gpt-5.6-luna");
 });
 
 test("explicit validated model and effort overrides win", () => {
@@ -148,6 +180,14 @@ test("explicit profile overrides win and conflicting explicit overrides fail", (
 });
 
 test("unsupported task shapes, models, and efforts fail without fallback", () => {
+  assert.throws(
+    () =>
+      routeIntelligenceProfile({
+        taskShape: "everyday",
+        launchSurface: "unsupported",
+      }),
+    /unsupported intelligence launch surface: unsupported/,
+  );
   assert.throws(
     () =>
       routeIntelligenceProfile({

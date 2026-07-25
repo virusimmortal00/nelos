@@ -889,6 +889,29 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal((await fixture.store.read("member-a")).binding.state, "launch-pending");
 });
 
+test("stdio orchestration rejects Luna before returning a joined-subagent effect", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const workUnit = workUnitInput({
+    memberKind: "joined-subagent",
+    launch: {
+      workspaceMode: "shared-read-only",
+      nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
+    },
+  });
+  const [, response] = await roundTrip(
+    [INITIALIZE, orchestrationCall(2, workUnit)],
+    fixture.options,
+  );
+  const result = toolBody(response);
+
+  assert.equal(result.isError, true);
+  assert.match(
+    result.body.error,
+    /joined-subagent launches do not support gpt-5\.6-luna/,
+  );
+  assert.deepEqual(await fixture.store.list(), []);
+});
+
 test("stdio orchestration validates a host callback before binding and replays idempotently", async (t) => {
   const fixture = await orchestrationFixture(t);
   const actionId =
@@ -1534,6 +1557,53 @@ test("nelos_plan_slices reports invalid plans as tool errors", async () => {
   assert.equal(isError, true);
   assert.ok(body.error);
   assert.equal(synchronizationCalls, 0);
+});
+
+test("nelos_plan_slices never emits a Luna joined-subagent launch", async () => {
+  const plan = validPlan();
+  plan.slices[0].taskShape = "clear/repeatable";
+  const [, recommended, rejected] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_slices",
+        arguments: { plan, queenThreadId: "queen-1" },
+      },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_slices",
+        arguments: {
+          plan: {
+            ...plan,
+            slices: [{
+              ...plan.slices[0],
+              routing: { model: "gpt-5.6-luna" },
+            }],
+          },
+          queenThreadId: "queen-1",
+        },
+      },
+    },
+  ]);
+  const recommendedBody = toolBody(recommended);
+  assert.equal(recommendedBody.isError, false);
+  assert.equal(
+    recommendedBody.body.nextAction.members[0].nativeTask.model,
+    "gpt-5.6-terra",
+  );
+  const rejectedBody = toolBody(rejected);
+  assert.equal(rejectedBody.isError, true);
+  assert.match(
+    rejectedBody.body.error,
+    /joined-subagent launches do not support gpt-5\.6-luna/,
+  );
 });
 
 test("nelos_intelligence_route mirrors the CLI mapping", async () => {

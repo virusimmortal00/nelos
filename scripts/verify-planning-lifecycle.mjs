@@ -399,7 +399,7 @@ export async function runPlanningLifecycleScenario() {
         parentThreadId: "queen-1",
         agentPath: "/root/research",
         turnId: "research-turn",
-        model: "gpt-5.6-luna",
+        model: "gpt-5.6-terra",
         effort: "low",
       }),
       writeRollout(codexHome, "implementation-1", {

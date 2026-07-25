@@ -34,7 +34,7 @@ work isn't starved:
 | --- | --- | --- | --- |
 | `complex/open-ended` | Sol | `medium` | Sustained judgment needs a frontier model; medium is the lowest reviewed starting point. |
 | `everyday` | Terra | `low` | A capable, efficient default for ordinary implementation work. |
-| `clear/repeatable` | Luna | `low` | The task and acceptance criteria are explicit, so a fast model suffices. |
+| `clear/repeatable` | Luna for durable spinoffs; Terra for joined subagents | `low` | Luna is the efficient durable-task choice, while the native collaboration launcher currently supports only Sol and Terra. |
 
 ## Overriding the recommendation
 
@@ -56,7 +56,10 @@ The router (`nelos_intelligence_route`) takes any combination of `taskShape`,
 
 Conflicts fail loudly rather than resolving silently: a `profile` and `model`
 that name different profiles, or an `effort` a profile doesn't support, are
-errors. (The contributor CLI mirrors this as `nelos intelligence route
+errors. Slice routing is also launcher-aware: a joined subagent never receives
+Luna, and an explicit Luna override for a joined subagent is rejected instead
+of substituted. Durable spinoffs retain Luna for clear, repeatable work. (The
+contributor CLI mirrors generic routing as `nelos intelligence route
 --task-shape everyday`, etc.)
 
 ### What comes back
@@ -75,9 +78,10 @@ The route returns launch-ready settings plus its own provenance:
 }
 ```
 
-`launch.nativeTask` is handed straight to Codex's native task tool — `model` and
-`thinking` already filled in — so the skill never reconstructs launch settings by
-hand.
+`launch.nativeTask` is handed straight to the selected Codex launcher — `model`
+and `thinking` already filled in — so the skill never reconstructs launch
+settings by hand. The shared launch-contract validator independently rejects
+Luna on `spawn-subagent`, including lower-level orchestration calls.
 
 ## Max and Ultra
 

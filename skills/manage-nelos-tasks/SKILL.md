@@ -51,10 +51,12 @@ After the fast path or validated bootstrap, execute only the returned
   each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
   `nativeTask`, `identityContract`, and generated `prompt`. `create-thread`
   launches a durable spinoff; `spawn-subagent` launches a joined subagent using
-  its exact `agentTaskName`. Never translate fields by inference or describe a
-  subagent as a spinoff. Follow `titlePolicy`; never omit, substitute, or inherit
-  a decided `nativeTask`. If the exact route or native identity is unavailable,
-  stop with `attention`; never bind an agent name as a thread ID.
+  its exact `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
+  valid only for durable spinoffs. Never translate fields by inference or
+  describe a subagent as a spinoff. Follow `titlePolicy`; never omit,
+  substitute, or inherit a decided `nativeTask`. If the exact route or native
+  identity is unavailable, stop with `attention`; never bind an agent name as a
+  thread ID.
   Do not launch a later wave until required current results are accepted.
 - Before waiting or reading any launched wave, call
   `nelos_launch_verify_batch` once with the launch action's exact

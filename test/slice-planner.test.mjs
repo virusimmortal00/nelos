@@ -62,14 +62,22 @@ test("slice planning composes dependency waves with guidance-backed routes", () 
     subagents: 3,
     models: {
       "gpt-5.6-sol": 2,
-      "gpt-5.6-luna": 2,
-      "gpt-5.6-terra": 1,
+      "gpt-5.6-terra": 2,
+      "gpt-5.6-luna": 1,
     },
     efforts: { medium: 2, low: 3 },
   });
   assert.deepEqual(first.waves[0].slices[0].route.launch.nativeTask, {
     model: "gpt-5.6-sol",
     thinking: "medium",
+  });
+  assert.deepEqual(first.waves[0].slices[1].route.launch.nativeTask, {
+    model: "gpt-5.6-terra",
+    thinking: "low",
+  });
+  assert.deepEqual(first.waves[2].slices[0].route.launch.nativeTask, {
+    model: "gpt-5.6-luna",
+    thinking: "low",
   });
 });
 
@@ -110,6 +118,28 @@ test("per-slice overrides remain subordinate to the reviewed router", () => {
     model: "gpt-5.6-terra",
     thinking: "high",
   });
+});
+
+test("slice planning rejects explicit Luna routing for joined subagents", () => {
+  const joined = {
+    lifecycle: "subagent",
+    workspaceMode: "shared-read-only",
+    taskShape: "clear/repeatable",
+  };
+  for (const routing of [
+    { profile: "luna" },
+    { model: "gpt-5.6-luna" },
+  ]) {
+    assert.throws(
+      () =>
+        planWorkSlices({
+          schemaVersion: 1,
+          objective: "Never launch a Luna subagent",
+          slices: [slice("joined", { ...joined, routing })],
+        }),
+      /joined-subagent launches do not support gpt-5\.6-luna/,
+    );
+  }
 });
 
 test("slice plans reject malformed topology and unsafe isolation", async (t) => {

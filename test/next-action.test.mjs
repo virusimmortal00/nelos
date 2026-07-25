@@ -219,6 +219,33 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   );
 });
 
+test("launch-wave derivation rejects a crafted Luna joined subagent", () => {
+  const plan = {
+    waves: [{
+      index: 1,
+      slices: [slice({
+        route: {
+          launch: {
+            nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
+          },
+        },
+      })],
+    }],
+  };
+  assert.throws(
+    () =>
+      withNextAction({
+        command: "plan slices",
+        plan,
+        planRun: createPlanRunV1(plan, {
+          queenThreadId: "queen-1",
+          sourceId: "crafted-luna-subagent",
+        }),
+      }),
+    /joined-subagent launches do not support gpt-5\.6-luna/,
+  );
+});
+
 test("slice planning fails closed without its persisted plan-run contract", () => {
   const plan = { waves: [{ index: 1, slices: [slice()] }] };
   assert.throws(

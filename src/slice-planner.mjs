@@ -220,10 +220,14 @@ function normalizeStringList(
   );
 }
 
-function normalizeRouting(value, index, taskShape) {
-  if (value === undefined) return routeIntelligenceProfile({ taskShape });
+function normalizeRouting(value, index, taskShape, lifecycle) {
+  const launchSurface =
+    lifecycle === "subagent" ? "joined-subagent" : "durable-task";
+  if (value === undefined) {
+    return routeIntelligenceProfile({ taskShape, launchSurface });
+  }
   assertPlainObject(value, `slices[${index}].routing`, ROUTING_FIELDS);
-  const input = { taskShape };
+  const input = { taskShape, launchSurface };
   if (value.profile !== undefined) {
     input.profileOverride = normalizeText(
       value.profile,
@@ -315,7 +319,7 @@ function normalizeSlice(value, index) {
     lifecycle,
     workspaceMode,
     taskShape,
-    route: normalizeRouting(value.routing, index, taskShape),
+    route: normalizeRouting(value.routing, index, taskShape, lifecycle),
   };
 }
 

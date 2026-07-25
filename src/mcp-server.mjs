@@ -633,8 +633,9 @@ const TOOLS = [
     description:
       "Durably advance one spinoff or joined-subagent work unit to " +
       "launch-pending and return one lifecycle-specific native-create effect, " +
-      "or validate a host create receipt and bind its member thread ID. This " +
-      "tool never contacts the app server.",
+      "or validate a host create receipt and bind its member thread ID. Joined " +
+      "subagent launches accept only Sol or Terra; Luna is durable-task-only. " +
+      "This tool never contacts the app server.",
     inputSchema: MCP_ORCHESTRATE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { orchestrationAdapter }) {
