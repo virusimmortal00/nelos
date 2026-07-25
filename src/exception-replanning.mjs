@@ -292,6 +292,9 @@ export class ExceptionReplanningCoordinatorV1 {
     if (!basePlanRun) {
       throw new Error("exception replanning references an unknown base plan run");
     }
+    if (basePlanRun.queenThreadId !== value.queenThreadId) {
+      throw new Error("exception replanning cannot use another queen's plan run");
+    }
     if (
       basePlanRun.replanGeneration !== 0 ||
       basePlanRun.rootPlanRunId !== basePlanRun.planRunId

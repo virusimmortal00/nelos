@@ -13,6 +13,11 @@ import {
 } from "../src/mcp-server.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
 import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
+import {
+  createPlanRunV1,
+  PlanRunStoreV1,
+} from "../src/plan-run-store.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
 
 const INITIALIZE = {
   jsonrpc: "2.0",
@@ -52,6 +57,7 @@ async function roundTrip(messages, options = {}) {
       output,
       serverVersion: "0.0.0-test",
       onExit: resolve,
+      currentThreadId: () => "queen-1",
       ...options,
     });
   });
@@ -442,6 +448,7 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
         async read() {
           return {
             planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+            queenThreadId: "queen-1",
             rootPlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
             replanGeneration: 0,
           };
@@ -532,6 +539,7 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
           async requireWave(value) {
             assert.deepEqual(value, {
               planRunId: args.planRunId,
+              queenThreadId: args.parentThreadId,
               waveIndex: args.waveIndex,
               waveDigest: args.waveDigest,
             });
@@ -590,6 +598,61 @@ test("nelos_launch_verify_batch rejects a parent outside the current host task",
   const { isError, body } = toolBody(response);
   assert.equal(isError, true);
   assert.match(body.error, /must match the current host task/u);
+});
+
+test("nelos_launch_verify_batch rejects another queen's persisted run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-mcp-plan-run-owner-"));
+  try {
+    const planRunStore = new PlanRunStoreV1({
+      directory: join(root, "plan-runs"),
+    });
+    const run = await planRunStore.create(
+      createPlanRunV1(planWorkSlices(validPlan()), {
+        queenThreadId: "queen-1",
+        sourceId: "cross-queen-wave",
+      }),
+    );
+    const wave = run.waves[0];
+    const [, response] = await roundTrip(
+      [
+        INITIALIZE,
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "nelos_launch_verify_batch",
+            arguments: {
+              planRunId: run.planRunId,
+              waveIndex: wave.waveIndex,
+              waveDigest: wave.waveDigest,
+              parentThreadId: "queen-2",
+              members: [
+                {
+                  sliceId: "explore",
+                  lifecycle: "subagent",
+                  threadId: "member-1",
+                  turnId: "turn-1",
+                },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        currentThreadId: () => "queen-2",
+        planRunStore,
+        launchBatchVerifier() {
+          throw new Error("foreign run must fail before host verification");
+        },
+      },
+    );
+    const { isError, body } = toolBody(response);
+    assert.equal(isError, true);
+    assert.match(body.error, /different queen/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("nelos_orchestrate_advance is callback-only and forwards exact arguments", async () => {

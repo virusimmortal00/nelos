@@ -87,6 +87,7 @@ async function plannedSlicesOutput(
   appServerBridge,
   additionalFields = {},
   {
+    queenThreadId,
     planRunStore,
     parentPlanRun = null,
   },
@@ -98,7 +99,7 @@ async function plannedSlicesOutput(
       .update(JSON.stringify(plan), "utf8")
       .digest("hex")}`;
   const planRun = await planRunStore.create(
-    createPlanRunV1(plan, { sourceId, parentPlanRun }),
+    createPlanRunV1(plan, { queenThreadId, sourceId, parentPlanRun }),
   );
   const queenTitleSync =
     plan.summary.spinoffs > 0
@@ -126,7 +127,7 @@ const TOOLS = [
       "should use nelos_plan_slices directly.",
     inputSchema: PLANNING_BOOTSTRAP_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, planRunStore }) {
+    async run(args, { appServerBridge, currentThreadId, planRunStore }) {
       if (args.response !== undefined) {
         const { response, ...request } = args;
         const finalized = finalizePlanningBootstrapV1(request, response);
@@ -146,7 +147,7 @@ const TOOLS = [
               classificationEvidence: finalized.classificationEvidence,
             },
           },
-          { planRunStore },
+          { queenThreadId: currentThreadId(), planRunStore },
         );
       }
       return withNextAction({
@@ -169,11 +170,16 @@ const TOOLS = [
         appServerBridge,
       });
       if (!result.plan) return result;
-      return plannedSlicesOutput(result.plan, appServerBridge, {
-        lifecycle: result.lifecycle,
-        bootstrap: result.bootstrap,
-        planning: result.planning,
-      }, { planRunStore });
+      return plannedSlicesOutput(
+        result.plan,
+        appServerBridge,
+        {
+          lifecycle: result.lifecycle,
+          bootstrap: result.bootstrap,
+          planning: result.planning,
+        },
+        { queenThreadId: args.queenThreadId, planRunStore },
+      );
     },
   },
   {
@@ -220,7 +226,11 @@ const TOOLS = [
           planning: result.planning,
           replanning: result.replanning,
         },
-        { planRunStore, parentPlanRun },
+        {
+          queenThreadId: args.queenThreadId,
+          planRunStore,
+          parentPlanRun,
+        },
       );
     },
   },
@@ -247,9 +257,14 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, planRunStore }) {
+    async run(args, { appServerBridge, currentThreadId, planRunStore }) {
       const plan = planWorkSlices(args.plan);
-      return plannedSlicesOutput(plan, appServerBridge, {}, { planRunStore });
+      return plannedSlicesOutput(
+        plan,
+        appServerBridge,
+        {},
+        { queenThreadId: currentThreadId(), planRunStore },
+      );
     },
   },
   {
@@ -272,6 +287,7 @@ const TOOLS = [
       }
       const { wave } = await planRunStore.requireWave({
         planRunId: args.planRunId,
+        queenThreadId: args.parentThreadId,
         waveIndex: args.waveIndex,
         waveDigest: args.waveDigest,
       });

@@ -8,6 +8,7 @@ export const PLAN_RUN_SCHEMA_VERSION = 1;
 const MAX_RECORD_BYTES = 128 * 1024;
 const RUN_ID = /^run:[a-f0-9]{40}$/u;
 const SOURCE_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
+const QUEEN_THREAD_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 
 function digest(value) {
   return createHash("sha256")
@@ -31,6 +32,30 @@ function sourceId(value) {
     throw new Error("plan run sourceId has an invalid format");
   }
   return value;
+}
+
+function queenThreadId(value) {
+  if (typeof value !== "string" || !QUEEN_THREAD_ID.test(value)) {
+    throw new Error("plan run queenThreadId has an invalid format");
+  }
+  return value;
+}
+
+function planRunIdV1({
+  queenThreadId: owner,
+  sourceId: source,
+  planDigest,
+  parentPlanRunId,
+  replanGeneration,
+}) {
+  return `run:${digest([
+    "plan-run-v1",
+    owner,
+    source,
+    planDigest,
+    parentPlanRunId,
+    replanGeneration,
+  ]).slice(0, 40)}`;
 }
 
 function waveContract(wave) {
@@ -59,6 +84,7 @@ function validateRecord(value) {
   const fields = new Set([
     "schemaVersion",
     "planRunId",
+    "queenThreadId",
     "sourceId",
     "planDigest",
     "rootPlanRunId",
@@ -72,6 +98,7 @@ function validateRecord(value) {
     throw new Error("plan run record has an unsupported schema version");
   }
   const planRunId = runId(value.planRunId);
+  const normalizedQueenThreadId = queenThreadId(value.queenThreadId);
   const normalizedSourceId = sourceId(value.sourceId);
   if (!/^[a-f0-9]{64}$/u.test(value.planDigest)) {
     throw new Error("plan run digest is invalid");
@@ -94,6 +121,17 @@ function validateRecord(value) {
       (parentPlanRunId === null || rootPlanRunId === planRunId))
   ) {
     throw new Error("plan run lineage is inconsistent");
+  }
+  if (
+    planRunIdV1({
+      queenThreadId: normalizedQueenThreadId,
+      sourceId: normalizedSourceId,
+      planDigest: value.planDigest,
+      parentPlanRunId,
+      replanGeneration: value.replanGeneration,
+    }) !== planRunId
+  ) {
+    throw new Error("plan run identity conflicts with persisted intent");
   }
   if (!Array.isArray(value.waves) || value.waves.length === 0) {
     throw new Error("plan run waves must be non-empty");
@@ -156,6 +194,7 @@ function validateRecord(value) {
   return {
     schemaVersion: PLAN_RUN_SCHEMA_VERSION,
     planRunId,
+    queenThreadId: normalizedQueenThreadId,
     sourceId: normalizedSourceId,
     planDigest: value.planDigest,
     rootPlanRunId,
@@ -168,10 +207,12 @@ function validateRecord(value) {
 export function createPlanRunV1(
   plan,
   {
+    queenThreadId: requestedQueenThreadId,
     sourceId: requestedSourceId,
     parentPlanRun = null,
   },
 ) {
+  const normalizedQueenThreadId = queenThreadId(requestedQueenThreadId);
   const normalizedSourceId = sourceId(requestedSourceId);
   const planDigest = planDigestV1(plan);
   if (
@@ -181,21 +222,29 @@ export function createPlanRunV1(
   ) {
     throw new Error("exception replanning is bounded to one plan-run generation");
   }
+  if (
+    parentPlanRun !== null &&
+    parentPlanRun.queenThreadId !== normalizedQueenThreadId
+  ) {
+    throw new Error("derived plan run must belong to its persisted root queen");
+  }
   const replanGeneration = parentPlanRun === null ? 0 : 1;
-  const planRunId = `run:${digest([
-    "plan-run-v1",
-    normalizedSourceId,
+  const parentPlanRunId = parentPlanRun?.planRunId ?? null;
+  const planRunId = planRunIdV1({
+    queenThreadId: normalizedQueenThreadId,
+    sourceId: normalizedSourceId,
     planDigest,
-    parentPlanRun?.planRunId ?? null,
+    parentPlanRunId,
     replanGeneration,
-  ]).slice(0, 40)}`;
+  });
   return validateRecord({
     schemaVersion: PLAN_RUN_SCHEMA_VERSION,
     planRunId,
+    queenThreadId: normalizedQueenThreadId,
     sourceId: normalizedSourceId,
     planDigest,
     rootPlanRunId: parentPlanRun?.rootPlanRunId ?? planRunId,
-    parentPlanRunId: parentPlanRun?.planRunId ?? null,
+    parentPlanRunId,
     replanGeneration,
     waves: plan.waves.map(waveContract),
   });
@@ -225,15 +274,34 @@ export class PlanRunStoreV1 {
   }
 
   async read(planRunId) {
-    const path = this.#path(planRunId);
+    const requestedPlanRunId = runId(planRunId);
+    const path = this.#path(requestedPlanRunId);
     try {
       const metadata = await this.#fileSystem.stat(path);
       if (!metadata.isFile() || metadata.size > MAX_RECORD_BYTES) {
         throw new Error("plan run record is malformed");
       }
-      return validateRecord(
+      const record = validateRecord(
         JSON.parse(await this.#fileSystem.readFile(path, "utf8")),
       );
+      if (record.planRunId !== requestedPlanRunId) {
+        throw new Error("plan run identity conflicts with its persisted path");
+      }
+      if (record.replanGeneration === 1) {
+        const parent = await this.read(record.parentPlanRunId);
+        if (
+          !parent ||
+          parent.replanGeneration !== 0 ||
+          parent.rootPlanRunId !== parent.planRunId ||
+          record.rootPlanRunId !== parent.planRunId ||
+          record.queenThreadId !== parent.queenThreadId
+        ) {
+          throw new Error(
+            "derived plan run does not match its exact persisted root",
+          );
+        }
+      }
+      return record;
     } catch (error) {
       if (error?.code === "ENOENT") return null;
       throw error;
@@ -242,6 +310,20 @@ export class PlanRunStoreV1 {
 
   async create(value) {
     const record = validateRecord(value);
+    if (record.replanGeneration === 1) {
+      const parent = await this.read(record.parentPlanRunId);
+      if (
+        !parent ||
+        parent.replanGeneration !== 0 ||
+        parent.rootPlanRunId !== parent.planRunId ||
+        record.rootPlanRunId !== parent.planRunId ||
+        record.queenThreadId !== parent.queenThreadId
+      ) {
+        throw new Error(
+          "derived plan run requires its exact persisted root",
+        );
+      }
+    }
     const existing = await this.read(record.planRunId);
     if (existing) {
       if (JSON.stringify(existing) !== JSON.stringify(record)) {
@@ -274,9 +356,12 @@ export class PlanRunStoreV1 {
     return record;
   }
 
-  async requireWave({ planRunId, waveIndex, waveDigest }) {
+  async requireWave({ planRunId, queenThreadId: requestedQueenThreadId, waveIndex, waveDigest }) {
     const record = await this.read(planRunId);
     if (!record) throw new Error("launch batch references an unknown plan run");
+    if (record.queenThreadId !== queenThreadId(requestedQueenThreadId)) {
+      throw new Error("plan run belongs to a different queen");
+    }
     const wave = record.waves.find((candidate) => candidate.waveIndex === waveIndex);
     if (!wave || wave.waveDigest !== waveDigest) {
       throw new Error("launch batch conflicts with its persisted wave contract");

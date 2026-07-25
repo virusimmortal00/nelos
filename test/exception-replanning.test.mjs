@@ -40,7 +40,10 @@ function basePlan() {
 
 function input(overrides = {}) {
   const planned = planWorkSlices(overrides.basePlan ?? basePlan());
-  const run = createPlanRunV1(planned, { sourceId: "test-base-plan" });
+  const run = createPlanRunV1(planned, {
+    queenThreadId: "queen-1",
+    sourceId: "test-base-plan",
+  });
   return {
     schemaVersion: 1,
     idempotencyKey: "failure-event-1",
@@ -64,7 +67,10 @@ function input(overrides = {}) {
 
 function coordinatorReturning(result, calls = [], basePlanValue = basePlan()) {
   const planned = planWorkSlices(basePlanValue);
-  const run = createPlanRunV1(planned, { sourceId: "test-base-plan" });
+  const run = createPlanRunV1(planned, {
+    queenThreadId: "queen-1",
+    sourceId: "test-base-plan",
+  });
   return new ExceptionReplanningCoordinatorV1({
     planningLifecycle: {
       async advance(value, context) {
@@ -265,5 +271,15 @@ test("exception replanning rejects a caller plan or digest that differs from the
       { appServerBridge: {} },
     ),
     /conflicts with its persisted run/u,
+  );
+});
+
+test("exception replanning rejects a base run owned by another queen", async () => {
+  const coordinator = coordinatorReturning({});
+  await assert.rejects(
+    coordinator.advance(input({ queenThreadId: "queen-2" }), {
+      appServerBridge: {},
+    }),
+    /another queen's plan run/u,
   );
 });

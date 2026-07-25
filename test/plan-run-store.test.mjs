@@ -38,7 +38,11 @@ test("plan runs are deterministic, durable, and preserve authoritative wave cont
     const directory = join(root, "records");
     const firstStore = new PlanRunStoreV1({ directory });
     const planned = plan();
-    const created = createPlanRunV1(planned, { sourceId: "operation-1" });
+    const created = createPlanRunV1(planned, {
+      queenThreadId: "queen-1",
+      sourceId: "operation-1",
+    });
+    assert.equal(created.queenThreadId, "queen-1");
     assert.equal(created.planDigest, planDigestV1(planned));
     assert.equal(created.replanGeneration, 0);
     assert.equal(created.rootPlanRunId, created.planRunId);
@@ -56,7 +60,10 @@ test("plan runs are deterministic, durable, and preserve authoritative wave cont
     const persisted = await firstStore.create(created);
     assert.deepEqual(persisted, created);
     assert.deepEqual(
-      createPlanRunV1(planned, { sourceId: "operation-1" }),
+      createPlanRunV1(planned, {
+        queenThreadId: "queen-1",
+        sourceId: "operation-1",
+      }),
       created,
     );
 
@@ -64,6 +71,7 @@ test("plan runs are deterministic, durable, and preserve authoritative wave cont
     assert.deepEqual(await restarted.read(created.planRunId), created);
     const { wave } = await restarted.requireWave({
       planRunId: created.planRunId,
+      queenThreadId: "queen-1",
       waveIndex: created.waves[0].waveIndex,
       waveDigest: created.waves[0].waveDigest,
     });
@@ -79,11 +87,24 @@ test("plan-run verification rejects unknown or altered wave identity and malform
     const directory = join(root, "records");
     const store = new PlanRunStoreV1({ directory });
     const created = await store.create(
-      createPlanRunV1(plan(), { sourceId: "operation-2" }),
+      createPlanRunV1(plan(), {
+        queenThreadId: "queen-1",
+        sourceId: "operation-2",
+      }),
     );
     await assert.rejects(
       store.requireWave({
         planRunId: created.planRunId,
+        queenThreadId: "queen-2",
+        waveIndex: 1,
+        waveDigest: created.waves[0].waveDigest,
+      }),
+      /different queen/u,
+    );
+    await assert.rejects(
+      store.requireWave({
+        planRunId: created.planRunId,
+        queenThreadId: "queen-1",
         waveIndex: 1,
         waveDigest: "0".repeat(64),
       }),
@@ -93,6 +114,7 @@ test("plan-run verification rejects unknown or altered wave identity and malform
     await assert.rejects(
       store.requireWave({
         planRunId: unknownId,
+        queenThreadId: "queen-1",
         waveIndex: 1,
         waveDigest: created.waves[0].waveDigest,
       }),
@@ -123,9 +145,79 @@ test("plan-run verification rejects unknown or altered wave identity and malform
   }
 });
 
+test("persisted plan-run identity tampering is rejected on read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const directory = join(root, "records");
+    const store = new PlanRunStoreV1({ directory });
+    const created = await store.create(
+      createPlanRunV1(plan(), {
+        queenThreadId: "queen-1",
+        sourceId: "operation-tamper",
+      }),
+    );
+    const path = join(directory, `${encodeURIComponent(created.planRunId)}.json`);
+    await writeFile(
+      path,
+      `${JSON.stringify({ ...created, queenThreadId: "queen-2" })}\n`,
+    );
+    await assert.rejects(
+      store.read(created.planRunId),
+      /identity conflicts with persisted intent/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("derived plan runs require their exact persisted root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const store = new PlanRunStoreV1({ directory: join(root, "records") });
+    const persistedRoot = await store.create(
+      createPlanRunV1(plan(), {
+        queenThreadId: "queen-1",
+        sourceId: "operation-root",
+      }),
+    );
+    const derived = createPlanRunV1(plan("replacement"), {
+      queenThreadId: "queen-1",
+      sourceId: "operation-derived",
+      parentPlanRun: persistedRoot,
+    });
+    await assert.rejects(
+      store.create({
+        ...derived,
+        rootPlanRunId: `run:${"f".repeat(40)}`,
+      }),
+      /exact persisted root/u,
+    );
+
+    const orphanRoot = createPlanRunV1(plan("orphan-root"), {
+      queenThreadId: "queen-1",
+      sourceId: "operation-orphan-root",
+    });
+    const orphan = createPlanRunV1(plan("orphan-child"), {
+      queenThreadId: "queen-1",
+      sourceId: "operation-orphan-child",
+      parentPlanRun: orphanRoot,
+    });
+    await assert.rejects(
+      store.create(orphan),
+      /exact persisted root/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("exception plan-run lineage permits exactly one derived generation", () => {
-  const root = createPlanRunV1(plan(), { sourceId: "operation-3" });
+  const root = createPlanRunV1(plan(), {
+    queenThreadId: "queen-1",
+    sourceId: "operation-3",
+  });
   const revised = createPlanRunV1(plan("replacement"), {
+    queenThreadId: "queen-1",
     sourceId: "exception-1",
     parentPlanRun: root,
   });
@@ -135,6 +227,7 @@ test("exception plan-run lineage permits exactly one derived generation", () => 
   assert.throws(
     () =>
       createPlanRunV1(plan("second-replacement"), {
+        queenThreadId: "queen-1",
         sourceId: "exception-2",
         parentPlanRun: revised,
       }),
