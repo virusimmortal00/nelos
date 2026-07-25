@@ -84,7 +84,10 @@ function resultReceipt(workUnit, sourceTurnId, resultEnvelopeValue) {
   return {
     schemaVersion: 1,
     type: "native-result-read",
-    actionId: `native-result:${workUnit.workUnitId}:${sourceTurnId}`,
+    actionId:
+      `observation-v1/result/${encodeURIComponent(workUnit.workUnitId)}` +
+      `/r${workUnit.specRevision}/a${workUnit.attempt}` +
+      `/b${workUnit.binding.generation}/${encodeURIComponent(sourceTurnId)}`,
     workUnitId: workUnit.workUnitId,
     specRevision: workUnit.specRevision,
     attempt: workUnit.attempt,
@@ -116,6 +119,15 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     async archiveThread({ threadId }) {
       archived.push(threadId);
       return { archived: true, threadId };
+    },
+    async latestTurn({ threadId }) {
+      return {
+        turnId:
+          threadId === "task-upstream"
+            ? "turn-upstream"
+            : "turn-dependent",
+        status: "completed",
+      };
     },
   };
 
@@ -191,6 +203,37 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   assert.equal(deliveries.length, 1);
 
   const upstream = await restarted("queen").executionStore.read("upstream");
+  await assert.rejects(
+    restarted("queen").composition.acceptNativeResult({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: {
+        ...resultReceipt(
+          upstream,
+          "turn-upstream",
+          resultEnvelope("upstream", "UPSTREAM_RESULT"),
+        ),
+        actionId: "observation-v1/result/stale",
+      },
+    }, bridge),
+    /does not match the current durable binding/u,
+  );
+  await assert.rejects(
+    restarted("queen").composition.acceptNativeResult({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: resultReceipt(
+        upstream,
+        "turn-upstream",
+        resultEnvelope("upstream", "UPSTREAM_RESULT"),
+      ),
+    }, {
+      async latestTurn() {
+        return { turnId: "newer-turn", status: "completed" };
+      },
+    }),
+    /not from the latest successful turn/u,
+  );
   const acceptedUpstream = await restarted("queen").composition.acceptNativeResult({
     webId: "A1",
     queenThreadId: "queen",
@@ -199,7 +242,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
       "turn-upstream",
       resultEnvelope("upstream", "UPSTREAM_RESULT"),
     ),
-  });
+  }, bridge);
   assert.deepEqual(acceptedUpstream.readiness.readyWorkUnitIds, ["dependent"]);
   assert.equal(acceptedUpstream.launches.length, 1);
   assert.equal(acceptedUpstream.launches[0].effects[0].type, "native-create");
@@ -229,7 +272,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
       "turn-dependent",
       resultEnvelope("dependent", "DEPENDENT_RESULT"),
     ),
-  });
+  }, bridge);
 
   const cleanup = restarted("queen").composition;
   const preview = await cleanup.cleanup({

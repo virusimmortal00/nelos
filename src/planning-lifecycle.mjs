@@ -43,6 +43,11 @@ const TERMINAL_TURN_STATUSES = new Set([
   "cancelled",
   "canceled",
 ]);
+const SUCCESSFUL_TURN_STATUSES = new Set([
+  "completed",
+  "complete",
+  "succeeded",
+]);
 const REQUEST_FIELDS = new Set([
   "schemaVersion",
   "idempotencyKey",
@@ -138,6 +143,12 @@ function digest(value) {
 
 function terminalTurnStatus(value) {
   return TERMINAL_TURN_STATUSES.has(
+    String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase(),
+  );
+}
+
+function successfulTurnStatus(value) {
+  return SUCCESSFUL_TURN_STATUSES.has(
     String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase(),
   );
 }
@@ -868,6 +879,18 @@ export class PlanningLifecycleCoordinatorV1 {
           attentionAction("planner-result-turn-not-terminal", {
             retryable: true,
             actionId: receipt.actionId,
+          }),
+        );
+      }
+      if (!successfulTurnStatus(latestTurn.status)) {
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          attentionAction("planner-result-turn-failed", {
+            retryable: false,
+            actionId: receipt.actionId,
+            threadId: receipt.threadId,
+            turnId: receipt.turnId,
           }),
         );
       }

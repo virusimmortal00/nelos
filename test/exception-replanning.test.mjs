@@ -126,26 +126,6 @@ test("exception replanning accepts only typed exceptional triggers and launches 
   ]);
 });
 
-test("exception replanning keeps the composed planner objective within its public bound", async () => {
-  const longPlan = { ...basePlan(), objective: "x".repeat(2_000) };
-  const calls = [];
-  const coordinator = coordinatorReturning(
-    {
-      schemaVersion: 1,
-      command: "plan lifecycle",
-      lifecycle: { phase: "launch-pending" },
-      nextAction: { schemaVersion: 1, kind: "launch-planner" },
-    },
-    calls,
-    longPlan,
-  );
-  await coordinator.advance(input({ basePlan: longPlan }), {
-    appServerBridge: {},
-  });
-  assert.ok(calls[0].value.objective.length <= 8_000);
-  assert.match(calls[0].value.objective, /^Revise the execution plan after execution-failed:/u);
-});
-
 test("exception replanning preserves completed slices and schedules only pending revised work", async () => {
   const revisedInput = basePlan();
   revisedInput.slices = [

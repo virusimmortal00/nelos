@@ -411,9 +411,13 @@ async function runPlan(options) {
     throw new Error(`plan slices requires valid JSON: ${error.message}`);
   }
   const plan = planWorkSlices(spec);
+  const queenThreadId = process.env.CODEX_THREAD_ID;
+  if (!queenThreadId) {
+    throw new Error("plan slices requires CODEX_THREAD_ID to persist a launchable plan run");
+  }
   const planRun = await new PlanRunStoreV1().create(
     createPlanRunV1(plan, {
-      queenThreadId: process.env.CODEX_THREAD_ID || "offline-plan",
+      queenThreadId,
       sourceId: `structured:${planDigestV1(plan)}`,
     }),
   );

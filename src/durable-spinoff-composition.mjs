@@ -37,12 +37,25 @@ function plannedMembers(plan) {
 }
 
 function matchesResultReceipt(workUnit, receipt) {
+  const expectedActionId =
+    `observation-v1/result/${encodeURIComponent(workUnit.workUnitId)}` +
+    `/r${workUnit.specRevision}/a${workUnit.attempt}` +
+    `/b${workUnit.binding.generation}` +
+    `/${encodeURIComponent(receipt.requestedTurnId)}`;
   return (
     workUnit.specRevision === receipt.specRevision &&
     workUnit.attempt === receipt.attempt &&
     workUnit.binding.state === "bound" &&
     workUnit.binding.generation === receipt.bindingGeneration &&
-    workUnit.binding.memberThreadId === receipt.memberThreadId
+    workUnit.binding.memberThreadId === receipt.memberThreadId &&
+    receipt.actionId === expectedActionId &&
+    receipt.requestedTurnId === receipt.sourceTurnId
+  );
+}
+
+function successfulTurnStatus(value) {
+  return ["completed", "complete", "succeeded"].includes(
+    String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase(),
   );
 }
 
@@ -165,7 +178,7 @@ export class DurableSpinoffCompositionV1 {
     receipt,
     decision = "accepted",
     decisionSummary = null,
-  } = {}) {
+  } = {}, appServerBridge) {
     if (this.#callerThreadId() !== queenThreadId) {
       throw new Error("only the work unit's queen may accept a native result");
     }
@@ -178,6 +191,23 @@ export class DurableSpinoffCompositionV1 {
       !matchesResultReceipt(workUnit, nativeReceipt)
     ) {
       throw new Error("native result receipt does not match the current durable binding");
+    }
+    if (!appServerBridge || typeof appServerBridge.latestTurn !== "function") {
+      throw new Error("native result acceptance requires latestTurn host evidence");
+    }
+    let latestTurn;
+    try {
+      latestTurn = await appServerBridge.latestTurn({
+        threadId: workUnit.binding.memberThreadId,
+      });
+    } catch {
+      throw new Error("native result latest-turn evidence is unavailable");
+    }
+    if (
+      latestTurn?.turnId !== nativeReceipt.requestedTurnId ||
+      !successfulTurnStatus(latestTurn?.status)
+    ) {
+      throw new Error("native result receipt is not from the latest successful turn");
     }
     const identity = {
       webId,

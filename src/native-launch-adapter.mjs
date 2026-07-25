@@ -27,6 +27,10 @@ function launchRequest(member) {
   };
 }
 
+function actionIdentity(request) {
+  return request.actionId ? { actionId: request.actionId } : {};
+}
+
 async function launchOne(request, adapters) {
   let launch;
   try {
@@ -40,6 +44,7 @@ async function launchOne(request, adapters) {
       lifecycle: request.lifecycle,
       memberKind: request.memberKind,
       launcher: request.launcher,
+      ...actionIdentity(request),
       status: "attention",
       attentionReason: "launch-failed",
       error: normalizedError(error),
@@ -51,6 +56,7 @@ async function launchOne(request, adapters) {
       lifecycle: request.lifecycle,
       memberKind: request.memberKind,
       launcher: request.launcher,
+      ...actionIdentity(request),
       status: "attention",
       attentionReason: "missing-thread-id",
     };
@@ -58,7 +64,7 @@ async function launchOne(request, adapters) {
 
   const launchIdentity = {
     threadId: launch.threadId,
-    ...(request.actionId ? { actionId: request.actionId } : {}),
+    ...actionIdentity(request),
     ...(launch.hostId ? { hostId: launch.hostId } : {}),
     ...(launch.turnId ? { turnId: launch.turnId } : {}),
   };
@@ -154,6 +160,7 @@ export async function executeNativeLaunchWaveV1(
       lifecycle: request.lifecycle,
       memberKind: request.memberKind,
       launcher: request.launcher,
+      ...actionIdentity(request),
       status: "attention",
       attentionReason: authorizations[index].authorized
         ? "wave-preflight-failed"

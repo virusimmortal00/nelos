@@ -231,6 +231,32 @@ test("route authorization fails the whole wave before either native mutation", a
     result.members.map(({ attentionReason }) => attentionReason),
     ["launch-not-authorized", "wave-preflight-failed"],
   );
+  assert.equal(result.members[0].actionId, action.members[0].actionId);
+});
+
+test("spinoff launch failures retain their persisted action identity", async () => {
+  for (const createSpinoff of [
+    async () => {
+      throw new Error("native create failed");
+    },
+    async () => ({}),
+  ]) {
+    const action = mixedLaunchAction();
+    const result = await executeNativeLaunchWaveV1(action, {
+      async authorizeLaunch() {
+        return { authorized: true };
+      },
+      createSpinoff,
+      async spawnSubagent() {
+        return { threadId: "subagent-thread" };
+      },
+      async verifyRoute() {
+        return { verified: true };
+      },
+    });
+    assert.equal(result.members[0].actionId, action.members[0].actionId);
+    assert.equal(result.members[0].status, "attention");
+  }
 });
 
 test("launch members bridge into durable lifecycle-specific work units", () => {

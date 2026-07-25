@@ -382,6 +382,41 @@ test("planning lifecycle accepts responses only from the current terminal native
   }
 });
 
+test("planning lifecycle rejects a result from a failed terminal planner turn", async () => {
+  const value = await fixture({ status: "idle" });
+  try {
+    const initial = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    await value.coordinator.advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    value.thread.latestTurn.status = "failed";
+    const result = await value.coordinator.advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: resultReceipt(
+          initial,
+          plannerResponse(initial.lifecycle.bootstrapId),
+        ),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(result.nextAction.kind, "attention");
+    assert.equal(result.nextAction.reason, "planner-result-turn-failed");
+    assert.equal(result.nextAction.retryable, false);
+    const record = await value.store.read(initial.lifecycle.bootstrapId);
+    assert.equal(record.phase, "verified");
+    assert.equal(record.responseDigest, null);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
 test("planning lifecycle fails closed on topology, route, active-result, and low-confidence evidence", async (t) => {
   await t.test("wrong parent", async () => {
     const value = await fixture();

@@ -355,7 +355,10 @@ test("packaged launcher plans dependency waves and per-slice routes offline", as
       const child = spawn(
         process.execPath,
         [join(installedRoot, "bin", "nelos"), "plan", "slices", "--spec-file", "-"],
-        { cwd: unrelatedCwd, env: testEnvironment() },
+        {
+          cwd: unrelatedCwd,
+          env: { ...testEnvironment(), CODEX_THREAD_ID: "queen-plan-test" },
+        },
       );
       let stdout = "";
       let stderr = "";
@@ -407,6 +410,29 @@ test("plan slices rejects malformed input before app-server access", async () =>
     );
     assert.equal(invalidSpec.status, 1);
     assert.match(invalidSpec.stderr, /slices must contain between 1 and 32 entries/);
+
+    const missingQueen = await runAsync(
+      cli,
+      ["plan", "slices", "--spec-file", "-"],
+      {},
+      JSON.stringify({
+        schemaVersion: 1,
+        objective: "One valid slice",
+        slices: [{
+          id: "one",
+          title: "One",
+          objective: "Do one bounded task",
+          deliverable: "One result",
+          acceptanceCriteria: ["The result is verified"],
+          dependsOn: [],
+          lifecycle: "subagent",
+          workspaceMode: "shared-read-only",
+          taskShape: "everyday",
+        }],
+      }),
+    );
+    assert.equal(missingQueen.status, 1);
+    assert.match(missingQueen.stderr, /requires CODEX_THREAD_ID/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
