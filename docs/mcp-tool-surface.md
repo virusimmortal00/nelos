@@ -10,8 +10,8 @@ marketplace install is self-sufficient. The skill calls named tools instead of
 a `nelos` shell command; the CLI remains a developer and automation surface
 installed separately via the distribution installer.
 
-Most MCP operations remain local and socket-free. Two deliberately scoped
-operations now use one lazily started, long-lived
+Most MCP operations remain local and socket-free. Deliberately scoped
+operations use one lazily started, long-lived
 `codex app-server --stdio` child:
 
 - `nelos_plan_slices` — validates and computes the plan locally. When the plan
@@ -54,12 +54,27 @@ operations now use one lazily started, long-lived
 - `nelos_orchestrate_advance` — a callback-only observation and join adapter.
   It writes a separate private web checkpoint, validates exact title, wait,
   and result receipts, and returns typed host-owned effects. See
-  [Durable Host Observation and Parent Join](observation-join.md).
+  [Durable Host Observation and Parent Join](observation-join.md);
+- `nelos_spinoff_complete` — validates the calling task against its exact bound
+  durable work unit, persists a bounded completion record, and delivers one
+  idempotent queen wake. It reconciles the stable client message ID first,
+  steers a known active queen turn, or resumes and starts an idle queen turn.
+  Deferred delivery receives bounded retries and remains safely callable by the
+  member with the same identity. Ambiguous mutations stop in `attention` rather
+  than blindly duplicating a turn; and
+- `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
+  queen acceptances with an explicit `archive` capability. It previews a named
+  confirmation list under the default `ask` policy, or applies remembered
+  `auto` and `keep` policies only after every required current result is
+  accepted. Native archive receipts are persisted per spin-off; partial and
+  in-flight outcomes remain visible without replaying an archive.
 
 Thread inspection, routing, and verification are explicitly read-only. Planning
 is non-read-only and idempotent because a spinoff plan may synchronize the queen
 title. Both orchestration tools remain non-read-only and idempotent: they write
-private Nelos state but do not themselves perform native host effects. This
+private Nelos state but do not themselves perform native host effects.
+Completion delivery is a non-destructive idempotent mutation; cleanup is
+declared destructive because it archives native tasks. This
 small bridge does not restore the retired MCP/UI prototype; it exposes no web
 server, task dashboard, transcript surface, or general-purpose app-server
 proxy.
@@ -108,8 +123,8 @@ Additional app-server behavior was verified on 2026-07-24:
 - the Codex desktop app runs its own `app-server` child over private pipes;
 - a separately started `codex app-server --stdio` process can read the same
   persisted task identified by `CODEX_THREAD_ID`;
-- the generated protocol schema exposes `thread/read` and
-  `thread/name/set`; and
+- the generated protocol schema exposes the reviewed read, title, resume,
+  turn-list, turn-start, turn-steer, and archive methods used by the bridge; and
 - the separate process shares persisted Codex task state, but does not attach
   to or reuse the desktop app's private transport.
 
@@ -119,10 +134,11 @@ Codex does not currently advertise an app-server method list during
 initialization. Nelos therefore treats the checked-in compact fixture generated
 by `codex app-server generate-json-schema --experimental` as the capability
 attestation. The relevant initialization, `thread/read`, `thread/name/set`,
-thread-status, and active-flag shapes are identical in public stable `0.144.5`
-and Desktop `0.144.6`; both are supported. The bridge parses the version from
-the initialized server's `userAgent` and rejects unknown versions before any
-thread operation.
+`thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`,
+`thread/archive`, thread-status, and active-flag shapes are identical in public
+stable `0.144.5` and Desktop `0.144.6`; both are supported. The bridge parses
+the version from the initialized server's `userAgent` and rejects unknown
+versions before any thread operation.
 
 Read transport failures receive exactly one reconnect and replay. A second
 failure is returned. Mutations are attempted once and are never replayed after
@@ -139,6 +155,22 @@ provenance. A deadline-limited read is canceled locally and any later response
 is ignored; this does not terminate the shared app-server connection or block
 other MCP requests. Result collection continues through the durable
 observation/join contract.
+
+Parent wake delivery is an application-level completion callback rather than a
+native subscription. Before returning its final result, a durable spin-off
+calls `nelos_spinoff_complete` using the fixed identity embedded in its launch
+prompt and its current `CODEX_THREAD_ID`. Nelos writes the completion record
+before app-server mutation. It reads at most 20 recent turns solely to reconcile
+the deterministic `clientUserMessageId`; message content is neither retained
+nor returned. If the server reports older pages, Nelos records attention rather
+than concluding a previously attempted wake was absent and risking a duplicate.
+A persisted pre-mutation `delivering` state distinguishes that crash-recovery
+case from a fresh wake, which may proceed despite older pages. A known active
+queen receives `turn/steer` with its exact active turn ID. An idle or unloaded
+queen receives `thread/resume` as needed, followed by `turn/start`. This covers
+both a live join and an already-ended queen without installing a background
+daemon. Native waiting remains authoritative if a member terminates before
+executing its callback.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if

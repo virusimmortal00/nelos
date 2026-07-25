@@ -30,6 +30,40 @@
       ],
       "optionalParams": [],
       "readOnly": false
+    },
+    "thread/resume": {
+      "requiredParams": ["threadId"],
+      "optionalParams": ["excludeTurns"],
+      "readOnly": false
+    },
+    "thread/turns/list": {
+      "requiredParams": ["threadId"],
+      "optionalParams": ["cursor", "itemsView", "limit", "sortDirection"],
+      "requiredResponseFields": [
+        "data",
+        "nextCursor",
+        "data[].id",
+        "data[].items[].clientId",
+        "data[].status"
+      ],
+      "readOnly": true
+    },
+    "turn/start": {
+      "requiredParams": ["input", "threadId"],
+      "optionalParams": ["clientUserMessageId"],
+      "requiredResponseFields": ["turn.id"],
+      "readOnly": false
+    },
+    "turn/steer": {
+      "requiredParams": ["expectedTurnId", "input", "threadId"],
+      "optionalParams": ["clientUserMessageId"],
+      "requiredResponseFields": ["turnId"],
+      "readOnly": false
+    },
+    "thread/archive": {
+      "requiredParams": ["threadId"],
+      "optionalParams": [],
+      "readOnly": false
     }
   },
   "threadStatus": {
