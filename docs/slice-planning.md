@@ -1,6 +1,7 @@
 # Slice Planning and Intelligence Routing
 
-Nelos composes two tools for high-level work:
+Nelos composes a receipt-driven planning and launch-verification lifecycle for
+high-level work:
 
 1. For an unstructured objective, `nelos_plan_lifecycle` durably prepares and
    coordinates one bounded, read-only Sol/medium planning subagent.

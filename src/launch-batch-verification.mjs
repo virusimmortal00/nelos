@@ -1,7 +1,8 @@
 import {
-  resolveNativeSubagentThreadV1,
+  resolveNativeSubagentThreadsV1,
   verifyRuntimeIntelligenceV1,
 } from "./runtime-intelligence-verification.mjs";
+import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
 /**
  * The receipt verifier is deliberately a read-only acceptance gate.  A
@@ -45,6 +46,7 @@ export const LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA = Object.freeze({
           agentPath: { type: "string", minLength: 1, maxLength: MAX_IDENTIFIER_CHARACTERS },
           // Durable spinoffs must provide the native thread ID in their receipt.
           threadId: { type: "string", minLength: 1, maxLength: MAX_IDENTIFIER_CHARACTERS },
+          actionId: { type: "string", minLength: 1, maxLength: MAX_IDENTIFIER_CHARACTERS },
           // A launcher may report this for a spinoff.  When it does, it must
           // agree with the app-server observation.
           reportedParentThreadId: {
@@ -166,6 +168,7 @@ function normalizeInput(value) {
       "lifecycle",
       "agentPath",
       "threadId",
+      "actionId",
       "reportedParentThreadId",
       "turnId",
     ]);
@@ -179,7 +182,12 @@ function normalizeInput(value) {
     }
     const turnId = assertIdentifier(member.turnId, "launch turn ID");
     if (member.lifecycle === "subagent") {
-      if (member.threadId !== undefined || typeof member.agentPath !== "string" || !AGENT_PATH_PATTERN.test(member.agentPath)) {
+      if (
+        member.threadId !== undefined ||
+        member.actionId !== undefined ||
+        typeof member.agentPath !== "string" ||
+        !AGENT_PATH_PATTERN.test(member.agentPath)
+      ) {
         throw new Error(`subagent receipt ${sliceId} requires only a valid agentPath`);
       }
       if (member.reportedParentThreadId !== undefined) {
@@ -191,6 +199,7 @@ function normalizeInput(value) {
       throw new Error(`spinoff receipt ${sliceId} must not contain agentPath`);
     }
     const threadId = assertIdentifier(member.threadId, "spinoff thread ID");
+    const actionId = assertIdentifier(member.actionId, "spinoff launch action ID");
     const reportedParentThreadId =
       member.reportedParentThreadId === undefined || member.reportedParentThreadId === null
         ? null
@@ -199,6 +208,7 @@ function normalizeInput(value) {
       sliceId,
       lifecycle: member.lifecycle,
       threadId,
+      actionId,
       reportedParentThreadId,
       turnId,
     };
@@ -287,7 +297,8 @@ function publicResult(result) {
 export async function verifyLaunchBatchV1(value, {
   appServerBridge,
   waveContract,
-  resolveNativeSubagentThread = resolveNativeSubagentThreadV1,
+  resolveNativeSubagentThread = null,
+  resolveNativeSubagentThreads = resolveNativeSubagentThreadsV1,
   verifyRuntimeIntelligence = verifyRuntimeIntelligenceV1,
 } = {}) {
   const input = normalizeInput(value);
@@ -324,25 +335,76 @@ export async function verifyLaunchBatchV1(value, {
   if (!appServerBridge || typeof appServerBridge.inspectMany !== "function") {
     throw new Error("launch batch verification requires appServerBridge.inspectMany()");
   }
-  if (typeof resolveNativeSubagentThread !== "function") {
-    throw new Error("launch batch verification requires resolveNativeSubagentThread()");
+  if (
+    resolveNativeSubagentThread !== null &&
+    typeof resolveNativeSubagentThread !== "function"
+  ) {
+    throw new Error("launch batch verification requires a valid subagent resolver");
+  }
+  if (
+    resolveNativeSubagentThread === null &&
+    typeof resolveNativeSubagentThreads !== "function"
+  ) {
+    throw new Error("launch batch verification requires resolveNativeSubagentThreads()");
   }
   if (typeof verifyRuntimeIntelligence !== "function") {
     throw new Error("launch batch verification requires verifyRuntimeIntelligence()");
   }
 
   const results = members.map((member) => record(member, member.threadId ?? null));
-  await Promise.all(members.map(async (member, index) => {
-    const result = results[index];
-    if (member.lifecycle === "spinoff") {
-      result.checks.identity = "verified";
-      return;
-    }
-    try {
-      const resolved = await resolveNativeSubagentThread({
+  const resolveOne = async (member) => {
+    if (resolveNativeSubagentThread !== null) {
+      return resolveNativeSubagentThread({
         parentThreadId,
         agentPath: member.agentPath,
       });
+    }
+    return null;
+  };
+  const subagents = members
+    .map((member, index) => ({ member, index }))
+    .filter(({ member }) => member.lifecycle === "subagent");
+  let batchResolutions = null;
+  if (resolveNativeSubagentThread === null && subagents.length > 0) {
+    try {
+      batchResolutions = await resolveNativeSubagentThreads({
+        parentThreadId,
+        agentPaths: subagents.map(({ member }) => member.agentPath),
+      });
+      if (
+        !Array.isArray(batchResolutions) ||
+        batchResolutions.length !== subagents.length
+      ) {
+        throw new Error("subagent batch resolver returned an invalid result set");
+      }
+    } catch {
+      batchResolutions = null;
+    }
+  }
+  await Promise.all(members.map(async (member, index) => {
+    const result = results[index];
+    if (member.lifecycle === "spinoff") {
+      if (
+        member.actionId ===
+        planRunLaunchActionIdV1({
+          planRunId,
+          waveIndex,
+          sliceId: member.sliceId,
+        })
+      ) {
+        result.checks.identity = "verified";
+      } else {
+        fail(result, "launch-action-mismatch");
+      }
+      return;
+    }
+    try {
+      const batchIndex = subagents.findIndex(
+        (candidate) => candidate.index === index,
+      );
+      const resolved =
+        batchResolutions?.[batchIndex] ?? (await resolveOne(member));
+      if (!resolved) throw new Error("subagent identity resolution unavailable");
       const resolvedThreadId = assertIdentifier(resolved?.threadId, "resolved subagent thread ID");
       if (resolved?.parentThreadId !== parentThreadId || resolved?.agentPath !== member.agentPath) {
         throw new Error("subagent resolver returned a conflicting identity");

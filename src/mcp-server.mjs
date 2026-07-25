@@ -550,7 +550,12 @@ const TOOLS = [
       required: ["parentThreadId", "agentPath", "model", "effort"],
       additionalProperties: false,
     },
-    async run(args) {
+    async run(args, { currentThreadId }) {
+      if (currentThreadId() !== args.parentThreadId) {
+        throw new Error(
+          "parentThreadId must match the current host task identity",
+        );
+      }
       const resolved = await resolveNativeSubagentThreadV1({
         parentThreadId: args.parentThreadId,
         agentPath: args.agentPath,

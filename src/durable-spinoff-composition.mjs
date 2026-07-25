@@ -117,6 +117,9 @@ export class DurableSpinoffCompositionV1 {
    * effect. This is intentionally batch-first even when only wave one is ready.
    */
   async persistPlan({ plan, webId, queenThreadId } = {}) {
+    if (this.#callerThreadId() !== queenThreadId) {
+      throw new Error("only the plan's queen may persist durable work");
+    }
     const workUnits = plannedMembers(plan).map((member) =>
       workUnitFromLaunchMemberV1(member, { webId, queenThreadId }),
     );

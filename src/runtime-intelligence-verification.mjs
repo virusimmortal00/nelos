@@ -110,75 +110,106 @@ async function listRolloutFiles(root) {
 async function readPrimarySessionIdentity(path) {
   const metadata = await lstat(path);
   if (!metadata.isFile() || metadata.size > MAX_ROLLOUT_BYTES) return null;
+  const input = createReadStream(path, { encoding: "utf8" });
   const lines = createInterface({
-    input: createReadStream(path, { encoding: "utf8" }),
+    input,
     crlfDelay: Infinity,
   });
-  for await (const line of lines) {
-    if (Buffer.byteLength(line, "utf8") > MAX_JSONL_LINE_BYTES) {
-      lines.close();
-      return null;
+  try {
+    for await (const line of lines) {
+      if (Buffer.byteLength(line, "utf8") > MAX_JSONL_LINE_BYTES) return null;
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        return null;
+      }
+      if (event?.type !== "session_meta") continue;
+      return {
+        id: event.payload?.id,
+        parentThreadId: event.payload?.parent_thread_id,
+        spawn: event.payload?.source?.subagent?.thread_spawn ?? null,
+      };
     }
-    if (!line.trim()) continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      lines.close();
-      return null;
-    }
-    if (event?.type !== "session_meta") continue;
+    return null;
+  } finally {
     lines.close();
-    return {
-      id: event.payload?.id,
-      parentThreadId: event.payload?.parent_thread_id,
-      spawn: event.payload?.source?.subagent?.thread_spawn ?? null,
-    };
+    input.destroy();
   }
-  return null;
+}
+
+/**
+ * Resolve multiple native subagent launches for one parent with one bounded
+ * sessions scan. Every requested path must still match exactly one native
+ * child identity.
+ */
+export async function resolveNativeSubagentThreadsV1({
+  parentThreadId,
+  agentPaths,
+  sessionsRoot = defaultCodexSessionsRoot(),
+}) {
+  const normalizedParent = assertIdentifier(parentThreadId, "parent thread ID");
+  if (!Array.isArray(agentPaths) || agentPaths.length === 0) {
+    throw new Error("agent paths must be a non-empty array");
+  }
+  const normalizedPaths = agentPaths.map((agentPath) => {
+    if (typeof agentPath !== "string" || !AGENT_PATH_PATTERN.test(agentPath)) {
+      throw new Error("agent path has an invalid format");
+    }
+    return agentPath;
+  });
+  const requestedPaths = new Set(normalizedPaths);
+  const matches = new Map(
+    [...requestedPaths].map((agentPath) => [agentPath, []]),
+  );
+  for (const path of await listRolloutFiles(sessionsRoot)) {
+    const identity = await readPrimarySessionIdentity(path);
+    if (
+      identity?.parentThreadId === normalizedParent &&
+      identity.spawn?.parent_thread_id === normalizedParent &&
+      requestedPaths.has(identity.spawn?.agent_path)
+    ) {
+      const threadId = assertIdentifier(identity.id, "resolved child thread ID");
+      if (!path.endsWith(`-${threadId}.jsonl`)) {
+        throw new Error("resolved child identity conflicts with its rollout filename");
+      }
+      matches.get(identity.spawn.agent_path).push(threadId);
+    }
+  }
+  const resolvedByPath = new Map();
+  for (const agentPath of requestedPaths) {
+    const unique = [...new Set(matches.get(agentPath))];
+    if (unique.length === 0) {
+      throw new Error("no native child task matches the subagent launch");
+    }
+    if (unique.length > 1) {
+      throw new Error("multiple native child tasks match the subagent launch");
+    }
+    resolvedByPath.set(
+      agentPath,
+      Object.freeze({
+        schemaVersion: RUNTIME_INTELLIGENCE_VERIFICATION_SCHEMA_VERSION,
+        parentThreadId: normalizedParent,
+        agentPath,
+        threadId: unique[0],
+      }),
+    );
+  }
+  return Object.freeze(
+    normalizedPaths.map((agentPath) => resolvedByPath.get(agentPath)),
+  );
 }
 
 /**
  * Resolve only the native child task identity for one exact native subagent
  * launch. Agent path plus parent task identity must match a unique rollout.
  */
-export async function resolveNativeSubagentThreadV1({
-  parentThreadId,
-  agentPath,
-  sessionsRoot = defaultCodexSessionsRoot(),
-}) {
-  const normalizedParent = assertIdentifier(parentThreadId, "parent thread ID");
-  if (typeof agentPath !== "string" || !AGENT_PATH_PATTERN.test(agentPath)) {
-    throw new Error("agent path has an invalid format");
-  }
-  const matches = [];
-  for (const path of await listRolloutFiles(sessionsRoot)) {
-    const identity = await readPrimarySessionIdentity(path);
-    if (
-      identity?.parentThreadId === normalizedParent &&
-      identity.spawn?.parent_thread_id === normalizedParent &&
-      identity.spawn?.agent_path === agentPath
-    ) {
-      const threadId = assertIdentifier(identity.id, "resolved child thread ID");
-      if (!path.endsWith(`-${threadId}.jsonl`)) {
-        throw new Error("resolved child identity conflicts with its rollout filename");
-      }
-      matches.push(threadId);
-    }
-  }
-  const unique = [...new Set(matches)];
-  if (unique.length === 0) {
-    throw new Error("no native child task matches the subagent launch");
-  }
-  if (unique.length > 1) {
-    throw new Error("multiple native child tasks match the subagent launch");
-  }
-  return Object.freeze({
-    schemaVersion: RUNTIME_INTELLIGENCE_VERIFICATION_SCHEMA_VERSION,
-    parentThreadId: normalizedParent,
-    agentPath,
-    threadId: unique[0],
-  });
+export async function resolveNativeSubagentThreadV1(value) {
+  return (await resolveNativeSubagentThreadsV1({
+    ...value,
+    agentPaths: [value?.agentPath],
+  }))[0];
 }
 
 async function readTurnContexts(path) {
@@ -188,36 +219,42 @@ async function readTurnContexts(path) {
   }
 
   const contexts = [];
+  const input = createReadStream(path, { encoding: "utf8" });
   const lines = createInterface({
-    input: createReadStream(path, { encoding: "utf8" }),
+    input,
     crlfDelay: Infinity,
   });
-  for await (const line of lines) {
-    if (Buffer.byteLength(line, "utf8") > MAX_JSONL_LINE_BYTES) {
-      throw new Error("task rollout contains an oversized event");
+  try {
+    for await (const line of lines) {
+      if (Buffer.byteLength(line, "utf8") > MAX_JSONL_LINE_BYTES) {
+        throw new Error("task rollout contains an oversized event");
+      }
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        throw new Error("task rollout contains malformed JSONL");
+      }
+      if (event?.type !== "turn_context") continue;
+      if (contexts.length >= MAX_TURN_CONTEXTS) {
+        throw new Error(
+          `task rollout exceeds ${MAX_TURN_CONTEXTS} turn contexts`,
+        );
+      }
+      const turnId = assertIdentifier(event.payload?.turn_id, "observed turn ID");
+      const model = event.payload?.model;
+      const effort = event.payload?.effort;
+      if (typeof model !== "string" || typeof effort !== "string") {
+        throw new Error("task rollout turn context has no model or effort");
+      }
+      contexts.push({ turnId, model, effort });
     }
-    if (!line.trim()) continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      throw new Error("task rollout contains malformed JSONL");
-    }
-    if (event?.type !== "turn_context") continue;
-    if (contexts.length >= MAX_TURN_CONTEXTS) {
-      throw new Error(
-        `task rollout exceeds ${MAX_TURN_CONTEXTS} turn contexts`,
-      );
-    }
-    const turnId = assertIdentifier(event.payload?.turn_id, "observed turn ID");
-    const model = event.payload?.model;
-    const effort = event.payload?.effort;
-    if (typeof model !== "string" || typeof effort !== "string") {
-      throw new Error("task rollout turn context has no model or effort");
-    }
-    contexts.push({ turnId, model, effort });
+    return contexts;
+  } finally {
+    lines.close();
+    input.destroy();
   }
-  return contexts;
 }
 
 function uniqueTurnContexts(contexts) {

@@ -140,7 +140,23 @@ class McpProcess {
         const line = this.#buffer.slice(0, newline).trim();
         this.#buffer = this.#buffer.slice(newline + 1);
         if (!line) continue;
-        const response = JSON.parse(line);
+        let response;
+        try {
+          response = JSON.parse(line);
+        } catch {
+          const error = new Error(
+            `nelos-mcp emitted malformed JSON: ${
+              this.#stderr.trim() || "no diagnostic"
+            }`,
+          );
+          for (const pending of this.#pending.values()) {
+            clearTimeout(pending.timer);
+            pending.reject(error);
+          }
+          this.#pending.clear();
+          this.#child.kill("SIGKILL");
+          return;
+        }
         const pending = this.#pending.get(response.id);
         if (!pending) continue;
         this.#pending.delete(response.id);
@@ -197,7 +213,17 @@ class McpProcess {
 
   stop() {
     return new Promise((resolve) => {
-      this.#child.once("exit", resolve);
+      if (this.#child.exitCode !== null) {
+        resolve(this.#child.exitCode);
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.#child.kill("SIGKILL");
+      }, 5_000);
+      this.#child.once("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
       this.#child.stdin.end();
     });
   }
@@ -395,6 +421,9 @@ export async function runPlanningLifecycleScenario() {
         {
           sliceId: "implementation",
           lifecycle: "spinoff",
+          actionId: planned.nextAction.members.find(
+            ({ sliceId }) => sliceId === "implementation",
+          ).actionId,
           threadId: "implementation-1",
           turnId: "implementation-turn",
         },

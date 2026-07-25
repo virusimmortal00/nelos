@@ -8,6 +8,8 @@ import {
   MAX_PLANNING_CONTEXT_CHARACTERS,
   MAX_PLANNING_OBJECTIVE_CHARACTERS,
   MAX_PLANNING_RESPONSE_CHARACTERS,
+  PLANNER_ROUTE,
+  PLANNER_TITLE,
 } from "./planning-bootstrap.mjs";
 import {
   defaultCodexSessionsRoot,
@@ -488,13 +490,13 @@ function statusAction(record, thread) {
       threadId: thread.threadId,
     };
   }
-  if (thread.title !== "Plan and classify the work") {
+  if (thread.title !== PLANNER_TITLE) {
     return {
       schemaVersion: 1,
       kind: "native-set-title",
       actionId: titleActionId(record.bootstrapId),
       threadId: thread.threadId,
-      title: "Plan and classify the work",
+      title: PLANNER_TITLE,
       verify: true,
       after: "repeat-planner-launch-receipt",
     };
@@ -550,8 +552,8 @@ export class PlanningLifecycleCoordinatorV1 {
     try {
       route = await this.#verifyRoute({
         threadId: identity.threadId,
-        model: "gpt-5.6-sol",
-        effort: "medium",
+        model: PLANNER_ROUTE.requestedModel,
+        effort: PLANNER_ROUTE.requestedEffort,
         sessionsRoot: this.#sessionsRoot,
       });
     } catch {
@@ -767,7 +769,7 @@ export class PlanningLifecycleCoordinatorV1 {
       ) {
         throw new Error("planner result conflicts with the completed lifecycle");
       }
-      if (replay && record.phase === "completed") {
+      if (replay && ["completed", "attention"].includes(record.phase)) {
         const finalized = finalizePlanningBootstrapV1(
           {
             objective: request.objective,
@@ -777,8 +779,18 @@ export class PlanningLifecycleCoordinatorV1 {
           },
           receipt.response,
         );
+        if (finalized.ready !== (record.phase === "completed")) {
+          throw new Error("terminal planning lifecycle has an invalid result receipt");
+        }
         if (!finalized.ready) {
-          throw new Error("completed planning lifecycle has an invalid result receipt");
+          return lifecycleOutput(record, bootstrap, {
+            schemaVersion: 1,
+            kind: "attention",
+            reason: finalized.reason,
+            bootstrapId: finalized.bootstrapId,
+            confidence: finalized.confidence,
+            classificationEvidence: finalized.classificationEvidence,
+          });
         }
         return lifecycleOutput(record, bootstrap, null, {
           planning: {
@@ -813,7 +825,7 @@ export class PlanningLifecycleCoordinatorV1 {
         );
       }
       if (
-        thread.title !== "Plan and classify the work" ||
+        thread.title !== PLANNER_TITLE ||
         ["active", "notLoaded"].includes(thread.status)
       ) {
         return lifecycleOutput(record, bootstrap, statusAction(record, thread), {
@@ -850,8 +862,13 @@ export class PlanningLifecycleCoordinatorV1 {
         latestTurn.turnId !== receipt.turnId ||
         !terminalTurnStatus(latestTurn.status)
       ) {
-        throw new Error(
-          "planner result receipt turnId is not the current terminal turn",
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          attentionAction("planner-result-turn-not-terminal", {
+            retryable: true,
+            actionId: receipt.actionId,
+          }),
         );
       }
       let route;
@@ -859,8 +876,8 @@ export class PlanningLifecycleCoordinatorV1 {
         route = await this.#verifyRoute({
           threadId: receipt.threadId,
           turnId: receipt.turnId,
-          model: "gpt-5.6-sol",
-          effort: "medium",
+          model: PLANNER_ROUTE.requestedModel,
+          effort: PLANNER_ROUTE.requestedEffort,
           sessionsRoot: this.#sessionsRoot,
         });
       } catch {

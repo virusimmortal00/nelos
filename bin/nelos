@@ -33,6 +33,11 @@ import { verifyRuntimeIntelligenceV1 } from "../src/runtime-intelligence-verific
 import { MAX_PLAN_BYTES, planWorkSlices } from "../src/slice-planner.mjs";
 import { withNextAction } from "../src/next-action.mjs";
 import {
+  createPlanRunV1,
+  planDigestV1,
+  PlanRunStoreV1,
+} from "../src/plan-run-store.mjs";
+import {
   collectWebResults,
   preserveWebCollectionEvidence,
   timeoutWebCollection,
@@ -405,7 +410,14 @@ async function runPlan(options) {
   } catch (error) {
     throw new Error(`plan slices requires valid JSON: ${error.message}`);
   }
-  return { command: "plan slices", plan: planWorkSlices(spec) };
+  const plan = planWorkSlices(spec);
+  const planRun = await new PlanRunStoreV1().create(
+    createPlanRunV1(plan, {
+      queenThreadId: process.env.CODEX_THREAD_ID || "offline-plan",
+      sourceId: `structured:${planDigestV1(plan)}`,
+    }),
+  );
+  return { command: "plan slices", plan, planRun };
 }
 
 function requireOptionPairs(command, pairs) {

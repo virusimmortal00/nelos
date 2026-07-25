@@ -361,19 +361,19 @@ test("planning lifecycle accepts responses only from the current terminal native
       turnId: "newer-planner-turn",
       status: "completed",
     };
-    await assert.rejects(
-      value.restart().advance(
-        request({
-          bootstrapId: initial.lifecycle.bootstrapId,
-          receipt: resultReceipt(
-            initial,
-            plannerResponse(initial.lifecycle.bootstrapId),
-          ),
-        }),
-        { appServerBridge: value.bridge },
-      ),
-      /turnId is not the current terminal turn/u,
+    const result = await value.restart().advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: resultReceipt(
+          initial,
+          plannerResponse(initial.lifecycle.bootstrapId),
+        ),
+      }),
+      { appServerBridge: value.bridge },
     );
+    assert.equal(result.nextAction.kind, "attention");
+    assert.equal(result.nextAction.reason, "planner-result-turn-not-terminal");
+    assert.equal(result.nextAction.retryable, true);
     const record = await value.store.read(initial.lifecycle.bootstrapId);
     assert.equal(record.phase, "verified");
     assert.equal(record.responseDigest, null);
@@ -502,6 +502,21 @@ test("planning lifecycle fails closed on topology, route, active-result, and low
       );
       assert.equal(attention.lifecycle.phase, "attention");
       assert.equal(attention.nextAction.reason, "low-planner-confidence");
+      const unavailableBridge = new Proxy({}, {
+        get() {
+          throw new Error("terminal attention replay must not read host state");
+        },
+      });
+      assert.deepEqual(
+        await value.restart().advance(
+          request({
+            bootstrapId: initial.lifecycle.bootstrapId,
+            receipt: resultReceipt(initial, response),
+          }),
+          { appServerBridge: unavailableBridge },
+        ),
+        attention,
+      );
     } finally {
       await rm(value.root, { recursive: true, force: true });
     }

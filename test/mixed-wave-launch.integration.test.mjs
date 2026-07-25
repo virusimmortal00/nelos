@@ -5,6 +5,7 @@ import { reconcileExecutionRecord } from "../src/execution-reconciliation.mjs";
 import { executeNativeLaunchWaveV1 } from "../src/native-launch-adapter.mjs";
 import { withNextAction } from "../src/next-action.mjs";
 import { workUnitFromLaunchMemberV1 } from "../src/plan-orchestration-bridge.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
 
 test("the mixed launch adapter and planner bridge are public package subpaths", async () => {
@@ -46,7 +47,11 @@ function mixedLaunchAction() {
       },
     ],
   });
-  return withNextAction({ command: "plan slices", plan }).nextAction;
+  const planRun = createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "mixed-wave-integration",
+  });
+  return withNextAction({ command: "plan slices", plan, planRun }).nextAction;
 }
 
 test("a mixed wave dispatches both native launchers concurrently and verifies routes", async () => {
@@ -70,6 +75,7 @@ test("a mixed wave dispatches both native launchers concurrently and verifies ro
       },
     ],
   );
+  assert.match(action.members[0].actionId, /^plan-launch:/u);
 
   const started = [];
   let releaseBoth;
@@ -98,6 +104,7 @@ test("a mixed wave dispatches both native launchers concurrently and verifies ro
   });
 
   assert.equal(result.verified, true);
+  assert.equal(result.members[0].actionId, action.members[0].actionId);
   assert.equal(result.attentionRequired, false);
   assert.deepEqual(
     started.map(({ launcher, workspaceMode }) => ({ launcher, workspaceMode })),
@@ -187,6 +194,7 @@ test("route verification errors preserve the committed native launch receipt", a
     memberKind: "spinoff",
     launcher: "create-thread",
     threadId: "spinoff-thread",
+    actionId: action.members[0].actionId,
     hostId: "local",
     turnId: "spinoff-turn",
     status: "attention",

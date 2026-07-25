@@ -3,12 +3,16 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
 const statePath = process.env.NELOS_FAKE_APP_STATE;
-if (statePath && (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio")) {
+const invokedAsFixture = process.argv[2] !== undefined;
+if (invokedAsFixture && (
+  !statePath ||
+  process.argv[2] !== "app-server" ||
+  process.argv[3] !== "--stdio"
+)) {
   process.stderr.write("fake codex requires app-server --stdio and NELOS_FAKE_APP_STATE\n");
   process.exit(2);
 }
 
-if (statePath) {
 async function state() {
   return JSON.parse(await readFile(statePath, "utf8"));
 }
@@ -24,17 +28,24 @@ function send(value) {
 }
 
 let buffer = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", async (chunk) => {
+let queue = Promise.resolve();
+if (invokedAsFixture) {
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    queue = queue.then(() => handle(chunk));
+  });
+}
+
+async function handle(chunk) {
   buffer += chunk;
   let newline;
   while ((newline = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, newline).trim();
     buffer = buffer.slice(newline + 1);
     if (!line) continue;
-    const message = JSON.parse(line);
-    if (message.id === undefined || message.id === null) continue;
     try {
+      const message = JSON.parse(line);
+      if (message.id === undefined || message.id === null) continue;
       if (message.method === "initialize") {
         send({
           id: message.id,
@@ -90,5 +101,4 @@ process.stdin.on("data", async (chunk) => {
       });
     }
   }
-});
 }

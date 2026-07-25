@@ -115,4 +115,14 @@ test("planning bootstrap requires the exact fork, child identity, and verified r
     }),
     [{ code: "next_action_not_executed", index: 0, kind: "launch-planner" }],
   );
+  assert.deepEqual(
+    evaluateSkillTraceV1({
+      events: [
+        { type: "cli-output", output: { nextAction } },
+        launch,
+        { ...verification, observed: [] },
+      ],
+    }),
+    [{ code: "next_action_not_executed", index: 0, kind: "launch-planner" }],
+  );
 });

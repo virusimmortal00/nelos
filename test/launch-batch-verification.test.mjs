@@ -7,10 +7,21 @@ import {
   MAX_LAUNCH_BATCH_MEMBERS,
   verifyLaunchBatchV1,
 } from "../src/launch-batch-verification.mjs";
+import { planRunLaunchActionIdV1 } from "../src/plan-run-store.mjs";
+
+const PLAN_RUN_ID = "run:1234567890abcdef1234567890abcdef12345678";
+
+function actionId(sliceId) {
+  return planRunLaunchActionIdV1({
+    planRunId: PLAN_RUN_ID,
+    waveIndex: 1,
+    sliceId,
+  });
+}
 
 function receipt(overrides = {}) {
   return {
-    planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    planRunId: PLAN_RUN_ID,
     waveIndex: 1,
     waveDigest: "a".repeat(64),
     parentThreadId: "queen-1",
@@ -25,6 +36,7 @@ function receipt(overrides = {}) {
         sliceId: "implementation",
         lifecycle: "spinoff",
         threadId: "spinoff-1",
+        actionId: actionId("implementation"),
         reportedParentThreadId: null,
         turnId: "turn-implementation",
       },
@@ -244,6 +256,7 @@ test("batch verification treats identity resolution, batch read, missing topolog
           ...receipt().members[1],
           sliceId: "other",
           threadId: "spinoff-2",
+          actionId: actionId("other"),
           turnId: "turn-other",
         },
       ],
@@ -286,6 +299,7 @@ test("batch verification validates bounded receipt shapes and all 16-member limi
         ...receipt().members[1],
         sliceId: `spinoff-${index}`,
         threadId: `thread-${index}`,
+        actionId: actionId(`spinoff-${index}`),
       })),
     }), dependencies),
     /between 1 and 16/u,
@@ -298,6 +312,24 @@ test("batch verification validates bounded receipt shapes and all 16-member limi
     verifyLaunchBatchV1(receipt({ members: [receipt().members[1], { ...receipt().members[1] }] }), dependencies),
     /duplicate slice identity/u,
   );
+  const mismatchedAction = await verifyLaunchBatchV1(receipt({
+      members: [{
+        ...receipt().members[1],
+        actionId: actionId("different-launch"),
+      }],
+    }), {
+      appServerBridge: {
+        async inspectMany() {
+          throw new Error("identity failure must prevent native reads");
+        },
+      },
+      waveContract: waveContract([waveContract().members[1]]),
+      async verifyRuntimeIntelligence() {
+        throw new Error("identity failure must prevent route verification");
+      },
+    });
+  assert.equal(mismatchedAction.allVerified, false);
+  assert.equal(mismatchedAction.members[0].attentionReason, "launch-action-mismatch");
 });
 
 test("batch verification rejects omitted, added, or altered wave members before native reads", async () => {
@@ -322,7 +354,11 @@ test("batch verification rejects omitted, added, or altered wave members before 
       receipt({
         members: [
           receipt().members[0],
-          { ...receipt().members[1], sliceId: "replacement" },
+          {
+            ...receipt().members[1],
+            sliceId: "replacement",
+            actionId: actionId("replacement"),
+          },
         ],
       }),
       dependencies,

@@ -1591,7 +1591,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           },
         },
       },
-    ]);
+    ], { currentThreadId: () => "parent-thread" });
     const { isError, body } = toolBody(response);
     assert.equal(isError, false);
     assert.equal(body.threadId, childThreadId);
@@ -1605,6 +1605,25 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
         effort: "medium",
       },
     });
+
+    const [, rejected] = await roundTrip([
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_resolve_subagent",
+          arguments: {
+            parentThreadId: "different-parent",
+            agentPath: "/root/nelos_planner_abc123",
+            model: "gpt-5.6-sol",
+            effort: "medium",
+          },
+        },
+      },
+    ], { currentThreadId: () => "parent-thread" });
+    assert.equal(toolBody(rejected).isError, true);
   });
 });
 

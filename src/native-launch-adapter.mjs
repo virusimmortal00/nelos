@@ -16,6 +16,7 @@ function launchRequest(member) {
     lifecycle,
     memberKind,
     launcher,
+    ...(lifecycle === "spinoff" ? { actionId: member.actionId } : {}),
     title: member.title,
     prompt: member.prompt,
     workspaceMode: launch.workspaceMode,
@@ -57,6 +58,7 @@ async function launchOne(request, adapters) {
 
   const launchIdentity = {
     threadId: launch.threadId,
+    ...(request.actionId ? { actionId: request.actionId } : {}),
     ...(launch.hostId ? { hostId: launch.hostId } : {}),
     ...(launch.turnId ? { turnId: launch.turnId } : {}),
   };

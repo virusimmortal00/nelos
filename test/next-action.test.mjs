@@ -5,6 +5,7 @@ import {
   deriveNextAction,
   withNextAction,
 } from "../src/next-action.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 
 function slice(overrides = {}) {
   return {
@@ -62,14 +63,20 @@ test("low-confidence planning stops before execution", () => {
 });
 
 test("slice planning returns an executable current-wave launch action", () => {
+  const plan = {
+    waves: [
+      { index: 1, slices: [slice()] },
+      { index: 2, slices: [slice({ id: "implement", lifecycle: "spinoff" })] },
+    ],
+  };
+  const planRun = createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "next-action-test",
+  });
   const output = withNextAction({
     command: "plan slices",
-    plan: {
-      waves: [
-        { index: 1, slices: [slice()] },
-        { index: 2, slices: [slice({ id: "implement", lifecycle: "spinoff" })] },
-      ],
-    },
+    plan,
+    planRun,
   });
 
   assert.deepEqual(output.nextAction, {
@@ -115,9 +122,34 @@ test("slice planning returns an executable current-wave launch action", () => {
           "```",
       },
     ],
+    verification: {
+      planRunId: planRun.planRunId,
+      waveIndex: 1,
+      waveDigest: planRun.waves[0].waveDigest,
+    },
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 1,
   });
+});
+
+test("slice planning fails closed without its persisted plan-run contract", () => {
+  const plan = { waves: [{ index: 1, slices: [slice()] }] };
+  assert.throws(
+    () => withNextAction({ command: "plan slices", plan }),
+    /requires a persisted plan run/u,
+  );
+  const mismatched = createPlanRunV1(
+    plan,
+    { queenThreadId: "queen-1", sourceId: "mismatched-next-action-test" },
+  );
+  assert.throws(
+    () => withNextAction({
+      command: "plan slices",
+      plan: { waves: [{ index: 2, slices: [slice()] }] },
+      planRun: mismatched,
+    }),
+    /has no contract for wave 2/u,
+  );
 });
 
 test("runtime route verification either completes exactly or stops the wave", () => {

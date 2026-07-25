@@ -96,7 +96,15 @@ function actionWasExecuted(events, action) {
           sameJson(event.expected, {
             model: action.arguments.model,
             effort: action.arguments.effort,
-          }),
+          }) &&
+          Array.isArray(event.observed) &&
+          event.observed.length > 0 &&
+          event.observed.every(
+            (turn) =>
+              turn.matches === true &&
+              turn.model === action.arguments.model &&
+              turn.effort === action.arguments.effort,
+          ),
       );
     case "native-wait":
       return events.some(

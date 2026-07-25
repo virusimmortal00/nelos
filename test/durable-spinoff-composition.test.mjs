@@ -151,6 +151,14 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   }
 
   const initial = restarted("queen");
+  await assert.rejects(
+    restarted("other-queen").composition.persistPlan({
+      plan: plan(),
+      webId: "A1",
+      queenThreadId: "queen",
+    }),
+    /only the plan's queen/u,
+  );
   const persisted = await initial.composition.persistPlan({
     plan: plan(),
     webId: "A1",

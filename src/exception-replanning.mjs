@@ -4,6 +4,7 @@ import {
   PLANNING_LIFECYCLE_INPUT_SCHEMA,
   PLANNING_LIFECYCLE_SCHEMA_VERSION,
 } from "./planning-lifecycle.mjs";
+import { MAX_PLANNING_OBJECTIVE_CHARACTERS } from "./planning-bootstrap.mjs";
 import {
   MAX_PLAN_SLICES,
   planWorkSlices,
@@ -214,11 +215,15 @@ function lifecycleRequest(input, basePlan, trigger) {
     input.basePlanRunId,
     trigger.eventId,
   ]).slice(0, 48)}`;
+  const objectivePrefix = `Revise the execution plan after ${trigger.type}: `;
   return {
     schemaVersion: PLANNING_LIFECYCLE_SCHEMA_VERSION,
     idempotencyKey: scopedKey,
     queenThreadId: input.queenThreadId,
-    objective: `Revise the execution plan after ${trigger.type}: ${basePlan.objective}`,
+    objective: `${objectivePrefix}${basePlan.objective.slice(
+      0,
+      MAX_PLANNING_OBJECTIVE_CHARACTERS - objectivePrefix.length,
+    )}`,
     context,
     maxParallel: basePlan.maxParallel,
     ...(input.bootstrapId ? { bootstrapId: input.bootstrapId } : {}),

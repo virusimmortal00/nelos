@@ -138,6 +138,7 @@ The complete local verification sequence:
 npm test
 npm run check
 npm run check:model-catalog
+npm run verify:planning-lifecycle
 npm run verify:app-server
 npm run verify:golden-loop
 ```

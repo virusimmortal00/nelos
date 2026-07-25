@@ -16,8 +16,8 @@ export const MAX_PLANNING_OBJECTIVE_CHARACTERS = 8_000;
 export const MAX_PLANNING_CONTEXT_CHARACTERS = 16_000;
 export const MAX_PLANNING_RESPONSE_CHARACTERS = 96_000;
 
-const PLANNER_TITLE = "Plan and classify the work";
-const PLANNER_ROUTE = routeIntelligenceProfile({
+export const PLANNER_TITLE = "Plan and classify the work";
+export const PLANNER_ROUTE = routeIntelligenceProfile({
   profileOverride: "sol",
   effortOverride: "medium",
 });

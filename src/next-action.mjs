@@ -7,6 +7,7 @@ import {
   launcherForMemberKind,
   memberKindForLifecycle,
 } from "./launch-contract.mjs";
+import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
 
@@ -101,21 +102,36 @@ function correctionPrompt(member) {
 
 function launchWave(plan, planRun = null) {
   const currentWave = plan.waves[0];
-  const verification = planRun?.waves?.find(
+  if (!planRun) {
+    throw new Error("launch wave requires a persisted plan run");
+  }
+  const verification = planRun.waves?.find(
     ({ waveIndex }) => waveIndex === currentWave.index,
   );
+  if (!verification) {
+    throw new Error(
+      `plan run ${planRun.planRunId} has no contract for wave ${currentWave.index}`,
+    );
+  }
   return action("launch-wave", {
     waveIndex: currentWave.index,
-    members: currentWave.slices.map(launchMember),
-    ...(verification
-      ? {
-          verification: {
-            planRunId: planRun.planRunId,
-            waveIndex: verification.waveIndex,
-            waveDigest: verification.waveDigest,
-          },
-        }
-      : {}),
+    members: currentWave.slices.map((slice) => ({
+      ...launchMember(slice),
+      ...(slice.lifecycle === "spinoff"
+        ? {
+            actionId: planRunLaunchActionIdV1({
+              planRunId: planRun.planRunId,
+              waveIndex: currentWave.index,
+              sliceId: slice.id,
+            }),
+          }
+        : {}),
+    })),
+    verification: {
+      planRunId: planRun.planRunId,
+      waveIndex: verification.waveIndex,
+      waveDigest: verification.waveDigest,
+    },
     settleBeforeWaveIndex: currentWave.index + 1,
     remainingWaveCount: plan.waves.length - 1,
   });

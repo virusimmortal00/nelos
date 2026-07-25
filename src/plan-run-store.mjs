@@ -58,6 +58,24 @@ function planRunIdV1({
   ]).slice(0, 40)}`;
 }
 
+export function planRunLaunchActionIdV1({
+  planRunId,
+  waveIndex,
+  sliceId,
+}) {
+  const normalizedPlanRunId = runId(planRunId);
+  if (!Number.isSafeInteger(waveIndex) || waveIndex < 1) {
+    throw new Error("waveIndex must be a positive integer");
+  }
+  if (
+    typeof sliceId !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(sliceId)
+  ) {
+    throw new Error("sliceId has an invalid format");
+  }
+  return `plan-launch:${normalizedPlanRunId.slice(4)}:${waveIndex}:${sliceId}`;
+}
+
 function waveContract(wave) {
   const members = wave.slices.map((slice) => ({
     sliceId: slice.id,
@@ -274,7 +292,15 @@ export class PlanRunStoreV1 {
   }
 
   async read(planRunId) {
+    return this.#read(planRunId, new Set());
+  }
+
+  async #read(planRunId, lineage) {
     const requestedPlanRunId = runId(planRunId);
+    if (lineage.has(requestedPlanRunId)) {
+      throw new Error("plan run lineage contains a cycle");
+    }
+    const nextLineage = new Set(lineage).add(requestedPlanRunId);
     const path = this.#path(requestedPlanRunId);
     try {
       const metadata = await this.#fileSystem.stat(path);
@@ -288,7 +314,7 @@ export class PlanRunStoreV1 {
         throw new Error("plan run identity conflicts with its persisted path");
       }
       if (record.replanGeneration === 1) {
-        const parent = await this.read(record.parentPlanRunId);
+        const parent = await this.#read(record.parentPlanRunId, nextLineage);
         if (
           !parent ||
           parent.replanGeneration !== 0 ||
