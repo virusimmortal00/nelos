@@ -324,6 +324,7 @@ test("resolved subagent identity leads to exact route verification", () => {
       command: "intelligence resolve subagent",
       threadId: "child-thread",
       expected: { model: "gpt-5.6-sol", effort: "medium" },
+      turnId: "turn-current",
     }),
     {
       schemaVersion: 1,
@@ -333,6 +334,7 @@ test("resolved subagent identity leads to exact route verification", () => {
         threadId: "child-thread",
         model: "gpt-5.6-sol",
         effort: "medium",
+        turnId: "turn-current",
       },
     },
   );

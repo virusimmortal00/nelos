@@ -306,6 +306,7 @@ export function deriveNextAction(output) {
           threadId: output.threadId,
           model: output.expected.model,
           effort: output.expected.effort,
+          turnId: output.turnId,
         },
       });
     case "plan slices":

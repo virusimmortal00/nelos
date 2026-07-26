@@ -45,6 +45,7 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
     resolver: "nelos_intelligence_resolve_subagent",
     parentThreadIdSource: "current-task",
     agentPathSource: "launcher-result",
+    turnIdSource: "resolved-native-session",
   });
   assert.deepEqual(first.planner.identityContract, {
     lifecycle: "subagent",

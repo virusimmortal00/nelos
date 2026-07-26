@@ -210,6 +210,7 @@ export function createPlanningBootstrapV1(value) {
       resolver: "nelos_intelligence_resolve_subagent",
       parentThreadIdSource: "current-task",
       agentPathSource: "launcher-result",
+      turnIdSource: "resolved-native-session",
     }),
     identityContract: Object.freeze({
       lifecycle: "subagent",

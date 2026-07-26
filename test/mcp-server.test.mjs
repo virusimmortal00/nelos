@@ -1718,7 +1718,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           },
         },
       },
-    })}\n`,
+    })}\n${JSON.stringify(turnContext("turn-older", "gpt-5.6-sol", "medium"))}\n${JSON.stringify(turnContext("turn-current", "gpt-5.6-terra", "high"))}\n`,
   );
   await withCodexHome(root, async () => {
     const [, response] = await roundTrip([
@@ -1732,8 +1732,8 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           arguments: {
             parentThreadId: "parent-thread",
             agentPath: "/root/nelos_planner_abc123",
-            model: "gpt-5.6-sol",
-            effort: "medium",
+            model: "gpt-5.6-terra",
+            effort: "high",
           },
         },
       },
@@ -1747,10 +1747,22 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
       tool: "nelos_intelligence_verify",
       arguments: {
         threadId: childThreadId,
-        model: "gpt-5.6-sol",
-        effort: "medium",
+        model: "gpt-5.6-terra",
+        effort: "high",
+        turnId: "turn-current",
       },
     });
+    const [, verified] = await roundTrip([
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: body.nextAction.tool, arguments: body.nextAction.arguments },
+      },
+    ]);
+    assert.equal(toolBody(verified).isError, false);
+    assert.equal(toolBody(verified).body.verified, true);
 
     const [, rejected] = await roundTrip([
       INITIALIZE,

@@ -604,7 +604,8 @@ const TOOLS = [
     description:
       "Resolve a native child task ID from one exact parent task and canonical " +
       "subagent path using bounded local session metadata, then return the " +
-      "exact route-verification action. Reads no prompts or task results.",
+      "exact current-launch-turn route-verification action. Reads no prompts " +
+      "or task results.",
     inputSchema: {
       type: "object",
       properties: {
