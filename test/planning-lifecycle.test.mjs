@@ -425,6 +425,136 @@ test("planning lifecycle rejects a result from a failed terminal planner turn", 
   }
 });
 
+test("planning lifecycle bounds one interrupted-turn observation while native collaboration status is unavailable", async (t) => {
+  for (const status of ["active", "notLoaded"]) {
+    await t.test(status, async () => {
+      const value = await fixture({
+        status,
+        latestTurnStatus: "interrupted",
+      });
+      try {
+        const initial = await value.coordinator.advance(request(), {
+          appServerBridge: value.bridge,
+        });
+        const launched = await value.coordinator.advance(
+          request({
+            bootstrapId: initial.lifecycle.bootstrapId,
+            receipt: launchReceipt(initial),
+          }),
+          { appServerBridge: value.bridge },
+        );
+        assert.equal(launched.lifecycle.phase, "verified");
+        assert.deepEqual(launched.nextAction, {
+          schemaVersion: 1,
+          kind: "native-wait-subagent",
+          actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/wait`,
+          agentPath: "/root/nelos_planner_feature",
+          threadId: "planner-1",
+          turnId: "planner-turn",
+          after: "repeat-planner-launch-receipt",
+          reconciliation: {
+            reason: "planner-turn-observation-conflict",
+            retryable: true,
+            appServerTurnStatus: "interrupted",
+            nativeCollaborationStatus: "unavailable",
+            observation: 1,
+            maximumObservations: 1,
+          },
+        });
+        assert.equal(
+          (await value.store.read(initial.lifecycle.bootstrapId))
+            .interruptedTurnReconciliations,
+          1,
+        );
+
+        value.thread.status = "idle";
+        value.thread.latestTurn.status = "completed";
+        const settled = await value.restart().advance(
+          request({
+            bootstrapId: initial.lifecycle.bootstrapId,
+            receipt: launchReceipt(initial),
+          }),
+          { appServerBridge: value.bridge },
+        );
+        assert.equal(settled.nextAction.kind, "native-read-subagent-result");
+        assert.equal(
+          settled.nextAction.actionId,
+          `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/read-result`,
+        );
+        assert.equal(settled.nextAction.turnId, "planner-turn");
+      } finally {
+        await rm(value.root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("planning lifecycle terminates a permanently interrupted planner after the bounded reconciliation", async () => {
+  const value = await fixture({
+    status: "notLoaded",
+    latestTurnStatus: "interrupted",
+  });
+  try {
+    const initial = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    const reconciled = await value.coordinator.advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(reconciled.nextAction.kind, "native-wait-subagent");
+
+    const terminated = await value.restart().advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(terminated.nextAction.kind, "attention");
+    assert.equal(terminated.nextAction.reason, "planner-turn-failed");
+    assert.equal(terminated.nextAction.turnId, "planner-turn");
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("planning lifecycle keeps failed and error planner turns fail-closed", async (t) => {
+  for (const scenario of [
+    { threadStatus: "active", turnStatus: "failed" },
+    { threadStatus: "notLoaded", turnStatus: "error" },
+  ]) {
+    await t.test(
+      `${scenario.threadStatus}/${scenario.turnStatus}`,
+      async () => {
+        const value = await fixture({
+          status: scenario.threadStatus,
+          latestTurnStatus: scenario.turnStatus,
+        });
+        try {
+          const initial = await value.coordinator.advance(request(), {
+            appServerBridge: value.bridge,
+          });
+          const launched = await value.coordinator.advance(
+            request({
+              bootstrapId: initial.lifecycle.bootstrapId,
+              receipt: launchReceipt(initial),
+            }),
+            { appServerBridge: value.bridge },
+          );
+          assert.equal(launched.nextAction.kind, "attention");
+          assert.equal(launched.nextAction.reason, "planner-turn-failed");
+        } finally {
+          await rm(value.root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+});
+
 test("planning lifecycle fails closed on topology, route, active-result, and low-confidence evidence", async (t) => {
   await t.test("wrong parent", async () => {
     const value = await fixture();

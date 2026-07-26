@@ -25,6 +25,7 @@ export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
 
 const MAX_RECORD_BYTES = 64 * 1024;
+const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 1;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const BOOTSTRAP_ID = /^plan:[a-f0-9]{24}$/u;
 const AGENT_PATH =
@@ -84,6 +85,7 @@ const RECORD_FIELDS = new Set([
   "identity",
   "responseDigest",
   "attentionReason",
+  "interruptedTurnReconciliations",
   "consumedReceipts",
 ]);
 const IDENTITY_FIELDS = new Set([
@@ -149,6 +151,13 @@ function terminalTurnStatus(value) {
 function successfulTurnStatus(value) {
   return SUCCESSFUL_TURN_STATUSES.has(
     String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase(),
+  );
+}
+
+function interruptedTurnStatus(value) {
+  return (
+    String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase() ===
+    "interrupted"
   );
 }
 
@@ -328,6 +337,18 @@ function normalizeRecord(value) {
   ) {
     throw new Error("planning lifecycle attention reason is invalid");
   }
+  const interruptedTurnReconciliations =
+    value.interruptedTurnReconciliations ?? 0;
+  if (
+    !Number.isSafeInteger(interruptedTurnReconciliations) ||
+    interruptedTurnReconciliations < 0 ||
+    interruptedTurnReconciliations >
+      MAX_INTERRUPTED_TURN_RECONCILIATIONS
+  ) {
+    throw new Error(
+      "planning lifecycle interrupted-turn reconciliation count is invalid",
+    );
+  }
   if (
     !Array.isArray(value.consumedReceipts) ||
     value.consumedReceipts.length > 8
@@ -355,6 +376,7 @@ function normalizeRecord(value) {
     identity,
     responseDigest: value.responseDigest,
     attentionReason: value.attentionReason,
+    interruptedTurnReconciliations,
     consumedReceipts,
   };
 }
@@ -497,7 +519,12 @@ function publicPlannerIdentity(identity) {
   };
 }
 
-function statusAction(record, thread, latestTurn) {
+function statusAction(
+  record,
+  thread,
+  latestTurn,
+  { reconciledInterruptedTurn = false } = {},
+) {
   if (thread.status === "systemError") {
     return {
       schemaVersion: 1,
@@ -506,7 +533,11 @@ function statusAction(record, thread, latestTurn) {
       threadId: thread.threadId,
     };
   }
-  if (latestTurn === null || !terminalTurnStatus(latestTurn.status)) {
+  if (
+    latestTurn === null ||
+    !terminalTurnStatus(latestTurn.status) ||
+    reconciledInterruptedTurn
+  ) {
     return {
       schemaVersion: 1,
       kind: "native-wait-subagent",
@@ -515,6 +546,19 @@ function statusAction(record, thread, latestTurn) {
       threadId: thread.threadId,
       turnId: latestTurn?.turnId ?? null,
       after: "repeat-planner-launch-receipt",
+      ...(reconciledInterruptedTurn
+        ? {
+            reconciliation: {
+              reason: "planner-turn-observation-conflict",
+              retryable: true,
+              appServerTurnStatus: latestTurn.status,
+              nativeCollaborationStatus: "unavailable",
+              observation: record.interruptedTurnReconciliations,
+              maximumObservations:
+                MAX_INTERRUPTED_TURN_RECONCILIATIONS,
+            },
+          }
+        : {}),
     };
   }
   if (!successfulTurnStatus(latestTurn.status)) {
@@ -611,6 +655,26 @@ export class PlanningLifecycleCoordinatorV1 {
     return { route, thread, latestTurn };
   }
 
+  async #reconcileInterruptedTurn(record, latestTurn) {
+    if (
+      !interruptedTurnStatus(latestTurn?.status) ||
+      record.interruptedTurnReconciliations >=
+        MAX_INTERRUPTED_TURN_RECONCILIATIONS
+    ) {
+      return { record, reconciled: false };
+    }
+    const updated = await this.#store.write(
+      {
+        ...record,
+        revision: record.revision + 1,
+        interruptedTurnReconciliations:
+          record.interruptedTurnReconciliations + 1,
+      },
+      { expectedRevision: record.revision },
+    );
+    return { record: updated, reconciled: true };
+  }
+
   async advance(value, { appServerBridge }) {
     const request = normalizeRequest(value);
     const receipt = normalizeReceipt(value.receipt);
@@ -639,6 +703,7 @@ export class PlanningLifecycleCoordinatorV1 {
             identity: null,
             responseDigest: null,
             attentionReason: null,
+            interruptedTurnReconciliations: 0,
             consumedReceipts: [],
           },
           { expectedRevision: 0 },
@@ -769,10 +834,17 @@ export class PlanningLifecycleCoordinatorV1 {
             { expectedRevision: record.revision },
           );
         }
+        const reconciliation = await this.#reconcileInterruptedTurn(
+          record,
+          latestTurn,
+        );
+        record = reconciliation.record;
         return lifecycleOutput(
           record,
           bootstrap,
-          statusAction(record, thread, latestTurn),
+          statusAction(record, thread, latestTurn, {
+            reconciledInterruptedTurn: reconciliation.reconciled,
+          }),
           {
             identity: publicPlannerIdentity(identity),
             route,
@@ -889,6 +961,25 @@ export class PlanningLifecycleCoordinatorV1 {
             retryable: true,
             actionId: receipt.actionId,
           }),
+        );
+      }
+      const reconciliation = await this.#reconcileInterruptedTurn(
+        record,
+        latestTurn,
+      );
+      record = reconciliation.record;
+      if (reconciliation.reconciled) {
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          statusAction(record, thread, latestTurn, {
+            reconciledInterruptedTurn: true,
+          }),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            thread,
+            latestTurn,
+          },
         );
       }
       if (!successfulTurnStatus(latestTurn.status)) {
