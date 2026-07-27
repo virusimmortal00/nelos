@@ -166,3 +166,39 @@ web. The run passes only if:
 4. `nelos_queen_decide` records acceptance;
 5. cleanup emits and records the exact native archive receipt; and
 6. the repository remains unchanged.
+
+## Post-Restart Smoke — Web A2
+
+After fully restarting Codex, the new MCP process loaded the rebuilt contract:
+
+- Queen: `019fa4c3-3beb-7821-8d77-389f6e13c34a`
+- Queen title: `🕷️ A2 👑 · Clarify CLI and MCP roles (7)`
+- Child: `019fa4c6-a4fb-7ef1-9333-ed47e2375b8f`
+- Child title: `🕸️ A2 · Run durable read-only smoke`
+- Child route: Luna/low
+- Launch batch: identity, read, topology, title, and route all verified
+
+This proves the shared queen/child title fix works after a real restart.
+
+The lifecycle then stopped at a new boundary. `launch-wave` told the queen to
+create the durable task directly, but did not first return the
+`nelos_orchestrate_create` preparation call that registers and binds its durable
+work unit. The worker completed read-only inspection, but
+`nelos_spinoff_complete` correctly rejected it as unbound. Its earlier attempt
+to interpret “create exactly one spin-off” as a grandchild launch also failed
+before mutation.
+
+The source and worker worktrees remained unchanged, no CLI fallback ran, and
+the blocked child was not archived because it was never accepted.
+
+### Follow-up remediation
+
+- Carry explicit `cleanupIntended` through planning; only `true` grants
+  `archive`.
+- Add an exact `nelos_orchestrate_create` preparation/bind action to every
+  planned durable launch.
+- Require the queen to execute that action before native creation and use the
+  returned effect prompt/options.
+- Tell the worker it is already the durable spin-off and must not create or
+  delegate another task.
+- Keep failed, unbound, and unaccepted tasks ineligible for cleanup.

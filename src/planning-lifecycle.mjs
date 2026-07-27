@@ -55,6 +55,7 @@ const REQUEST_FIELDS = new Set([
   "objective",
   "context",
   "maxParallel",
+  "cleanupIntended",
   "bootstrapId",
   "receipt",
 ]);
@@ -209,6 +210,10 @@ function normalizeRequest(value) {
   ) {
     throw new Error(`maxParallel must be between 1 and ${MAX_PARALLEL_SLICES}`);
   }
+  const cleanupIntended = value.cleanupIntended ?? false;
+  if (typeof cleanupIntended !== "boolean") {
+    throw new Error("cleanupIntended must be a boolean");
+  }
   const derivedBootstrapId = bootstrapIdFor(queenThreadId, idempotencyKey);
   if (
     value.bootstrapId !== undefined &&
@@ -224,6 +229,7 @@ function normalizeRequest(value) {
     objective,
     context,
     maxParallel,
+    cleanupIntended,
     bootstrapId: derivedBootstrapId,
   };
 }
@@ -286,6 +292,7 @@ function requestDigest(request) {
     objective: request.objective,
     context: request.context,
     maxParallel: request.maxParallel,
+    cleanupIntended: request.cleanupIntended,
   });
 }
 
@@ -1136,6 +1143,11 @@ export const PLANNING_LIFECYCLE_INPUT_SCHEMA = Object.freeze({
       type: "integer",
       minimum: 1,
       maximum: MAX_PARALLEL_SLICES,
+    },
+    cleanupIntended: {
+      type: "boolean",
+      description:
+        "Grant durable spin-offs archive capability only when cleanup was explicitly requested.",
     },
     bootstrapId: {
       type: "string",

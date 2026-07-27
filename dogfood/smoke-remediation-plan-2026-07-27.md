@@ -145,3 +145,11 @@ fully restarting the app loaded the new skill but received no Nelos MCP tools;
 the original queen could discover Nelos tools but calls still returned the old
 server response shape. The next verification must therefore begin only after a
 full Codex restart.
+
+The full restart subsequently verified queen/child web A2 title convergence
+and exact Luna/low launch identity. It also exposed a missing handoff between
+`launch-wave` and `nelos_orchestrate_create`: the durable task existed before
+its work unit was registered, so its completion callback correctly failed
+closed as unbound. The follow-up patch adds machine-generated orchestration
+preparation, explicit cleanup intent, and a worker role boundary before the
+next live smoke.

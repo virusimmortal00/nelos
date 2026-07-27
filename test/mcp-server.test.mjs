@@ -1086,6 +1086,10 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.body.effects.length, 1);
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
+  assert.match(
+    launchPrompt,
+    /You are this durable spin-off\. Do not create or delegate another task\./u,
+  );
   assert.match(launchPrompt, /call `nelos_spinoff_complete`/u);
   assert.match(launchPrompt, /Set receipt to null/u);
   assert.match(
@@ -1409,7 +1413,11 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
         method: "tools/call",
         params: {
           name: "nelos_plan_slices",
-          arguments: { plan, queenThreadId: "queen-1" },
+          arguments: {
+            plan,
+            queenThreadId: "queen-1",
+            cleanupIntended: true,
+          },
         },
       },
     ],
@@ -1458,7 +1466,11 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
         method: "tools/call",
         params: {
           name: "nelos_plan_slices",
-          arguments: { plan, queenThreadId: "queen-1" },
+          arguments: {
+            plan,
+            queenThreadId: "queen-1",
+            cleanupIntended: true,
+          },
         },
       },
     ],
@@ -1481,6 +1493,14 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
   assert.equal(body.nextAction.kind, "launch-wave");
   assert.equal(body.planRun.webIdentity.webId, "A1");
   assert.equal(body.nextAction.members[0].title, "🕸️ A1 · Explore");
+  assert.equal(
+    body.nextAction.members[0].orchestration.tool,
+    "nelos_orchestrate_create",
+  );
+  assert.deepEqual(
+    body.nextAction.members[0].orchestration.arguments.workUnit.capabilities,
+    ["observe", "read-result", "follow-up", "archive"],
+  );
   assert.match(
     body.nextAction.members[0].prompt,
     /^Task title: 🕸️ A1 · Explore\n\n/u,

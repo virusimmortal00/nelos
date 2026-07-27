@@ -8,6 +8,7 @@ import {
 import {
   normalizeLaunchMemberV1,
 } from "./launch-contract.mjs";
+import { workUnitFromLaunchMemberV1 } from "./plan-orchestration-bridge.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
@@ -82,7 +83,12 @@ function joinedAgentTaskName(sliceId, planRun) {
   return `nelos_${stem}_${suffix}`;
 }
 
-function launchMember(slice, persistedMember = null, planRun = null) {
+function launchMember(
+  slice,
+  persistedMember = null,
+  planRun = null,
+  cleanupIntended = false,
+) {
   const normalizedLaunch = normalizeLaunchMemberV1({
     ...slice,
     nativeTask: slice.route.launch.nativeTask,
@@ -90,7 +96,7 @@ function launchMember(slice, persistedMember = null, planRun = null) {
   const { memberKind, launcher } = normalizedLaunch;
   const joinedSubagent = slice.lifecycle === "subagent";
   const title = persistedMember?.title ?? slice.title;
-  return {
+  const member = {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
     memberKind,
@@ -144,6 +150,26 @@ function launchMember(slice, persistedMember = null, planRun = null) {
     },
     prompt: memberPrompt(slice, title),
   };
+  if (joinedSubagent) return member;
+  if (!planRun?.webIdentity) {
+    throw new Error("durable launch requires a persisted web identity");
+  }
+  const workUnit = workUnitFromLaunchMemberV1(member, {
+    webId: planRun.webIdentity.webId,
+    queenThreadId: planRun.queenThreadId,
+    cleanupIntended,
+  });
+  return {
+    ...member,
+    orchestration: {
+      tool: "nelos_orchestrate_create",
+      arguments: {
+        workUnit,
+        receipt: null,
+      },
+      bindReceiptType: "native-create",
+    },
+  };
 }
 
 function correctionPrompt(member) {
@@ -161,7 +187,7 @@ function correctionPrompt(member) {
   ].join(" ");
 }
 
-function launchWave(plan, planRun = null) {
+function launchWave(plan, planRun = null, cleanupIntended = false) {
   const currentWave = plan.waves[0];
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
@@ -197,6 +223,7 @@ function launchWave(plan, planRun = null) {
         slice,
         verification.members.find(({ sliceId }) => sliceId === slice.id),
         planRun,
+        cleanupIntended,
       ),
       ...(slice.lifecycle === "spinoff"
         ? {
@@ -351,7 +378,11 @@ export function deriveNextAction(output) {
         },
       });
     case "plan slices":
-      return launchWave(output.plan, output.planRun);
+      return launchWave(
+        output.plan,
+        output.planRun,
+        output.cleanupIntended ?? false,
+      );
     case "web begin":
     case "web join":
       return output.requiresNativeTitleSync

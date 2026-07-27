@@ -113,13 +113,14 @@ async function plannedSlicesOutput(
     planRunStore,
     parentPlanRun = null,
     webRegistry,
+    cleanupIntended = false,
   },
 ) {
   const sourceId =
     additionalFields.lifecycle?.bootstrapId ??
     additionalFields.planning?.bootstrapId ??
     `structured:${createHash("sha256")
-      .update(JSON.stringify(plan), "utf8")
+      .update(JSON.stringify({ plan, cleanupIntended }), "utf8")
       .digest("hex")}`;
   const candidate = createPlanRunV1(plan, {
     queenThreadId,
@@ -234,6 +235,7 @@ async function plannedSlicesOutput(
       command: "plan slices",
       plan,
       planRun,
+      cleanupIntended,
       ...additionalFields,
     }),
   };
@@ -345,6 +347,7 @@ const TOOLS = [
           queenThreadId: args.queenThreadId,
           planRunStore,
           webRegistry,
+          cleanupIntended: args.cleanupIntended ?? false,
         },
       );
     },
@@ -428,6 +431,11 @@ const TOOLS = [
           description:
             "Explicit current queen task ID; required when any slice is a spinoff",
         },
+        cleanupIntended: {
+          type: "boolean",
+          description:
+            "Grant archive capability only when durable cleanup was explicitly requested.",
+        },
       },
       required: ["plan", "queenThreadId"],
       additionalProperties: false,
@@ -443,6 +451,7 @@ const TOOLS = [
           queenThreadId: args.queenThreadId,
           planRunStore,
           webRegistry,
+          cleanupIntended: args.cleanupIntended ?? false,
         },
       );
     },

@@ -226,6 +226,26 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
     ],
   );
   assert.equal(members[1].title, "🕸️ A1 · Implement");
+  assert.equal(
+    members[1].orchestration.tool,
+    "nelos_orchestrate_create",
+  );
+  assert.deepEqual(
+    members[1].orchestration.arguments.workUnit.capabilities,
+    ["observe", "read-result", "follow-up"],
+  );
+  assert.equal(members[1].orchestration.arguments.receipt, null);
+
+  const cleanupMember = withNextAction({
+    command: "plan slices",
+    plan,
+    planRun,
+    cleanupIntended: true,
+  }).nextAction.members[1];
+  assert.deepEqual(
+    cleanupMember.orchestration.arguments.workUnit.capabilities,
+    ["observe", "read-result", "follow-up", "archive"],
+  );
 });
 
 test("generation-one exception replans give reused joined slices fresh task identities", () => {

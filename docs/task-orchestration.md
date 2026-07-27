@@ -304,8 +304,9 @@ Until then, the title receipt and queen join loop are the compatibility layer.
    host inventory reconciliation is still required.
 4. Make `launch-wave` emit lifecycle-specific native actions. Joined subagents
    bind to collaboration `agentPath` and skip title mutation; durable spinoffs
-   bind to task `threadId`, verify their native title, and may emit a
-   conditional `native-set-title`. The callback adapters reach cursor-aware
+   first execute their machine-generated `nelos_orchestrate_create` preparation,
+   then bind its exact task-ID receipt, verify their native title, and may emit
+   a conditional `native-set-title`. The callback adapters reach cursor-aware
    wait and current-turn result-read steps through strict host receipts.
 5. [Implemented](observation-join.md): use a cursor-aware queen join reducer
    with at most one batched `native-wait` while required members are

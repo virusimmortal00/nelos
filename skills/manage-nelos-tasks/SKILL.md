@@ -26,15 +26,15 @@ must not use this fast path.
 
 Otherwise call `nelos_plan_lifecycle` with schema version 1, the current queen
 task ID, a caller-stable idempotency key, the unstructured objective, optional
-bounded context/parallelism, and `receipt: null`. Do not first author slices or
+bounded context/parallelism, `cleanupIntended: true` only when the user
+explicitly requested disposable-task cleanup, and `receipt: null`. Do not first author slices or
 classify them in the queen. Execute only its returned action and call the same
 tool again with the unchanged request, returned `bootstrapId`, and exact typed
 native receipt. Never substitute an agent path for a task ID.
 
-The coordinator prevents duplicate planners and verifies child identity,
-parent, exact Sol/medium route, and result turn. Follow its actions until
-it returns a wave. Invalid, stale, conflicting, low-confidence, or unverifiable
-evidence stops. `nelos_plan_bootstrap` is only a compatibility primitive.
+The coordinator prevents duplicate planners and verifies identity, parent,
+Sol/medium route, and result turn. Follow its actions until a wave; invalid,
+stale, conflicting, low-confidence, or unverifiable evidence stops.
 
 ## Follow the One Desktop Path
 
@@ -47,18 +47,18 @@ After the fast path or validated bootstrap, execute only the returned
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
-- `launch-wave`: create only the listed current-wave members concurrently. Use
-  each member's exact `lifecycle`, `memberKind`, `launcher`, `title`,
-  `nativeTask`, `identityContract`, and generated `prompt`. `create-thread`
-  launches a durable spinoff; `spawn-subagent` launches a joined subagent using
-  its exact `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
-  valid only for durable spinoffs. Never translate fields by inference or
-  describe a subagent as a spinoff. Follow `titlePolicy`; never omit,
-  substitute, or inherit a decided `nativeTask`. If the exact route or native
-  identity is unavailable, stop with `attention`; never bind an agent name as a
-  thread ID.
-  Current Codex `create_thread` has no title field. A spinoff `title` is the
-  settled title; create from the prompt seed, then post-bind read/set/verify.
+- `launch-wave`: create only listed current-wave members. Use exact lifecycle,
+  kind, launcher, title, route, identity, and prompt fields. `create-thread`
+  makes spinoffs; `spawn-subagent` uses a joined member's `agentTaskName`.
+  Joined subagents support only Sol or Terra. Luna is
+  valid only for durable spinoffs. Follow `titlePolicy`; never omit,
+  substitute, or inherit a decided `nativeTask`. Missing route/identity is `attention`;
+  never bind an agent name as a
+  thread ID. Codex cannot set a task title at creation, so verify it after.
+  For spinoffs, call the exact `orchestration.tool` and arguments first. Execute
+  its `native-create` prompt/options, then call it with the unchanged work unit
+  and exact task-ID receipt. Follow title effects before verification; never
+  create from the member prompt or invent capabilities.
   Do not launch a later wave until required current results are accepted.
 - Before waiting or reading any launched wave, call
   `nelos_launch_verify_batch` once with the launch action's exact

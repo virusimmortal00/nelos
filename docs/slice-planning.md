@@ -76,6 +76,14 @@ queen-owned compact web identity. The queen and every spinoff title are rendered
 from that identity before a wave is returned. Replays reuse the same identity
 and exact titles; conflicting persisted or observed identities fail closed.
 
+Each durable `launch-wave` member carries an exact
+`nelos_orchestrate_create` preparation call. The queen must execute that call
+before native task creation, create only from its returned effect, and submit
+the exact task-ID receipt to bind the work unit. This guarantees the callback
+target exists before the worker can call `nelos_spinoff_complete`.
+`cleanupIntended` is explicit planning input; only `true` grants the durable
+work unit `archive` capability.
+
 The `create-thread` launcher does not imply a creation-time title argument:
 current Codex `create_thread` has no title field. The prompt's `Task title:`
 line is non-authoritative seeding. Post-bind native read/set/verify is expected,
