@@ -228,6 +228,54 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   assert.equal(members[1].title, "🕸️ A1 · Implement");
 });
 
+test("generation-one exception replans give reused joined slices fresh task identities", () => {
+  const basePlan = {
+    waves: [{ index: 1, slices: [slice(), slice({ id: "audit" })] }],
+  };
+  const basePlanRun = createPlanRunV1(basePlan, {
+    queenThreadId: "queen-1",
+    sourceId: "base-plan",
+  });
+  const replanned = {
+    waves: [{ index: 1, slices: [slice(), slice({ id: "audit" })] }],
+  };
+  const replanRun = createPlanRunV1(replanned, {
+    queenThreadId: "queen-1",
+    sourceId: "exception-replan",
+    parentPlanRun: basePlanRun,
+  });
+
+  const baseAction = withNextAction({
+    command: "plan slices",
+    plan: basePlan,
+    planRun: basePlanRun,
+  }).nextAction;
+  const baseMember = baseAction.members[0];
+  const replanAction = withNextAction({
+    command: "plan slices",
+    plan: replanned,
+    planRun: replanRun,
+  }).nextAction;
+  const replanMember = replanAction.members[0];
+
+  assert.equal(replanRun.replanGeneration, 1);
+  assert.match(replanMember.agentTaskName, /^nelos_research_replan1_[a-f0-9]{12}$/u);
+  assert.notEqual(replanMember.agentTaskName, baseMember.agentTaskName);
+  assert.match(replanAction.members[1].agentTaskName, /^nelos_audit_replan1_[a-f0-9]{12}$/u);
+  assert.notEqual(
+    replanAction.members[1].agentTaskName,
+    baseAction.members[1].agentTaskName,
+  );
+  assert.equal(replanMember.launcher, "spawn-subagent");
+  assert.equal(replanAction.kind, "launch-wave");
+  assert.equal(replanAction.members.some((member) => member.launcher === "followup-task"), false);
+  assert.deepEqual(replanAction.verification, {
+    planRunId: replanRun.planRunId,
+    waveIndex: 1,
+    waveDigest: replanRun.waves[0].waveDigest,
+  });
+});
+
 test("launch-wave derivation rejects a crafted Luna joined subagent", () => {
   const plan = {
     waves: [{

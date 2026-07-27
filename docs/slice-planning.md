@@ -88,6 +88,15 @@ must match its persisted plan-run digest. Persisted lineage bounds generation
 to one; completed slices must remain semantically unchanged, and the execution
 plan removes them so accepted work is never launched again.
 
+Corrective follow-up and exception replacement are intentionally different
+operations. A corrective follow-up asks an existing durable task to repair a
+result while retaining its established route. An exception replan creates new
+required work and can therefore require a different model or reasoning effort.
+Its pending joined subagents receive a fresh, generation-one, plan-run-scoped
+task name even when the semantic slice ID is reused. The launcher then resolves
+and batch-verifies that exact new child and current turn; it must never send a
+follow-up to an earlier joined path as a substitute for the fresh launch.
+
 ## Example
 
 Suppose the user asks:

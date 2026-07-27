@@ -57,12 +57,24 @@ function memberPrompt(slice, title = slice.title) {
   });
 }
 
-function joinedAgentTaskName(sliceId) {
+function joinedAgentTaskName(sliceId, planRun) {
   const stem = sliceId
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/gu, "_")
     .replaceAll(/^_+|_+$/gu, "")
     .slice(0, 32) || "task";
+  // A joined child cannot be re-routed after it exists.  In particular, an
+  // exception replan may reuse a semantic slice ID while requiring a new
+  // model/effort route.  Give generation-one work a plan-run-scoped native
+  // name so it cannot resolve to the generation-zero child.  Generation zero
+  // retains its historic deterministic name for ordinary launch replays.
+  if (planRun?.replanGeneration === 1) {
+    const suffix = createHash("sha256")
+      .update(`${planRun.planRunId}\u0000${sliceId}`, "utf8")
+      .digest("hex")
+      .slice(0, 12);
+    return `nelos_${stem}_replan1_${suffix}`;
+  }
   const suffix = createHash("sha256")
     .update(sliceId, "utf8")
     .digest("hex")
@@ -70,7 +82,7 @@ function joinedAgentTaskName(sliceId) {
   return `nelos_${stem}_${suffix}`;
 }
 
-function launchMember(slice, persistedMember = null) {
+function launchMember(slice, persistedMember = null, planRun = null) {
   const normalizedLaunch = normalizeLaunchMemberV1({
     ...slice,
     nativeTask: slice.route.launch.nativeTask,
@@ -104,7 +116,7 @@ function launchMember(slice, persistedMember = null) {
       onMismatch: joinedSubagent ? "attention" : "native-set-title",
     },
     ...(joinedSubagent
-      ? { agentTaskName: joinedAgentTaskName(slice.id) }
+      ? { agentTaskName: joinedAgentTaskName(slice.id, planRun) }
       : {}),
     identityContract: joinedSubagent
       ? {
@@ -184,6 +196,7 @@ function launchWave(plan, planRun = null) {
       ...launchMember(
         slice,
         verification.members.find(({ sliceId }) => sliceId === slice.id),
+        planRun,
       ),
       ...(slice.lifecycle === "spinoff"
         ? {

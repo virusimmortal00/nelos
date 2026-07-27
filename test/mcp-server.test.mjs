@@ -564,6 +564,15 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
   assert.equal(body.command, "plan slices");
   assert.equal(body.replanning.generation, 1);
   assert.equal(body.nextAction.kind, "launch-wave");
+  assert.equal(body.nextAction.members[0].launcher, "spawn-subagent");
+  assert.match(
+    body.nextAction.members[0].agentTaskName,
+    /^nelos_explore_replan1_[a-f0-9]{12}$/u,
+  );
+  assert.equal(
+    body.nextAction.members.some(({ launcher }) => launcher === "followup-task"),
+    false,
+  );
 });
 
 test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
