@@ -41,10 +41,9 @@ evidence stops. `nelos_plan_bootstrap` is only a compatibility primitive.
 After the fast path or validated bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
-- `native-set-title`: use only for the queen or a durable spinoff with its
-  exact `threadId`, `title`, and `actionId` when present; verify it
-  natively, then repeat the tool that returned the action. Joined subagents do
-  not support native title control.
+- `native-set-title`: use only for the queen or a durable spinoff with its exact
+  `threadId`, `title`, and optional `actionId`; verify, then repeat the returning
+  tool. Joined subagents do not support native title control.
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
@@ -94,10 +93,9 @@ The launch prompt requires a bounded result and, for spinoffs, an exact
 `receipt: null`, execute only the returned native send-message effect, and call
 again with the exact host receipt. A reconciliation effect is `attention`;
 never blindly repeat the send.
-Only after that advance reports the member accepted, call `nelos_spinoff_cleanup`:
-`ask` names exact candidates before confirmation, `auto` returns native archive effects, and
-`keep` preserves them. Execute only returned archive effects and call cleanup
-again with their exact receipts.
+Only after that advance reports the member accepted, call `nelos_spinoff_cleanup`.
+`ask` confirms exact candidates; `auto` returns native archive effects; `keep`
+preserves them. Execute returned effects, then submit their exact receipts.
 Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
 
 Use `nelos_plan_replan` only for a typed terminal failure/block, user
@@ -111,5 +109,5 @@ second autonomous replan stops.
 Unavailable reads and timed-out waits are unknown evidence, not failure.
 Registry-only topology has a lifecycle cache; never write lifecycle or archival state
 from a native action. CLI-backed reads reconcile their
-lifecycle cache on every read; the observation lease is informational. Never perform a second local lifecycle
-mutation to mirror a native archive.
+lifecycle cache on every read; the observation lease is informational.
+Never perform a second local lifecycle mutation to mirror a native archive.
