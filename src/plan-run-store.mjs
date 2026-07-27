@@ -76,15 +76,12 @@ function webIdentity(value, owner) {
   }
   const normalizedWebId = assertWebId(value.webId);
   const normalizedQueenTitle = value.queenTitle.trim();
-  if (
-    parseWebTitle(normalizedQueenTitle).queenMarked !== true ||
-    renderPersistedQueenWebTitle(normalizedQueenTitle, normalizedWebId) !==
-      normalizedQueenTitle
-  ) {
+  if (parseWebTitle(normalizedQueenTitle).queenMarked !== true) {
     throw new Error(
       "plan run web identity queenTitle conflicts with its web ID",
     );
   }
+  renderPersistedQueenWebTitle(normalizedQueenTitle, normalizedWebId);
   return {
     schemaVersion: 1,
     webId: normalizedWebId,
@@ -198,6 +195,63 @@ function legacyRecordCanAdoptWebIdentity(legacy, current) {
   });
 }
 
+function sameCanonicalWebIdentity(left, right) {
+  if (left === null || right === null) return left === right;
+  return (
+    left.schemaVersion === right.schemaVersion &&
+    left.webId === right.webId &&
+    left.queenThreadId === right.queenThreadId &&
+    renderPersistedQueenWebTitle(left.queenTitle, left.webId) ===
+      renderPersistedQueenWebTitle(right.queenTitle, right.webId)
+  );
+}
+
+function legacyRecordCanAdoptTitleGrammar(legacy, current) {
+  for (const field of [
+    "schemaVersion",
+    "planRunId",
+    "queenThreadId",
+    "sourceId",
+    "planDigest",
+    "rootPlanRunId",
+    "parentPlanRunId",
+    "replanGeneration",
+  ]) {
+    if (legacy[field] !== current[field]) return false;
+  }
+  if (
+    !sameCanonicalWebIdentity(legacy.webIdentity, current.webIdentity) ||
+    legacy.webIdentity === null ||
+    legacy.waves.length !== current.waves.length
+  ) {
+    return false;
+  }
+  return legacy.waves.every((legacyWave, waveIndex) => {
+    const currentWave = current.waves[waveIndex];
+    if (
+      legacyWave.waveIndex !== currentWave.waveIndex ||
+      legacyWave.members.length !== currentWave.members.length
+    ) {
+      return false;
+    }
+    return legacyWave.members.every((legacyMember, memberIndex) => {
+      const currentMember = currentWave.members[memberIndex];
+      for (const field of ["sliceId", "lifecycle", "model", "effort"]) {
+        if (legacyMember[field] !== currentMember[field]) return false;
+      }
+      if (legacyMember.lifecycle !== "spinoff") {
+        return legacyMember.title === currentMember.title;
+      }
+      return (
+        renderPersistedDurableChildTitle(
+          legacyMember.title,
+          legacy.webIdentity.webId,
+        ) === currentMember.title
+      );
+    });
+  });
+}
+
 function validateRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("plan run record must be a JSON object");
@@ -302,15 +356,18 @@ function validateRecord(value) {
       );
       if (
         normalizedWebIdentity &&
-        normalizedMember.lifecycle === "spinoff" &&
-        renderPersistedDurableChildTitle(
-          normalizedMember.title,
-          normalizedWebIdentity.webId,
-        ) !== normalizedMember.title
+        normalizedMember.lifecycle === "spinoff"
       ) {
-        throw new Error(
-          "plan run durable member title conflicts with its web identity",
-        );
+        try {
+          renderPersistedDurableChildTitle(
+            normalizedMember.title,
+            normalizedWebIdentity.webId,
+          );
+        } catch {
+          throw new Error(
+            "plan run durable member title conflicts with its web identity",
+          );
+        }
       }
       return normalizedMember;
     });
@@ -489,7 +546,10 @@ export class PlanRunStoreV1 {
     }
     const existing = await this.read(record.planRunId);
     if (existing) {
-      if (legacyRecordCanAdoptWebIdentity(existing, record)) {
+      if (
+        legacyRecordCanAdoptWebIdentity(existing, record) ||
+        legacyRecordCanAdoptTitleGrammar(existing, record)
+      ) {
         const source = `${JSON.stringify(record, null, 2)}\n`;
         const target = this.#path(record.planRunId);
         const temporary = `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;

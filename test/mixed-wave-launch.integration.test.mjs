@@ -54,7 +54,7 @@ function mixedLaunchAction() {
       schemaVersion: 1,
       webId: "A1",
       queenThreadId: "queen-1",
-      queenTitle: "🕷️ A1 👑 · Mixed wave",
+      queenTitle: "👑 A1 · Mixed wave",
     },
   });
   return withNextAction({ command: "plan slices", plan, planRun }).nextAction;
@@ -113,7 +113,7 @@ test("a mixed wave dispatches both native launchers concurrently and verifies ro
   assert.equal(result.members[0].actionId, action.members[0].actionId);
   assert.equal(result.attentionRequired, false);
   assert.equal(Object.hasOwn(started[0], "title"), false);
-  assert.equal(started[0].settledTitle, "🕸️ A1 · Implement");
+  assert.equal(started[0].settledTitle, "🕷️ A1 · Implement");
   assert.deepEqual(
     started.map(({ launcher, workspaceMode }) => ({ launcher, workspaceMode })),
     [

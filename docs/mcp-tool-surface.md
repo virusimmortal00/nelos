@@ -34,9 +34,9 @@ long-lived
 - `nelos_plan_slices` — validates and computes the plan locally. When the plan
   contains at least one spinoff, it requires the explicit queen task ID, reads
   that task, and preserves any
-  inbound and outbound web markers, renders the canonical
-  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`, and verifies the persisted
-  title. When synchronization is needed it returns a host-owned native title
+  inbound and outbound web lineage, renders the canonical crown-first
+  `👑 WEB_ID · base title`, and verifies the persisted title. Durable spin-offs
+  use `🕷️ WEB_ID · base title`. When synchronization is needed it returns a host-owned native title
   effect; a repeated call verifies the persisted title before returning a
   launch action. Legacy outer-crown forms are normalized. A subagent-only plan
   does not start the bridge;

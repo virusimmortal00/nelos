@@ -161,3 +161,9 @@ embedded a persisted work-unit record, including `binding` and
 immutable creation definition. The tool rejected the action before mutation.
 The next patch projects `workUnitDefinitionV1` into the generated action and
 tests that the complete generated arguments are directly consumable.
+
+The same smoke review also corrected the title acceptance criterion itself.
+Queens must begin with `👑`, spin-offs with `🕷️`, and both retain the compact
+web ID. The compatibility parser continues to accept the previously emitted
+`🕸️`/outbound-spider/trailing-crown grammar while all new rendering is
+role-first.

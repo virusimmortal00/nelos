@@ -24,38 +24,38 @@ queen and spinoff describe its web roles, not its thread topology.
 
 ## Title Grammar
 
-Top-level web IDs use an uppercase letter and a digit. Title role markers have
-one canonical order:
+Top-level web IDs use an uppercase letter and a digit. Titles lead with the
+task's visible role:
 
 ```text
-[🕸️ inbound] [🕷️ outbound] [👑] · base title
+👑 WEB_ID · queen title
+🕷️ WEB_ID · spin-off title
 ```
 
-Each bracketed marker is optional, but present markers stay in that order. The
-crown records queen responsibility independently from web lineage; it never
-replaces an inbound or outbound web marker. Examples:
+The first character is therefore enough to distinguish queens from spin-offs.
+A standalone queen may omit the web ID until it owns a web:
 
 ```text
 👑 · Standalone queen
-🕷️ A1 👑 · Root queen
-🕸️ A1 · First spinoff
-🕸️ A1 · Second spinoff
+👑 A1 · Root queen
+🕷️ A1 · First spin-off
+🕷️ A1 · Second spin-off
 ```
 
 A spinoff can also become queen of a nested web. Nelos allocates a
 hierarchical web ID and retains both roles in its title:
 
 ```text
-🕷️ A1 👑 · Root queen
-🕸️ A1 🕷️ A1.1 👑 · Spinoff queen
-🕸️ A1.1 · Nested spinoff
+👑 A1 · Root queen
+👑 A1.1 🕷️ A1 · Spin-off queen
+🕷️ A1.1 · Nested spin-off
 ```
 
-The inbound `🕸️` marker always comes first, followed by outbound `🕷️`, then
-the queen crown. Crown synchronization preserves these web markers and
-normalizes legacy outer-crown forms such as
-`👑 · 🕸️ A1 🕷️ A1.1 · Spinoff queen` into the canonical order. Web IDs are
-compact visual labels, not substitutes for stable task IDs.
+For a nested queen, the leading crown and outbound ID remain first; the spider
+and parent-web ID retain its spin-off lineage. Existing titles using the legacy
+`🕸️ inbound`, `🕷️ outbound`, trailing-crown grammar remain readable and
+normalize to the role-first form on the next authorized title synchronization.
+Web IDs are compact visual labels, not substitutes for stable task IDs.
 
 ## Native Desktop Workflow
 

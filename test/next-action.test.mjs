@@ -169,7 +169,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
       schemaVersion: 1,
       webId: "A1",
       queenThreadId: "queen-1",
-      queenTitle: "🕷️ A1 👑 · Queen",
+      queenTitle: "👑 A1 · Queen",
     },
   });
   const { members } = withNextAction({
@@ -230,7 +230,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
       },
     ],
   );
-  assert.equal(members[1].title, "🕸️ A1 · Implement");
+  assert.equal(members[1].title, "🕷️ A1 · Implement");
   assert.equal(
     members[1].orchestration.tool,
     "nelos_orchestrate_create",
@@ -288,7 +288,7 @@ test("a generated durable orchestration action is directly consumable", async ()
         schemaVersion: 1,
         webId: "A1",
         queenThreadId: "queen-1",
-        queenTitle: "🕷️ A1 👑 · Queen",
+        queenTitle: "👑 A1 · Queen",
       },
     });
     const action = withNextAction({

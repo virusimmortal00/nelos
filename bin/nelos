@@ -2143,7 +2143,7 @@ async function runWeb(options, client) {
       webId: result.webId,
       inboundWebId: result.inboundWebId,
       reused: result.reused,
-      webMemberTitlePrefix: `🕸️ ${result.webId} ·`,
+      webMemberTitlePrefix: `🕷️ ${result.webId} ·`,
       joinCommand:
         `nelos web join --id ${result.webId} --title <TITLE> ` +
         `--queen-thread-id ${threadId}` +

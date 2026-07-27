@@ -123,7 +123,7 @@ The launch intent should persist at least:
   "intentId": "launch:A1:api:r1:a1",
   "queenThreadId": "queen-task-id",
   "workUnitId": "api",
-  "requestedTitle": "🕸️ A1 · API changes",
+  "requestedTitle": "🕷️ A1 · API changes",
   "promptDigest": "sha256:...",
   "target": {},
   "nativeTask": {},

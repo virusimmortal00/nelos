@@ -40,7 +40,7 @@ function member(overrides = {}) {
     required: true,
     title: {
       state: "pending",
-      requestedTitle: "🕸️ A1 · Alpha",
+      requestedTitle: "🕷️ A1 · Alpha",
       observedTitle: null,
       retryOrdinal: 0,
     },

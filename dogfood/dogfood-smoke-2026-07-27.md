@@ -224,3 +224,19 @@ The remediation serializes `workUnitDefinitionV1` into launch actions and adds
 a producer-to-consumer regression test that executes the generated arguments
 unchanged through `McpOrchestrationAdapterV1`. This protects the exact
 machine-generated handoff rather than only checking individual fields.
+
+## Role-First Title Correction
+
+Review of the live A2 title exposed that persistence verification had been
+mistaken for visual-contract acceptance. `🕷️ A2 👑 · …` persisted correctly,
+but it violated the agreed role-first design because a queen did not begin with
+the crown.
+
+The canonical grammar is now:
+
+- queen: `👑 A2 · …`
+- spin-off: `🕷️ A2 · …`
+- nested spin-off queen: `👑 A2.1 🕷️ A2 · …`
+
+Legacy web, spider, and trailing-crown titles remain parseable and migrate on
+an exact plan replay or authorized title synchronization.

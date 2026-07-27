@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -47,7 +48,7 @@ function webIdentity(webId = "A1") {
     schemaVersion: 1,
     webId,
     queenThreadId: "queen-1",
-    queenTitle: `🕷️ ${webId} 👑 · Release`,
+    queenTitle: `👑 ${webId} · Release`,
   };
 }
 
@@ -269,7 +270,7 @@ test("durable plan runs persist one web identity and decorated settled titles", 
     assert.deepEqual(first.webIdentity, webIdentity());
     assert.equal(
       first.waves[0].members[0].title,
-      "🕸️ A1 · Research the boundary",
+      "🕷️ A1 · Research the boundary",
     );
 
     await assert.rejects(
@@ -310,9 +311,46 @@ test("legacy plan runs adopt a web identity without renumbering existing markers
     assert.equal(upgraded.webIdentity.webId, "A1");
     assert.equal(
       upgraded.waves[0].members[0].title,
-      "🕸️ A1 · Research the boundary",
+      "🕷️ A1 · Research the boundary",
     );
     assert.deepEqual(await store.read(upgraded.planRunId), upgraded);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy title grammar migrates atomically on an exact plan replay", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const directory = join(root, "records");
+    const store = new PlanRunStoreV1({ directory });
+    const current = createPlanRunV1(durablePlan(), {
+      queenThreadId: "queen-1",
+      sourceId: "legacy-title-grammar",
+      webIdentity: webIdentity(),
+    });
+    const legacy = structuredClone(current);
+    legacy.webIdentity.queenTitle = "🕷️ A1 👑 · Release";
+    legacy.waves[0].members[0].title =
+      "🕸️ A1 · Research the boundary";
+    legacy.waves[0].waveDigest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          schemaVersion: 1,
+          waveIndex: legacy.waves[0].waveIndex,
+          members: legacy.waves[0].members,
+        }),
+        "utf8",
+      )
+      .digest("hex");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, `${encodeURIComponent(legacy.planRunId)}.json`),
+      `${JSON.stringify(legacy, null, 2)}\n`,
+    );
+
+    assert.deepEqual(await store.create(current), current);
+    assert.deepEqual(await store.read(current.planRunId), current);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -326,7 +364,7 @@ test("persisted web identity rejects conflicting queen and member titles", () =>
         sourceId: "conflicting-queen-title",
         webIdentity: {
           ...webIdentity(),
-          queenTitle: "🕷️ A2 👑 · Release",
+          queenTitle: "👑 A2 · Release",
         },
       }),
     /queen outbound marker A2 conflicts with persisted web identity A1/u,
@@ -347,7 +385,7 @@ test("persisted web identity rejects conflicting queen and member titles", () =>
               slices: [
                 {
                   ...durablePlan().waves[0].slices[0],
-                  title: "🕸️ A2 · Research the boundary",
+                  title: "🕷️ A2 · Research the boundary",
                 },
               ],
             },

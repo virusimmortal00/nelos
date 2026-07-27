@@ -77,8 +77,9 @@ Nelos is one Codex plugin with two parts:
   `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
   typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
   waves and, for spinoffs, returns a host-owned native title effect before any
-  launch action. A repeated call verifies the canonical queen title as
-  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`. Thread inspection,
+  launch action. A repeated call verifies the compact role-first grammar:
+  queens begin `👑 WEB_ID ·`, while durable spin-offs begin `🕷️ WEB_ID ·`.
+  Thread inspection,
   inventory, bounded waiting, and health tools expose no prompts or transcripts.
   Batch launch verification gates every wave on lifecycle-appropriate identity,
   topology, and route evidence: joined subagents use their collaboration

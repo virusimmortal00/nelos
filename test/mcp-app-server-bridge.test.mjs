@@ -564,7 +564,7 @@ test("queen title synchronization detects a preflight title change", async () =>
 
 test("queen title synchronization canonicalizes legacy web-marker ordering once", async () => {
   const legacyTitle = "👑 · 🕸️ A1 · Release coordination";
-  const canonicalTitle = "🕸️ A1 👑 · Release coordination";
+  const canonicalTitle = "👑 🕷️ A1 · Release coordination";
   const fake = fakeCodexAppServer({ initialTitle: legacyTitle });
   const bridge = new CodexAppServerBridgeV1({
     spawnProcess: fake.spawnProcess,

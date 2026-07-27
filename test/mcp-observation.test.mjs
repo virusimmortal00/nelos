@@ -21,7 +21,7 @@ function workUnit(overrides = {}) {
     attempt: 1,
     memberKind: "spinoff",
     capabilities: ["observe", "read-result"],
-    title: "🕸️ A1 · Alpha",
+    title: "🕷️ A1 · Alpha",
     objectiveSummary: "Implement alpha.",
     deliverable: "Source and tests.",
     acceptanceCriteria: ["Tests pass"],

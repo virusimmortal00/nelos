@@ -700,7 +700,7 @@ test("nelos_launch_verify_batch returns one replay-stable post-bind title synchr
       {
         sliceId: "explore",
         lifecycle: "spinoff",
-        title: "🕸️ A1 · Explore",
+        title: "🕷️ A1 · Explore",
         model: "gpt-5.6-terra",
         effort: "low",
       },
@@ -764,7 +764,7 @@ test("nelos_launch_verify_batch returns one replay-stable post-bind title synchr
       "plan-title:1234567890abcdef1234567890abcdef12345678:" +
       "wave-1:explore",
     threadId: "member-1",
-    title: "🕸️ A1 · Explore",
+    title: "🕷️ A1 · Explore",
     verify: true,
     after: "repeat-launch-verify-batch",
   });
@@ -1430,7 +1430,7 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
     threadId: "queen-1",
     webId: "A1",
     previousTitle: "Release",
-    title: "🕷️ A1 👑 · Release",
+    title: "👑 A1 · Release",
     changed: true,
     verified: false,
   });
@@ -1439,7 +1439,7 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
     kind: "native-set-title",
     actionId: `plan-title:${body.planRun.planRunId.slice(4)}:queen`,
     threadId: "queen-1",
-    title: "🕷️ A1 👑 · Release",
+    title: "👑 A1 · Release",
     verify: true,
     after: "repeat-plan-slices",
   });
@@ -1480,7 +1480,7 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
           return {
             schemaVersion: 1,
             threadId: "queen-1",
-            title: "🕷️ A1 👑 · Release",
+            title: "👑 A1 · Release",
             status: "idle",
           };
         },
@@ -1492,7 +1492,7 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
   assert.equal(body.queenTitleSync.verified, true);
   assert.equal(body.nextAction.kind, "launch-wave");
   assert.equal(body.planRun.webIdentity.webId, "A1");
-  assert.equal(body.nextAction.members[0].title, "🕸️ A1 · Explore");
+  assert.equal(body.nextAction.members[0].title, "🕷️ A1 · Explore");
   assert.equal(
     body.nextAction.members[0].orchestration.tool,
     "nelos_orchestrate_create",
@@ -1503,7 +1503,7 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
   );
   assert.match(
     body.nextAction.members[0].prompt,
-    /^Task title: 🕸️ A1 · Explore\n\n/u,
+    /^Task title: 🕷️ A1 · Explore\n\n/u,
   );
 });
 
@@ -1564,7 +1564,7 @@ test("replayed durable planning reuses one identity and one queen-title effect",
   assert.deepEqual(replayBody.nextAction, firstBody.nextAction);
   assert.equal(
     replayBody.planRun.waves[0].members[0].title,
-    "🕸️ A1 · Explore",
+    "🕷️ A1 · Explore",
   );
 });
 
