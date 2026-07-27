@@ -20,6 +20,7 @@ export const PLANNER_TITLE = "Plan and classify the work";
 export const PLANNER_ROUTE = routeIntelligenceProfile({
   profileOverride: "sol",
   effortOverride: "medium",
+  launchSurface: "joined-subagent",
 });
 
 export const PLANNING_BOOTSTRAP_INPUT_SCHEMA = Object.freeze({

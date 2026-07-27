@@ -129,12 +129,15 @@ export class DurableSpinoffCompositionV1 {
    * Persist every planned contract before returning the first native launch
    * effect. This is intentionally batch-first even when only wave one is ready.
    */
-  async persistPlan({ plan, webId, queenThreadId } = {}) {
+  async persistPlan({ plan, webId, queenThreadId, cleanupIntended = false } = {}) {
     if (this.#callerThreadId() !== queenThreadId) {
       throw new Error("only the plan's queen may persist durable work");
     }
+    if (typeof cleanupIntended !== "boolean") {
+      throw new Error("cleanupIntended must be a boolean");
+    }
     const workUnits = plannedMembers(plan).map((member) =>
-      workUnitFromLaunchMemberV1(member, { webId, queenThreadId }),
+      workUnitFromLaunchMemberV1(member, { webId, queenThreadId, cleanupIntended }),
     );
     for (const workUnit of workUnits) {
       await this.#executionStore.create(workUnit);

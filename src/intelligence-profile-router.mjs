@@ -47,10 +47,7 @@ function assertPlainInput(input) {
 export function routeIntelligenceProfile(input) {
   assertPlainInput(input);
   if (input === undefined || input === null || Object.keys(input).length === 0) return null;
-  if (
-    input.launchSurface !== undefined &&
-    !LAUNCH_SURFACES.has(input.launchSurface)
-  ) {
+  if (!LAUNCH_SURFACES.has(input.launchSurface)) {
     throw new Error(`unsupported intelligence launch surface: ${input.launchSurface}`);
   }
 

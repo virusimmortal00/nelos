@@ -337,6 +337,9 @@ async function runIntelligence(options) {
       ]),
       "intelligence route",
     );
+    // The CLI route command produces standalone native task options, so its
+    // call site explicitly uses the durable surface. Joined launches route
+    // only through the planner/launch contract path.
     const input = {};
     if (options.taskShape !== undefined) input.taskShape = options.taskShape;
     if (options.profileOverride !== undefined) {
@@ -345,6 +348,7 @@ async function runIntelligence(options) {
     if (options.model !== undefined) input.modelOverride = options.model;
     if (options.effort !== undefined) input.effortOverride = options.effort;
     if (options.nativeFanoutAllowed === true) input.nativeFanoutAllowed = true;
+    if (Object.keys(input).length > 0) input.launchSurface = "durable-task";
     return { command: "intelligence route", route: routeIntelligenceProfile(input) };
   }
   if (action === "verify") {

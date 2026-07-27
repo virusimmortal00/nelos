@@ -705,7 +705,13 @@ const TOOLS = [
           type: "boolean",
           description: "Permit an explicit Ultra effort override",
         },
+        launchSurface: {
+          type: "string",
+          enum: ["durable-task", "joined-subagent"],
+          description: "Native surface that will launch the work",
+        },
       },
+      required: ["launchSurface"],
       additionalProperties: false,
     },
     async run(args) {
@@ -717,6 +723,7 @@ const TOOLS = [
       if (args.model !== undefined) input.modelOverride = args.model;
       if (args.effort !== undefined) input.effortOverride = args.effort;
       if (args.allowNativeFanout === true) input.nativeFanoutAllowed = true;
+      input.launchSurface = args.launchSurface;
       return withNextAction({
         command: "intelligence route",
         route: routeIntelligenceProfile(input),

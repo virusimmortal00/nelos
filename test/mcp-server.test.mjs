@@ -1934,7 +1934,7 @@ test("nelos_intelligence_route mirrors the CLI mapping", async () => {
       method: "tools/call",
       params: {
         name: "nelos_intelligence_route",
-        arguments: { taskShape: "everyday" },
+        arguments: { taskShape: "everyday", launchSurface: "durable-task" },
       },
     },
     {
@@ -1943,7 +1943,7 @@ test("nelos_intelligence_route mirrors the CLI mapping", async () => {
       method: "tools/call",
       params: {
         name: "nelos_intelligence_route",
-        arguments: { taskShape: "unsupported-shape" },
+        arguments: { taskShape: "unsupported-shape", launchSurface: "durable-task" },
       },
     },
   ]);

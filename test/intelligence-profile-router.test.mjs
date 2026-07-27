@@ -37,8 +37,8 @@ test("task shapes deterministically select reviewed profiles at lowest sufficien
   ];
   for (const [taskShape, profile, requestedModel, requestedEffort] of scenarios) {
     await t.test(taskShape, () => {
-      const first = routeIntelligenceProfile({ taskShape });
-      const second = routeIntelligenceProfile({ taskShape });
+      const first = routeIntelligenceProfile({ taskShape, launchSurface: "durable-task" });
+      const second = routeIntelligenceProfile({ taskShape, launchSurface: "durable-task" });
       assert.deepEqual(first, second);
       assert.equal(first.profile, profile);
       assert.equal(first.requestedModel, requestedModel);
@@ -95,6 +95,7 @@ test("explicit validated model and effort overrides win", () => {
     taskShape: "complex/open-ended",
     modelOverride: "gpt-5.6-luna",
     effortOverride: "low",
+    launchSurface: "durable-task",
   });
   assert.equal(route.profile, "luna");
   assert.equal(route.requestedModel, "gpt-5.6-luna");
@@ -105,7 +106,7 @@ test("explicit validated model and effort overrides win", () => {
 });
 
 test("model and reasoning can be selected independently of task-shape routing", () => {
-  const modelOnly = routeIntelligenceProfile({ profileOverride: "sol" });
+  const modelOnly = routeIntelligenceProfile({ profileOverride: "sol", launchSurface: "durable-task" });
   assert.deepEqual(
     {
       taskShape: modelOnly.taskShape,
@@ -127,7 +128,7 @@ test("model and reasoning can be selected independently of task-shape routing", 
     },
   );
 
-  const effortOnly = routeIntelligenceProfile({ effortOverride: "high" });
+  const effortOnly = routeIntelligenceProfile({ effortOverride: "high", launchSurface: "durable-task" });
   assert.deepEqual(
     {
       taskShape: effortOnly.taskShape,
@@ -152,6 +153,7 @@ test("model and reasoning can be selected independently of task-shape routing", 
   const explicit = routeIntelligenceProfile({
     modelOverride: "gpt-5.6-terra",
     effortOverride: "max",
+    launchSurface: "durable-task",
   });
   assert.deepEqual(explicit.launch.nativeTask, {
     model: "gpt-5.6-terra",
@@ -164,6 +166,7 @@ test("explicit profile overrides win and conflicting explicit overrides fail", (
     taskShape: "everyday",
     profileOverride: "sol",
     effortOverride: "high",
+    launchSurface: "durable-task",
   });
   assert.equal(route.profile, "sol");
   assert.equal(route.requestedModel, "gpt-5.6-sol");
@@ -174,6 +177,7 @@ test("explicit profile overrides win and conflicting explicit overrides fail", (
         taskShape: "everyday",
         profileOverride: "sol",
         modelOverride: "gpt-5.6-terra",
+        launchSurface: "durable-task",
       }),
     /explicit intelligence profile and model overrides conflict/,
   );
@@ -193,11 +197,12 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
       routeIntelligenceProfile({
         taskShape: "everyday",
         profileOverride: "unsupported",
+        launchSurface: "durable-task",
       }),
     /unsupported intelligence profile: unsupported/,
   );
   assert.throws(
-    () => routeIntelligenceProfile({ taskShape: "mystery" }),
+    () => routeIntelligenceProfile({ taskShape: "mystery", launchSurface: "durable-task" }),
     /unsupported intelligence task shape: mystery/,
   );
   assert.throws(
@@ -205,6 +210,7 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
       routeIntelligenceProfile({
         taskShape: "everyday",
         modelOverride: "gpt-unknown",
+        launchSurface: "durable-task",
       }),
     /unsupported intelligence model: gpt-unknown/,
   );
@@ -213,6 +219,7 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
       routeIntelligenceProfile({
         taskShape: "everyday",
         effortOverride: "extreme",
+        launchSurface: "durable-task",
       }),
     /unsupported reasoning effort for terra: extreme/,
   );
@@ -221,12 +228,13 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
       routeIntelligenceProfile({
         taskShape: "clear/repeatable",
         effortOverride,
+        launchSurface: "durable-task",
       }).requestedEffort,
       effortOverride,
     );
   }
   assert.throws(
-    () => routeIntelligenceProfile({ effortOverride: "extreme" }),
+    () => routeIntelligenceProfile({ effortOverride: "extreme", launchSurface: "durable-task" }),
     /unsupported independent reasoning effort: extreme/,
   );
 });
@@ -234,6 +242,10 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
 test("omitted routing preserves host defaults", () => {
   assert.equal(routeIntelligenceProfile(), null);
   assert.equal(routeIntelligenceProfile({}), null);
+  assert.throws(
+    () => routeIntelligenceProfile({ taskShape: "everyday" }),
+    /unsupported intelligence launch surface: undefined/,
+  );
 });
 
 test("Ultra requires explicit native fan-out permission", () => {
@@ -242,6 +254,7 @@ test("Ultra requires explicit native fan-out permission", () => {
       routeIntelligenceProfile({
         taskShape: "complex/open-ended",
         effortOverride: "ultra",
+        launchSurface: "durable-task",
       }),
     /Ultra requires explicit native-fan-out permission/,
   );
@@ -250,6 +263,7 @@ test("Ultra requires explicit native fan-out permission", () => {
       taskShape: "complex/open-ended",
       effortOverride: "ultra",
       nativeFanoutAllowed: true,
+      launchSurface: "durable-task",
     }).requestedEffort,
     "ultra",
   );
@@ -258,6 +272,7 @@ test("Ultra requires explicit native fan-out permission", () => {
       routeIntelligenceProfile({
         effortOverride: "ultra",
         nativeFanoutAllowed: true,
+        launchSurface: "durable-task",
       }),
     /Ultra requires an explicit or recommended Sol or Terra profile/,
   );

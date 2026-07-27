@@ -48,6 +48,13 @@ Each bound member has four orthogonal state groups:
 | Result | `absent`, `current`, `stale`, `malformed` |
 | Coordination | `unjoined`, `waiting`, `collected`, `accepted`, `detached` |
 
+Required planned members receive `observe` and `read-result` so their final
+envelope can become acceptance evidence. Lower-level contracts may deliberately
+be observe-only; when such a member reaches a terminal turn, Nelos emits no
+result-read effect and returns `attention` rather than fabricating a result or
+claiming acceptance. `archive` is only granted to durable spinoffs when cleanup
+is explicitly intended; joined subagents can never receive it.
+
 A title mismatch never changes execution or result state. A terminal task does
 not imply a current result. A collected result does not imply queen acceptance.
 Acceptance is incorporated only when its member, revision, attempt, and source

@@ -185,6 +185,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     plan: plan(),
     webId: "A1",
     queenThreadId: "queen",
+    cleanupIntended: true,
   });
   assert.deepEqual(persisted.persistedWorkUnitIds, ["dependent", "upstream"]);
   assert.equal((await initial.executionStore.read("dependent")).binding.state, "unbound");
