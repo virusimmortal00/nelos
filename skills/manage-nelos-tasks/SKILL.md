@@ -63,7 +63,7 @@ After the fast path or validated bootstrap, execute only the returned
 - Before waiting or reading any launched wave, call
   `nelos_launch_verify_batch` once with the launch action's exact
   `verification` identity and every current-wave launch receipt. Joined
-  subagents use agent paths; spinoffs use thread IDs; both include turn IDs.
+  Subagents use agent paths; spinoffs use thread IDs, omit parent claims absent native inventory, and include turn IDs.
   Nelos obtains title/model/effort from the persisted wave contract. Proceed
   only when `allVerified` is true.
   Subagents report title as `not-applicable`; spinoffs verify
