@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
+import { ExecutionStoreV1 } from "../src/execution-store.mjs";
+import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
 import {
   deriveNextAction,
   withNextAction,
@@ -234,6 +239,17 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
     members[1].orchestration.arguments.workUnit.capabilities,
     ["observe", "read-result", "follow-up"],
   );
+  assert.equal(
+    Object.hasOwn(members[1].orchestration.arguments.workUnit, "binding"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      members[1].orchestration.arguments.workUnit,
+      "replacementHistory",
+    ),
+    false,
+  );
   assert.equal(members[1].orchestration.arguments.receipt, null);
 
   const cleanupMember = withNextAction({
@@ -246,6 +262,53 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
     cleanupMember.orchestration.arguments.workUnit.capabilities,
     ["observe", "read-result", "follow-up", "archive"],
   );
+});
+
+test("a generated durable orchestration action is directly consumable", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nelos-next-action-create-"));
+  try {
+    const plan = {
+      waves: [{
+        index: 1,
+        slices: [
+          slice(),
+          slice({
+            id: "implement",
+            title: "Implement",
+            lifecycle: "spinoff",
+            workspaceMode: "isolated-write",
+          }),
+        ],
+      }],
+    };
+    const planRun = createPlanRunV1(plan, {
+      queenThreadId: "queen-1",
+      sourceId: "directly-consumable-test",
+      webIdentity: {
+        schemaVersion: 1,
+        webId: "A1",
+        queenThreadId: "queen-1",
+        queenTitle: "🕷️ A1 👑 · Queen",
+      },
+    });
+    const action = withNextAction({
+      command: "plan slices",
+      plan,
+      planRun,
+      cleanupIntended: true,
+    }).nextAction.members[1].orchestration;
+    const adapter = new McpOrchestrationAdapterV1({
+      store: new ExecutionStoreV1({ directory }),
+    });
+
+    const prepared = await adapter.orchestrate(action.arguments);
+
+    assert.equal(prepared.effects.length, 1);
+    assert.equal(prepared.effects[0].type, action.bindReceiptType);
+    assert.equal(prepared.binding.state, "launch-pending");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("generation-one exception replans give reused joined slices fresh task identities", () => {

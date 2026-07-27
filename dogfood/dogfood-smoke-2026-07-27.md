@@ -202,3 +202,25 @@ the blocked child was not archived because it was never accepted.
 - Tell the worker it is already the durable spin-off and must not create or
   delegate another task.
 - Keep failed, unbound, and unaccepted tasks ineligible for cleanup.
+
+## Registration-Before-Create Smoke — Generated Input Mismatch
+
+After installing `0.4.0+codex.20260727182411` and fully restarting Codex, a
+fresh queen reached the corrected preparation step before any durable task was
+created:
+
+- Queen: `019fa4dc-1a20-78e2-b73f-d7d767fc41a6`
+- Queen title: `🕷️ A2 👑 · Clarify CLI and MCP roles (8)`
+- Plan run: `run:62deaf1b9213ecfbf96d26b7cdc3b5aad0bd9b90`
+- Planned child title: `🕸️ A2 · Verify durable lifecycle handoff`
+- Planned route: Luna/low
+
+The exact generated `nelos_orchestrate_create` arguments failed closed because
+their `workUnit` contained persisted runtime fields (`binding` and
+`replacementHistory`) that the tool's immutable creation-definition input
+rejects. No native child was created.
+
+The remediation serializes `workUnitDefinitionV1` into launch actions and adds
+a producer-to-consumer regression test that executes the generated arguments
+unchanged through `McpOrchestrationAdapterV1`. This protects the exact
+machine-generated handoff rather than only checking individual fields.

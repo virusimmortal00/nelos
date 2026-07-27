@@ -153,3 +153,11 @@ its work unit was registered, so its completion callback correctly failed
 closed as unbound. The follow-up patch adds machine-generated orchestration
 preparation, explicit cleanup intent, and a worker role boundary before the
 next live smoke.
+
+A fully restarted smoke of that patch reached preparation before native
+creation and exposed a narrower producer/consumer mismatch: the launch action
+embedded a persisted work-unit record, including `binding` and
+`replacementHistory`, while `nelos_orchestrate_create` accepts only the
+immutable creation definition. The tool rejected the action before mutation.
+The next patch projects `workUnitDefinitionV1` into the generated action and
+tests that the complete generated arguments are directly consumable.

@@ -8,6 +8,7 @@ import {
 import {
   normalizeLaunchMemberV1,
 } from "./launch-contract.mjs";
+import { workUnitDefinitionV1 } from "./execution-store.mjs";
 import { workUnitFromLaunchMemberV1 } from "./plan-orchestration-bridge.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
@@ -154,11 +155,13 @@ function launchMember(
   if (!planRun?.webIdentity) {
     throw new Error("durable launch requires a persisted web identity");
   }
-  const workUnit = workUnitFromLaunchMemberV1(member, {
-    webId: planRun.webIdentity.webId,
-    queenThreadId: planRun.queenThreadId,
-    cleanupIntended,
-  });
+  const workUnit = workUnitDefinitionV1(
+    workUnitFromLaunchMemberV1(member, {
+      webId: planRun.webIdentity.webId,
+      queenThreadId: planRun.queenThreadId,
+      cleanupIntended,
+    }),
+  );
   return {
     ...member,
     orchestration: {
