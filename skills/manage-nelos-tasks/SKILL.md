@@ -79,7 +79,7 @@ After the fast path or validated bootstrap, execute only the returned
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
 - `attach-native-task-options`: pass `nativeTask` unchanged to the next launch.
-- `decide`: judge current evidence; for an observation result, call `nelos_queen_decide`
+- `decide`: only the queen may judge current evidence; call `nelos_queen_decide`
   with schema version 1 and the exact consumed `native-result-read` receipt,
   web/queen IDs, decision, and summary; execute its returned
   `nelos_orchestrate_advance` action. Never reconstruct result provenance.

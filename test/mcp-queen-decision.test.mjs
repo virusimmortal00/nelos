@@ -139,7 +139,6 @@ async function fixture(t, outcome = "succeeded") {
     executionStore,
     acceptanceStore,
     checkpointStore,
-    callerThreadId: () => "queen",
   };
   return {
     root,
@@ -276,11 +275,14 @@ test("stale, mismatched, failed, and cross-queen acceptance fails closed", async
     /current durable binding/u,
   );
   await assert.rejects(
-    new McpQueenDecisionAdapterV1({
-      ...current.adapterOptions,
-      callerThreadId: () => "other-queen",
-    }).decide(input(current.receipt), { appServerBridge: currentBridge }),
-    /only the work unit's queen/u,
+    adapter.decide(
+      {
+        ...input(current.receipt),
+        queenThreadId: "other-queen",
+      },
+      { appServerBridge: currentBridge },
+    ),
+    /current durable binding/u,
   );
   assert.deepEqual(await current.acceptanceStore.list(), []);
 

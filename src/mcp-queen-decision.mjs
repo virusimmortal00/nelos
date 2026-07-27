@@ -157,20 +157,17 @@ export class McpQueenDecisionAdapterV1 {
   #acceptanceStore;
   #checkpointStore;
   #now;
-  #callerThreadId;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
     acceptanceStore = new QueenAcceptanceStoreV1(),
     checkpointStore = new OrchestrationCheckpointStoreV1(),
     now = () => new Date().toISOString(),
-    callerThreadId = () => process.env.CODEX_THREAD_ID ?? null,
   } = {}) {
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#checkpointStore = checkpointStore;
     this.#now = now;
-    this.#callerThreadId = callerThreadId;
   }
 
   async decide(value, { appServerBridge } = {}) {
@@ -190,9 +187,10 @@ export class McpQueenDecisionAdapterV1 {
       decision,
       decisionSummary,
     } = value;
-    if (this.#callerThreadId() !== queenThreadId) {
-      throw new Error("only the work unit's queen may record a decision");
-    }
+    // A bundled STDIO MCP process can outlive the Codex task that launched it.
+    // Its process environment is therefore not per-call caller evidence.
+    // Queen ownership is established by the persisted binding and exact
+    // consumed result below.
     const receipt = validateNativeResultReadReceiptV1(value.receipt);
     const workUnit = await this.#executionStore.read(receipt.workUnitId);
     if (!matchesCurrentWorkUnit(workUnit, webId, queenThreadId, receipt)) {

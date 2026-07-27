@@ -340,6 +340,11 @@ exact consumed `native-result-read` receipt. After judging the result against
 the slice criteria, call `nelos_queen_decide` with `schemaVersion: 1`, the
 current web and queen task IDs, `accepted | rejected`, a bounded summary, and
 that receipt. Execute the returned `nelos_orchestrate_advance` call unchanged.
+The bundled STDIO MCP process is long-lived and has no documented per-call
+Codex task identity, so this adapter does not treat its launch-time
+`CODEX_THREAD_ID` as caller authorization. Queen ownership is instead checked
+against the persisted web/work-unit binding and the exact consumed current
+result; the skill keeps the decision call on the queen side of the workflow.
 Only an accepted exact-current decision changes the member coordination state
 to `accepted`. Only after that observation may `nelos_spinoff_cleanup` derive
 an archive candidate. Missing, rejected, stale, mismatched, failed, blocked,

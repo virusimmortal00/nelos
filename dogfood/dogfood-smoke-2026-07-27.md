@@ -240,3 +240,33 @@ The canonical grammar is now:
 
 Legacy web, spider, and trailing-crown titles remain parseable and migrate on
 an exact plan replay or authorized title synchronization.
+
+## Role-First Live Smoke — Web A3
+
+After reinstalling the role-first build, fully restarting Codex, and starting
+a fresh queen:
+
+- Queen: `019fa500-edb2-7123-ad71-1994b924dabc`
+- Queen title: `👑 A3 · Clarify CLI and MCP roles (9)`
+- Child: `019fa503-7694-7db1-96a8-1a0713a1d54e`
+- Child title: `🕷️ A3 · Run disposable durable lifecycle smoke`
+- Child route: Luna/low
+- Registration-before-create, exact immutable handoff, native title
+  read/set/verify, completion callback, bounded wait/result read, and clean
+  isolated worktree: verified
+
+An initial batch verification supplied the delegation source as a reported
+native parent even though Codex's authoritative task inventory records
+`create_thread` tasks as peers with no parent edge. Omitting that unsupported
+claim produced a fully verified batch, which matches the Codex task contract.
+
+The lifecycle then exposed a separate MCP boundary bug:
+`nelos_queen_decide` rejected the real A3 queen because it compared the queen ID
+with `CODEX_THREAD_ID` captured by the long-lived STDIO MCP process. Codex does
+not document a per-call task identity for STDIO MCP servers, and the server
+process can survive thread navigation or forks. The MCP decision adapter now
+authorizes the asserted queen against the persisted web/work-unit binding,
+exact consumed current-result receipt, and fresh terminal-turn evidence instead
+of stale process-launch context. Queen-only invocation remains explicit in the
+skill. The A3 child remains unarchived because the pre-fix server could not
+record acceptance and cleanup correctly stayed unavailable.

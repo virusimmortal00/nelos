@@ -205,6 +205,14 @@ member's actual control surface rather than serial status polling:
    `nelos_orchestrate_advance`, then advance the dependency wave or synthesize
    the final response only when observation reports acceptance.
 
+The queen-only call is a workflow role constraint. A bundled STDIO MCP server
+is long-lived and does not receive a documented per-call Codex task identity,
+so its decision adapter must not authorize from the server process's launch-time
+`CODEX_THREAD_ID`. Instead it fails closed by matching the asserted queen ID,
+web ID, bound work unit, consumed current-result receipt, and fresh terminal
+turn evidence. The CLI remains free to use its per-invocation
+`CODEX_THREAD_ID`.
+
 `wait_threads` is an event wait from the queen's perspective; it is the
 preferred "pull" mechanism while the queen turn is alive. A bounded timeout is
 an opportunity to report progress and wait again, not evidence that a member
