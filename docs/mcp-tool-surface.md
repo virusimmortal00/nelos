@@ -86,6 +86,14 @@ long-lived
   It writes a separate private web checkpoint, validates exact title, wait,
   and result receipts, and returns typed host-owned effects. See
   [Durable Host Observation and Parent Join](observation-join.md);
+- `nelos_queen_decide` — records one accepted or rejected queen decision only
+  for an exact `native-result-read` receipt already consumed by the persisted
+  observation checkpoint. It verifies the current work-unit revision, attempt,
+  binding generation, member, source turn, result envelope, calling queen, and
+  latest successful host turn before the first write. It returns persisted
+  provenance and the exact `nelos_orchestrate_advance` call that incorporates
+  it. Exact replay is idempotent across restart; the same provenance cannot be
+  reused for a different decision;
 - `nelos_spinoff_complete` — validates the completion against its exact bound
   durable work unit, persists a bounded completion record, and returns one
   host-owned native send-message effect. A later call validates the exact host
@@ -105,8 +113,9 @@ resolution perform read-only work. Lifecycle planning, exception replanning,
 the bootstrap compatibility tool, and structured planning are annotated
 non-read-only and idempotent because they write private checkpoints. Queen
 title synchronization is returned as a host-owned effect.
-Both orchestration tools remain non-read-only and idempotent: they write
-private Nelos state but do not perform native host effects. Completion
+Both orchestration tools and queen decision remain non-read-only and
+idempotent: they write private Nelos state but do not perform native host
+effects. Completion
 delivery persists private state and returns a receipt-bound host wake effect;
 cleanup remains declared destructive because its requested native effect
 archives tasks. This small bridge exposes no web
@@ -323,6 +332,19 @@ thread and exact requested title. Submit its `native-title-observed` receipt to
 mismatch produces a bounded, idempotent `native-set-title` fallback. Replaying
 the bound phase re-emits only the same read effect. The adapter never interprets
 a receipt as authorization for a second create.
+
+## Queen decision and cleanup sequence
+
+When `nelos_orchestrate_advance` returns `boundary.type: "decide"`, preserve the
+exact consumed `native-result-read` receipt. After judging the result against
+the slice criteria, call `nelos_queen_decide` with `schemaVersion: 1`, the
+current web and queen task IDs, `accepted | rejected`, a bounded summary, and
+that receipt. Execute the returned `nelos_orchestrate_advance` call unchanged.
+Only an accepted exact-current decision changes the member coordination state
+to `accepted`. Only after that observation may `nelos_spinoff_cleanup` derive
+an archive candidate. Missing, rejected, stale, mismatched, failed, blocked,
+or cross-queen evidence remains cleanup `not-ready` and yields no archive
+effect.
 
 ## User-visible install contract
 

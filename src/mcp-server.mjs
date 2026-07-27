@@ -40,6 +40,10 @@ import {
   McpJoinAdapterV1,
 } from "./mcp-observation.mjs";
 import {
+  MCP_QUEEN_DECISION_INPUT_SCHEMA,
+  McpQueenDecisionAdapterV1,
+} from "./mcp-queen-decision.mjs";
+import {
   CodexAppServerBridgeV1,
   MCP_APP_SERVER_MAX_BATCH_THREADS,
   MCP_APP_SERVER_MAX_WAIT_MS,
@@ -813,6 +817,18 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_queen_decide",
+    description:
+      "Record an accepted or rejected queen decision for one exact current " +
+      "orchestration result. Requires consumed result provenance and fresh " +
+      "latest-turn evidence; exact persisted replays are idempotent.",
+    inputSchema: MCP_QUEEN_DECISION_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { appServerBridge, queenDecisionAdapter }) {
+      return queenDecisionAdapter.decide(args, { appServerBridge });
+    },
+  },
+  {
     name: "nelos_spinoff_complete",
     description:
       "Persist one bound spin-off completion and return one host-owned native " +
@@ -874,6 +890,7 @@ export function startNelosMcpServer({
   onExit = (code) => process.exit(code),
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
+  queenDecisionAdapter = new McpQueenDecisionAdapterV1(),
   lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
   appServerBridge = new CodexAppServerBridgeV1(),
   planRunStore = new PlanRunStoreV1(),
@@ -907,6 +924,7 @@ export function startNelosMcpServer({
         planRunStore,
         webRegistry,
         joinAdapter,
+        queenDecisionAdapter,
         lifecycleAdapter,
       });
     } catch (error) {

@@ -172,6 +172,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_intelligence_resolve_subagent",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
+      "nelos_queen_decide",
       "nelos_spinoff_complete",
       "nelos_spinoff_cleanup",
     ],
@@ -234,6 +235,37 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   });
   assert.equal(advance.inputSchema.additionalProperties, false);
   assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
+  const queenDecision = tools.find(
+    ({ name }) => name === "nelos_queen_decide",
+  );
+  assert.deepEqual(queenDecision.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  assert.deepEqual(queenDecision.inputSchema.required, [
+    "schemaVersion",
+    "webId",
+    "queenThreadId",
+    "decision",
+    "decisionSummary",
+    "receipt",
+  ]);
+  assert.equal(queenDecision.inputSchema.properties.schemaVersion.const, 1);
+  assert.deepEqual(
+    queenDecision.inputSchema.properties.decision.enum,
+    ["accepted", "rejected"],
+  );
+  assert.equal(
+    queenDecision.inputSchema.properties.receipt.additionalProperties,
+    false,
+  );
+  assert.equal(
+    queenDecision.inputSchema.properties.receipt.properties.resultEnvelope
+      .additionalProperties,
+    false,
+  );
   const complete = tools.find(
     ({ name }) => name === "nelos_spinoff_complete",
   );
@@ -860,6 +892,65 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
   const result = toolBody(response);
   assert.equal(result.isError, false);
   assert.equal(result.body.join.effects[0].type, "native-wait");
+});
+
+test("nelos_queen_decide forwards the strict versioned decision lifecycle", async () => {
+  const calls = [];
+  const args = {
+    schemaVersion: 1,
+    webId: "A1",
+    queenThreadId: "queen",
+    decision: "accepted",
+    decisionSummary: "Queen verified the result.",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-result-read",
+      actionId: "result-action",
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      bindingGeneration: 1,
+      memberThreadId: "thread-alpha",
+      requestedTurnId: "turn-alpha",
+      sourceTurnId: "turn-alpha",
+      resultEnvelope: {},
+    },
+  };
+  const appServerBridge = { marker: "bridge", close() {} };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_queen_decide", arguments: args },
+      },
+    ],
+    {
+      appServerBridge,
+      queenDecisionAdapter: {
+        async decide(value, context) {
+          calls.push({ value, context });
+          return {
+            schemaVersion: 1,
+            replayed: false,
+            decision: { decisionId: "queen-acceptance-v1/example" },
+          };
+        },
+      },
+    },
+  );
+  assert.deepEqual(calls, [{
+    value: args,
+    context: { appServerBridge },
+  }]);
+  const result = toolBody(response);
+  assert.equal(result.isError, false);
+  assert.equal(
+    result.body.decision.decisionId,
+    "queen-acceptance-v1/example",
+  );
 });
 
 test("spin-off lifecycle tools forward exact bounded arguments", async () => {

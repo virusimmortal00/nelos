@@ -24,6 +24,15 @@ fails closed. Receipt digests retain the newest 1,000-action replay window;
 older identities are compacted before persistence so long-running timeout loops
 cannot exceed the checkpoint schema bound.
 
+At a `decide` boundary, the queen submits the exact consumed
+`native-result-read` receipt to `nelos_queen_decide` with a versioned accepted
+or rejected decision. The operation verifies the persisted checkpoint, current
+durable binding, calling queen, and latest successful host turn before
+recording through `QueenAcceptanceStoreV1`. It returns the unchanged arguments
+for the next `nelos_orchestrate_advance`; that call projects an exact accepted
+decision into member coordination. Cleanup is not attempted until this advance
+reports acceptance.
+
 ## Durable checkpoint
 
 Checkpoints live under the private Nelos task-state directory, separately from

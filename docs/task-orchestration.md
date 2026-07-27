@@ -200,8 +200,10 @@ member's actual control surface rather than serial status polling:
 4. Send a same-task corrective turn when allowed, or stop for queen attention.
 5. Wait again on the remaining nonterminal members, supplying their latest
    cursors.
-6. After all required results are current, perform explicit queen acceptance,
-   advance the dependency wave, or synthesize the final response.
+6. After all required results are current, call `nelos_queen_decide` with the
+   exact consumed result receipt, execute its returned
+   `nelos_orchestrate_advance`, then advance the dependency wave or synthesize
+   the final response only when observation reports acceptance.
 
 `wait_threads` is an event wait from the queen's perspective; it is the
 preferred "pull" mechanism while the queen turn is alive. A bounded timeout is

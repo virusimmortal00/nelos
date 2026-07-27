@@ -80,9 +80,11 @@ After the fast path or validated bootstrap, execute only the returned
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
 - `attach-native-task-options`: pass `nativeTask` unchanged to the next launch.
-- `decide`: author the slice plan or decide whether current evidence satisfies
-  its acceptance criteria. Slice-plan authorship is permitted here only when
-  explicitly returned as an unresolved `decide` action.
+- `decide`: judge current evidence; for an observation result, call `nelos_queen_decide`
+  with schema version 1 and the exact consumed `native-result-read` receipt,
+  web/queen IDs, decision, and summary; execute its returned
+  `nelos_orchestrate_advance` action. Never reconstruct result provenance.
+  Author slices only when explicitly returned unresolved.
 - `attention`: stop and supply the missing launch inputs or resolve the named
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.
@@ -92,8 +94,8 @@ The launch prompt requires a bounded result and, for spinoffs, an exact
 `receipt: null`, execute only the returned native send-message effect, and call
 again with the exact host receipt. A reconciliation effect is `attention`;
 never blindly repeat the send.
-After current queen acceptance, call `nelos_spinoff_cleanup`: `ask` names exact
-candidates before confirmation, `auto` returns native archive effects, and
+Only after that advance reports the member accepted, call `nelos_spinoff_cleanup`:
+`ask` names exact candidates before confirmation, `auto` returns native archive effects, and
 `keep` preserves them. Execute only returned archive effects and call cleanup
 again with their exact receipts.
 Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
