@@ -32,6 +32,25 @@ function plan(id = "research") {
   });
 }
 
+function durablePlan() {
+  const planned = structuredClone(plan("implementation"));
+  planned.waves[0].slices[0] = {
+    ...planned.waves[0].slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  return planned;
+}
+
+function webIdentity(webId = "A1") {
+  return {
+    schemaVersion: 1,
+    webId,
+    queenThreadId: "queen-1",
+    queenTitle: `🕷️ ${webId} 👑 · Release`,
+  };
+}
+
 test("plan runs are deterministic, durable, and preserve authoritative wave contracts", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
   try {
@@ -232,5 +251,114 @@ test("exception plan-run lineage permits exactly one derived generation", () => 
         parentPlanRun: revised,
       }),
     /bounded to one plan-run generation/u,
+  );
+});
+
+test("durable plan runs persist one web identity and decorated settled titles", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const store = new PlanRunStoreV1({ directory: join(root, "records") });
+    const input = createPlanRunV1(durablePlan(), {
+      queenThreadId: "queen-1",
+      sourceId: "durable-web",
+      webIdentity: webIdentity(),
+    });
+    const first = await store.create(input);
+    const replay = await store.create(input);
+    assert.deepEqual(replay, first);
+    assert.deepEqual(first.webIdentity, webIdentity());
+    assert.equal(
+      first.waves[0].members[0].title,
+      "🕸️ A1 · Research the boundary",
+    );
+
+    await assert.rejects(
+      store.create(
+        createPlanRunV1(durablePlan(), {
+          queenThreadId: "queen-1",
+          sourceId: "durable-web",
+          webIdentity: webIdentity("A2"),
+        }),
+      ),
+      /conflicting persisted web identity/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy plan runs adopt a web identity without renumbering existing markers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const directory = join(root, "records");
+    const store = new PlanRunStoreV1({ directory });
+    const legacy = createPlanRunV1(durablePlan(), {
+      queenThreadId: "queen-1",
+      sourceId: "legacy-durable-web",
+    });
+    const legacySource = structuredClone(legacy);
+    delete legacySource.webIdentity;
+    await store.create(legacySource);
+
+    const upgraded = await store.create(
+      createPlanRunV1(durablePlan(), {
+        queenThreadId: "queen-1",
+        sourceId: "legacy-durable-web",
+        webIdentity: webIdentity(),
+      }),
+    );
+    assert.equal(upgraded.webIdentity.webId, "A1");
+    assert.equal(
+      upgraded.waves[0].members[0].title,
+      "🕸️ A1 · Research the boundary",
+    );
+    assert.deepEqual(await store.read(upgraded.planRunId), upgraded);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("persisted web identity rejects conflicting queen and member titles", () => {
+  assert.throws(
+    () =>
+      createPlanRunV1(durablePlan(), {
+        queenThreadId: "queen-1",
+        sourceId: "conflicting-queen-title",
+        webIdentity: {
+          ...webIdentity(),
+          queenTitle: "🕷️ A2 👑 · Release",
+        },
+      }),
+    /queen outbound marker A2 conflicts with persisted web identity A1/u,
+  );
+  const created = createPlanRunV1(durablePlan(), {
+    queenThreadId: "queen-1",
+    sourceId: "conflicting-member-title",
+    webIdentity: webIdentity(),
+  });
+  assert.throws(
+    () =>
+      createPlanRunV1(
+        {
+          ...durablePlan(),
+          waves: [
+            {
+              ...durablePlan().waves[0],
+              slices: [
+                {
+                  ...durablePlan().waves[0].slices[0],
+                  title: "🕸️ A2 · Research the boundary",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          queenThreadId: "queen-1",
+          sourceId: "conflicting-member-title",
+          webIdentity: created.webIdentity,
+        },
+      ),
+    /child inbound marker A2 conflicts with persisted web identity A1/u,
   );
 });

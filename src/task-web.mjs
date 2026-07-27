@@ -149,6 +149,55 @@ export function renderQueenTitle(title) {
   });
 }
 
+function assertMatchingMarker(actual, expected, label) {
+  if (actual && assertWebId(actual) !== assertWebId(expected)) {
+    throw new Error(
+      `${label} ${assertWebId(actual)} conflicts with persisted web identity ${assertWebId(expected)}`,
+    );
+  }
+}
+
+/**
+ * Decorate the current queen with one already-chosen legacy web identity.
+ *
+ * Allocation intentionally does not live here. The compatibility registry may
+ * supply today's A1-style identity; permanent hexadecimal allocation and
+ * migration are owned by GitHub issue #23.
+ */
+export function renderPersistedQueenWebTitle(title, webId) {
+  const normalizedWebId = assertWebId(webId);
+  const parsed = parseTitleMarkers(title);
+  if (!parsed.baseTitle) {
+    throw new Error("current queen task has no settled title");
+  }
+  assertMatchingMarker(parsed.outboundWebId, normalizedWebId, "queen outbound marker");
+  return renderTitleMarkers({
+    baseTitle: parsed.baseTitle,
+    inboundWebId: parsed.inboundWebId,
+    outboundWebId: normalizedWebId,
+    queenMarked: true,
+  });
+}
+
+/**
+ * Decorate a durable child without discarding a pre-existing nested-queen
+ * marker. A conflicting inbound marker is lineage evidence, not a rename hint.
+ */
+export function renderPersistedDurableChildTitle(title, webId) {
+  const normalizedWebId = assertWebId(webId);
+  const parsed = parseTitleMarkers(title);
+  if (!parsed.baseTitle) {
+    throw new Error("durable child title must include visible text");
+  }
+  assertMatchingMarker(parsed.inboundWebId, normalizedWebId, "child inbound marker");
+  return renderTitleMarkers({
+    baseTitle: parsed.baseTitle,
+    inboundWebId: normalizedWebId,
+    outboundWebId: parsed.outboundWebId,
+    queenMarked: parsed.queenMarked,
+  });
+}
+
 export function allocateWebId(records, inboundWebId = null) {
   const used = new Set();
   // A compact ID is presentation, not lifecycle, state. Every unarchived

@@ -160,20 +160,23 @@ reuse of an `intentId` with different inputs.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Mark the queen, then verify seeded spinoff titles.** When a valid plan
-   contains a durable spinoff, the MCP planner uses its lazy app-server bridge
-   to read the current task title, preserve its web-lineage markers, render the
-   crown in canonical order (`[🕸️ inbound] [🕷️ outbound] [👑] · base title`),
-   and verify the mutation before returning any launch action. Legacy titles
-   with an outer crown are normalized into that order. A failed inspection,
-   preflight title change, rename, or verification makes the planning tool fail
-   closed. Codex `0.144.x` offers no title compare-and-set, so a simultaneous
-   manual Desktop rename during the final read/write window is unsupported.
-   Child launch prompts retain their semantic titles and start with
-   `Task title: <short intended title>`. Once a child exists, observe its settled
-   native title only when it is a durable spinoff. Exact equality completes
-   title synchronization without a mutation. Only a spinoff mismatch emits an
-   idempotent native rename followed by verification. Joined subagents have no
+4. **Persist one web identity, then settle queen and spinoff titles.** For a
+   durable plan, Nelos reuses the queen's existing legacy web record or marked
+   title, or allocates through that compatibility registry once. The web ID,
+   exact queen title, and every durable member's decorated title are persisted
+   in the plan-run contract before launch. Conflicting record, title, or
+   plan-run identities fail closed rather than overwriting lineage.
+
+   The planner reads the current queen title twice and returns one deterministic
+   host-owned `native-set-title` effect when the persisted queen title is not
+   settled. Repeated planning reuses the same effect identity; no wave is
+   returned until exact equality is observed.
+
+   Current Codex `create_thread` has no title field. `Task title: <decorated
+   intended title>` remains only a non-authoritative prompt seed. After binding,
+   batch verification reads a durable spinoff's title. A title-only mismatch
+   returns one deterministic post-bind `native-set-title`/verify action and
+   gates the wave until exact equality is observed. Joined subagents have no
    native title-control contract; their title check is `not-applicable`.
 5. **Join required work.** Once every required current-wave member is bound,
    enter the queen join loop. Detached members are recorded but excluded.
@@ -181,8 +184,8 @@ reuse of an `intentId` with different inputs.
 The standalone app-server adapter can continue its stronger sequence of
 `thread/start`, title synchronization, then `turn/start`. Native Desktop
 creation currently starts the initial turn as part of creation. Prompt seeding
-normally gives that task its intended short title immediately, while native
-observation and conditional rename remain the compatibility fallback.
+may give that task an approximate useful title, but it is never settled-title
+evidence. Native read/set/verify is the normal compatibility path.
 
 ## Queen Join Loop
 

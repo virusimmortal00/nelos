@@ -52,12 +52,69 @@ async function roundTrip(messages, options = {}) {
   const chunks = [];
   output.on("data", (chunk) => chunks.push(chunk));
   const exited = new Promise((resolve) => {
+    const webRecords = new Map();
+    const webRegistry = {
+      async withLock(callback) {
+        return callback();
+      },
+      async read(threadId) {
+        return webRecords.get(threadId) ?? null;
+      },
+      async list() {
+        return [...webRecords.values()];
+      },
+      async write(record) {
+        webRecords.set(record.threadId, structuredClone(record));
+      },
+    };
+    const planRuns = new Map();
+    const planRunStore = {
+      async read(planRunId) {
+        return planRuns.get(planRunId) ?? null;
+      },
+      async create(record) {
+        const existing = planRuns.get(record.planRunId);
+        if (
+          existing &&
+          JSON.stringify(existing) !== JSON.stringify(record)
+        ) {
+          throw new Error("plan run identity conflicts with persisted intent");
+        }
+        planRuns.set(record.planRunId, structuredClone(record));
+        return structuredClone(record);
+      },
+      async requireWave({
+        planRunId,
+        queenThreadId,
+        waveIndex,
+        waveDigest,
+      }) {
+        const record = planRuns.get(planRunId);
+        if (!record) throw new Error("launch batch references an unknown plan run");
+        if (record.queenThreadId !== queenThreadId) {
+          throw new Error("plan run belongs to a different queen");
+        }
+        const wave = record.waves.find(
+          (candidate) =>
+            candidate.waveIndex === waveIndex &&
+            candidate.waveDigest === waveDigest,
+        );
+        if (!wave) {
+          throw new Error(
+            "launch batch conflicts with its persisted wave contract",
+          );
+        }
+        return { record, wave };
+      },
+    };
     startNelosMcpServer({
       input,
       output,
       serverVersion: "0.0.0-test",
       onExit: resolve,
       currentThreadId: () => "queen-1",
+      planRunStore,
+      webRegistry,
       ...options,
     });
   });
@@ -578,6 +635,99 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
       }]);
     }
   }
+});
+
+test("nelos_launch_verify_batch returns one replay-stable post-bind title synchronization", async () => {
+  const args = {
+    planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    parentThreadId: "queen-1",
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        threadId: "member-1",
+        turnId: "turn-1",
+      },
+    ],
+  };
+  const wave = {
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        title: "🕸️ A1 · Explore",
+        model: "gpt-5.6-terra",
+        effort: "low",
+      },
+    ],
+  };
+  const [, first, replay] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_launch_verify_batch", arguments: args },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "nelos_launch_verify_batch", arguments: args },
+      },
+    ],
+    {
+      async launchBatchVerifier() {
+        return {
+          schemaVersion: 1,
+          parentThreadId: "queen-1",
+          allVerified: false,
+          members: [
+            {
+              sliceId: "explore",
+              lifecycle: "spinoff",
+              threadId: "member-1",
+              checks: {
+                identity: "verified",
+                read: "verified",
+                topology: "verified",
+                title: "failed",
+                route: "verified",
+              },
+              attentionReason: "title-mismatch",
+              verified: false,
+            },
+          ],
+        };
+      },
+      planRunStore: {
+        async read() {
+          return null;
+        },
+        async requireWave() {
+          return { record: {}, wave };
+        },
+      },
+    },
+  );
+  const firstAction = toolBody(first).body.nextAction;
+  assert.deepEqual(firstAction, {
+    schemaVersion: 1,
+    kind: "native-set-title",
+    actionId:
+      "plan-title:1234567890abcdef1234567890abcdef12345678:" +
+      "wave-1:explore",
+    threadId: "member-1",
+    title: "🕸️ A1 · Explore",
+    verify: true,
+    after: "repeat-launch-verify-batch",
+  });
+  assert.deepEqual(toolBody(replay).body.nextAction, firstAction);
 });
 
 test("nelos_launch_verify_batch relies on persisted queen ownership", async () => {
@@ -1170,16 +1320,18 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
   assert.deepEqual(body.queenTitleSync, {
     schemaVersion: 1,
     threadId: "queen-1",
+    webId: "A1",
     previousTitle: "Release",
-    title: "👑 · Release",
+    title: "🕷️ A1 👑 · Release",
     changed: true,
     verified: false,
   });
   assert.deepEqual(body.nextAction, {
     schemaVersion: 1,
     kind: "native-set-title",
+    actionId: `plan-title:${body.planRun.planRunId.slice(4)}:queen`,
     threadId: "queen-1",
-    title: "👑 · Release",
+    title: "🕷️ A1 👑 · Release",
     verify: true,
     after: "repeat-plan-slices",
   });
@@ -1216,7 +1368,7 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
           return {
             schemaVersion: 1,
             threadId: "queen-1",
-            title: "👑 · Release",
+            title: "🕷️ A1 👑 · Release",
             status: "idle",
           };
         },
@@ -1227,6 +1379,73 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
   assert.equal(isError, false);
   assert.equal(body.queenTitleSync.verified, true);
   assert.equal(body.nextAction.kind, "launch-wave");
+  assert.equal(body.planRun.webIdentity.webId, "A1");
+  assert.equal(body.nextAction.members[0].title, "🕸️ A1 · Explore");
+  assert.match(
+    body.nextAction.members[0].prompt,
+    /^Task title: 🕸️ A1 · Explore\n\n/u,
+  );
+});
+
+test("replayed durable planning reuses one identity and one queen-title effect", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  let record = null;
+  let writes = 0;
+  const webRegistry = {
+    async withLock(callback) {
+      return callback();
+    },
+    async read() {
+      return record;
+    },
+    async list() {
+      return record ? [record] : [];
+    },
+    async write(value) {
+      writes += 1;
+      record = structuredClone(value);
+    },
+  };
+  const call = (id) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: {
+      name: "nelos_plan_slices",
+      arguments: { plan, queenThreadId: "queen-1" },
+    },
+  });
+  const [, first, replay] = await roundTrip(
+    [INITIALIZE, call(2), call(3)],
+    {
+      webRegistry,
+      appServerBridge: {
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "Release",
+            status: "idle",
+          };
+        },
+      },
+    },
+  );
+  const firstBody = toolBody(first).body;
+  const replayBody = toolBody(replay).body;
+  assert.equal(writes, 1);
+  assert.equal(firstBody.planRun.webIdentity.webId, "A1");
+  assert.equal(replayBody.planRun.webIdentity.webId, "A1");
+  assert.deepEqual(replayBody.nextAction, firstBody.nextAction);
+  assert.equal(
+    replayBody.planRun.waves[0].members[0].title,
+    "🕸️ A1 · Explore",
+  );
 });
 
 test("nelos_plan_slices requires an explicit queen ID", async () => {

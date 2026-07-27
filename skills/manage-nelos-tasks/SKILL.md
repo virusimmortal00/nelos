@@ -42,8 +42,9 @@ After the fast path or validated bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
 - `native-set-title`: use only for the queen or a durable spinoff with its
-  exact `threadId` and `title`, verify it natively, then repeat the tool that
-  returned the action. Joined subagents do not support native title control.
+  exact `threadId`, `title`, and `actionId` when present; verify it
+  natively, then repeat the tool that returned the action. Joined subagents do
+  not support native title control.
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
@@ -57,6 +58,8 @@ After the fast path or validated bootstrap, execute only the returned
   substitute, or inherit a decided `nativeTask`. If the exact route or native
   identity is unavailable, stop with `attention`; never bind an agent name as a
   thread ID.
+  Current Codex `create_thread` has no title field. A spinoff `title` is the
+  settled title; create from the prompt seed, then post-bind read/set/verify.
   Do not launch a later wave until required current results are accepted.
 - Before waiting or reading any launched wave, call
   `nelos_launch_verify_batch` once with the launch action's exact
@@ -64,10 +67,9 @@ After the fast path or validated bootstrap, execute only the returned
   subagents use agent paths; spinoffs use thread IDs; both include turn IDs.
   Nelos obtains title/model/effort from the persisted wave contract. Proceed
   only when `allVerified` is true.
-  Subagents verify `agent-path` identity and report title as `not-applicable`;
-  spinoffs verify `native-thread-title`. One missing, altered, duplicate,
-  wrong-parent, unreadable, or wrong-route member blocks the whole batch;
-  a spinoff title mismatch also blocks it.
+  Subagents report title as `not-applicable`; spinoffs verify
+  `native-thread-title`. On title mismatch, run `native-set-title` and repeat.
+  Bad identity, topology, read, or route evidence blocks the whole batch.
 - `native-wait-subagent` and `native-read-subagent-result`: use collaboration
   controls with the exact `agentPath`. Do not send the verification-only
   subagent thread ID to Codex task title/read controls.

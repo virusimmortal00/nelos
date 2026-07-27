@@ -50,7 +50,17 @@ import {
   SPINOFF_COMPLETE_INPUT_SCHEMA,
   SpinoffLifecycleAdapterV1,
 } from "./spinoff-lifecycle.mjs";
-import { renderQueenTitle } from "./task-web.mjs";
+import {
+  listWebRecords,
+  readWebRecord,
+  withWebRegistryLock,
+  writeWebRecord,
+} from "./task-state.mjs";
+import {
+  allocateWebId,
+  parseWebTitle,
+  renderPersistedQueenWebTitle,
+} from "./task-web.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -83,6 +93,13 @@ const DESTRUCTIVE_STATEFUL_ANNOTATIONS = Object.freeze({
   openWorldHint: false,
 });
 
+const DEFAULT_WEB_REGISTRY = Object.freeze({
+  withLock: withWebRegistryLock,
+  read: readWebRecord,
+  list: listWebRecords,
+  write: writeWebRecord,
+});
+
 async function plannedSlicesOutput(
   plan,
   appServerBridge,
@@ -91,6 +108,7 @@ async function plannedSlicesOutput(
     queenThreadId,
     planRunStore,
     parentPlanRun = null,
+    webRegistry,
   },
 ) {
   const sourceId =
@@ -99,8 +117,113 @@ async function plannedSlicesOutput(
     `structured:${createHash("sha256")
       .update(JSON.stringify(plan), "utf8")
       .digest("hex")}`;
+  const candidate = createPlanRunV1(plan, {
+    queenThreadId,
+    sourceId,
+    parentPlanRun,
+  });
+  const existing = await planRunStore.read(candidate.planRunId);
+  let persistedWebIdentity =
+    parentPlanRun?.webIdentity ?? existing?.webIdentity ?? null;
+  let settledQueenTitle = null;
+
+  if (plan.summary.spinoffs > 0) {
+    const before = await appServerBridge.inspect({ threadId: queenThreadId });
+    if (!before.title) {
+      throw new Error("current queen task has no settled title");
+    }
+    const preflight = await appServerBridge.inspect({ threadId: queenThreadId });
+    if (preflight.title !== before.title) {
+      throw new Error("queen title changed during synchronization");
+    }
+    settledQueenTitle = preflight.title;
+    persistedWebIdentity = await webRegistry.withLock(async () => {
+      const stored = await webRegistry.read(queenThreadId);
+      const current = stored && !stored.archivedAt ? stored : null;
+      const parsed = parseWebTitle(settledQueenTitle);
+      const plannedWebId = persistedWebIdentity?.webId ?? null;
+      const recordedWebId = current?.outboundWebId
+        ? String(current.outboundWebId).trim().toUpperCase()
+        : null;
+      for (const observedWebId of [
+        recordedWebId,
+        parsed.outboundWebId,
+      ]) {
+        if (
+          observedWebId &&
+          plannedWebId &&
+          observedWebId !== plannedWebId
+        ) {
+          throw new Error(
+            `queen web identity ${observedWebId} conflicts with persisted web identity ${plannedWebId}`,
+          );
+        }
+      }
+      if (
+        recordedWebId &&
+        parsed.outboundWebId &&
+        recordedWebId !== parsed.outboundWebId
+      ) {
+        throw new Error(
+          "queen title conflicts with its persisted legacy web record",
+        );
+      }
+      const webId =
+        plannedWebId ??
+        recordedWebId ??
+        parsed.outboundWebId ??
+        allocateWebId(await webRegistry.list(), parsed.inboundWebId);
+      const queenTitle =
+        persistedWebIdentity?.queenTitle ??
+        renderPersistedQueenWebTitle(settledQueenTitle, webId);
+      const normalized = {
+        schemaVersion: 1,
+        webId,
+        queenThreadId,
+        queenTitle,
+      };
+      if (
+        persistedWebIdentity &&
+        JSON.stringify(persistedWebIdentity) !== JSON.stringify(normalized)
+      ) {
+        throw new Error(
+          "queen observation conflicts with persisted plan-run lineage",
+        );
+      }
+      const parsedQueenTitle = parseWebTitle(queenTitle);
+      const alreadyPersisted =
+        current?.baseTitle === parsedQueenTitle.baseTitle &&
+        (current?.inboundWebId ?? null) === parsedQueenTitle.inboundWebId &&
+        current?.outboundWebId === webId &&
+        current?.queenMarked === true &&
+        current?.renderedTitle === queenTitle &&
+        current?.archivedAt === null;
+      if (!alreadyPersisted) {
+        const timestamp = new Date().toISOString();
+        await webRegistry.write({
+          ...(current ?? {}),
+          threadId: queenThreadId,
+          baseTitle: parsedQueenTitle.baseTitle,
+          inboundWebId: parsedQueenTitle.inboundWebId,
+          outboundWebId: webId,
+          queenThreadId: current?.queenThreadId ?? null,
+          queenMarked: true,
+          renderedTitle: queenTitle,
+          createdAt: current?.createdAt ?? timestamp,
+          updatedAt: timestamp,
+          archivedAt: null,
+        });
+      }
+      return normalized;
+    });
+  }
   const planRun = await planRunStore.create(
-    createPlanRunV1(plan, { queenThreadId, sourceId, parentPlanRun }),
+    createPlanRunV1(plan, {
+      queenThreadId,
+      sourceId,
+      parentPlanRun,
+      webIdentity: persistedWebIdentity,
+    }),
   );
   const output = {
     ...withNextAction({
@@ -112,22 +235,15 @@ async function plannedSlicesOutput(
   };
   if (plan.summary.spinoffs === 0) return output;
 
-  const before = await appServerBridge.inspect({ threadId: queenThreadId });
-  if (!before.title) {
-    throw new Error("current queen task has no settled title");
-  }
-  const preflight = await appServerBridge.inspect({ threadId: queenThreadId });
-  if (preflight.title !== before.title) {
-    throw new Error("queen title changed during synchronization");
-  }
-  const requestedTitle = renderQueenTitle(preflight.title);
-  const changed = requestedTitle !== preflight.title;
+  const requestedTitle = planRun.webIdentity.queenTitle;
+  const changed = requestedTitle !== settledQueenTitle;
   return {
     ...output,
     queenTitleSync: {
       schemaVersion: 1,
       threadId: queenThreadId,
-      previousTitle: preflight.title,
+      webId: planRun.webIdentity.webId,
+      previousTitle: settledQueenTitle,
       title: requestedTitle,
       changed,
       verified: !changed,
@@ -137,6 +253,7 @@ async function plannedSlicesOutput(
           nextAction: {
             schemaVersion: 1,
             kind: "native-set-title",
+            actionId: `plan-title:${planRun.planRunId.slice(4)}:queen`,
             threadId: queenThreadId,
             title: requestedTitle,
             verify: true,
@@ -158,7 +275,7 @@ const TOOLS = [
       "should use nelos_plan_slices directly.",
     inputSchema: PLANNING_BOOTSTRAP_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, planRunStore }) {
+    async run(args, { appServerBridge, planRunStore, webRegistry }) {
       const { queenThreadId, ...bootstrapArgs } = args;
       if (args.response !== undefined) {
         if (typeof queenThreadId !== "string" || !queenThreadId.trim()) {
@@ -184,7 +301,7 @@ const TOOLS = [
               classificationEvidence: finalized.classificationEvidence,
             },
           },
-          { queenThreadId, planRunStore },
+          { queenThreadId, planRunStore, webRegistry },
         );
       }
       return withNextAction({
@@ -202,7 +319,12 @@ const TOOLS = [
       "and terminal result turn, and returns exactly one replay-safe next action.",
     inputSchema: PLANNING_LIFECYCLE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, planningLifecycle, planRunStore }) {
+    async run(args, {
+      appServerBridge,
+      planningLifecycle,
+      planRunStore,
+      webRegistry,
+    }) {
       const result = await planningLifecycle.advance(args, {
         appServerBridge,
       });
@@ -215,7 +337,11 @@ const TOOLS = [
           bootstrap: result.bootstrap,
           planning: result.planning,
         },
-        { queenThreadId: args.queenThreadId, planRunStore },
+        {
+          queenThreadId: args.queenThreadId,
+          planRunStore,
+          webRegistry,
+        },
       );
     },
   },
@@ -231,6 +357,7 @@ const TOOLS = [
       appServerBridge,
       exceptionReplanning,
       planRunStore,
+      webRegistry,
     }) {
       const result = await exceptionReplanning.advance(args, {
         appServerBridge,
@@ -267,6 +394,7 @@ const TOOLS = [
           queenThreadId: args.queenThreadId,
           planRunStore,
           parentPlanRun,
+          webRegistry,
         },
       );
     },
@@ -301,13 +429,17 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args, { appServerBridge, planRunStore }) {
+    async run(args, { appServerBridge, planRunStore, webRegistry }) {
       const plan = planWorkSlices(args.plan);
       return plannedSlicesOutput(
         plan,
         appServerBridge,
         {},
-        { queenThreadId: args.queenThreadId, planRunStore },
+        {
+          queenThreadId: args.queenThreadId,
+          planRunStore,
+          webRegistry,
+        },
       );
     },
   },
@@ -334,6 +466,20 @@ const TOOLS = [
         appServerBridge,
         waveContract: wave,
       });
+      const titleMismatch = verification.members.find(
+        (member) =>
+          member.lifecycle === "spinoff" &&
+          member.attentionReason === "title-mismatch" &&
+          member.checks.identity === "verified" &&
+          member.checks.read === "verified" &&
+          member.checks.topology === "verified" &&
+          member.checks.route === "verified",
+      );
+      const expectedTitle = titleMismatch
+        ? wave.members.find(
+            ({ sliceId }) => sliceId === titleMismatch.sliceId,
+          )?.title
+        : null;
       return {
         command: "launch verify batch",
         verification,
@@ -368,6 +514,18 @@ const TOOLS = [
               }),
               after: "read-results",
             }
+          : titleMismatch && expectedTitle
+            ? {
+                schemaVersion: 1,
+                kind: "native-set-title",
+                actionId:
+                  `plan-title:${args.planRunId.slice(4)}:` +
+                  `wave-${args.waveIndex}:${titleMismatch.sliceId}`,
+                threadId: titleMismatch.threadId,
+                title: expectedTitle,
+                verify: true,
+                after: "repeat-launch-verify-batch",
+              }
           : {
               schemaVersion: 1,
               kind: "attention",
@@ -719,6 +877,7 @@ export function startNelosMcpServer({
   lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
   appServerBridge = new CodexAppServerBridgeV1(),
   planRunStore = new PlanRunStoreV1(),
+  webRegistry = DEFAULT_WEB_REGISTRY,
   planningLifecycle = new PlanningLifecycleCoordinatorV1(),
   exceptionReplanning = new ExceptionReplanningCoordinatorV1({
     planningLifecycle,
@@ -746,6 +905,7 @@ export function startNelosMcpServer({
         orchestrationAdapter,
         planningLifecycle,
         planRunStore,
+        webRegistry,
         joinAdapter,
         lifecycleAdapter,
       });

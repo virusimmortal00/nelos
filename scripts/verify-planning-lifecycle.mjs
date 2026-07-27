@@ -392,7 +392,10 @@ export async function runPlanningLifecycleScenario() {
     assert.equal(planned.nextAction.kind, "launch-wave");
     assert.equal(planned.nextAction.members.length, 2);
     const stateAfterPlan = JSON.parse(await readFile(appStatePath, "utf8"));
-    assert.equal(stateAfterPlan.threads["queen-1"].name, "👑 · Planning smoke");
+    assert.equal(
+      stateAfterPlan.threads["queen-1"].name,
+      planned.planRun.webIdentity.queenTitle,
+    );
 
     await Promise.all([
       writeRollout(codexHome, "research-1", {
@@ -421,7 +424,7 @@ export async function runPlanningLifecycleScenario() {
         null,
       );
     });
-    const batch = await mcp.tool("nelos_launch_verify_batch", {
+    const batchRequest = {
       planRunId: planned.nextAction.verification.planRunId,
       waveIndex: planned.nextAction.verification.waveIndex,
       waveDigest: planned.nextAction.verification.waveDigest,
@@ -443,7 +446,14 @@ export async function runPlanningLifecycleScenario() {
           turnId: "implementation-turn",
         },
       ],
+    };
+    let batch = await mcp.tool("nelos_launch_verify_batch", batchRequest);
+    assert.equal(batch.nextAction.kind, "native-set-title");
+    await mutateState(appStatePath, (value) => {
+      value.threads[batch.nextAction.threadId].name = batch.nextAction.title;
+      value.threads[batch.nextAction.threadId].updatedAt += 1;
     });
+    batch = await mcp.tool("nelos_launch_verify_batch", batchRequest);
     assert.equal(batch.verification.allVerified, true);
     assert.equal(batch.nextAction.kind, "native-wait-wave");
     assert.deepEqual(

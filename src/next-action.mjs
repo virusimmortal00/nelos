@@ -43,9 +43,9 @@ function readTaskResult(threadId, turnId = null) {
   });
 }
 
-function memberPrompt(slice) {
+function memberPrompt(slice, title = slice.title) {
   return buildTaskLaunchPromptV1({
-    title: slice.title,
+    title,
     objective: slice.objective,
     deliverable: slice.deliverable,
     acceptanceCriteria: slice.acceptanceCriteria,
@@ -70,28 +70,37 @@ function joinedAgentTaskName(sliceId) {
   return `nelos_${stem}_${suffix}`;
 }
 
-function launchMember(slice) {
+function launchMember(slice, persistedMember = null) {
   const normalizedLaunch = normalizeLaunchMemberV1({
     ...slice,
     nativeTask: slice.route.launch.nativeTask,
   });
   const { memberKind, launcher } = normalizedLaunch;
   const joinedSubagent = slice.lifecycle === "subagent";
+  const title = persistedMember?.title ?? slice.title;
   return {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
     memberKind,
     launcher,
-    title: slice.title,
+    title,
     objective: slice.objective,
     deliverable: slice.deliverable,
     acceptanceCriteria: [...slice.acceptanceCriteria],
     dependsOn: [...(slice.dependsOn ?? [])],
     titlePolicy: {
-      mode: "prompt-seeded",
+      mode: joinedSubagent
+        ? "prompt-seeded"
+        : "post-bind-read-set-verify",
       recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,
       verifyAfterLaunch: !joinedSubagent,
       ...(joinedSubagent ? { evidence: "agent-path" } : {}),
+      ...(!joinedSubagent
+        ? {
+            creationTitleSupported: false,
+            promptSeedAuthoritative: false,
+          }
+        : {}),
       onMismatch: joinedSubagent ? "attention" : "native-set-title",
     },
     ...(joinedSubagent
@@ -121,7 +130,7 @@ function launchMember(slice) {
       onUnavailable: "stop",
       verifyAfterLaunch: true,
     },
-    prompt: memberPrompt(slice),
+    prompt: memberPrompt(slice, title),
   };
 }
 
@@ -153,10 +162,29 @@ function launchWave(plan, planRun = null) {
       `plan run ${planRun.planRunId} has no contract for wave ${currentWave.index}`,
     );
   }
+  if (
+    verification.members.length !== currentWave.slices.length ||
+    currentWave.slices.some((slice) => {
+      const member = verification.members.find(
+        ({ sliceId }) => sliceId === slice.id,
+      );
+      return (
+        !member ||
+        member.lifecycle !== slice.lifecycle ||
+        member.model !== slice.route.launch.nativeTask.model ||
+        member.effort !== slice.route.launch.nativeTask.thinking
+      );
+    })
+  ) {
+    throw new Error("launch wave conflicts with its persisted member contract");
+  }
   return action("launch-wave", {
     waveIndex: currentWave.index,
     members: currentWave.slices.map((slice) => ({
-      ...launchMember(slice),
+      ...launchMember(
+        slice,
+        verification.members.find(({ sliceId }) => sliceId === slice.id),
+      ),
       ...(slice.lifecycle === "spinoff"
         ? {
             actionId: planRunLaunchActionIdV1({

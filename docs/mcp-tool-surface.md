@@ -207,9 +207,9 @@ the callback cycle.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if
-they disagree, canonically orders the inbound, outbound, and crown markers
-without discarding web lineage, and returns a host-owned title effect. A repeat
-call verifies the persisted result before launch.
+they disagree, persists one compatibility web identity and exact queen/member
+titles in the plan run, and returns a deterministic host-owned title effect.
+A repeat call reuses that identity and verifies the exact result before launch.
 
 ## Launch mechanism: inline self-locating bootstrap
 
@@ -262,10 +262,12 @@ Native creation remains a host-owned effect: the server returns a deterministic
 action ID, and it accepts only an exact receipt containing that action identity
 and a bounded member thread ID. Receipt shape, revision, attempt, and action
 identity are validated before a state transition. Stale receipts and a second
-thread ID for an already bound action fail closed. The requested child title is
-carried undecorated in a complete launch prompt whose first line is
-`Task title: <short intended title>`. After binding, the callback adapter emits
-a read-only title observation and an idempotent rename effect only on mismatch.
+thread ID for an already bound action fail closed. Current Codex
+`create_thread` has no title field. The decorated requested child title is
+carried in the launch contract and as a non-authoritative first prompt line,
+`Task title: <decorated intended title>`. After binding, the callback adapter
+emits a read-only title observation and an idempotent rename effect only on
+mismatch.
 It also advances opaque wait cursors, validates current-turn result provenance,
 and returns a deterministic parent boundary.
 

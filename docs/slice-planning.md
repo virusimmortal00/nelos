@@ -71,6 +71,16 @@ titles. Any missing, altered, duplicate, unreadable, wrong-parent, applicable
 wrong-title, or wrong-route member blocks the entire batch before wait, read,
 or acceptance.
 
+For a plan containing durable spinoffs, the plan run also persists one
+queen-owned compact web identity. The queen and every spinoff title are rendered
+from that identity before a wave is returned. Replays reuse the same identity
+and exact titles; conflicting persisted or observed identities fail closed.
+
+The `create-thread` launcher does not imply a creation-time title argument:
+current Codex `create_thread` has no title field. The prompt's `Task title:`
+line is non-authoritative seeding. Post-bind native read/set/verify is expected,
+and exact settled-title verification gates the wave.
+
 `nelos_plan_replan` reuses the same receipt lifecycle only for typed terminal
 failure/blocking, changed requirements, or insufficient confidence. Timeouts,
 unavailable reads, and normal success are not triggers. The supplied base plan

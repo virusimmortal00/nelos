@@ -160,6 +160,12 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   const planRun = createPlanRunV1(plan, {
     queenThreadId: "queen-1",
     sourceId: "identity-contract-test",
+    webIdentity: {
+      schemaVersion: 1,
+      webId: "A1",
+      queenThreadId: "queen-1",
+      queenTitle: "🕷️ A1 👑 · Queen",
+    },
   });
   const { members } = withNextAction({
     command: "plan slices",
@@ -209,14 +215,17 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
           nativeTitleControl: true,
         },
         titlePolicy: {
-          mode: "prompt-seeded",
+          mode: "post-bind-read-set-verify",
           recommendedMaxCharacters: 48,
           verifyAfterLaunch: true,
+          creationTitleSupported: false,
+          promptSeedAuthoritative: false,
           onMismatch: "native-set-title",
         },
       },
     ],
   );
+  assert.equal(members[1].title, "🕸️ A1 · Implement");
 });
 
 test("launch-wave derivation rejects a crafted Luna joined subagent", () => {

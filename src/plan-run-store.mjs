@@ -3,12 +3,24 @@ import * as defaultFileSystem from "node:fs/promises";
 import { join } from "node:path";
 
 import { taskStateDirectory } from "./task-state.mjs";
+import {
+  assertWebId,
+  parseWebTitle,
+  renderPersistedDurableChildTitle,
+  renderPersistedQueenWebTitle,
+} from "./task-web.mjs";
 
 export const PLAN_RUN_SCHEMA_VERSION = 1;
 const MAX_RECORD_BYTES = 128 * 1024;
 const RUN_ID = /^run:[a-f0-9]{40}$/u;
 const SOURCE_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const QUEEN_THREAD_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
+const WEB_IDENTITY_FIELDS = new Set([
+  "schemaVersion",
+  "webId",
+  "queenThreadId",
+  "queenTitle",
+]);
 
 function digest(value) {
   return createHash("sha256")
@@ -39,6 +51,46 @@ function queenThreadId(value) {
     throw new Error("plan run queenThreadId has an invalid format");
   }
   return value;
+}
+
+function webIdentity(value, owner) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("plan run web identity must be a JSON object");
+  }
+  const unknown = Object.keys(value).find(
+    (field) => !WEB_IDENTITY_FIELDS.has(field),
+  );
+  if (unknown) {
+    throw new Error(`plan run web identity contains unknown field: ${unknown}`);
+  }
+  if (value.schemaVersion !== 1) {
+    throw new Error("plan run web identity has an unsupported schema version");
+  }
+  const normalizedQueenThreadId = queenThreadId(value.queenThreadId);
+  if (normalizedQueenThreadId !== owner) {
+    throw new Error("plan run web identity belongs to a different queen");
+  }
+  if (typeof value.queenTitle !== "string" || !value.queenTitle.trim()) {
+    throw new Error("plan run web identity queenTitle is invalid");
+  }
+  const normalizedWebId = assertWebId(value.webId);
+  const normalizedQueenTitle = value.queenTitle.trim();
+  if (
+    parseWebTitle(normalizedQueenTitle).queenMarked !== true ||
+    renderPersistedQueenWebTitle(normalizedQueenTitle, normalizedWebId) !==
+      normalizedQueenTitle
+  ) {
+    throw new Error(
+      "plan run web identity queenTitle conflicts with its web ID",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    webId: normalizedWebId,
+    queenThreadId: normalizedQueenThreadId,
+    queenTitle: normalizedQueenTitle,
+  };
 }
 
 function planRunIdV1({
@@ -76,11 +128,17 @@ export function planRunLaunchActionIdV1({
   return `plan-launch:${normalizedPlanRunId.slice(4)}:${waveIndex}:${sliceId}`;
 }
 
-function waveContract(wave) {
+function waveContract(wave, persistedWebIdentity) {
   const members = wave.slices.map((slice) => ({
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
-    title: slice.title,
+    title:
+      slice.lifecycle === "spinoff" && persistedWebIdentity
+        ? renderPersistedDurableChildTitle(
+            slice.title,
+            persistedWebIdentity.webId,
+          )
+        : slice.title,
     model: slice.route.launch.nativeTask.model,
     effort: slice.route.launch.nativeTask.thinking,
   }));
@@ -93,6 +151,51 @@ function waveContract(wave) {
     }),
     members,
   };
+}
+
+function legacyRecordCanAdoptWebIdentity(legacy, current) {
+  if (legacy.webIdentity !== null || current.webIdentity === null) return false;
+  for (const field of [
+    "schemaVersion",
+    "planRunId",
+    "queenThreadId",
+    "sourceId",
+    "planDigest",
+    "rootPlanRunId",
+    "parentPlanRunId",
+    "replanGeneration",
+  ]) {
+    if (legacy[field] !== current[field]) return false;
+  }
+  if (legacy.waves.length !== current.waves.length) return false;
+  return legacy.waves.every((legacyWave, waveIndex) => {
+    const currentWave = current.waves[waveIndex];
+    if (
+      legacyWave.waveIndex !== currentWave.waveIndex ||
+      legacyWave.members.length !== currentWave.members.length
+    ) {
+      return false;
+    }
+    return legacyWave.members.every((legacyMember, memberIndex) => {
+      const currentMember = currentWave.members[memberIndex];
+      for (const field of ["sliceId", "lifecycle", "model", "effort"]) {
+        if (legacyMember[field] !== currentMember[field]) return false;
+      }
+      if (legacyMember.lifecycle !== "spinoff") {
+        return legacyMember.title === currentMember.title;
+      }
+      const before = parseWebTitle(legacyMember.title);
+      const after = parseWebTitle(currentMember.title);
+      return (
+        before.baseTitle === after.baseTitle &&
+        (before.inboundWebId === null ||
+          before.inboundWebId === current.webIdentity.webId) &&
+        after.inboundWebId === current.webIdentity.webId &&
+        before.outboundWebId === after.outboundWebId &&
+        before.queenMarked === after.queenMarked
+      );
+    });
+  });
 }
 
 function validateRecord(value) {
@@ -108,6 +211,7 @@ function validateRecord(value) {
     "rootPlanRunId",
     "parentPlanRunId",
     "replanGeneration",
+    "webIdentity",
     "waves",
   ]);
   const unknown = Object.keys(value).find((field) => !fields.has(field));
@@ -118,6 +222,10 @@ function validateRecord(value) {
   const planRunId = runId(value.planRunId);
   const normalizedQueenThreadId = queenThreadId(value.queenThreadId);
   const normalizedSourceId = sourceId(value.sourceId);
+  const normalizedWebIdentity = webIdentity(
+    value.webIdentity,
+    normalizedQueenThreadId,
+  );
   if (!/^[a-f0-9]{64}$/u.test(value.planDigest)) {
     throw new Error("plan run digest is invalid");
   }
@@ -189,9 +297,22 @@ function validateRecord(value) {
       ) {
         throw new Error("plan run member contract is invalid");
       }
-      return Object.fromEntries(
+      const normalizedMember = Object.fromEntries(
         memberFields.map((field) => [field, member[field]]),
       );
+      if (
+        normalizedWebIdentity &&
+        normalizedMember.lifecycle === "spinoff" &&
+        renderPersistedDurableChildTitle(
+          normalizedMember.title,
+          normalizedWebIdentity.webId,
+        ) !== normalizedMember.title
+      ) {
+        throw new Error(
+          "plan run durable member title conflicts with its web identity",
+        );
+      }
+      return normalizedMember;
     });
     if (
       new Set(members.map(({ sliceId }) => sliceId)).size !== members.length ||
@@ -218,6 +339,7 @@ function validateRecord(value) {
     rootPlanRunId,
     parentPlanRunId,
     replanGeneration: value.replanGeneration,
+    webIdentity: normalizedWebIdentity,
     waves,
   };
 }
@@ -228,6 +350,7 @@ export function createPlanRunV1(
     queenThreadId: requestedQueenThreadId,
     sourceId: requestedSourceId,
     parentPlanRun = null,
+    webIdentity: requestedWebIdentity = parentPlanRun?.webIdentity ?? null,
   },
 ) {
   const normalizedQueenThreadId = queenThreadId(requestedQueenThreadId);
@@ -245,6 +368,17 @@ export function createPlanRunV1(
     parentPlanRun.queenThreadId !== normalizedQueenThreadId
   ) {
     throw new Error("derived plan run must belong to its persisted root queen");
+  }
+  const normalizedWebIdentity = webIdentity(
+    requestedWebIdentity,
+    normalizedQueenThreadId,
+  );
+  if (
+    parentPlanRun?.webIdentity &&
+    JSON.stringify(parentPlanRun.webIdentity) !==
+      JSON.stringify(normalizedWebIdentity)
+  ) {
+    throw new Error("derived plan run cannot replace its persisted web identity");
   }
   const replanGeneration = parentPlanRun === null ? 0 : 1;
   const parentPlanRunId = parentPlanRun?.planRunId ?? null;
@@ -264,7 +398,10 @@ export function createPlanRunV1(
     rootPlanRunId: parentPlanRun?.rootPlanRunId ?? planRunId,
     parentPlanRunId,
     replanGeneration,
-    waves: plan.waves.map(waveContract),
+    webIdentity: normalizedWebIdentity,
+    waves: plan.waves.map((wave) =>
+      waveContract(wave, normalizedWebIdentity),
+    ),
   });
 }
 
@@ -352,6 +489,32 @@ export class PlanRunStoreV1 {
     }
     const existing = await this.read(record.planRunId);
     if (existing) {
+      if (legacyRecordCanAdoptWebIdentity(existing, record)) {
+        const source = `${JSON.stringify(record, null, 2)}\n`;
+        const target = this.#path(record.planRunId);
+        const temporary = `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;
+        try {
+          await this.#fileSystem.writeFile(temporary, source, {
+            flag: "wx",
+            mode: 0o600,
+          });
+          await this.#fileSystem.rename(temporary, target);
+        } catch (error) {
+          await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
+          throw error;
+        }
+        return record;
+      }
+      if (
+        existing.webIdentity &&
+        record.webIdentity &&
+        JSON.stringify(existing.webIdentity) !==
+          JSON.stringify(record.webIdentity)
+      ) {
+        throw new Error(
+          "plan run has a conflicting persisted web identity; lineage was not overwritten",
+        );
+      }
       if (JSON.stringify(existing) !== JSON.stringify(record)) {
         throw new Error("plan run identity conflicts with persisted intent");
       }

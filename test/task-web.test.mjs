@@ -5,6 +5,8 @@ import {
   allocateWebId,
   assertWebId,
   parseWebTitle,
+  renderPersistedDurableChildTitle,
+  renderPersistedQueenWebTitle,
   renderWebTitle,
   resolveQueenMarked,
 } from "../src/task-web.mjs";
@@ -226,5 +228,34 @@ test("settled but unarchived queens keep normalized web IDs reserved", () => {
   assert.equal(
     allocateWebId([{ ...records[0], outboundWebId: "A1" }]),
     "A2",
+  );
+});
+
+test("persisted queen and durable child titles converge without duplicate markers", () => {
+  assert.equal(
+    renderPersistedQueenWebTitle("👑 · 🕷️ a1 · Release", "A1"),
+    "🕷️ A1 👑 · Release",
+  );
+  assert.equal(
+    renderPersistedDurableChildTitle(
+      "🕸️ a1 🕷️ a1.1 👑 · Nested delivery",
+      "A1",
+    ),
+    "🕸️ A1 🕷️ A1.1 👑 · Nested delivery",
+  );
+  assert.equal(
+    renderPersistedDurableChildTitle("👑 · Nested delivery", "A1"),
+    "🕸️ A1 👑 · Nested delivery",
+  );
+});
+
+test("persisted title decoration fails closed on conflicting lineage", () => {
+  assert.throws(
+    () => renderPersistedQueenWebTitle("🕷️ A2 · Release", "A1"),
+    /queen outbound marker A2 conflicts with persisted web identity A1/u,
+  );
+  assert.throws(
+    () => renderPersistedDurableChildTitle("🕸️ A2 · Delivery", "A1"),
+    /child inbound marker A2 conflicts with persisted web identity A1/u,
   );
 });
