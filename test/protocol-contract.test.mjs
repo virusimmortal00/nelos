@@ -20,7 +20,11 @@ import {
 import { PROTOCOL_MIGRATION_MAP_V1 } from "../src/protocol-contract/migration-map.mjs";
 import { listNelosMcpTools } from "../src/mcp-server.mjs";
 import { createPlanningBootstrapV1 } from "../src/planning-bootstrap.mjs";
-import { deriveNextAction } from "../src/next-action.mjs";
+import {
+  deriveNextAction,
+  derivePlanWaveActionV1,
+} from "../src/next-action.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 
 test("protocol contracts are available through public package subpaths", async () => {
   const contract = await import("nelos/protocol-contract");
@@ -439,6 +443,84 @@ test("compatibility and contract discriminators are correlated to value schemas"
     validateProtocolContractV1("action", routeMismatch),
     routeMismatch,
   );
+
+  const slice = (overrides = {}) => ({
+    id: "research",
+    title: "Research",
+    objective: "Resolve the bounded question.",
+    deliverable: "Return an evidence-backed answer.",
+    acceptanceCriteria: ["The answer is verified."],
+    lifecycle: "subagent",
+    workspaceMode: "shared-read-only",
+    route: {
+      launch: {
+        nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+      },
+    },
+    ...overrides,
+  });
+  const plan = {
+    waves: [{
+      index: 1,
+      slices: [
+        slice(),
+        slice({
+          id: "implement",
+          title: "Implement",
+          lifecycle: "spinoff",
+          workspaceMode: "isolated-write",
+        }),
+      ],
+    }],
+  };
+  const planRun = createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "protocol-contract-test",
+    webIdentity: {
+      schemaVersion: 1,
+      webId: "A1",
+      queenThreadId: "queen-1",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const launchWave = derivePlanWaveActionV1(plan, planRun);
+  assert.deepEqual(
+    validateProtocolContractV1("action", launchWave),
+    launchWave,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...launchWave,
+      members: [Object.fromEntries(
+        Array.from({ length: 14 }, (_, index) => [`field${index}`, index]),
+      )],
+    }),
+    /exactly one/,
+  );
+
+  const lifecycleWithEvidence = {
+    ...launchPlannerOutput,
+    identity: {
+      parentThreadId: "queen-1",
+      agentPath: "/root/planner",
+      threadId: "thread-planner",
+    },
+    route: { verified: true },
+    thread: { threadId: "thread-planner", status: "idle" },
+    latestTurn: null,
+    queenTitleSync: {
+      schemaVersion: 1,
+      threadId: "queen-1",
+      changed: false,
+    },
+  };
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_plan_lifecycle",
+      lifecycleWithEvidence,
+    ).value,
+    lifecycleWithEvidence,
+  );
 });
 
 test("tool argument maps enforce value schemas and property-name bounds", () => {
@@ -689,6 +771,15 @@ test("transition reducer binds full persisted action and all receipt identities"
       "protocol.malformed",
     );
   }
+  assert.equal(
+    reduceProtocolTransitionV1(state, action, readReceipt({
+      resultEnvelope: {
+        ...resultEnvelope(),
+        recoveryHint: "\u0000\n\t ",
+      },
+    })).error.code,
+    "protocol.malformed",
+  );
 });
 
 test("transition initialization accepts only explicit receipt-consuming executables", () => {

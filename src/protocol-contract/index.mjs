@@ -163,6 +163,131 @@ const MEMBER_TARGET = {
     }),
   ],
 };
+const LAUNCH_MEMBER_TEXT = {
+  type: "string",
+  minLength: 1,
+  maxLength: 2_000,
+  pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+};
+const LAUNCH_MEMBER_TEXT_LIST = {
+  type: "array",
+  maxItems: 16,
+  items: { ...LAUNCH_MEMBER_TEXT, maxLength: 1_000 },
+};
+const LAUNCH_MEMBER_BASE = {
+  sliceId: SHORT_ID,
+  title: { ...LAUNCH_MEMBER_TEXT, maxLength: 512 },
+  objective: LAUNCH_MEMBER_TEXT,
+  deliverable: LAUNCH_MEMBER_TEXT,
+  acceptanceCriteria: { ...LAUNCH_MEMBER_TEXT_LIST, minItems: 1 },
+  dependsOn: {
+    type: "array",
+    maxItems: 100,
+    uniqueItems: true,
+    items: SHORT_ID,
+  },
+  nativeTask: NATIVE_TASK,
+  routeEnforcement: ROUTE_ENFORCEMENT,
+  prompt: TEXT,
+};
+const SUBAGENT_LAUNCH_MEMBER = closed({
+  ...LAUNCH_MEMBER_BASE,
+  lifecycle: { const: "subagent" },
+  memberKind: { const: "joined-subagent" },
+  launcher: { const: "spawn-subagent" },
+  titlePolicy: closed({
+    mode: { const: "prompt-seeded" },
+    recommendedMaxCharacters: POSITIVE,
+    verifyAfterLaunch: { const: false },
+    evidence: { const: "agent-path" },
+    onMismatch: { const: "attention" },
+  }),
+  agentTaskName: SHORT_ID,
+  identityContract: closed({
+    lifecycle: { const: "subagent" },
+    memberKind: { const: "joined-subagent" },
+    primaryId: { const: "agentPath" },
+    controlSurface: { const: "collaboration" },
+    nativeThreadIdUse: { const: "verification-only" },
+    nativeTitleControl: { const: false },
+  }),
+  workspaceMode: { const: "shared-read-only" },
+});
+const SPINOFF_WORK_UNIT = closed({
+  schemaVersion: VERSION,
+  webId: ID,
+  queenThreadId: ID,
+  workUnitId: SHORT_ID,
+  specRevision: POSITIVE,
+  attempt: POSITIVE,
+  memberKind: { const: "spinoff" },
+  capabilities: {
+    type: "array",
+    minItems: 3,
+    maxItems: 4,
+    uniqueItems: true,
+    items: { enum: ["observe", "read-result", "follow-up", "archive"] },
+  },
+  launch: closed({
+    schemaVersion: VERSION,
+    launcher: { const: "create-thread" },
+    workspaceMode: { const: "isolated-write" },
+    nativeTask: NATIVE_TASK,
+    requiresThreadId: { const: true },
+    onMissingThreadId: { const: "attention" },
+  }),
+  title: { ...LAUNCH_MEMBER_TEXT, maxLength: 512 },
+  objectiveSummary: LAUNCH_MEMBER_TEXT,
+  deliverable: LAUNCH_MEMBER_TEXT,
+  acceptanceCriteria: { ...LAUNCH_MEMBER_TEXT_LIST, minItems: 1 },
+  dependencies: {
+    type: "array",
+    maxItems: 100,
+    uniqueItems: true,
+    items: SHORT_ID,
+  },
+  required: { type: "boolean" },
+  policy: closed({
+    maxAttempts: { type: "integer", minimum: 1, maximum: 10 },
+    onBlocked: { const: "queen-review" },
+    onFailure: { const: "queen-review" },
+  }),
+});
+const SPINOFF_LAUNCH_MEMBER = closed({
+  ...LAUNCH_MEMBER_BASE,
+  lifecycle: { const: "spinoff" },
+  memberKind: { const: "spinoff" },
+  launcher: { const: "create-thread" },
+  titlePolicy: closed({
+    mode: { const: "post-bind-read-set-verify" },
+    recommendedMaxCharacters: POSITIVE,
+    verifyAfterLaunch: { const: true },
+    creationTitleSupported: { const: false },
+    promptSeedAuthoritative: { const: false },
+    onMismatch: { const: "native-set-title" },
+  }),
+  identityContract: closed({
+    lifecycle: { const: "spinoff" },
+    memberKind: { const: "spinoff" },
+    primaryId: { const: "threadId" },
+    controlSurface: { const: "codex-task" },
+    nativeThreadIdUse: { const: "control-and-verification" },
+    nativeTitleControl: { const: true },
+  }),
+  workspaceMode: { const: "isolated-write" },
+  orchestration: closed({
+    tool: { const: "nelos_orchestrate_create" },
+    arguments: closed({
+      workUnit: SPINOFF_WORK_UNIT,
+      receipt: { type: "null" },
+    }),
+    bindReceiptType: { const: "native-create" },
+  }),
+  actionId: ID,
+});
+const LAUNCH_WAVE_MEMBER = {
+  oneOf: [SUBAGENT_LAUNCH_MEMBER, SPINOFF_LAUNCH_MEMBER],
+};
 
 const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "launch-planner", {
@@ -204,12 +329,7 @@ const NEXT_ACTION_MEMBERS = [
       type: "array",
       minItems: 1,
       maxItems: 16,
-      items: {
-        type: "object",
-        minProperties: 14,
-        maxProperties: 24,
-        additionalProperties: true,
-      },
+      items: LAUNCH_WAVE_MEMBER,
     },
     verification: closed({
       planRunId: ID,
@@ -559,7 +679,12 @@ function resultEnvelope(outcome, blockers) {
     recoveryHint: {
       anyOf: [
         { type: "null" },
-        { type: "string", minLength: 1, maxLength: 1_000 },
+        {
+          type: "string",
+          minLength: 1,
+          maxLength: 1_000,
+          pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+        },
       ],
     },
   });
@@ -726,6 +851,11 @@ const COMPATIBILITY_MEMBERS = [
     plan: BOUNDED_RECORD,
     planRun: BOUNDED_RECORD,
     cleanupIntended: { type: "boolean" },
+    identity: BOUNDED_RECORD,
+    route: BOUNDED_RECORD,
+    thread: BOUNDED_RECORD,
+    latestTurn: { anyOf: [{ type: "null" }, BOUNDED_RECORD] },
+    queenTitleSync: BOUNDED_RECORD,
     nextAction: PROTOCOL_ACTION_SCHEMA_V1,
   }, ["command", "lifecycle", "bootstrap", "nextAction"]),
   producerOutput("nelos_launch_verify_batch", {
