@@ -35,9 +35,9 @@ test("protocol contracts are available through public package subpaths", async (
 });
 
 function discriminatorValues(schema, field) {
-  return schema.oneOf
+  return [...new Set(schema.oneOf
     .map(({ properties }) => properties[field]?.const)
-    .filter(Boolean);
+    .filter(Boolean))];
 }
 
 test("definitive unions use the repository's emitted discriminators", () => {
@@ -472,6 +472,30 @@ test("compatibility and contract discriminators are correlated to value schemas"
     routeMismatch,
   );
 
+  const acceptedDecision = {
+    schemaVersion: 1,
+    kind: "decide",
+    operation: "accept-current-results",
+    webId: "A1",
+    members: [{
+      threadId: "thread-member",
+      sourceTurnId: "turn-member",
+      workUnitId: "member",
+      result: resultEnvelope(),
+    }],
+  };
+  assert.deepEqual(
+    validateProtocolContractV1("action", acceptedDecision),
+    acceptedDecision,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...acceptedDecision,
+      members: [{ a: 1, b: 2, c: 3, d: 4 }],
+    }),
+    /exactly one/,
+  );
+
   const slice = (overrides = {}) => ({
     id: "research",
     title: "Research",
@@ -712,6 +736,24 @@ function readReceipt(overrides = {}) {
 test("transition reducer binds full persisted action and all receipt identities", () => {
   const action = readEffect();
   const state = initialProtocolTransitionStateV1([action]);
+  assert.deepEqual(
+    validateProtocolContractV1("effect", createEffect),
+    createEffect,
+  );
+  assert.equal(
+    validateProtocolContractV1("effect", {
+      ...createEffect,
+      prompt: "p".repeat(10_000),
+    }).prompt.length,
+    10_000,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("effect", {
+      ...createEffect,
+      launcher: "spawn-subagent",
+    }),
+    /exactly one/,
+  );
   const accepted = reduceProtocolTransitionV1(state, action, readReceipt());
   assert.equal(accepted.accepted, true);
   assert.equal(accepted.state.cursor, 1);
@@ -808,16 +850,24 @@ test("transition reducer binds full persisted action and all receipt identities"
     })).error.code,
     "protocol.malformed",
   );
+  const oversizedResultEnvelope = {
+    ...resultEnvelope(),
+    summary: "🙂".repeat(1_000),
+    artifacts: Array.from({ length: 8 }, () => "🙂".repeat(250)),
+    verification: Array.from({ length: 8 }, () => "🙂".repeat(250)),
+  };
   assert.equal(
     reduceProtocolTransitionV1(state, action, readReceipt({
-      resultEnvelope: {
-        ...resultEnvelope(),
-        summary: "🙂".repeat(1_000),
-        artifacts: Array.from({ length: 8 }, () => "🙂".repeat(250)),
-        verification: Array.from({ length: 8 }, () => "🙂".repeat(250)),
-      },
+      resultEnvelope: oversizedResultEnvelope,
     })).error.code,
     "protocol.malformed",
+  );
+  assert.throws(
+    () => protocolValueEnvelopeV1(
+      "receipt",
+      readReceipt({ resultEnvelope: oversizedResultEnvelope }),
+    ),
+    /16384 bytes/,
   );
 });
 

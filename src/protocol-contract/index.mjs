@@ -32,6 +32,11 @@ const PLANNER_RESPONSE = {
   minLength: 1,
   maxLength: MAX_PLANNING_RESPONSE_CHARACTERS,
 };
+const NATIVE_CREATE_PROMPT = {
+  type: "string",
+  minLength: 1,
+  maxLength: 12_000,
+};
 const POSITIVE = { type: "integer", minimum: 1 };
 const NULLABLE_ID = { anyOf: [{ type: "null" }, ID] };
 
@@ -307,6 +312,59 @@ const SPINOFF_LAUNCH_MEMBER = closed({
 const LAUNCH_WAVE_MEMBER = {
   oneOf: [SUBAGENT_LAUNCH_MEMBER, SPINOFF_LAUNCH_MEMBER],
 };
+const RESULT_LIST = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "string",
+    minLength: 1,
+    maxLength: 500,
+    pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+  },
+};
+
+function resultEnvelope(outcome, blockers) {
+  return closed({
+    schemaVersion: VERSION,
+    workUnitId: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    },
+    specRevision: POSITIVE,
+    attempt: POSITIVE,
+    outcome: { const: outcome },
+    summary: {
+      type: "string",
+      minLength: 1,
+      maxLength: 2_000,
+      pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+    },
+    artifacts: RESULT_LIST,
+    verification: RESULT_LIST,
+    blockers,
+    recoveryHint: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "string",
+          minLength: 1,
+          maxLength: 1_000,
+          pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+        },
+      ],
+    },
+  });
+}
+
+export const PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1 = {
+  oneOf: [
+    resultEnvelope("succeeded", { ...RESULT_LIST, maxItems: 0 }),
+    resultEnvelope("blocked", { ...RESULT_LIST, minItems: 1 }),
+    resultEnvelope("failed", RESULT_LIST),
+  ],
+};
 
 const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "launch-planner", {
@@ -405,20 +463,28 @@ const NEXT_ACTION_MEMBERS = [
     routeEnforcement: ROUTE_ENFORCEMENT,
   }),
   discriminated("kind", "decide", {
-    operation: { enum: ["author-slice-plan", "accept-current-results"] },
+    operation: { const: "author-slice-plan" },
+  }),
+  discriminated("kind", "decide", {
+    operation: { const: "accept-current-results" },
     webId: ID,
     members: {
       type: "array",
       minItems: 1,
       maxItems: 100,
-      items: {
-        type: "object",
-        minProperties: 4,
-        maxProperties: 4,
-        additionalProperties: true,
-      },
+      items: closed({
+        threadId: ID,
+        sourceTurnId: NULLABLE_ID,
+        workUnitId: { anyOf: [{ type: "null" }, SHORT_ID] },
+        result: {
+          anyOf: [
+            { type: "null" },
+            PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1,
+          ],
+        },
+      }),
     },
-  }, ["operation"]),
+  }),
   discriminated("kind", "advance-orchestration", {
     tool: { const: "nelos_orchestrate_advance" },
     arguments: closed({ webId: ID, queenThreadId: ID, receipt: { type: "null" } }),
@@ -492,44 +558,68 @@ const RECONCILE_POLICY = closed({
   onAbsent: { const: "return-attention-before-retry" },
   onAmbiguous: { const: "return-attention" },
 });
+const OPTIONAL_NATIVE_TASK = closed({
+  model: { type: "string", minLength: 1, maxLength: 128 },
+  thinking: { type: "string", minLength: 1, maxLength: 32 },
+}, []);
 
-const EFFECT_MEMBERS = [
-  discriminated("type", "native-create", {
+function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
+  return {
+    anyOf: [
+      { type: "null" },
+      closed({
+        schemaVersion: VERSION,
+        launcher: { const: launcher },
+        workspaceMode: { const: workspaceMode },
+        nativeTask: OPTIONAL_NATIVE_TASK,
+        requiresThreadId: { const: true },
+        onMissingThreadId: { const: "attention" },
+      }),
+    ],
+  };
+}
+
+function nativeCreateMember(memberKind, launcher, workspaceMode) {
+  return discriminated("type", "native-create", {
     ...EFFECT_IDENTITY,
     scope: { const: "work-unit" },
-    memberKind: { enum: ["spinoff", "joined-subagent"] },
-    launcher: { enum: ["create-thread", "spawn-subagent"] },
-    launch: {
-      anyOf: [
-        { type: "null" },
-        { type: "object", minProperties: 2, maxProperties: 8, additionalProperties: true },
-      ],
-    },
+    memberKind: { const: memberKind },
+    launcher: { const: launcher },
+    launch: nativeLaunchSchema(memberKind, launcher, workspaceMode),
     title: { type: "string", minLength: 1, maxLength: 512 },
-    prompt: TEXT,
+    prompt: NATIVE_CREATE_PROMPT,
     preconditions: closed({
       expectedSpecRevision: POSITIVE,
       expectedBindingState: { const: "unbound" },
       expectedMemberThreadId: { type: "null" },
       expectedSourceTurnId: { type: "null" },
     }),
-  }),
-  discriminated("type", "native-reconcile-create", {
+  });
+}
+
+function nativeReconcileCreateMember(memberKind, launcher, workspaceMode) {
+  return discriminated("type", "native-reconcile-create", {
     ...EFFECT_IDENTITY,
     scope: { const: "work-unit" },
     createActionId: ID,
-    memberKind: { enum: ["spinoff", "joined-subagent"] },
-    launcher: { enum: ["create-thread", "spawn-subagent"] },
-    launch: {
-      anyOf: [
-        { type: "null" },
-        { type: "object", minProperties: 2, maxProperties: 8, additionalProperties: true },
-      ],
-    },
+    memberKind: { const: memberKind },
+    launcher: { const: launcher },
+    launch: nativeLaunchSchema(memberKind, launcher, workspaceMode),
     title: { type: "string", minLength: 1, maxLength: 512 },
-    prompt: TEXT,
+    prompt: NATIVE_CREATE_PROMPT,
     policy: RECONCILE_POLICY,
-  }),
+  });
+}
+
+const EFFECT_MEMBERS = [
+  nativeCreateMember("spinoff", "create-thread", "isolated-write"),
+  nativeCreateMember("joined-subagent", "spawn-subagent", "shared-read-only"),
+  nativeReconcileCreateMember("spinoff", "create-thread", "isolated-write"),
+  nativeReconcileCreateMember(
+    "joined-subagent",
+    "spawn-subagent",
+    "shared-read-only",
+  ),
   discriminated("type", "native-read-title", {
     ...OBSERVATION_IDENTITY,
     requestedTitle: { type: "string", minLength: 1, maxLength: 512 },
@@ -662,60 +752,6 @@ const RECEIPT_MEMBERS = [
     },
   }),
 ];
-
-const RESULT_LIST = {
-  type: "array",
-  maxItems: 8,
-  items: {
-    type: "string",
-    minLength: 1,
-    maxLength: 500,
-    pattern: "[^\\s\\u0000-\\u001f\\u007f]",
-  },
-};
-
-function resultEnvelope(outcome, blockers) {
-  return closed({
-    schemaVersion: VERSION,
-    workUnitId: {
-      type: "string",
-      minLength: 1,
-      maxLength: 128,
-      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
-    },
-    specRevision: POSITIVE,
-    attempt: POSITIVE,
-    outcome: { const: outcome },
-    summary: {
-      type: "string",
-      minLength: 1,
-      maxLength: 2_000,
-      pattern: "[^\\s\\u0000-\\u001f\\u007f]",
-    },
-    artifacts: RESULT_LIST,
-    verification: RESULT_LIST,
-    blockers,
-    recoveryHint: {
-      anyOf: [
-        { type: "null" },
-        {
-          type: "string",
-          minLength: 1,
-          maxLength: 1_000,
-          pattern: "[^\\s\\u0000-\\u001f\\u007f]",
-        },
-      ],
-    },
-  });
-}
-
-export const PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1 = {
-  oneOf: [
-    resultEnvelope("succeeded", { ...RESULT_LIST, maxItems: 0 }),
-    resultEnvelope("blocked", { ...RESULT_LIST, minItems: 1 }),
-    resultEnvelope("failed", RESULT_LIST),
-  ],
-};
 
 RECEIPT_MEMBERS.push(
   discriminated("type", "native-result-read", {
@@ -1109,10 +1145,11 @@ export function protocolCompatibilityEnvelopeV1(producer, value) {
 }
 
 export function protocolValueEnvelopeV1(contract, value) {
+  const normalized = validateProtocolContractV1(contract, value);
   return validateProtocolContractV1(PROTOCOL_VALUE_ENVELOPE_SCHEMA_V1, {
     schemaVersion: 1,
     contract,
-    value,
+    value: normalized,
   });
 }
 
