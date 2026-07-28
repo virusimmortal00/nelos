@@ -24,6 +24,16 @@ import {
 export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
 
+export class PlanningLifecycleProtocolError extends Error {
+  constructor(code, message, { retryable = false, recoveryAction = null } = {}) {
+    super(message);
+    this.name = "PlanningLifecycleProtocolError";
+    this.code = code;
+    this.retryable = retryable;
+    this.recoveryAction = recoveryAction;
+  }
+}
+
 const MAX_RECORD_BYTES = 64 * 1024;
 const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 1;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
@@ -883,6 +893,16 @@ export class PlanningLifecycleCoordinatorV1 {
         throw new Error("planner result receipt arrived before launch verification");
       }
       if (receipt.actionId !== readActionId(record.bootstrapId)) {
+        if (record.phase === "verified") {
+          throw new PlanningLifecycleProtocolError(
+            "planner-result-not-yet-authorized",
+            "planner result is not authorized yet; replay the verified launch receipt until Nelos returns native-read-subagent-result, then copy that actionId unchanged",
+            {
+              retryable: true,
+              recoveryAction: "repeat-planner-launch-receipt",
+            },
+          );
+        }
         throw new Error("planner result receipt has a stale or future actionId");
       }
       if (receipt.threadId !== record.identity?.threadId) {

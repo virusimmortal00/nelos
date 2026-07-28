@@ -11,6 +11,7 @@ import {
 } from "./planning-bootstrap.mjs";
 import {
   PlanningLifecycleCoordinatorV1,
+  PlanningLifecycleProtocolError,
   PLANNING_LIFECYCLE_INPUT_SCHEMA,
 } from "./planning-lifecycle.mjs";
 import {
@@ -54,6 +55,9 @@ import {
   SPINOFF_COMPLETE_INPUT_SCHEMA,
   SpinoffLifecycleAdapterV1,
 } from "./spinoff-lifecycle.mjs";
+import {
+  MCP_PROTOCOL_TOOL_CONTRACTS_V1,
+} from "./protocol-contract/index.mjs";
 import {
   listWebRecords,
   readWebRecord,
@@ -903,11 +907,26 @@ const TOOLS = [
 ];
 
 export function listNelosMcpTools() {
-  return TOOLS.map(({ name, description, inputSchema, annotations }) => ({
+  return TOOLS.map(({
+    name,
+    description,
+    inputSchema,
+    annotations,
+  }) => ({
     name,
     description,
     inputSchema,
     annotations: annotations ?? READ_ONLY_ANNOTATIONS,
+    ...(MCP_PROTOCOL_TOOL_CONTRACTS_V1[name]
+      ? {
+          _meta: {
+            "nelos/protocolContract": {
+              schemaVersion: 1,
+              ...MCP_PROTOCOL_TOOL_CONTRACTS_V1[name],
+            },
+          },
+        }
+      : {}),
   }));
 }
 
@@ -975,10 +994,16 @@ export function startNelosMcpServer({
         lifecycleAdapter,
       });
     } catch (error) {
+      const body = { error: error.message };
+      if (error instanceof PlanningLifecycleProtocolError) {
+        body.code = error.code;
+        body.retryable = error.retryable;
+        if (error.recoveryAction !== null) {
+          body.recoveryAction = error.recoveryAction;
+        }
+      }
       return {
-        content: [
-          { type: "text", text: JSON.stringify({ error: error.message }) },
-        ],
+        content: [{ type: "text", text: JSON.stringify(body) }],
         isError: true,
       };
     }

@@ -38,6 +38,9 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /Joined subagents support only Sol or Terra/);
   assert.match(skill, /Luna is\s+valid only for durable spinoffs/);
   assert.match(skill, /`native-wait-subagent` and `native-read-subagent-result`/);
+  assert.match(skill, /never\s+submit a mailbox result directly/i);
+  assert.match(skill, /Never construct or guess a result action ID/i);
+  assert.match(skill, /planner finished and Nelos is verifying its\s+terminal turn/i);
   assert.match(skill, /`native-wait-wave`/);
   assert.match(skill, /`native-wait` and `native-read`/);
   assert.match(skill, /`attach-native-task-options`/);
@@ -67,8 +70,8 @@ test("the skill has one native path driven by machine-generated next actions", (
   // must reference only the bundled MCP tools, never shell commands.
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
-  assert.ok(skill.length < 6_800, "agent-facing skill should remain compact");
-  assert.ok(skill.split("\n").length < 115, "agent-facing skill should be scannable");
+  assert.ok(skill.length < 7_300, "agent-facing skill should remain compact");
+  assert.ok(skill.split("\n").length < 120, "agent-facing skill should be scannable");
 });
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {

@@ -17,6 +17,8 @@ import {
   createPlanRunV1,
   PlanRunStoreV1,
 } from "../src/plan-run-store.mjs";
+import { PlanningLifecycleProtocolError } from "../src/planning-lifecycle.mjs";
+import { protocolCompatibilityEnvelopeV1 } from "../src/protocol-contract/index.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
 
 const INITIALIZE = {
@@ -514,8 +516,59 @@ test("nelos_plan_lifecycle forwards exact receipts and emits a planned launch wa
   assert.equal(body.command, "plan slices");
   assert.equal(body.lifecycle.phase, "completed");
   assert.equal(body.nextAction.kind, "launch-wave");
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1("nelos_plan_lifecycle", body).value,
+    body,
+  );
   assert.deepEqual(calls[0].value, args);
   assert.equal(typeof calls[0].context.appServerBridge.inspect, "function");
+});
+
+test("nelos_plan_lifecycle returns structured recovery for an early planner result", async () => {
+  const message =
+    "planner result is not authorized yet; replay the verified launch receipt until Nelos returns native-read-subagent-result, then copy that actionId unchanged";
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_lifecycle",
+          arguments: {
+            schemaVersion: 1,
+            idempotencyKey: "history-view",
+            queenThreadId: "queen-1",
+            objective: "Ship the history view",
+            receipt: null,
+          },
+        },
+      },
+    ],
+    {
+      planningLifecycle: {
+        async advance() {
+          throw new PlanningLifecycleProtocolError(
+            "planner-result-not-yet-authorized",
+            message,
+            {
+              retryable: true,
+              recoveryAction: "repeat-planner-launch-receipt",
+            },
+          );
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, true);
+  assert.deepEqual(body, {
+    error: message,
+    code: "planner-result-not-yet-authorized",
+    retryable: true,
+    recoveryAction: "repeat-planner-launch-receipt",
+  });
 });
 
 test("nelos_plan_replan forwards typed exceptions and excludes completed work from the launch wave", async () => {
@@ -716,6 +769,13 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
         turnId: "turn-1",
       }]);
     }
+    assert.deepEqual(
+      protocolCompatibilityEnvelopeV1(
+        "nelos_launch_verify_batch",
+        body,
+      ).value,
+      body,
+    );
   }
 });
 
@@ -928,6 +988,8 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
           calls.push(value);
           return {
             schemaVersion: 1,
+            webId: "A1",
+            queenThreadId: "queen",
             checkpoint: { checkpointRevision: 7 },
             join: {
               effects: [{ type: "native-wait", actionId: "wait-7" }],
@@ -942,6 +1004,13 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
   const result = toolBody(response);
   assert.equal(result.isError, false);
   assert.equal(result.body.join.effects[0].type, "native-wait");
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_orchestrate_advance",
+      result.body,
+    ).value,
+    result.body,
+  );
 });
 
 test("nelos_queen_decide forwards the strict versioned decision lifecycle", async () => {
@@ -986,6 +1055,17 @@ test("nelos_queen_decide forwards the strict versioned decision lifecycle", asyn
             schemaVersion: 1,
             replayed: false,
             decision: { decisionId: "queen-acceptance-v1/example" },
+            readiness: { readyWorkUnitIds: [], settledWorkUnitIds: ["alpha"] },
+            nextAction: {
+              schemaVersion: 1,
+              kind: "advance-orchestration",
+              tool: "nelos_orchestrate_advance",
+              arguments: {
+                webId: "A1",
+                queenThreadId: "queen",
+                receipt: null,
+              },
+            },
           };
         },
       },
@@ -1000,6 +1080,10 @@ test("nelos_queen_decide forwards the strict versioned decision lifecycle", asyn
   assert.equal(
     result.body.decision.decisionId,
     "queen-acceptance-v1/example",
+  );
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1("nelos_queen_decide", result.body).value,
+    result.body,
   );
 });
 
@@ -1042,11 +1126,31 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
       lifecycleAdapter: {
         async complete(value) {
           calls.push(["complete", value]);
-          return { state: "delivered" };
+          return {
+            schemaVersion: 1,
+            replayed: false,
+            record: { wakeId: "wake-1", wakeState: "delivering" },
+            effects: [{
+              schemaVersion: 1,
+              actionId: "wake-1",
+              type: "native-send-message",
+              threadId: "queen",
+              prompt: "Member completed.",
+              preconditions: {
+                expectedCallerThreadId: "member",
+                expectedBoundMemberThreadId: "member",
+              },
+            }],
+          };
         },
         async cleanup(value) {
           calls.push(["cleanup", value]);
-          return { state: "complete" };
+          return {
+            schemaVersion: 1,
+            policy: "ask",
+            state: "complete",
+            candidates: [],
+          };
         },
       },
       appServerBridge: { async close() {} },
@@ -1056,8 +1160,24 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     ["complete", completion],
     ["cleanup", cleanup],
   ]);
-  assert.equal(toolBody(completeResponse).body.state, "delivered");
-  assert.equal(toolBody(cleanupResponse).body.state, "complete");
+  const completed = toolBody(completeResponse).body;
+  const cleaned = toolBody(cleanupResponse).body;
+  assert.equal(completed.record.wakeState, "delivering");
+  assert.equal(cleaned.state, "complete");
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_spinoff_complete",
+      completed,
+    ).value,
+    completed,
+  );
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_spinoff_cleanup",
+      cleaned,
+    ).value,
+    cleaned,
+  );
 });
 
 function workUnitInput(overrides = {}) {
@@ -1125,6 +1245,13 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.isError, false);
   assert.equal(initial.body.binding.state, "launch-pending");
   assert.equal(initial.body.effects.length, 1);
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_orchestrate_create",
+      initial.body,
+    ).value,
+    initial.body,
+  );
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
   assert.match(

@@ -68,7 +68,12 @@ After the fast path or validated bootstrap, execute only the returned
   Bad identity, topology, read, or route evidence blocks the whole batch.
 - `native-wait-subagent` and `native-read-subagent-result`: use collaboration
   controls with the exact `agentPath`. Do not send the verification-only
-  subagent thread ID to Codex task title/read controls.
+  subagent thread ID to Codex task title/read controls. After waiting, never
+  submit a mailbox result directly: replay the exact planner launch receipt
+  until Nelos returns `native-read-subagent-result`, then use its exact
+  `actionId`. Never construct or guess a result action ID. While this settles,
+  tell the user only that the planner finished and Nelos is verifying its
+  terminal turn; expose protocol details only if `attention` persists.
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
   Never collapse the wave into one lifecycle kind.
