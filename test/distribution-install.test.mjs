@@ -221,6 +221,10 @@ async function createFixture() {
     join(skillPath, "distribution-provenance.json"),
     `${JSON.stringify({ schemaVersion: 1, distribution: "legacy", revision: legacyVersion })}\n`,
   );
+  await writeFile(
+    join(codexHome, "config.toml"),
+    '[plugins."nelos@personal".mcp_servers."nelos"]\nenabled = true\n',
+  );
   const oldCli = "#!/bin/sh\nprintf 'legacy help\\n'\n";
   const oldTitle = "#!/bin/sh\nprintf 'legacy title\\n'\n";
   await writeFile(join(binDir, "nelos"), oldCli, { mode: 0o755 });

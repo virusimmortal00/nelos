@@ -117,6 +117,10 @@ async function createDistributionFixture(overrides = {}) {
     join(pluginRoot, "distribution-provenance.json"),
     records.plugin === "stale" ? stale : records.plugin,
   );
+  await writeFile(
+    join(codexHome, "config.toml"),
+    '[plugins."nelos@personal".mcp_servers."nelos"]\nenabled = true\n',
+  );
 
   return {
     root,
@@ -218,6 +222,53 @@ test("read-only verification detects a tampered PATH command without executing i
     await assert.rejects(readFile(sentinel, "utf8"), { code: "ENOENT" });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("distribution verifier reports four distinct bundled MCP states without echoing fixtures", async () => {
+  const scenarios = [
+    {
+      state: "MISSING",
+      mutate: (fixture) => rm(join(fixture.pluginRoot, ".mcp.json")),
+    },
+    {
+      state: "DISABLED",
+      mutate: (fixture) => writeFile(
+        join(fixture.environment.CODEX_HOME, "config.toml"),
+        'unrelated_secret = "DO_NOT_ECHO_VERIFIER"\n',
+      ),
+    },
+    {
+      state: "INCOMPATIBLE",
+      mutate: (fixture) => writeFile(
+        join(fixture.pluginRoot, ".mcp.json"),
+        '{"nelos":{"command":"node","args":[],"env":{"NELOS_PLUGIN_VERSION":"DO_NOT_ECHO_VERIFIER"}}}\n',
+      ),
+    },
+    { state: "HEALTHY", mutate: async () => {} },
+  ];
+  for (const scenario of scenarios) {
+    const fixture = await createDistributionFixture();
+    try {
+      await scenario.mutate(fixture);
+      const result = await runVerifier(fixture.environment);
+      const combined = `${result.stdout}${result.stderr}`;
+      assert.match(combined, new RegExp(`^MCP ${scenario.state}:`, "m"));
+      assert.equal(
+        (combined.match(/^MCP recovery:$/gm) ?? []).length,
+        scenario.state === "HEALTHY" ? 0 : 1,
+      );
+      if (scenario.state === "DISABLED") {
+        assert.match(
+          result.stderr,
+          /\[plugins\."nelos@personal"\.mcp_servers\."nelos"\]\nenabled = true/u,
+        );
+      }
+      assert.doesNotMatch(combined, /DO_NOT_ECHO_VERIFIER/u);
+      assert.equal(result.status, scenario.state === "HEALTHY" ? 0 : 1);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
   }
 });
 

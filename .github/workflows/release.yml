@@ -1,0 +1,126 @@
+name: Draft release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Release gate / Node 20 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    env:
+      CODEX_HOME: ${{ github.workspace }}/.ci/codex-home
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify annotated tag and coherent release metadata
+        run: node scripts/build-release-artifacts.mjs --validate-only --tag "$GITHUB_REF_NAME"
+      - run: npm run check
+      - run: npm test
+      - run: npm run verify:golden-loop
+      - run: npm run verify:clean-install
+
+  artifacts:
+    name: Build reproducible release artifacts
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build and compare package outputs
+        run: >-
+          node scripts/build-release-artifacts.mjs
+          --tag "$GITHUB_REF_NAME"
+          --out-dir dist/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nelos-release-${{ github.ref_name }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create or refresh draft GitHub Release
+    needs: [verify, artifacts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nelos-release-${{ github.ref_name }}
+          path: dist/release
+      - name: Verify downloaded release assets
+        working-directory: dist/release
+        run: sha256sum --check SHA256SUMS
+      - name: Create or refresh the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          mapfile -t assets < <(
+            find dist/release -maxdepth 1 -type f \
+              ! -name release-notes.md -print | sort
+          )
+          if draft="$(
+            gh release view "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --json isDraft \
+              --jq .isDraft 2>release-view-error.txt
+          )"; then
+            if [[ "$draft" != "true" ]]; then
+              echo "refusing to modify an already published release" >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --clobber \
+              "${assets[@]}"
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --draft \
+              --title "Nelos $version" \
+              --notes-file dist/release/release-notes.md
+          elif grep -qi "release not found" release-view-error.txt; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --draft \
+              --verify-tag \
+              --title "Nelos $version" \
+              --notes-file dist/release/release-notes.md \
+              "${assets[@]}"
+          else
+            cat release-view-error.txt >&2
+            exit 1
+          fi

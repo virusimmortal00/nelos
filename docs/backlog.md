@@ -7,150 +7,92 @@ to **Done**, and revise **Next** before beginning new product work.
 This backlog is the source of truth for longer-term queen-driven coordination
 work. Order future slices by their evidence and acceptance gates.
 
+**Last reviewed:** 2026-07-28 11:08 EDT (`America/New_York`)
+
+Refresh this timestamp whenever **Next** is reordered, an item changes state, or
+a material implementation lands that changes the remaining scope.
+
 ## Next
 
-- [x] add the durable host-observation checkpoint, strict title/wait/result
-  receipts, pure join reducer, and callback-only MCP advance operation without
-  rewriting `ExecutionStoreV1` or opening an app-server connection
-  ([contract](observation-join.md)).
+### Host-owned task-control hardening
 
-### MCP-owned Codex app-server leverage
+Nelos owns durable policy, preconditions, and receipts. Codex remains
+authoritative for native task effects. Do not move task mutations into an
+unscoped MCP proxy or rely on the active agent to reconstruct lifecycle rules.
 
-Move deterministic Codex task operations behind the MCP boundary so correctness
-does not depend on the active agent remembering lifecycle bookkeeping. Each
-operation must remain narrow, idempotent where mutation is possible, and
-auditable.
+- [ ] inventory the current create, follow-up, steer, archive, and title effects
+  plus app-server compatibility fallbacks; document one explicit replay and
+  reconciliation policy per operation, and decide whether fork, resume, and
+  unarchive belong in the supported product surface;
+- [ ] finish launch attestation by binding authoritative working-directory,
+  worktree/branch, route, model, and reasoning evidence where the host exposes
+  it, while marking unavailable fields as unknown rather than inferred;
+- [ ] define one bounded mutation-audit event schema, permission matrix,
+  serialization contract, and content-free operator diagnostic across native
+  effects and compatibility fallbacks; and
+- [ ] run an end-to-end Desktop validation matrix covering task visibility,
+  notification propagation, concurrent Desktop/Nelos writers, uncertain
+  mutation outcomes, and supported mismatched Desktop/CLI versions.
 
-Delivered:
+Acceptance criteria: validation precedes mutation; stale or ambiguous receipts
+fail closed; uncertain mutations are never blindly replayed; repeated calls
+converge; native effects remain host-owned; and diagnostics expose allowlisted
+metadata only.
 
-- [x] add one lazy, reusable `codex app-server --stdio` bridge with bounded
-  JSONL requests, initialization, shutdown, and fail-closed errors;
-- [x] automatically mark the current task as the queen whenever a validated
-  Nelos plan contains spinoffs, preserving web-lineage markers and rendering
-  the role-first `👑 WEB_ID · base title` before verifying the persisted title
-  and returning the launch action; and
-- [x] expose bounded read-only task inspection without turns, previews, prompts,
-  or transcripts.
+### Release engineering and open-source readiness
 
-Migration backlog:
+The repository currently has protected `main`, required macOS/Linux checks,
+Dependabot, CodeQL, an MIT license, a security policy, a release policy, a
+changelog, community-health files, and a tag-only draft-release workflow with
+reproducible integrity artifacts. It has no published GitHub releases or Git
+tags yet.
 
-- [x] add compatibility negotiation, generated-schema fixtures, health checks,
-  bounded restart policy, and version telemetry for the experimental protocol;
-- [x] batch task inspection and bounded snapshot-cursor status polling to
-  replace repeated agent-driven lookups; Codex `0.144.x` exposes no native wait
-  method or resumable event cursor, so this remains current-state polling;
-- [x] build a bounded task inventory and authoritative direct-parent topology
-  projection for caller-supplied task IDs without inferring lifecycle roles;
-- [ ] migrate deterministic create, fork, resume, follow-up, steer, archive,
-  unarchive, and child-title reconciliation behind explicit per-operation
-  policies;
-- [ ] let lifecycle subscriptions drive dependency-wave readiness and
-  crash-safe continuation without background actions escaping durable receipts;
-- [ ] expose bounded result provenance and current-turn collection while
-  retaining the default prohibition on prompt and transcript access;
-- [ ] attest working-directory, worktree, route, model, and reasoning metadata
-  where the protocol provides authoritative fields;
-- [ ] add a mutation audit log, permission matrix, serialization rules, and
-  operator diagnostics; and
-- [ ] require a versioned title compare-and-set or revision precondition before
-  claiming safety for simultaneous Desktop and MCP title writers; and
-- [ ] test desktop visibility, notification propagation, concurrent desktop/MCP
-  writers, and behavior when the desktop and bridge use different Codex
-  versions.
+- [ ] publish the first GitHub Release from the next verified version instead of
+  inventing retroactive tags for unverified historical states;
+- [ ] clean up repository presentation and discovery metadata: remove the stale
+  `fraktik` topic, set the canonical documentation/homepage link, add CI and
+  release badges, and review Discussions, issue labels, merge settings, and
+  branch rules against the actual maintainer model.
 
-Acceptance criteria: no migrated mutation relies on agent memory; validation
-precedes mutation; uncertain outcomes fail closed; repeated calls converge;
-and read tools return allowlisted metadata only. The delivered queen-title
-operation performs two stable-title preflight reads, writes once, and verifies
-the result. Codex `0.144.x` exposes no title compare-and-set or revision
-precondition, so simultaneous manual Desktop title edits remain an explicit
-unsupported concurrency window rather than a claimed guarantee. Future
-mutations must not produce duplicate tasks or silently overwrite newer state.
+Remaining acceptance criteria: every advertised release maps one-to-one to a
+signed or otherwise immutable tag and coherent versioned source state; release
+automation cannot publish from an unverified commit; artifacts are
+integrity-checkable; and repository presentation matches the actual
+solo-maintainer model.
 
-### Self-sufficient marketplace install (MCP tool surface)
+### Synthesis and automatic continuation
 
-Close the packaging gap where a marketplace install ships the skill but not
-the `nelos` executable the skill invokes. Expose the skill's only CLI
-dependencies — the slice planner, the intelligence router, runtime-intelligence
-verification, and scoped task controls — as a bundled MCP server, per
-[MCP tool surface](mcp-tool-surface.md). Launch mechanics are
-pinned to verified `codex-cli 0.144.6` behavior (no `${PLUGIN_ROOT}`
-substitution; inline self-locating bootstrap) with a recorded retirement
-condition and a filed upstream report.
+- [ ] export deterministic synthesis provenance from exact accepted member
+  attempts without exposing prompts or transcripts; and
+- [ ] journal bounded continuation receipts so accepted dependency waves can
+  resume safely after a queen restart, while retaining an explicit attention
+  boundary whenever host evidence is unavailable.
 
-Delivery slices:
+Acceptance criteria: completion, collection, queen acceptance, synthesis, and
+continuation remain distinct states; stale attempts cannot enter synthesis; and
+recovery never relaunches accepted work.
 
-- [x] add the newline-framed stdio MCP server exposing `nelos_plan_slices`,
-  `nelos_intelligence_route`, and `nelos_intelligence_verify`, reusing the
-  CLI's modules with no behavioral fork (live-smoke-tested on a real
-  marketplace install of 0.2.0);
-- [x] generate `.mcp.json` with the baked release version and inline
-  bootstrap; verify freshness and version consistency in tests;
-- [x] move the skill's two CLI invocations to the named tools, keeping the
-  one-desktop-path protocol unchanged, and assert in compliance tests that the
-  installed skill references no shell `nelos` commands;
-- [x] update install documentation with the required `config.toml` enablement
-  block;
-- [ ] teach `nelos doctor` and the distribution verifier to recognize the
-  installed-but-disabled server state and point at the enablement block.
+## Upstream-blocked protocol opportunities
 
-Acceptance criteria: a fresh marketplace install plus the documented
-enablement block yields a task where the skill completes plan → launch →
-verify using only bundled tools and native task controls; the MCP server opens
-no sockets; inspection, routing, and verification perform no writes; planning
-mutates only the current queen title when spinoffs exist; stateful orchestration
-tools write only revision-checked private Nelos state and return host-owned
-effects; provenance and hermetic release gates cover the new surfaces; and the
-CLI remains fully supported for developers without being a skill dependency.
+These are not actionable **Next** work against the currently supported Codex
+`0.144.x` protocol. Re-evaluate them when the compatibility fixture changes.
 
-### Durable execution foundation
-
-Make the shipped golden loop resumable and deterministic by introducing the
-smallest durable orchestration contract. Keep the app server authoritative for
-tasks and turns, keep external effects in the existing adapters, and do not add
-automatic execution in this slice.
-
-Delivery slices:
-
-- [ ] add `ExecutionStoreV1` with atomic private-state writes, schema validation,
-  and malformed-record isolation;
-- [ ] add `WorkUnitSpecV1` with stable work-unit IDs, spec revisions, attempts,
-  capabilities, and explicit unbound/pending/bound task relationships;
-- [ ] add a pure orchestration reducer that derives outcome, phase, attention,
-  and proposed actions without performing effects;
-- [ ] key every proposed action to the work-unit ID and spec revision, and add
-  expected task/turn preconditions for task-scoped actions; and
-- [ ] prove restart reconciliation and reducer idempotency with deterministic
-  fixtures before enabling any automatic continuation.
-- [x] add the callback-only MCP first slice: persist one deterministic
-  `launch-pending` action, return one typed native-create effect, validate the
-  host receipt before mutation, and bind its returned member thread ID without
-  adding app-server transport or a second registry writer.
-- [x] harden that callback boundary: serialize decisions across processes,
-  turn uncertain replays into a non-creating reconciliation effect, carry the
-  requested title in a title-seeded creation prompt, observe the settled title
-  after binding, and emit an idempotent rename only on mismatch.
-- [x] add host receipt and observation contracts for title verification,
-  cursor-aware waiting, result collection, and parent continuation.
-
-Acceptance criteria: a queen restart reconstructs the same derived state and
-same proposed next action; stale observations and malformed records fail closed;
-unbound work units cannot receive task-scoped effects; identical reducer inputs
-produce identical output without duplicate effects; and no background service
-or unscoped host integration is introduced.
+- native lifecycle subscriptions with a resumable cursor or catch-up request,
+  replacing bounded current-state polling only after missed-event behavior is
+  testable; and
+- a versioned title compare-and-set or revision precondition, replacing the
+  documented unsupported simultaneous Desktop/MCP title-writer window.
 
 ## Leading candidates after Next
 
-1. **Result handoffs, acceptance, and synthesis:** validate current attempts,
-   record queen acceptance separately from completion, and export deterministic
-   synthesis provenance.
-2. **Queen-owned dependency gates and crash-safe continuation:** derive readiness
-   from accepted dependencies and journal bounded action receipts before any
-   automatic recovery.
-3. **Safe steering, worktree provisioning, and delivery:** add revision-checked,
-   auditable actions and one-writer workspace ownership.
-4. **Protocol and status hardening:** expand compatibility/fallback coverage and
-   raise branch coverage around app-server protocol and status normalization.
+1. **Safe steering, worktree provisioning, and delivery:** turn the existing
+   worktree contracts into revision-checked effects with one-writer ownership
+   and bounded delivery evidence.
+2. **Protocol and status hardening:** expand compatibility/fallback coverage and
+   branch coverage around app-server protocol and status normalization.
+3. **Release sustainability:** automate dependency-update release notes,
+   deprecation notices, support-window checks, and reproducibility verification
+   after the first release workflow is proven.
 
 ## Deferred Architecture Milestone
 
@@ -218,6 +160,35 @@ module boundaries, safety rules, and rollout criteria.
 
 ## Done
 
+- Add a tag-only release workflow that requires an annotated version tag,
+  macOS/Linux verification, the golden loop, a clean-install gate, coherent
+  release metadata, and a dated changelog section before creating or refreshing
+  a draft GitHub Release.
+- Build the npm package twice to prove reproducibility and attach SHA-256
+  checksums, distribution provenance, a release manifest, release notes, and a
+  deterministic CycloneDX SBOM; document install, upgrade, rollback, and
+  support expectations.
+- Add bounded, read-only bundled MCP diagnostics to `nelos doctor` and the
+  distribution verifier, distinguishing missing, disabled, incompatible, and
+  healthy states with one exact non-echoing recovery action where needed.
+- Define the SemVer, release-line, prerelease, Codex compatibility, provenance,
+  immutable-tag, and release-note contracts; add a packaged `CHANGELOG.md`.
+- Add repository-local contribution, conduct, support, ownership, bug/feature
+  issue forms, and pull-request guidance that preserves private security
+  reporting and reflects the solo-maintainer model.
+- Add `ExecutionStoreV1` and `WorkUnitSpecV1` with atomic private writes,
+  schema validation, malformed-record isolation, stable revisions and attempts,
+  explicit bindings, guarded transitions, and deterministic restart fixtures.
+- Add pure execution and observation reducers whose actions carry stable
+  work-unit, revision, attempt, task, and turn preconditions and whose identical
+  inputs reconstruct identical next actions without performing effects.
+- Add the durable host-observation checkpoint, strict title/wait/result receipts,
+  current-turn result provenance, separate queen acceptance, dependency-wave
+  readiness, and callback-only MCP advance operation
+  ([contract](observation-join.md)).
+- Add the bounded Codex app-server compatibility bridge, generated-schema and
+  version gates, health telemetry, task inspection and inventory, direct-parent
+  topology, and snapshot-cursor polling without prompts or transcripts.
 - Complete the executable-web golden loop: deterministic durable spinoffs,
   bounded outcome classification, same-task corrective recovery, pull-based
   collection, traceable synthesis readiness, and a twice-run verifier.

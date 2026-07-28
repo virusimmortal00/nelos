@@ -18,6 +18,7 @@ import {
   validateProvenance,
 } from "./distribution-provenance.mjs";
 import { resolveControlEndpoint } from "./control-endpoint.mjs";
+import { inspectBundledMcpState } from "./bundled-mcp-state.mjs";
 import { inspectPersonalMarketplace, parsePersonalMarketplaceText } from "./personal-marketplace.mjs";
 import { assertNoSymlinkComponents, ensureCanonicalDirectory, pathInfo } from "./path-safety.mjs";
 
@@ -165,6 +166,21 @@ export async function diagnoseDistribution(options = {}) {
         compareProvenance("plugin", state.provenance, plugin),
       ].every(({ coherent: surfaceCoherent }) => surfaceCoherent);
     checks.push(coherent ? item("coherence", "ok", `CLI, skill, and plugin share revision ${state.provenance.revision}`) : item("coherence", "error", "CLI, skill, and plugin provenance is missing, ambiguous, or inconsistent", "Re-run the unified distribution installer, then rerun doctor."));
+    const mcpState = await inspectBundledMcpState({
+      pluginRoot: state.plugin.installedPath,
+      selector: state.plugin.selector,
+      expectedVersion: state.provenance.revision,
+      configPath: resolve(options.configPath ?? join(codexHome, "config.toml")),
+    });
+    checks.push({
+      ...item(
+        "bundled-mcp-server",
+        mcpState.state === "healthy" ? "ok" : "error",
+        `${mcpState.state}: ${mcpState.detail}`,
+        mcpState.recovery,
+      ),
+      state: mcpState.state,
+    });
   }
   const marketplacePath = resolve(options.marketplacePath ?? join(home, ".agents", "plugins", "marketplace.json"));
   const expectedSource = resolve(state?.plugin?.sourcePath ?? join(home, "plugins", PLUGIN_NAME));
