@@ -54,9 +54,20 @@ async function createDoctorFixture(root) {
   }
   await Promise.all([
     writeFile(join(releasePath, "README.md"), "trusted release\n"),
-    writeFile(join(releasePath, ".mcp.json"), '{"nelos":{}}\n'),
+    writeFile(join(releasePath, "CHANGELOG.md"), "# Changelog\n"),
+    writeFile(join(releasePath, ".mcp.json"), `${JSON.stringify({
+      nelos: {
+        command: "node",
+        args: ["-e", "process.exit(0)"],
+        env: { NELOS_PLUGIN_VERSION: "test-release" },
+      },
+    })}\n`),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
+    writeFile(
+      join(codexHome, "config.toml"),
+      '[plugins."nelos@personal".mcp_servers."nelos"]\nenabled = true\n',
+    ),
   ]);
   for (const [command, packagePath] of Object.entries(MANAGED_CLI_BINS)) {
     const executablePath = join(releasePath, packagePath);
@@ -110,6 +121,7 @@ async function createDoctorFixture(root) {
     skillPath,
     pluginInstalledPath,
     codexCommand,
+    configPath: join(codexHome, "config.toml"),
   };
 }
 
@@ -354,6 +366,56 @@ test("marketplace recovery restores an update interrupted after displacement", a
       [],
     );
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("doctor reports four distinct bundled MCP states with one fixed recovery", async () => {
+  const scenarios = [
+    {
+      state: "missing",
+      mutate: async (fixture) => rm(join(fixture.pluginInstalledPath, ".mcp.json")),
+    },
+    {
+      state: "disabled",
+      mutate: async (fixture) => writeFile(
+        fixture.configPath,
+        'unrelated_secret = "DO_NOT_ECHO_DOCTOR"\n',
+      ),
+    },
+    {
+      state: "incompatible",
+      mutate: async (fixture) => writeFile(
+        join(fixture.pluginInstalledPath, ".mcp.json"),
+        '{"nelos":{"command":"node","args":[],"env":{"NELOS_PLUGIN_VERSION":"DO_NOT_ECHO_DOCTOR"}}}\n',
+      ),
+    },
+    { state: "healthy", mutate: async () => {} },
+  ];
+  for (const scenario of scenarios) {
+    const root = await canonicalMkdtemp(`nelos-doctor-mcp-${scenario.state}-`);
+    try {
+      const fixture = await createDoctorFixture(root);
+      await scenario.mutate(fixture);
+      const diagnosis = await diagnoseDistribution({
+        home: fixture.home,
+        codexHome: fixture.codexHome,
+        installRoot: fixture.installRoot,
+        codexCommand: fixture.codexCommand,
+        env: { PATH: fixture.binDir },
+      });
+      const check = diagnosis.checks.find(({ id }) => id === "bundled-mcp-server");
+      assert.equal(check.state, scenario.state);
+      assert.equal(check.nextStep === null, scenario.state === "healthy");
+      if (scenario.state === "disabled") {
+        assert.equal(
+          check.nextStep,
+          '[plugins."nelos@personal".mcp_servers."nelos"]\nenabled = true',
+        );
+      }
+      assert.doesNotMatch(JSON.stringify(check), /DO_NOT_ECHO_DOCTOR/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
 });
 
 test("marketplace recovery restores an update interrupted after replacement link", async () => {

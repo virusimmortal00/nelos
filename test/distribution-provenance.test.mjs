@@ -67,11 +67,12 @@ async function createDistributionFixture(overrides = {}) {
   const codexHome = join(root, "codex-home");
   const cliRoot = join(root, "cli");
   const cliPath = join(cliRoot, "bin", "nelos");
+  const marketplace = overrides.marketplace ?? "personal";
   const pluginRoot = join(
     codexHome,
     "plugins",
     "cache",
-    "personal",
+    marketplace,
     "nelos",
     "0.1.0+fixture",
   );
@@ -116,6 +117,10 @@ async function createDistributionFixture(overrides = {}) {
   await writeProvenance(
     join(pluginRoot, "distribution-provenance.json"),
     records.plugin === "stale" ? stale : records.plugin,
+  );
+  await writeFile(
+    join(codexHome, "config.toml"),
+    `[plugins.${JSON.stringify(`nelos@${marketplace}`)}.mcp_servers."nelos"]\nenabled = true\n`,
   );
 
   return {
@@ -216,6 +221,66 @@ test("read-only verification detects a tampered PATH command without executing i
       /MISMATCH PATH CLI:.*nelos integrity\/executability mismatch/,
     );
     await assert.rejects(readFile(sentinel, "utf8"), { code: "ENOENT" });
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("distribution verifier reports four distinct bundled MCP states without echoing fixtures", async () => {
+  const scenarios = [
+    {
+      state: "MISSING",
+      mutate: (fixture) => rm(join(fixture.pluginRoot, ".mcp.json")),
+    },
+    {
+      state: "DISABLED",
+      mutate: (fixture) => writeFile(
+        join(fixture.environment.CODEX_HOME, "config.toml"),
+        'unrelated_secret = "DO_NOT_ECHO_VERIFIER"\n',
+      ),
+    },
+    {
+      state: "INCOMPATIBLE",
+      mutate: (fixture) => writeFile(
+        join(fixture.pluginRoot, ".mcp.json"),
+        '{"nelos":{"command":"node","args":[],"env":{"NELOS_PLUGIN_VERSION":"DO_NOT_ECHO_VERIFIER"}}}\n',
+      ),
+    },
+    { state: "HEALTHY", mutate: async () => {} },
+  ];
+  for (const scenario of scenarios) {
+    const fixture = await createDistributionFixture();
+    try {
+      await scenario.mutate(fixture);
+      const result = await runVerifier(fixture.environment);
+      const combined = `${result.stdout}${result.stderr}`;
+      assert.match(combined, new RegExp(`^MCP ${scenario.state}:`, "m"));
+      assert.equal(
+        (combined.match(/^MCP recovery:$/gm) ?? []).length,
+        scenario.state === "HEALTHY" ? 0 : 1,
+      );
+      if (scenario.state === "DISABLED") {
+        assert.match(
+          result.stderr,
+          /\[plugins\."nelos@personal"\.mcp_servers\."nelos"\]\nenabled = true/u,
+        );
+      }
+      assert.doesNotMatch(combined, /DO_NOT_ECHO_VERIFIER/u);
+      assert.equal(result.status, scenario.state === "HEALTHY" ? 0 : 1);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("verification derives MCP enablement from the cached marketplace", async () => {
+  const fixture = await createDistributionFixture({
+    marketplace: "nelos-marketplace",
+  });
+  try {
+    const result = await runVerifier(fixture.environment);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^MCP HEALTHY:/mu);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

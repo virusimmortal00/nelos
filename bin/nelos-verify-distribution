@@ -35,6 +35,10 @@ import {
   validateProvenance,
 } from "../src/distribution-provenance.mjs";
 import { ensureCanonicalDirectory } from "../src/path-safety.mjs";
+import {
+  inspectBundledMcpState,
+  missingBundledMcpState,
+} from "../src/bundled-mcp-state.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,7 +53,7 @@ function invalidateInspection(inspection, detail) {
 
 function printUsage() {
   process.stdout.write(`Usage:
-  nelos-verify-distribution [--home PATH] [--codex-home PATH] [--install-root PATH] [--codex PATH]
+  nelos-verify-distribution [--home PATH] [--codex-home PATH] [--install-root PATH] [--codex PATH] [--config PATH]
 
 Compares this distribution's provenance with the nelos command on PATH,
 the user-wide manage-nelos-tasks skill, and the cached nelos plugin.
@@ -151,7 +155,7 @@ async function main() {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (
-      !["--home", "--codex-home", "--install-root", "--codex"].includes(
+      !["--home", "--codex-home", "--install-root", "--codex", "--config"].includes(
         argument,
       )
     ) {
@@ -166,7 +170,9 @@ async function main() {
           ? "codexHome"
           : argument === "--install-root"
             ? "installRoot"
-            : "codexCommand";
+            : argument === "--codex"
+              ? "codexCommand"
+              : "configPath";
     options[key] = value;
     index += 1;
   }
@@ -256,6 +262,18 @@ async function main() {
             join(installation.plugin.installedPath, PROVENANCE_FILENAME),
           )
         : cacheSelection;
+  const pluginRoot = installation?.plugin?.installedPath ??
+    (plugin?.path ? dirname(plugin.path) : null);
+  const pluginSelector = installation?.plugin?.selector ??
+    `${PLUGIN_NAME}@${cacheSelection?.marketplace ?? "personal"}`;
+  const mcpState = pluginRoot
+    ? await inspectBundledMcpState({
+        pluginRoot,
+        selector: pluginSelector,
+        expectedVersion: expected.revision,
+        configPath: resolve(options.configPath ?? join(codexHome, "config.toml")),
+      })
+    : missingBundledMcpState(pluginSelector);
 
   if (installationError) {
     const detail = `invalid install state: ${installationError.message}`;
@@ -489,6 +507,11 @@ async function main() {
     const stream = result.coherent ? process.stdout : process.stderr;
     stream.write(formatResult(result));
   }
+  const mcpStream = mcpState.state === "healthy" ? process.stdout : process.stderr;
+  mcpStream.write(`MCP ${mcpState.state.toUpperCase()}: ${mcpState.detail}\n`);
+  if (mcpState.recovery) {
+    mcpStream.write(`MCP recovery:\n${mcpState.recovery}\n`);
+  }
   if (cliCandidates.length > 1) {
     process.stdout.write(
       `PATH candidates: ${cliCandidates.map(({ path }) => path).join(", ")}\n`,
@@ -500,6 +523,7 @@ async function main() {
     );
     process.exitCode = 1;
   }
+  if (mcpState.state !== "healthy") process.exitCode = 1;
 }
 
 main().catch((error) => {

@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a concrete improvement to Nelos
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the use case, not confidential data. Do not include credentials, private task content, or security-sensitive details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Use case or problem
+      description: Who needs this, what are they trying to accomplish, and what currently blocks them?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable success and any bounded example workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds or related approaches, if any.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add only non-sensitive screenshots, references, or examples.

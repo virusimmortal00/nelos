@@ -108,6 +108,7 @@ own Git branches, merges, and final review.
 - [Slice planning](docs/slice-planning.md) — a full worked example
 - [Worktree coordination](docs/worktree-coordination.md) — one writer per branch
 - [Installation and trust](docs/installation.md) · [Development](docs/development.md)
+- [Release and compatibility policy](docs/release-policy.md) · [Changelog](CHANGELOG.md)
 
 ## Contributing
 

@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible defect in Nelos
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report only ordinary defects here. Do not include credentials, tokens, private task content, raw environment dumps, or suspected vulnerability details. For security concerns, follow SECURITY.md privately.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: State the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest safe, bounded sequence of commands or steps that reproduces the problem. Redact sensitive values.
+      placeholder: |
+        1. Run ...
+        2. Choose ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Nelos version or commit
+      placeholder: e.g. 0.4.0 or abc1234
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node.js version, and Codex version if relevant. Do not paste raw environment output.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence
+      description: Add a concise, redacted error or log excerpt only if it helps reproduce the defect.

@@ -9,6 +9,28 @@ the marketplace plugin plus its bundled MCP tool surface
 maintainer-oriented source distribution path, which installs the optional
 `nelos` CLI that the installed plugin no longer depends on.
 
+## Bundled MCP server states
+
+Both `nelos doctor` and `nelos-verify-distribution` inspect the installed
+plugin's bundled `nelos` server and `CODEX_HOME/config.toml` without modifying
+either file. Inspection is limited to canonical regular files no larger than
+1 MiB, and diagnostics never echo configuration, environment values, or raw
+malformed input.
+
+| State | Meaning | Single recovery action |
+| --- | --- | --- |
+| `missing` | The installed plugin has no `.mcp.json` or no `nelos` declaration. | Run `codex plugin add <installed-selector>` to reinstall the bundled server. |
+| `disabled` | The declaration is compatible but the exact installed selector and server are not enabled. | Add the exact block emitted by the diagnostic to `CODEX_HOME/config.toml`. |
+| `incompatible` | Server metadata or the target enablement setting is malformed, unsafe, oversized, or does not match the installed revision. | Run `codex plugin add <installed-selector>` to reinstall the bundled server. |
+| `healthy` | The installed declaration is compatible and its exact selector/server block has `enabled = true`. | None. |
+
+For example, an installed `nelos@personal` plugin emits only:
+
+```toml
+[plugins."nelos@personal".mcp_servers."nelos"]
+enabled = true
+```
+
 ## The unified installer
 
 The unified installer copies one immutable release under `CODEX_HOME` and
@@ -26,6 +48,43 @@ absolute local marketplace path. On a clean home, the same command safely
 creates the exact personal marketplace entry and managed plugin source;
 rerunning it is idempotent. Existing foreign marketplace content is never
 merged or replaced.
+
+## Release artifacts, upgrades, and rollback
+
+Every tagged release candidate produces a draft GitHub Release containing the
+npm package tarball, `distribution-provenance.json`, a CycloneDX SBOM,
+`release-manifest.json`, and `SHA256SUMS`. The workflow builds the package
+twice and requires identical SHA-256 digests before uploading either copy.
+Drafts are not supported releases until a maintainer reviews and publishes
+them.
+
+Before installing a published source distribution, download all release assets
+from the same immutable tag and verify them from the download directory:
+
+```bash
+sha256sum --check SHA256SUMS
+```
+
+On macOS, use `shasum -a 256 -c SHA256SUMS`. Confirm that the manifest's tag,
+version, source commit, and distribution integrity agree with the release page.
+Extract the npm tarball and run the unified installer from its `package/`
+directory. Do not combine a package, checksum file, provenance record, or SBOM
+from different releases.
+
+To upgrade, repeat those checks for the newer published release, run its unified
+installer, run `nelos-verify-distribution`, restart Codex when requested, and
+validate the skill from a fresh task. Read the release's **Compatibility
+requirements** and **Migrations** sections before upgrading.
+
+To roll back, use a previously downloaded and verified release that remains in
+a supported line. Review migrations first because a release may change
+persisted contracts that an older version cannot read. Run that release's
+unified installer and verifier, then restart Codex and use a fresh task. Never
+move a tag or substitute rebuilt bytes to simulate a rollback.
+
+Support follows [SUPPORT.md](../SUPPORT.md) and the support windows in the
+[release policy](release-policy.md#release-lines-and-support). Security reports
+must continue through the private route in [SECURITY.md](../SECURITY.md).
 
 ## Foreign files and forced installs
 
