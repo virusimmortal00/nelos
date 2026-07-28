@@ -1288,10 +1288,17 @@ function assertReceiptIdentity(executable, receipt) {
         const actual = receipt.targets.find(
           ({ workUnitId }) => workUnitId === expected.workUnitId,
         );
-        return !actual || [
-          "workUnitId", "specRevision", "attempt", "bindingGeneration",
-          "memberThreadId", "hostId", "afterCursor",
-        ].some((field) => !isDeepStrictEqual(expected[field], actual[field]));
+        return !actual ||
+          [
+            "workUnitId", "specRevision", "attempt", "bindingGeneration",
+            "memberThreadId", "afterCursor",
+          ].some(
+            (field) => !isDeepStrictEqual(expected[field], actual[field]),
+          ) ||
+          (
+            expected.hostId !== null &&
+            !isDeepStrictEqual(expected.hostId, actual.hostId)
+          );
       })
     ) return "receipt.conflicting";
   }

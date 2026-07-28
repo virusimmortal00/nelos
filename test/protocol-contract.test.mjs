@@ -972,6 +972,41 @@ test("wait target identity and thread-only wake receipts are exact", () => {
         ...waitReceipt,
         targets: [{
           ...waitReceipt.targets[0],
+          hostId: "host-discovered",
+        }],
+      },
+    ).accepted,
+    true,
+  );
+  const hostBoundWait = {
+    ...waitEffect,
+    targets: [{
+      ...waitEffect.targets[0],
+      hostId: "host-known",
+    }],
+  };
+  assert.equal(
+    reduceProtocolTransitionV1(
+      initialProtocolTransitionStateV1([hostBoundWait]),
+      hostBoundWait,
+      {
+        ...waitReceipt,
+        targets: [{
+          ...waitReceipt.targets[0],
+          hostId: "host-conflicting",
+        }],
+      },
+    ).error.code,
+    "receipt.conflicting",
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(
+      waitState,
+      waitEffect,
+      {
+        ...waitReceipt,
+        targets: [{
+          ...waitReceipt.targets[0],
           memberThreadId: "other-thread",
         }],
       },
