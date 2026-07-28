@@ -23,6 +23,12 @@ const THREAD_ID = {
   pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
 };
 const SHORT_ID = { ...ID, maxLength: 128 };
+const WORK_UNIT_ID = {
+  type: "string",
+  minLength: 1,
+  maxLength: 128,
+  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+};
 const TEXT = { type: "string", minLength: 1, maxLength: 8_192 };
 const SHORT_TEXT = { type: "string", minLength: 1, maxLength: 1_000 };
 const PLANNER_PROMPT = {
@@ -247,7 +253,7 @@ const SPINOFF_WORK_UNIT = closed({
   schemaVersion: VERSION,
   webId: ID,
   queenThreadId: ID,
-  workUnitId: SHORT_ID,
+  workUnitId: WORK_UNIT_ID,
   specRevision: POSITIVE,
   attempt: POSITIVE,
   memberKind: { const: "spinoff" },
@@ -275,7 +281,7 @@ const SPINOFF_WORK_UNIT = closed({
     type: "array",
     maxItems: 100,
     uniqueItems: true,
-    items: SHORT_ID,
+    items: WORK_UNIT_ID,
   },
   required: { type: "boolean" },
   policy: closed({
@@ -333,12 +339,7 @@ const RESULT_LIST = {
 function resultEnvelope(outcome, blockers) {
   return closed({
     schemaVersion: VERSION,
-    workUnitId: {
-      type: "string",
-      minLength: 1,
-      maxLength: 128,
-      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
-    },
+    workUnitId: WORK_UNIT_ID,
     specRevision: POSITIVE,
     attempt: POSITIVE,
     outcome: { const: outcome },
@@ -392,12 +393,14 @@ const NEXT_ACTION_MEMBERS = [
     threadId: ID,
     turnId: NULLABLE_ID,
     after: { const: "repeat-planner-launch-receipt" },
-    reconciliation: {
-      type: "object",
-      minProperties: 6,
-      maxProperties: 6,
-      additionalProperties: true,
-    },
+    reconciliation: closed({
+      reason: { const: "planner-turn-observation-conflict" },
+      retryable: { const: true },
+      appServerTurnStatus: { const: "interrupted" },
+      nativeCollaborationStatus: { const: "unavailable" },
+      observation: POSITIVE,
+      maximumObservations: { const: 1 },
+    }),
   }, ["actionId", "agentPath", "threadId", "turnId", "after"]),
   discriminated("kind", "native-read-subagent-result", {
     actionId: ID,
@@ -482,7 +485,7 @@ const NEXT_ACTION_MEMBERS = [
       items: closed({
         threadId: ID,
         sourceTurnId: NULLABLE_ID,
-        workUnitId: { anyOf: [{ type: "null" }, SHORT_ID] },
+        workUnitId: { anyOf: [{ type: "null" }, WORK_UNIT_ID] },
         result: {
           anyOf: [
             { type: "null" },
@@ -525,7 +528,7 @@ const NEXT_ACTION_MEMBERS = [
     planRunId: ID,
     nextWaveIndex: POSITIVE,
     sliceIds: { type: "array", maxItems: 16, uniqueItems: true, items: SHORT_ID },
-    workUnitIds: { type: "array", maxItems: 100, uniqueItems: true, items: SHORT_ID },
+    workUnitIds: { type: "array", maxItems: 100, uniqueItems: true, items: WORK_UNIT_ID },
     members: { type: "array", maxItems: 100, uniqueItems: true, items: ID },
     classificationEvidence: {
       type: "array", maxItems: 16, items: SHORT_TEXT,
@@ -543,7 +546,7 @@ const NEXT_ACTION_MEMBERS = [
     webId: { anyOf: [{ type: "null" }, ID] },
     threadId: ID,
     turnIds: { type: "array", maxItems: 100, uniqueItems: true, items: ID },
-    workUnitIds: { type: "array", maxItems: 100, uniqueItems: true, items: SHORT_ID },
+    workUnitIds: { type: "array", maxItems: 100, uniqueItems: true, items: WORK_UNIT_ID },
   }, []),
 ];
 
@@ -551,7 +554,7 @@ export const PROTOCOL_ACTION_SCHEMA_V1 = { oneOf: NEXT_ACTION_MEMBERS };
 
 const EFFECT_IDENTITY = {
   actionId: ID,
-  workUnitId: SHORT_ID,
+  workUnitId: WORK_UNIT_ID,
   specRevision: POSITIVE,
   attempt: POSITIVE,
 };
@@ -645,7 +648,7 @@ const EFFECT_MEMBERS = [
       minItems: 1,
       maxItems: 100,
       items: closed({
-        workUnitId: SHORT_ID,
+        workUnitId: WORK_UNIT_ID,
         specRevision: POSITIVE,
         attempt: POSITIVE,
         bindingGeneration: POSITIVE,
@@ -680,7 +683,7 @@ const EFFECT_MEMBERS = [
     archived: { const: true },
     preconditions: closed({
       expectedQueenThreadId: ID,
-      expectedAcceptedWorkUnitId: SHORT_ID,
+      expectedAcceptedWorkUnitId: WORK_UNIT_ID,
     }),
   }),
   discriminated("type", "native-reconcile-archive", {
@@ -695,12 +698,7 @@ export const PROTOCOL_NATIVE_EFFECT_SCHEMA_V1 = { oneOf: EFFECT_MEMBERS };
 
 function waitTarget(lifecycle, latestTurnId) {
   return closed({
-    workUnitId: {
-      type: "string",
-      minLength: 1,
-      maxLength: 128,
-      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
-    },
+    workUnitId: WORK_UNIT_ID,
     specRevision: POSITIVE,
     attempt: POSITIVE,
     bindingGeneration: POSITIVE,
@@ -929,7 +927,7 @@ const COMPATIBILITY_MEMBERS = [
   }),
   producerOutput("nelos_orchestrate_create", {
     schemaVersion: VERSION,
-    workUnitId: SHORT_ID,
+    workUnitId: WORK_UNIT_ID,
     specRevision: POSITIVE,
     attempt: POSITIVE,
     binding: BOUNDED_RECORD,

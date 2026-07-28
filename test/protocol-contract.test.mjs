@@ -156,6 +156,58 @@ test("every action, native effect, and receipt union member validates closed", (
   }
 });
 
+test("work-unit identifiers use the canonical orchestration identifier shape", () => {
+  assert.throws(
+    () => validateProtocolContractV1("effect", {
+      ...createEffect,
+      workUnitId: "not valid",
+    }),
+    /exactly one/,
+  );
+});
+
+test("planner interrupted-turn reconciliation evidence is closed and typed", () => {
+  const action = {
+    schemaVersion: 1,
+    kind: "native-wait-subagent",
+    actionId: "wait-1",
+    agentPath: "/root/planner",
+    threadId: "thread-planner",
+    turnId: "turn-planner",
+    after: "repeat-planner-launch-receipt",
+    reconciliation: {
+      reason: "planner-turn-observation-conflict",
+      retryable: true,
+      appServerTurnStatus: "interrupted",
+      nativeCollaborationStatus: "unavailable",
+      observation: 1,
+      maximumObservations: 1,
+    },
+  };
+
+  assert.deepEqual(validateProtocolContractV1("action", action), action);
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...action,
+      reconciliation: {
+        ...action.reconciliation,
+        appServerTurnStatus: "failed",
+      },
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...action,
+      reconciliation: {
+        ...action.reconciliation,
+        widened: true,
+      },
+    }),
+    /exactly one|not allowed/,
+  );
+});
+
 const plannerBootstrapFixture = createPlanningBootstrapV1({
   objective: "Produce a bounded plan.",
   maxParallel: 2,

@@ -595,7 +595,7 @@ function statusAction(
             reconciliation: {
               reason: "planner-turn-observation-conflict",
               retryable: true,
-              appServerTurnStatus: latestTurn.status,
+              appServerTurnStatus: "interrupted",
               nativeCollaborationStatus: "unavailable",
               observation: record.interruptedTurnReconciliations,
               maximumObservations:
