@@ -36,6 +36,86 @@ const NATIVE_TASK = closed({
   model: { type: "string", minLength: 1, maxLength: 128 },
   thinking: { type: "string", minLength: 1, maxLength: 32 },
 });
+const ROUTE_ENFORCEMENT = closed({
+  mode: { const: "exact" },
+  onUnavailable: { const: "stop" },
+  verifyAfterLaunch: { const: true },
+});
+const ROUTE_EXPECTATION = closed({
+  model: { type: "string", minLength: 1, maxLength: 128 },
+  effort: { type: "string", minLength: 1, maxLength: 32 },
+});
+const ROUTE_OBSERVATION = closed({
+  turnId: ID,
+  model: { type: "string", minLength: 1, maxLength: 128 },
+  effort: { type: "string", minLength: 1, maxLength: 32 },
+  matches: { type: "boolean" },
+});
+const PLANNER_MEMBER = closed({
+  bootstrapId: ID,
+  agentTaskName: SHORT_ID,
+  lifecycle: { const: "subagent" },
+  memberKind: { const: "joined-subagent" },
+  launcher: { const: "spawn-subagent" },
+  title: { type: "string", minLength: 1, maxLength: 512 },
+  titlePolicy: closed({
+    mode: { const: "prompt-seeded" },
+    recommendedMaxCharacters: { type: "integer", minimum: 1, maximum: 512 },
+    verifyAfterLaunch: { const: false },
+    evidence: { const: "agent-path" },
+    onMismatch: { const: "attention" },
+  }),
+  workspaceMode: { const: "shared-read-only" },
+  forkTurns: { const: "none" },
+  nativeTask: NATIVE_TASK,
+  routeEnforcement: ROUTE_ENFORCEMENT,
+  threadIdentity: closed({
+    required: { const: true },
+    onMissing: { const: "attention" },
+    resolver: { const: "nelos_intelligence_resolve_subagent" },
+    parentThreadIdSource: { const: "current-task" },
+    agentPathSource: { const: "launcher-result" },
+    turnIdSource: { const: "resolved-native-session" },
+  }),
+  identityContract: closed({
+    lifecycle: { const: "subagent" },
+    memberKind: { const: "joined-subagent" },
+    primaryId: { const: "agentPath" },
+    controlSurface: { const: "collaboration" },
+    nativeThreadIdUse: { const: "verification-only" },
+    nativeTitleControl: { const: false },
+  }),
+  prompt: TEXT,
+  resultContract: closed({
+    fence: { const: "nelos-plan" },
+    bootstrapId: ID,
+    nextTool: { const: "nelos_plan_bootstrap" },
+    responseArgument: { const: "response" },
+    reuseRequest: { const: true },
+    onInvalid: { const: "attention" },
+  }),
+  continuation: closed({
+    verify: closed({
+      tool: { const: "nelos_intelligence_verify" },
+      model: { type: "string", minLength: 1, maxLength: 128 },
+      effort: { type: "string", minLength: 1, maxLength: 32 },
+      beforeRead: { const: true },
+    }),
+    wait: closed({ action: { const: "native-wait-subagent" } }),
+    read: closed({ action: { const: "native-read-subagent-result" } }),
+    finalize: closed({
+      tool: { const: "nelos_plan_bootstrap" },
+      reuseRequest: { const: true },
+      responseArgument: { const: "response" },
+    }),
+  }),
+  actionId: ID,
+  preconditions: closed({
+    bootstrapId: ID,
+    expectedPhase: { const: "launch-pending" },
+    expectedParentThreadId: ID,
+  }),
+});
 const TOOL_ARGUMENTS = {
   type: "object",
   minProperties: 1,
@@ -65,12 +145,7 @@ const MEMBER_TARGET = closed({
 
 const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "launch-planner", {
-    member: {
-      type: "object",
-      minProperties: 8,
-      maxProperties: 24,
-      additionalProperties: true,
-    },
+    member: PLANNER_MEMBER,
   }),
   discriminated("kind", "reconcile-planner-launch", {
     actionId: ID,
@@ -167,11 +242,7 @@ const NEXT_ACTION_MEMBERS = [
   }),
   discriminated("kind", "attach-native-task-options", {
     nativeTask: NATIVE_TASK,
-    routeEnforcement: closed({
-      mode: { const: "exact" },
-      onUnavailable: { const: "stop" },
-      verifyAfterLaunch: { const: true },
-    }),
+    routeEnforcement: ROUTE_ENFORCEMENT,
   }),
   discriminated("kind", "decide", {
     operation: { enum: ["author-slice-plan", "accept-current-results"] },
@@ -225,6 +296,13 @@ const NEXT_ACTION_MEMBERS = [
     members: { type: "array", maxItems: 100, uniqueItems: true, items: ID },
     classificationEvidence: {
       type: "array", maxItems: 16, items: SHORT_TEXT,
+    },
+    expected: ROUTE_EXPECTATION,
+    observed: {
+      type: "array",
+      minItems: 1,
+      maxItems: 100,
+      items: ROUTE_OBSERVATION,
     },
   }, ["reason"]),
   discriminated("kind", "complete", {
@@ -357,6 +435,37 @@ const EFFECT_MEMBERS = [
 
 export const PROTOCOL_NATIVE_EFFECT_SCHEMA_V1 = { oneOf: EFFECT_MEMBERS };
 
+function waitTarget(lifecycle, latestTurnId) {
+  return closed({
+    workUnitId: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    },
+    specRevision: POSITIVE,
+    attempt: POSITIVE,
+    bindingGeneration: POSITIVE,
+    memberThreadId: ID,
+    hostId: NULLABLE_ID,
+    afterCursor: NULLABLE_ID,
+    nextCursor: NULLABLE_ID,
+    lifecycle: { const: lifecycle },
+    latestTurnId,
+    attentionRequired: { type: "boolean" },
+  });
+}
+
+const WAIT_TARGET_SCHEMA = {
+  oneOf: [
+    waitTarget("waiting", NULLABLE_ID),
+    waitTarget("running", NULLABLE_ID),
+    waitTarget("completed", ID),
+    waitTarget("failed", ID),
+    waitTarget("unavailable", NULLABLE_ID),
+  ],
+};
+
 const RECEIPT_MEMBERS = [
   discriminated("type", "native-planner-created", {
     actionId: ID,
@@ -389,12 +498,7 @@ const RECEIPT_MEMBERS = [
       type: "array",
       minItems: 1,
       maxItems: 100,
-      items: {
-        type: "object",
-        minProperties: 11,
-        maxProperties: 11,
-        additionalProperties: true,
-      },
+      items: WAIT_TARGET_SCHEMA,
     },
   }),
 ];

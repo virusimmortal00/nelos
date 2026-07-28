@@ -31,10 +31,10 @@ export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
 export class PlanningLifecycleProtocolError extends Error {
   constructor(code, message) {
     super(message);
-    const declaration = PROTOCOL_CODE_REGISTRY_V1[code];
-    if (!declaration) {
+    if (!Object.hasOwn(PROTOCOL_CODE_REGISTRY_V1, code)) {
       throw new Error(`unknown planning lifecycle protocol code ${code}`);
     }
+    const declaration = PROTOCOL_CODE_REGISTRY_V1[code];
     this.name = "PlanningLifecycleProtocolError";
     this.code = code;
     this.retryable = !declaration.terminal;

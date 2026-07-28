@@ -19,6 +19,8 @@ import {
 } from "../src/protocol-contract/index.mjs";
 import { PROTOCOL_MIGRATION_MAP_V1 } from "../src/protocol-contract/migration-map.mjs";
 import { listNelosMcpTools } from "../src/mcp-server.mjs";
+import { createPlanningBootstrapV1 } from "../src/planning-bootstrap.mjs";
+import { deriveNextAction } from "../src/next-action.mjs";
 
 test("protocol contracts are available through public package subpaths", async () => {
   const contract = await import("nelos/protocol-contract");
@@ -150,6 +152,12 @@ test("every action, native effect, and receipt union member validates closed", (
   }
 });
 
+const plannerBootstrapFixture = createPlanningBootstrapV1({
+  objective: "Produce a bounded plan.",
+  maxParallel: 2,
+  bootstrapId: "plan:1234567890abcdef12345678",
+});
+
 const launchPlannerOutput = {
   schemaVersion: 1,
   command: "plan lifecycle",
@@ -164,14 +172,14 @@ const launchPlannerOutput = {
     schemaVersion: 1,
     kind: "launch-planner",
     member: {
-      sliceId: "planner",
-      lifecycle: "subagent",
-      memberKind: "joined-subagent",
-      launcher: "spawn-subagent",
-      agentTaskName: "nelos_planner",
-      title: "Planner",
-      prompt: "Produce a bounded plan.",
-      forkTurns: "none",
+      ...plannerBootstrapFixture.planner,
+      actionId:
+        "planning-lifecycle-v1/plan:1234567890abcdef12345678/launch",
+      preconditions: {
+        bootstrapId: "plan:1234567890abcdef12345678",
+        expectedPhase: "launch-pending",
+        expectedParentThreadId: "queen-1",
+      },
     },
   },
 };
@@ -367,6 +375,34 @@ test("compatibility and contract discriminators are correlated to value schemas"
   );
   assert.equal(actionEnvelope.contract, "action");
   assert.deepEqual(actionEnvelope.value, verificationOutput.nextAction);
+
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      schemaVersion: 1,
+      kind: "launch-planner",
+      member: Object.fromEntries(
+        Array.from({ length: 18 }, (_, index) => [`field${index}`, index]),
+      ),
+    }),
+    /exactly one/,
+  );
+
+  const routeMismatch = deriveNextAction({
+    command: "intelligence verify",
+    threadId: "thread-1",
+    expected: { model: "gpt-5.6-terra", effort: "low" },
+    observed: [{
+      turnId: "turn-1",
+      model: "gpt-5.6-sol",
+      effort: "medium",
+      matches: false,
+    }],
+    verified: false,
+  });
+  assert.deepEqual(
+    validateProtocolContractV1("action", routeMismatch),
+    routeMismatch,
+  );
 });
 
 test("tool argument maps enforce value schemas and property-name bounds", () => {
@@ -703,6 +739,44 @@ test("wait target identity and thread-only wake receipts are exact", () => {
       },
     ).accepted,
     false,
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(
+      waitState,
+      waitEffect,
+      {
+        ...waitReceipt,
+        targets: [{
+          workUnitId: "member",
+          specRevision: 1,
+          attempt: 1,
+          bindingGeneration: 1,
+          memberThreadId: "thread-member",
+          hostId: null,
+          afterCursor: null,
+          arbitraryA: "cursor-1",
+          arbitraryB: "running",
+          arbitraryC: "turn-1",
+          arbitraryD: false,
+        }],
+      },
+    ).error.code,
+    "protocol.malformed",
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(
+      waitState,
+      waitEffect,
+      {
+        ...waitReceipt,
+        targets: [{
+          ...waitReceipt.targets[0],
+          lifecycle: "completed",
+          latestTurnId: null,
+        }],
+      },
+    ).error.code,
+    "protocol.malformed",
   );
 
   const wakeState = initialProtocolTransitionStateV1([sendEffect]);

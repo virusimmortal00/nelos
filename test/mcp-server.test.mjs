@@ -574,6 +574,17 @@ test("nelos_plan_lifecycle returns structured recovery for an early planner resu
   });
 });
 
+test("planning lifecycle protocol errors require an owned registry code", () => {
+  assert.throws(
+    () => new PlanningLifecycleProtocolError("constructor", "Invalid."),
+    /unknown planning lifecycle protocol code/,
+  );
+  assert.throws(
+    () => new PlanningLifecycleProtocolError("toString", "Invalid."),
+    /unknown planning lifecycle protocol code/,
+  );
+});
+
 test("nelos_plan_replan forwards typed exceptions and excludes completed work from the launch wave", async () => {
   const args = {
     schemaVersion: 1,
