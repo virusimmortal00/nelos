@@ -49,20 +49,19 @@ test("web title parsing makes rendering idempotent", () => {
 });
 
 test("crown and web markers share one idempotent topology-preserving grammar", () => {
-  const title = "👑 B2.1 🕷️ B2 · Documentation";
+  const title = "👑 · 🕷️ B2.1 · Documentation";
   assert.deepEqual(parseWebTitle(title), {
     baseTitle: "Documentation",
-    inboundWebId: "B2",
+    inboundWebId: null,
     outboundWebId: "B2.1",
     queenMarked: true,
   });
   assert.equal(
     renderWebTitle({
       baseTitle: title,
-      inboundWebId: "B2",
       outboundWebId: "B2.1",
     }),
-    title,
+    "👑 B2.1 · Documentation",
   );
 });
 

@@ -172,7 +172,7 @@ test("planning bootstrap materializes the requested parallelism when omitted", (
   assert.equal(finalized.plan.maxParallel, 1);
 });
 
-test("only an internally authorized exception replan may preserve an earlier slice ID", () => {
+test("preservedSliceIds permits an authorized caller to reuse an earlier slice ID", () => {
   const context = JSON.stringify({
     mode: "exception-replan",
     policy: { preserveCompletedSlicesExactly: true },

@@ -190,8 +190,18 @@ function correctionPrompt(member) {
   ].join(" ");
 }
 
-function launchWave(plan, planRun = null, cleanupIntended = true) {
-  const currentWave = plan.waves[0];
+export function derivePlanWaveActionV1(
+  plan,
+  planRun = null,
+  waveIndex = plan?.waves?.[0]?.index,
+  cleanupIntended = true,
+) {
+  const currentWave = plan?.waves?.find(
+    ({ index }) => index === waveIndex,
+  );
+  if (!currentWave) {
+    throw new Error(`plan has no launchable wave ${waveIndex}`);
+  }
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
   }
@@ -244,7 +254,9 @@ function launchWave(plan, planRun = null, cleanupIntended = true) {
       waveDigest: verification.waveDigest,
     },
     settleBeforeWaveIndex: currentWave.index + 1,
-    remainingWaveCount: plan.waves.length - 1,
+    remainingWaveCount: plan.waves.filter(
+      ({ index }) => index > currentWave.index,
+    ).length,
   });
 }
 
@@ -381,9 +393,10 @@ export function deriveNextAction(output) {
         },
       });
     case "plan slices":
-      return launchWave(
+      return derivePlanWaveActionV1(
         output.plan,
         output.planRun,
+        output.plan.waves[0]?.index,
         output.cleanupIntended ?? true,
       );
     case "web begin":

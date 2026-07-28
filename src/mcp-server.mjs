@@ -116,7 +116,7 @@ async function plannedSlicesOutput(
     cleanupIntended = true,
   },
 ) {
-  const sourceId =
+  let sourceId =
     additionalFields.lifecycle?.bootstrapId ??
     additionalFields.planning?.bootstrapId ??
     `structured:${createHash("sha256")
@@ -126,6 +126,7 @@ async function plannedSlicesOutput(
     queenThreadId,
     sourceId,
     parentPlanRun,
+    cleanupIntended,
   });
   const existing = await planRunStore.read(candidate.planRunId);
   let persistedWebIdentity =
@@ -144,6 +145,17 @@ async function plannedSlicesOutput(
     settledQueenTitle = preflight.title;
     persistedWebIdentity = await webRegistry.withLock(async () => {
       const stored = await webRegistry.read(queenThreadId);
+      const revivingArchivedQueen = stored?.archivedAt != null;
+      if (revivingArchivedQueen && parentPlanRun === null) {
+        persistedWebIdentity = null;
+        sourceId =
+          `revived:${createHash("sha256")
+            .update(
+              JSON.stringify([sourceId, stored.archivedAt]),
+              "utf8",
+            )
+            .digest("hex")}`;
+      }
       const current = stored && !stored.archivedAt ? stored : null;
       const parsed = parseWebTitle(settledQueenTitle);
       const plannedWebId = persistedWebIdentity?.webId ?? null;
@@ -152,7 +164,7 @@ async function plannedSlicesOutput(
         : null;
       for (const observedWebId of [
         recordedWebId,
-        parsed.outboundWebId,
+        revivingArchivedQueen ? null : parsed.outboundWebId,
       ]) {
         if (
           observedWebId &&
@@ -176,11 +188,17 @@ async function plannedSlicesOutput(
       const webId =
         plannedWebId ??
         recordedWebId ??
-        parsed.outboundWebId ??
-        allocateWebId(await webRegistry.list(), parsed.inboundWebId);
+        (revivingArchivedQueen ? null : parsed.outboundWebId) ??
+        allocateWebId(
+          await webRegistry.list(),
+          revivingArchivedQueen ? null : parsed.inboundWebId,
+        );
       const queenTitle =
         persistedWebIdentity?.queenTitle ??
-        renderPersistedQueenWebTitle(settledQueenTitle, webId);
+        renderPersistedQueenWebTitle(
+          revivingArchivedQueen ? parsed.baseTitle : settledQueenTitle,
+          webId,
+        );
       const normalized = {
         schemaVersion: 1,
         webId,
@@ -228,6 +246,7 @@ async function plannedSlicesOutput(
       sourceId,
       parentPlanRun,
       webIdentity: persistedWebIdentity,
+      cleanupIntended,
     }),
   );
   const output = {
@@ -402,6 +421,7 @@ const TOOLS = [
           planRunStore,
           parentPlanRun,
           webRegistry,
+          cleanupIntended: parentPlanRun.cleanupIntended,
         },
       );
     },
@@ -479,6 +499,14 @@ const TOOLS = [
         appServerBridge,
         waveContract: wave,
       });
+      if (verification.allVerified) {
+        await planRunStore.markWaveVerified({
+          planRunId: args.planRunId,
+          queenThreadId: args.parentThreadId,
+          waveIndex: args.waveIndex,
+          waveDigest: args.waveDigest,
+        });
+      }
       const titleMismatch = verification.members.find(
         (member) =>
           member.lifecycle === "spinoff" &&

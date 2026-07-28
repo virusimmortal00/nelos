@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.4.0+codex.20260727211132",
+  "version": "0.4.0+codex.20260728022005",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {

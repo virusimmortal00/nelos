@@ -282,6 +282,21 @@ export function withPlanningLifecycleLock(
 }
 
 /**
+ * Serialize mutable progress updates for one persisted plan run.
+ */
+export function withPlanRunLock(
+  planRunId,
+  callback,
+  timeoutMs = 60_000,
+) {
+  if (!/^run:[a-f0-9]{40}$/u.test(planRunId)) {
+    throw new Error("plan run lock requires a valid plan-run ID");
+  }
+  const lockId = createHash("sha256").update(planRunId, "utf8").digest("hex");
+  return withOwnedStateLock(`plan-run-${lockId}`, callback, timeoutMs);
+}
+
+/**
  * Serialize one web checkpoint read/reduce/write transaction.
  */
 export function withObservationCheckpointLock(

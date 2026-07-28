@@ -142,10 +142,11 @@ The MCP plan-run path uses that registry only as a compatibility source for one
 persisted queen web identity; it does not introduce a second allocator. Legacy
 records and marked titles remain readable and keep their IDs. Permanent
 uppercase-hexadecimal allocation, atomic high-water persistence, historical
-seeding, monotonic child suffixes, and archive-safe non-reuse belong to
-[GitHub issue #23](https://github.com/virusimmortal00/nelos/issues/23) and are
-intentionally not implemented here. That migration must preserve recognized
-historical lineage without destructive renumbering.
+seeding, and monotonic child suffixes belong to
+[GitHub issue #23](https://github.com/virusimmortal00/nelos/issues/23). The
+current registry still reserves an allocated ID until host-observed archival,
+as described below. That migration must preserve recognized historical lineage
+without destructive renumbering.
 
 Socket-backed `web begin` returns a verified `liveTitle`. Registry-only setup
 returns an unverified `renderedTitle` that must be synchronized through the

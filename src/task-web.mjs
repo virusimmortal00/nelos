@@ -80,6 +80,9 @@ function parseTitleMarkers(title) {
         const webId = assertWebId(member[1]);
         remaining = remaining.slice(member[0].length);
         const legacyInnerQueen = consumeQueenMarkers(remaining);
+        // Legacy `👑 🕷️ A1 · X` stores A1 as inbound, while
+        // `👑 · 🕷️ A1 · X` stores it as outbound; the delimiter marks the
+        // outer crown as a distinct queen marker and flips the direction.
         if (
           legacyInnerQueen.queenMarked ||
           (outerQueen.queenMarked && outerQueen.delimited)

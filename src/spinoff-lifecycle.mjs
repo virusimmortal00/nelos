@@ -669,7 +669,11 @@ export class SpinoffLifecycleAdapterV1 {
         !["archived", "kept"].includes(record?.cleanupState),
     );
 
-    if (resolvedPolicy === "ask" && confirmedThreadIds === undefined) {
+    if (
+      resolvedPolicy === "ask" &&
+      confirmedThreadIds === undefined &&
+      receiptByThreadId.size === 0
+    ) {
       if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
       return {
         schemaVersion: 1,
@@ -698,6 +702,15 @@ export class SpinoffLifecycleAdapterV1 {
     const selected = reconciliationCandidates.filter(
       ({ threadId }) => confirmed.has(threadId),
     );
+    for (const candidate of allCandidates) {
+      if (
+        receiptByThreadId.has(candidate.threadId) &&
+        candidate.record?.cleanupState === "archived" &&
+        !selected.some(({ threadId }) => threadId === candidate.threadId)
+      ) {
+        selected.push(candidate);
+      }
+    }
     if (
       [...receiptByThreadId.keys()].some(
         (threadId) => !selected.some((candidate) => candidate.threadId === threadId),
@@ -720,6 +733,13 @@ export class SpinoffLifecycleAdapterV1 {
             );
           }
           if (record.cleanupState === "archived") {
+            const receipt = receiptByThreadId.get(candidate.threadId);
+            if (
+              receipt &&
+              receipt.actionId !== archiveActionId(completion)
+            ) {
+              throw new Error("native archive receipt is stale or conflicting");
+            }
             results.push({
               threadId: candidate.threadId,
               state: "archived",

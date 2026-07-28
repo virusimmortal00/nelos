@@ -43,6 +43,38 @@ function durablePlan() {
   return planned;
 }
 
+function twoWaveDurablePlan() {
+  return planWorkSlices({
+    schemaVersion: 1,
+    objective: "Deliver two dependency-ordered changes",
+    maxParallel: 2,
+    slices: [
+      {
+        id: "first",
+        title: "First change",
+        objective: "Complete the prerequisite",
+        deliverable: "First result",
+        acceptanceCriteria: ["The prerequisite is verified"],
+        dependsOn: [],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+      {
+        id: "second",
+        title: "Second change",
+        objective: "Complete the dependent work",
+        deliverable: "Second result",
+        acceptanceCriteria: ["The dependent result is verified"],
+        dependsOn: ["first"],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+    ],
+  });
+}
+
 function webIdentity(webId = "A1") {
   return {
     schemaVersion: 1,
@@ -96,6 +128,88 @@ test("plan runs are deterministic, durable, and preserve authoritative wave cont
       waveDigest: created.waves[0].waveDigest,
     });
     assert.deepEqual(wave, created.waves[0]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("verified wave progress is ordered, replay-safe, and durable across restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const directory = join(root, "records");
+    const store = new PlanRunStoreV1({ directory });
+    const created = await store.create(
+      createPlanRunV1(twoWaveDurablePlan(), {
+        queenThreadId: "queen-1",
+        sourceId: "multi-wave-progress",
+        webIdentity: webIdentity(),
+        cleanupIntended: false,
+      }),
+    );
+    assert.equal(created.cleanupIntended, false);
+    assert.deepEqual(created.verifiedWaveIndexes, []);
+    await assert.rejects(
+      store.markWaveVerified({
+        planRunId: created.planRunId,
+        queenThreadId: "queen-1",
+        waveIndex: 2,
+        waveDigest: created.waves[1].waveDigest,
+      }),
+      /dependency order/u,
+    );
+    const first = await store.markWaveVerified({
+      planRunId: created.planRunId,
+      queenThreadId: "queen-1",
+      waveIndex: 1,
+      waveDigest: created.waves[0].waveDigest,
+    });
+    assert.deepEqual(first.verifiedWaveIndexes, [1]);
+    assert.deepEqual(
+      await store.markWaveVerified({
+        planRunId: created.planRunId,
+        queenThreadId: "queen-1",
+        waveIndex: 1,
+        waveDigest: created.waves[0].waveDigest,
+      }),
+      first,
+    );
+    const restarted = new PlanRunStoreV1({ directory });
+    assert.deepEqual(
+      (await restarted.listForWeb({
+        webId: "A1",
+        queenThreadId: "queen-1",
+      }))[0].verifiedWaveIndexes,
+      [1],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy plan adoption rejects a replacement that exceeds the record bound", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-plan-runs-"));
+  try {
+    const directory = join(root, "records");
+    const store = new PlanRunStoreV1({ directory });
+    const oversizedPlan = {
+      ...plan(),
+      compatibilityPadding: "x".repeat(140 * 1024),
+    };
+    const current = createPlanRunV1(oversizedPlan, {
+      queenThreadId: "queen-1",
+      sourceId: "oversized-adoption",
+    });
+    const legacy = structuredClone(current);
+    delete legacy.plan;
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, `${encodeURIComponent(legacy.planRunId)}.json`),
+      `${JSON.stringify(legacy, null, 2)}\n`,
+    );
+    await assert.rejects(
+      store.create(current),
+      /record is oversized/u,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -88,6 +88,11 @@ async function fixture(t, outcome = "succeeded") {
     executionStore,
     checkpointStore,
     acceptanceStore,
+    planRunStore: {
+      async listForWeb() {
+        return [];
+      },
+    },
   });
   const initial = await joinAdapter.advance({
     webId: "A1",

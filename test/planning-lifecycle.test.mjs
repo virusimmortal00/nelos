@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -286,6 +287,45 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
     const persisted = await readFile(recordPath, "utf8");
     assert.equal(persisted.includes(response), false);
     assert.equal(persisted.includes("Working view and tests"), false);
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("default cleanup intent replays records written with the explicit-default digest", async () => {
+  const value = await fixture();
+  try {
+    const requested = request();
+    const initial = await value.coordinator.advance(requested, {
+      appServerBridge: value.bridge,
+    });
+    const record = await value.store.read(initial.lifecycle.bootstrapId);
+    const explicitDefaultDigest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          schemaVersion: 1,
+          idempotencyKey: requested.idempotencyKey,
+          queenThreadId: requested.queenThreadId,
+          objective: requested.objective,
+          context: "",
+          maxParallel: requested.maxParallel,
+          cleanupIntended: true,
+        }),
+        "utf8",
+      )
+      .digest("hex");
+    await value.store.write(
+      {
+        ...record,
+        revision: record.revision + 1,
+        requestDigest: explicitDefaultDigest,
+      },
+      { expectedRevision: record.revision },
+    );
+    const replay = await value.restart().advance(requested, {
+      appServerBridge: value.bridge,
+    });
+    assert.equal(replay.nextAction.kind, "reconcile-planner-launch");
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }

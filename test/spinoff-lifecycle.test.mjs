@@ -93,7 +93,7 @@ async function fixture(
       },
     },
   });
-  return { adapter, store, decisions, units };
+  return { adapter, store, directory, decisions, units };
 }
 
 function wakeReceipt(effect, overrides = {}) {
@@ -220,6 +220,15 @@ test("cleanup asks before returning host-owned archive effects", async (t) => {
   assert.deepEqual(applied.effects, []);
   assert.equal(applied.results[0].state, "archived");
 
+  const receiptReplay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+  assert.equal(receiptReplay.state, "complete");
+  assert.equal(receiptReplay.results[0].state, "archived");
+  assert.equal(receiptReplay.results[0].replayed, true);
+
   const replay = await adapter.cleanup({
     webId: "A1",
     queenThreadId: "queen",
@@ -255,7 +264,12 @@ test("remembered auto and keep policies remain durable", async (t) => {
     rememberPolicy: true,
   });
   assert.equal(requested.state, "effects-required");
-  assert.equal(await autoFixture.store.preference(), "auto");
+  assert.equal(
+    await new SpinoffLifecycleStoreV1({
+      directory: autoFixture.directory,
+    }).preference(),
+    "auto",
+  );
 
   const keepFixture = await fixture(t);
   const kept = await keepFixture.adapter.cleanup({
@@ -264,7 +278,12 @@ test("remembered auto and keep policies remain durable", async (t) => {
     policy: "keep",
     rememberPolicy: true,
   });
-  assert.equal(await keepFixture.store.preference(), "keep");
+  assert.equal(
+    await new SpinoffLifecycleStoreV1({
+      directory: keepFixture.directory,
+    }).preference(),
+    "keep",
+  );
   assert.deepEqual(kept.effects, []);
   assert.equal(kept.results[0].state, "kept");
 });

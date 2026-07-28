@@ -292,6 +292,18 @@ function requestDigest(request) {
     objective: request.objective,
     context: request.context,
     maxParallel: request.maxParallel,
+    ...(request.cleanupIntended === false ? { cleanupIntended: false } : {}),
+  });
+}
+
+function requestDigestWithExplicitDefaultCleanup(request) {
+  return digest({
+    schemaVersion: request.schemaVersion,
+    idempotencyKey: request.idempotencyKey,
+    queenThreadId: request.queenThreadId,
+    objective: request.objective,
+    context: request.context,
+    maxParallel: request.maxParallel,
     cleanupIntended: request.cleanupIntended,
   });
 }
@@ -725,7 +737,13 @@ export class PlanningLifecycleCoordinatorV1 {
           ),
         });
       }
-      if (record.requestDigest !== expectedRequestDigest) {
+      const compatibleRequestDigests = new Set([
+        expectedRequestDigest,
+        ...(request.cleanupIntended === true
+          ? [requestDigestWithExplicitDefaultCleanup(request)]
+          : []),
+      ]);
+      if (!compatibleRequestDigests.has(record.requestDigest)) {
         throw new Error("planning idempotency key is already bound to different intent");
       }
 
@@ -958,10 +976,7 @@ export class PlanningLifecycleCoordinatorV1 {
           },
         );
       }
-      if (
-        latestTurn.turnId !== receipt.turnId ||
-        !terminalTurnStatus(latestTurn.status)
-      ) {
+      if (latestTurn.turnId !== receipt.turnId) {
         return lifecycleOutput(
           record,
           bootstrap,

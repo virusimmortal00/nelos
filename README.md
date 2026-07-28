@@ -76,8 +76,9 @@ Nelos is one Codex plugin with two parts:
 - **An MCP server with a scoped Codex app-server bridge.**
   `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
   typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
-  waves and, for spinoffs, returns a host-owned native title effect before any
-  launch action. A repeated call verifies the compact role-first grammar:
+  waves and returns any required queen title effect before launch. Durable
+  spinoff titles are read, set, and verified after native creation and binding.
+  A repeated call verifies the compact role-first grammar:
   queens begin `👑 WEB_ID ·`, while durable spin-offs begin `🕷️ WEB_ID ·`.
   Thread inspection,
   inventory, bounded waiting, and health tools expose no prompts or transcripts.

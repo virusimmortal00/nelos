@@ -106,6 +106,23 @@ async function roundTrip(messages, options = {}) {
         }
         return { record, wave };
       },
+      async markWaveVerified({
+        planRunId,
+        queenThreadId,
+        waveIndex,
+        waveDigest,
+      }) {
+        const { record } = await this.requireWave({
+          planRunId,
+          queenThreadId,
+          waveIndex,
+          waveDigest,
+        });
+        if (!record.verifiedWaveIndexes.includes(waveIndex)) {
+          record.verifiedWaveIndexes.push(waveIndex);
+        }
+        return structuredClone(record);
+      },
     };
     startNelosMcpServer({
       input,
@@ -520,6 +537,7 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
     generation: 1,
     receipt: null,
   };
+  let createdPlanRun = null;
   const [, response] = await roundTrip(
     [
       INITIALIZE,
@@ -562,9 +580,12 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
             queenThreadId: "queen-1",
             rootPlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
             replanGeneration: 0,
+            cleanupIntended: false,
+            webIdentity: null,
           };
         },
         async create(record) {
+          createdPlanRun = structuredClone(record);
           return record;
         },
       },
@@ -584,6 +605,7 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
     body.nextAction.members.some(({ launcher }) => launcher === "followup-task"),
     false,
   );
+  assert.equal(createdPlanRun.cleanupIntended, false);
 });
 
 test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
@@ -664,6 +686,14 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
               waveDigest: args.waveDigest,
             });
             return { record: {}, wave };
+          },
+          async markWaveVerified(value) {
+            assert.deepEqual(value, {
+              planRunId: args.planRunId,
+              queenThreadId: args.parentThreadId,
+              waveIndex: args.waveIndex,
+              waveDigest: args.waveDigest,
+            });
           },
         },
         currentThreadId: () => "queen-1",
@@ -1578,6 +1608,88 @@ test("replayed durable planning reuses one identity and one queen-title effect",
     replayBody.planRun.waves[0].members[0].title,
     "🕷️ A1 · Explore",
   );
+});
+
+test("an archived queen allocates a fresh web instead of trusting its stale title", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const records = new Map([
+    ["queen-1", {
+      threadId: "queen-1",
+      baseTitle: "Release",
+      inboundWebId: null,
+      outboundWebId: "A1",
+      queenThreadId: null,
+      queenMarked: true,
+      renderedTitle: "👑 A1 · Release",
+      createdAt: "2026-07-26T00:00:00.000Z",
+      updatedAt: "2026-07-26T01:00:00.000Z",
+      archivedAt: "2026-07-26T01:00:00.000Z",
+    }],
+    ["other-queen", {
+      threadId: "other-queen",
+      baseTitle: "Other",
+      inboundWebId: null,
+      outboundWebId: "A1",
+      queenThreadId: null,
+      queenMarked: true,
+      renderedTitle: "👑 A1 · Other",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      archivedAt: null,
+    }],
+  ]);
+  const webRegistry = {
+    async withLock(callback) {
+      return callback();
+    },
+    async read(threadId) {
+      return structuredClone(records.get(threadId) ?? null);
+    },
+    async list() {
+      return [...records.values()].map((record) => structuredClone(record));
+    },
+    async write(record) {
+      records.set(record.threadId, structuredClone(record));
+    },
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan, queenThreadId: "queen-1" },
+        },
+      },
+    ],
+    {
+      webRegistry,
+      appServerBridge: {
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "👑 A1 · Release",
+            status: "idle",
+          };
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.planRun.webIdentity.webId, "A2");
+  assert.equal(body.queenTitleSync.title, "👑 A2 · Release");
+  assert.equal(records.get("queen-1").outboundWebId, "A2");
+  assert.equal(records.get("queen-1").archivedAt, null);
 });
 
 test("nelos_plan_slices requires an explicit queen ID", async () => {

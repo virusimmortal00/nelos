@@ -7,6 +7,8 @@ import {
 } from "./orchestration-observation.mjs";
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { withObservationCheckpointLock } from "./task-state.mjs";
+import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { derivePlanWaveActionV1 } from "./next-action.mjs";
 
 export const MCP_OBSERVATION_SCHEMA_VERSION = 1;
 
@@ -101,12 +103,58 @@ function sameState(left, right) {
   return JSON.stringify(statePayload(left)) === JSON.stringify(statePayload(right));
 }
 
-function terminalNextAction(join, webId, queenThreadId) {
+async function terminalNextAction(
+  join,
+  webId,
+  queenThreadId,
+  workUnits,
+  planRunStore,
+) {
   if (
     join.boundary.type !== "continue" ||
     join.boundary.reason !== "all-required-results-accepted"
   ) {
     return null;
+  }
+  const planRuns = await planRunStore.listForWeb({
+    webId,
+    queenThreadId,
+  });
+  const workUnitIds = new Set(
+    workUnits.map(({ workUnitId }) => workUnitId),
+  );
+  const relevantRuns = planRuns.filter((planRun) => {
+    const memberIds = new Set(
+      planRun.waves.flatMap(({ members }) =>
+        members.map(({ sliceId }) => sliceId),
+      ),
+    );
+    return (
+      planRun.verifiedWaveIndexes.length > 0 &&
+      [...workUnitIds].some((workUnitId) => memberIds.has(workUnitId))
+    );
+  });
+  const activeRun = relevantRuns[0] ?? null;
+  if (activeRun) {
+    const lastVerifiedWave =
+      activeRun.verifiedWaveIndexes.at(-1) ?? 0;
+    if (lastVerifiedWave < activeRun.waves.length) {
+      if (!activeRun.plan) {
+        return {
+          schemaVersion: 1,
+          kind: "attention",
+          reason: "remaining-plan-wave-contract-is-unavailable",
+          planRunId: activeRun.planRunId,
+          nextWaveIndex: lastVerifiedWave + 1,
+        };
+      }
+      return derivePlanWaveActionV1(
+        activeRun.plan,
+        activeRun,
+        lastVerifiedWave + 1,
+        activeRun.cleanupIntended,
+      );
+    }
   }
   return {
     schemaVersion: 1,
@@ -124,15 +172,18 @@ export class McpJoinAdapterV1 {
   #executionStore;
   #checkpointStore;
   #acceptanceStore;
+  #planRunStore;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
     checkpointStore = new OrchestrationCheckpointStoreV1(),
     acceptanceStore = new QueenAcceptanceStoreV1(),
+    planRunStore = new PlanRunStoreV1(),
   } = {}) {
     this.#executionStore = executionStore;
     this.#checkpointStore = checkpointStore;
     this.#acceptanceStore = acceptanceStore;
+    this.#planRunStore = planRunStore;
   }
 
   async advance({ webId, queenThreadId, receipt = null } = {}) {
@@ -195,7 +246,13 @@ export class McpJoinAdapterV1 {
           reason: "required-members-unbound",
         };
       }
-      const nextAction = terminalNextAction(join, webId, queenThreadId);
+      const nextAction = await terminalNextAction(
+        join,
+        webId,
+        queenThreadId,
+        workUnits,
+        this.#planRunStore,
+      );
       return {
         schemaVersion: MCP_OBSERVATION_SCHEMA_VERSION,
         webId,

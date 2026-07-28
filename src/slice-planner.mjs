@@ -15,7 +15,7 @@ const MAX_DELIVERABLE_CHARACTERS = 1_000;
 const MAX_CRITERIA = 8;
 const MAX_CRITERION_CHARACTERS = 500;
 const SLICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const DECORATED_TITLE_PATTERN = /^(?:👑|🕷️|🕸️)/u;
+const DECORATED_TITLE_PATTERN = /^(?:\u{1F451}|\u{1F577}\uFE0F?|\u{1F578}\uFE0F?)/u;
 const PLAN_FIELDS = new Set(["schemaVersion", "objective", "maxParallel", "slices"]);
 const SLICE_FIELDS = new Set([
   "id",

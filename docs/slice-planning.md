@@ -192,7 +192,7 @@ The result has three waves:
 
 | Wave | Concurrent slices | Default route |
 | --- | --- | --- |
-| 1 | `architecture`, `inventory` | Sol/Medium, Luna/Low |
+| 1 | `architecture`, `inventory` | Sol/Medium, Terra/Low |
 | 2 | `implementation`, `documentation` | Terra/Low, Luna/Low |
 | 3 | `verification` | Sol/Medium |
 

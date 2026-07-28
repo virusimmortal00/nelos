@@ -183,6 +183,16 @@ test("slice plans reject malformed topology and unsafe isolation", async (t) => 
       /title must be plain undecorated text/u,
     ],
     [
+      "bare spider role title",
+      { ...base, slices: [slice("a", { title: "🕷 A1 · Implement" })] },
+      /title must be plain undecorated text/u,
+    ],
+    [
+      "bare web role title",
+      { ...base, slices: [slice("a", { title: "🕸 A1 · Implement" })] },
+      /title must be plain undecorated text/u,
+    ],
+    [
       "subagent writer",
       {
         ...base,

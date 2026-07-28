@@ -2,7 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import * as defaultFileSystem from "node:fs/promises";
 import { join } from "node:path";
 
-import { taskStateDirectory } from "./task-state.mjs";
+import {
+  taskStateDirectory,
+  withPlanRunLock,
+} from "./task-state.mjs";
 import {
   assertWebId,
   parseWebTitle,
@@ -12,6 +15,7 @@ import {
 
 export const PLAN_RUN_SCHEMA_VERSION = 1;
 const MAX_RECORD_BYTES = 128 * 1024;
+const MAX_PLAN_RUN_RECORDS = 1_024;
 const RUN_ID = /^run:[a-f0-9]{40}$/u;
 const SOURCE_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const QUEEN_THREAD_ID = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
@@ -81,6 +85,8 @@ function webIdentity(value, owner) {
       "plan run web identity queenTitle conflicts with its web ID",
     );
   }
+  // Validation only: this throws when the settled title's outbound marker
+  // conflicts with the persisted web ID.
   renderPersistedQueenWebTitle(normalizedQueenTitle, normalizedWebId);
   return {
     schemaVersion: 1,
@@ -161,6 +167,7 @@ function legacyRecordCanAdoptWebIdentity(legacy, current) {
     "rootPlanRunId",
     "parentPlanRunId",
     "replanGeneration",
+    "cleanupIntended",
   ]) {
     if (legacy[field] !== current[field]) return false;
   }
@@ -206,6 +213,37 @@ function sameCanonicalWebIdentity(left, right) {
   );
 }
 
+function sameCanonicalWaveContract(left, right, persistedWebIdentity) {
+  if (
+    left.waveIndex !== right.waveIndex ||
+    left.members.length !== right.members.length
+  ) {
+    return false;
+  }
+  return left.members.every((leftMember, memberIndex) => {
+    const rightMember = right.members[memberIndex];
+    for (const field of ["sliceId", "lifecycle", "model", "effort"]) {
+      if (leftMember[field] !== rightMember[field]) return false;
+    }
+    if (
+      leftMember.lifecycle !== "spinoff" ||
+      persistedWebIdentity === null
+    ) {
+      return leftMember.title === rightMember.title;
+    }
+    return (
+      renderPersistedDurableChildTitle(
+        leftMember.title,
+        persistedWebIdentity.webId,
+      ) ===
+      renderPersistedDurableChildTitle(
+        rightMember.title,
+        persistedWebIdentity.webId,
+      )
+    );
+  });
+}
+
 function legacyRecordCanAdoptTitleGrammar(legacy, current) {
   for (const field of [
     "schemaVersion",
@@ -216,6 +254,7 @@ function legacyRecordCanAdoptTitleGrammar(legacy, current) {
     "rootPlanRunId",
     "parentPlanRunId",
     "replanGeneration",
+    "cleanupIntended",
   ]) {
     if (legacy[field] !== current[field]) return false;
   }
@@ -265,6 +304,9 @@ function validateRecord(value) {
     "rootPlanRunId",
     "parentPlanRunId",
     "replanGeneration",
+    "cleanupIntended",
+    "plan",
+    "verifiedWaveIndexes",
     "webIdentity",
     "waves",
   ]);
@@ -280,8 +322,23 @@ function validateRecord(value) {
     value.webIdentity,
     normalizedQueenThreadId,
   );
+  const cleanupIntended = value.cleanupIntended ?? true;
+  if (typeof cleanupIntended !== "boolean") {
+    throw new Error("plan run cleanupIntended must be a boolean");
+  }
   if (!/^[a-f0-9]{64}$/u.test(value.planDigest)) {
     throw new Error("plan run digest is invalid");
+  }
+  const plan = value.plan ?? null;
+  if (
+    plan !== null &&
+    (
+      typeof plan !== "object" ||
+      Array.isArray(plan) ||
+      planDigestV1(plan) !== value.planDigest
+    )
+  ) {
+    throw new Error("plan run persisted plan conflicts with its digest");
   }
   const rootPlanRunId = runId(value.rootPlanRunId, "rootPlanRunId");
   const parentPlanRunId =
@@ -387,6 +444,38 @@ function validateRecord(value) {
       members,
     };
   });
+  if (
+    plan !== null &&
+    (
+      !Array.isArray(plan.waves) ||
+      plan.waves.length !== waves.length ||
+      plan.waves.some(
+        (wave, index) =>
+          !sameCanonicalWaveContract(
+            waveContract(wave, normalizedWebIdentity),
+            waves[index],
+            normalizedWebIdentity,
+          ),
+      )
+    )
+  ) {
+    throw new Error("plan run persisted plan conflicts with its wave contracts");
+  }
+  const verifiedWaveIndexes = value.verifiedWaveIndexes ?? [];
+  if (
+    !Array.isArray(verifiedWaveIndexes) ||
+    verifiedWaveIndexes.length > waves.length ||
+    new Set(verifiedWaveIndexes).size !== verifiedWaveIndexes.length ||
+    verifiedWaveIndexes.some(
+      (waveIndex, index) =>
+        !Number.isSafeInteger(waveIndex) ||
+        waveIndex < 1 ||
+        waveIndex > waves.length ||
+        (index > 0 && verifiedWaveIndexes[index - 1] >= waveIndex),
+    )
+  ) {
+    throw new Error("plan run verified wave indexes are invalid");
+  }
   return {
     schemaVersion: PLAN_RUN_SCHEMA_VERSION,
     planRunId,
@@ -396,9 +485,32 @@ function validateRecord(value) {
     rootPlanRunId,
     parentPlanRunId,
     replanGeneration: value.replanGeneration,
+    cleanupIntended,
+    plan,
+    verifiedWaveIndexes,
     webIdentity: normalizedWebIdentity,
     waves,
   };
+}
+
+function samePlanRunIntent(left, right) {
+  const {
+    verifiedWaveIndexes: _leftProgress,
+    ...leftIntent
+  } = left;
+  const {
+    verifiedWaveIndexes: _rightProgress,
+    ...rightIntent
+  } = right;
+  return JSON.stringify(leftIntent) === JSON.stringify(rightIntent);
+}
+
+function legacyRecordCanAdoptPlanContract(legacy, current) {
+  if (legacy.plan !== null || current.plan === null) return false;
+  return samePlanRunIntent(
+    { ...legacy, plan: current.plan },
+    current,
+  );
 }
 
 export function createPlanRunV1(
@@ -408,6 +520,7 @@ export function createPlanRunV1(
     sourceId: requestedSourceId,
     parentPlanRun = null,
     webIdentity: requestedWebIdentity = parentPlanRun?.webIdentity ?? null,
+    cleanupIntended = parentPlanRun?.cleanupIntended ?? true,
   },
 ) {
   const normalizedQueenThreadId = queenThreadId(requestedQueenThreadId);
@@ -425,6 +538,15 @@ export function createPlanRunV1(
     parentPlanRun.queenThreadId !== normalizedQueenThreadId
   ) {
     throw new Error("derived plan run must belong to its persisted root queen");
+  }
+  if (typeof cleanupIntended !== "boolean") {
+    throw new Error("plan run cleanupIntended must be a boolean");
+  }
+  if (
+    parentPlanRun !== null &&
+    cleanupIntended !== parentPlanRun.cleanupIntended
+  ) {
+    throw new Error("derived plan run cannot replace cleanup intent");
   }
   const normalizedWebIdentity = webIdentity(
     requestedWebIdentity,
@@ -455,6 +577,9 @@ export function createPlanRunV1(
     rootPlanRunId: parentPlanRun?.rootPlanRunId ?? planRunId,
     parentPlanRunId,
     replanGeneration,
+    cleanupIntended,
+    plan: structuredClone(plan),
+    verifiedWaveIndexes: [],
     webIdentity: normalizedWebIdentity,
     waves: plan.waves.map((wave) =>
       waveContract(wave, normalizedWebIdentity),
@@ -548,9 +673,17 @@ export class PlanRunStoreV1 {
     if (existing) {
       if (
         legacyRecordCanAdoptWebIdentity(existing, record) ||
-        legacyRecordCanAdoptTitleGrammar(existing, record)
+        legacyRecordCanAdoptTitleGrammar(existing, record) ||
+        legacyRecordCanAdoptPlanContract(existing, record)
       ) {
-        const source = `${JSON.stringify(record, null, 2)}\n`;
+        const adopted = {
+          ...record,
+          verifiedWaveIndexes: existing.verifiedWaveIndexes,
+        };
+        const source = `${JSON.stringify(adopted, null, 2)}\n`;
+        if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {
+          throw new Error("plan run record is oversized");
+        }
         const target = this.#path(record.planRunId);
         const temporary = `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;
         try {
@@ -563,7 +696,7 @@ export class PlanRunStoreV1 {
           await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
           throw error;
         }
-        return record;
+        return adopted;
       }
       if (
         existing.webIdentity &&
@@ -575,7 +708,7 @@ export class PlanRunStoreV1 {
           "plan run has a conflicting persisted web identity; lineage was not overwritten",
         );
       }
-      if (JSON.stringify(existing) !== JSON.stringify(record)) {
+      if (!samePlanRunIntent(existing, record)) {
         throw new Error("plan run identity conflicts with persisted intent");
       }
       return existing;
@@ -616,5 +749,112 @@ export class PlanRunStoreV1 {
       throw new Error("launch batch conflicts with its persisted wave contract");
     }
     return { record, wave };
+  }
+
+  async markWaveVerified({
+    planRunId,
+    queenThreadId: requestedQueenThreadId,
+    waveIndex,
+    waveDigest,
+  }) {
+    const normalizedPlanRunId = runId(planRunId);
+    return withPlanRunLock(normalizedPlanRunId, async () => {
+      const { record } = await this.requireWave({
+        planRunId: normalizedPlanRunId,
+        queenThreadId: requestedQueenThreadId,
+        waveIndex,
+        waveDigest,
+      });
+      if (record.verifiedWaveIndexes.includes(waveIndex)) return record;
+      const expectedWaveIndex = record.verifiedWaveIndexes.length + 1;
+      if (waveIndex !== expectedWaveIndex) {
+        throw new Error("plan run waves must verify in dependency order");
+      }
+      const updated = validateRecord({
+        ...record,
+        verifiedWaveIndexes: [...record.verifiedWaveIndexes, waveIndex],
+      });
+      const source = `${JSON.stringify(updated, null, 2)}\n`;
+      if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {
+        throw new Error("plan run record is oversized");
+      }
+      await this.#fileSystem.mkdir(this.#directory, {
+        recursive: true,
+        mode: 0o700,
+      });
+      const target = this.#path(updated.planRunId);
+      const temporary =
+        `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;
+      try {
+        await this.#fileSystem.writeFile(temporary, source, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        await this.#fileSystem.rename(temporary, target);
+      } catch (error) {
+        await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
+        throw error;
+      }
+      return updated;
+    });
+  }
+
+  async listForWeb({ webId, queenThreadId: requestedQueenThreadId }) {
+    const normalizedWebId = assertWebId(webId);
+    const normalizedQueenThreadId = queenThreadId(requestedQueenThreadId);
+    let entries;
+    try {
+      entries = await this.#fileSystem.readdir(this.#directory, {
+        withFileTypes: true,
+      });
+    } catch (error) {
+      if (error?.code === "ENOENT") return [];
+      throw error;
+    }
+    if (entries.length > MAX_PLAN_RUN_RECORDS) {
+      throw new Error("plan run directory contains too many records");
+    }
+    const records = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const encoded = entry.name.slice(0, -5);
+      let planRunId;
+      try {
+        planRunId = decodeURIComponent(encoded);
+      } catch {
+        continue;
+      }
+      if (!RUN_ID.test(planRunId)) continue;
+      const path = this.#path(planRunId);
+      let candidate;
+      try {
+        const metadata = await this.#fileSystem.stat(path);
+        if (!metadata.isFile() || metadata.size > MAX_RECORD_BYTES) continue;
+        candidate = JSON.parse(
+          await this.#fileSystem.readFile(path, "utf8"),
+        );
+      } catch {
+        continue;
+      }
+      if (
+        candidate?.queenThreadId !== normalizedQueenThreadId ||
+        candidate?.webIdentity?.webId !== normalizedWebId
+      ) {
+        continue;
+      }
+      const record = await this.read(planRunId);
+      if (
+        record?.queenThreadId === normalizedQueenThreadId &&
+        record.webIdentity?.webId === normalizedWebId
+      ) {
+        records.push(record);
+      }
+    }
+    return records.sort((left, right) => {
+      if (left.replanGeneration !== right.replanGeneration) {
+        return right.replanGeneration - left.replanGeneration;
+      }
+      return left.planRunId.localeCompare(right.planRunId);
+    });
   }
 }
