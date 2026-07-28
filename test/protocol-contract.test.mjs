@@ -387,6 +387,34 @@ test("compatibility and contract discriminators are correlated to value schemas"
     validateProtocolContractV1("action", cliPlannerAction),
     cliPlannerAction,
   );
+  const largePlannerBootstrap = createPlanningBootstrapV1({
+    objective: "o".repeat(8_000),
+    context: "c".repeat(16_000),
+    maxParallel: 2,
+    bootstrapId: "plan:aaaaaaaaaaaaaaaaaaaaaaaa",
+  });
+  const largePlannerAction = deriveNextAction({
+    command: "plan bootstrap",
+    bootstrap: largePlannerBootstrap,
+  });
+  assert.ok(largePlannerAction.member.prompt.length > 8_192);
+  assert.deepEqual(
+    validateProtocolContractV1("action", largePlannerAction),
+    largePlannerAction,
+  );
+  const largePlannerReceipt = {
+    schemaVersion: 1,
+    type: "native-planner-result",
+    actionId: "planner-read-1",
+    bootstrapId: "plan:aaaaaaaaaaaaaaaaaaaaaaaa",
+    threadId: "thread-planner",
+    turnId: "turn-planner",
+    response: "r".repeat(96_000),
+  };
+  assert.deepEqual(
+    validateProtocolContractV1("receipt", largePlannerReceipt),
+    largePlannerReceipt,
+  );
 
   const subagentWait = {
     ...verificationOutput.nextAction,
@@ -776,6 +804,17 @@ test("transition reducer binds full persisted action and all receipt identities"
       resultEnvelope: {
         ...resultEnvelope(),
         recoveryHint: "\u0000\n\t ",
+      },
+    })).error.code,
+    "protocol.malformed",
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(state, action, readReceipt({
+      resultEnvelope: {
+        ...resultEnvelope(),
+        summary: "🙂".repeat(1_000),
+        artifacts: Array.from({ length: 8 }, () => "🙂".repeat(250)),
+        verification: Array.from({ length: 8 }, () => "🙂".repeat(250)),
       },
     })).error.code,
     "protocol.malformed",

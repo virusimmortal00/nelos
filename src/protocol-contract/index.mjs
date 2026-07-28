@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
+import {
+  MAX_PLANNING_CONTEXT_CHARACTERS,
+  MAX_PLANNING_OBJECTIVE_CHARACTERS,
+  MAX_PLANNING_RESPONSE_CHARACTERS,
+} from "../planning-bootstrap.mjs";
+
 export const PROTOCOL_CONTRACT_SCHEMA_VERSION = 1;
 
 const VERSION = { const: 1 };
@@ -13,6 +19,19 @@ const ID = {
 const SHORT_ID = { ...ID, maxLength: 128 };
 const TEXT = { type: "string", minLength: 1, maxLength: 8_192 };
 const SHORT_TEXT = { type: "string", minLength: 1, maxLength: 1_000 };
+const PLANNER_PROMPT = {
+  type: "string",
+  minLength: 1,
+  maxLength:
+    MAX_PLANNING_OBJECTIVE_CHARACTERS +
+    (2 * MAX_PLANNING_CONTEXT_CHARACTERS) +
+    8_000,
+};
+const PLANNER_RESPONSE = {
+  type: "string",
+  minLength: 1,
+  maxLength: MAX_PLANNING_RESPONSE_CHARACTERS,
+};
 const POSITIVE = { type: "integer", minimum: 1 };
 const NULLABLE_ID = { anyOf: [{ type: "null" }, ID] };
 
@@ -85,7 +104,7 @@ const PLANNER_MEMBER_PROPERTIES = {
     nativeThreadIdUse: { const: "verification-only" },
     nativeTitleControl: { const: false },
   }),
-  prompt: TEXT,
+  prompt: PLANNER_PROMPT,
   resultContract: closed({
     fence: { const: "nelos-plan" },
     bootstrapId: ID,
@@ -619,7 +638,7 @@ const RECEIPT_MEMBERS = [
     bootstrapId: ID,
     threadId: ID,
     turnId: ID,
-    response: TEXT,
+    response: PLANNER_RESPONSE,
   }),
   discriminated("type", "native-create", {
     ...EFFECT_IDENTITY,
@@ -1061,6 +1080,23 @@ export function validateProtocolContractV1(contract, value) {
     : contract;
   if (!schema) throw new Error(`unknown protocol contract ${contract}`);
   validateJson(schema, value);
+  if (
+    (contract === "receipt" || schema === PROTOCOL_RECEIPT_SCHEMA_V1) &&
+    value?.type === "native-result-read"
+  ) {
+    let serialized;
+    try {
+      serialized = JSON.stringify(value.resultEnvelope);
+    } catch {
+      throw new Error("$.resultEnvelope is not serializable");
+    }
+    if (
+      serialized === undefined ||
+      Buffer.byteLength(serialized, "utf8") > 16 * 1024
+    ) {
+      throw new Error("$.resultEnvelope exceeds 16384 bytes");
+    }
+  }
   return structuredClone(value);
 }
 
