@@ -250,6 +250,7 @@ const SPINOFF_WORK_UNIT = closed({
     minItems: 3,
     maxItems: 4,
     uniqueItems: true,
+    requiredItems: ["observe", "read-result", "follow-up"],
     items: { enum: ["observe", "read-result", "follow-up", "archive"] },
   },
   launch: closed({
@@ -558,12 +559,13 @@ const RECONCILE_POLICY = closed({
   onAbsent: { const: "return-attention-before-retry" },
   onAmbiguous: { const: "return-attention" },
 });
-const OPTIONAL_NATIVE_TASK = closed({
-  model: { type: "string", minLength: 1, maxLength: 128 },
-  thinking: { type: "string", minLength: 1, maxLength: 32 },
-}, []);
-
 function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
+  const nativeTask = closed({
+    model: memberKind === "joined-subagent"
+      ? { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] }
+      : { type: "string", minLength: 1, maxLength: 128 },
+    thinking: { type: "string", minLength: 1, maxLength: 32 },
+  }, []);
   return {
     anyOf: [
       { type: "null" },
@@ -571,7 +573,7 @@ function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
         schemaVersion: VERSION,
         launcher: { const: launcher },
         workspaceMode: { const: workspaceMode },
-        nativeTask: OPTIONAL_NATIVE_TASK,
+        nativeTask,
         requiresThreadId: { const: true },
         onMissingThreadId: { const: "attention" },
       }),
@@ -748,6 +750,7 @@ const RECEIPT_MEMBERS = [
       type: "array",
       minItems: 1,
       maxItems: 100,
+      uniqueItemProperty: "workUnitId",
       items: WAIT_TARGET_SCHEMA,
     },
   }),
@@ -1071,6 +1074,20 @@ function validateJson(schema, value, path = "$") {
     if (schema.minItems !== undefined && value.length < schema.minItems) throw new Error(`${path} has too few items`);
     if (schema.maxItems !== undefined && value.length > schema.maxItems) throw new Error(`${path} has too many items`);
     if (schema.uniqueItems && new Set(value.map(JSON.stringify)).size !== value.length) throw new Error(`${path} must contain unique items`);
+    for (const requiredItem of schema.requiredItems ?? []) {
+      if (!value.includes(requiredItem)) {
+        throw new Error(`${path} must include ${JSON.stringify(requiredItem)}`);
+      }
+    }
+    if (
+      schema.uniqueItemProperty &&
+      new Set(value.map((item) => item?.[schema.uniqueItemProperty])).size !==
+        value.length
+    ) {
+      throw new Error(
+        `${path} must contain unique ${schema.uniqueItemProperty} values`,
+      );
+    }
     value.forEach((item, index) => validateJson(schema.items, item, `${path}[${index}]`));
   }
   if (schema.type === "object") {

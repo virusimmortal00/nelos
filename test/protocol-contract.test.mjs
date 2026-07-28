@@ -540,6 +540,19 @@ test("compatibility and contract discriminators are correlated to value schemas"
     validateProtocolContractV1("action", launchWave),
     launchWave,
   );
+  const unreadableSpinoffWave = structuredClone(launchWave);
+  const unreadableSpinoff = unreadableSpinoffWave.members.find(
+    ({ lifecycle }) => lifecycle === "spinoff",
+  );
+  unreadableSpinoff.orchestration.arguments.workUnit.capabilities = [
+    "observe",
+    "follow-up",
+    "archive",
+  ];
+  assert.throws(
+    () => validateProtocolContractV1("action", unreadableSpinoffWave),
+    /exactly one/,
+  );
   assert.throws(
     () => validateProtocolContractV1("action", {
       ...launchWave,
@@ -751,6 +764,22 @@ test("transition reducer binds full persisted action and all receipt identities"
     () => validateProtocolContractV1("effect", {
       ...createEffect,
       launcher: "spawn-subagent",
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("effect", {
+      ...createEffect,
+      memberKind: "joined-subagent",
+      launcher: "spawn-subagent",
+      launch: {
+        schemaVersion: 1,
+        launcher: "spawn-subagent",
+        workspaceMode: "shared-read-only",
+        nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
+        requiresThreadId: true,
+        onMissingThreadId: "attention",
+      },
     }),
     /exactly one/,
   );
@@ -1032,6 +1061,20 @@ test("wait target identity and thread-only wake receipts are exact", () => {
           arbitraryC: "turn-1",
           arbitraryD: false,
         }],
+      },
+    ).error.code,
+    "protocol.malformed",
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(
+      waitState,
+      waitEffect,
+      {
+        ...waitReceipt,
+        targets: [
+          waitReceipt.targets[0],
+          { ...waitReceipt.targets[0] },
+        ],
       },
     ).error.code,
     "protocol.malformed",
