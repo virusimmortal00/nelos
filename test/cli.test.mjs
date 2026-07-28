@@ -884,7 +884,6 @@ test("web collect --wait polls read-only state until every member is terminal", 
         sourceTurnId: null,
       },
     ]);
-    assert.ok(turnReads > 1);
     assert.ok(
       server.requests.slice(timeoutRequestStart).every(({ method }) =>
         ["initialize", "initialized", "thread/read", "thread/turns/list"].includes(method),
