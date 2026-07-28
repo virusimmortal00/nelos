@@ -767,6 +767,22 @@ test("transition reducer binds full persisted action and all receipt identities"
     }),
     /exactly one/,
   );
+  assert.equal(
+    reduceProtocolTransitionV1(
+      initialProtocolTransitionStateV1([createEffect]),
+      createEffect,
+      {
+        schemaVersion: 1,
+        type: "native-create",
+        actionId: createEffect.actionId,
+        workUnitId: createEffect.workUnitId,
+        specRevision: createEffect.specRevision,
+        attempt: createEffect.attempt,
+        memberThreadId: "not a valid thread",
+      },
+    ).error.code,
+    "protocol.malformed",
+  );
   assert.throws(
     () => validateProtocolContractV1("effect", {
       ...createEffect,
@@ -870,6 +886,16 @@ test("transition reducer binds full persisted action and all receipt identities"
       "protocol.malformed",
     );
   }
+  assert.equal(
+    reduceProtocolTransitionV1(state, action, readReceipt({
+      resultEnvelope: {
+        ...resultEnvelope(),
+        outcome: "blocked",
+        blockers: new Array(1),
+      },
+    })).error.code,
+    "protocol.malformed",
+  );
   assert.equal(
     reduceProtocolTransitionV1(state, action, readReceipt({
       resultEnvelope: {

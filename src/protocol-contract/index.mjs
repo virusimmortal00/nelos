@@ -16,6 +16,12 @@ const ID = {
   maxLength: 512,
   pattern: "^[^\\u0000-\\u001f\\u007f]+$",
 };
+const THREAD_ID = {
+  type: "string",
+  minLength: 1,
+  maxLength: 256,
+  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
+};
 const SHORT_ID = { ...ID, maxLength: 128 };
 const TEXT = { type: "string", minLength: 1, maxLength: 8_192 };
 const SHORT_TEXT = { type: "string", minLength: 1, maxLength: 1_000 };
@@ -734,7 +740,7 @@ const RECEIPT_MEMBERS = [
   }),
   discriminated("type", "native-create", {
     ...EFFECT_IDENTITY,
-    memberThreadId: ID,
+    memberThreadId: THREAD_ID,
   }),
   discriminated("type", "native-title-observed", {
     ...OBSERVATION_IDENTITY,
@@ -1073,6 +1079,11 @@ function validateJson(schema, value, path = "$") {
     if (!Array.isArray(value)) throw new Error(`${path} must be an array`);
     if (schema.minItems !== undefined && value.length < schema.minItems) throw new Error(`${path} has too few items`);
     if (schema.maxItems !== undefined && value.length > schema.maxItems) throw new Error(`${path} has too many items`);
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        throw new Error(`${path} must not contain empty slots`);
+      }
+    }
     if (schema.uniqueItems && new Set(value.map(JSON.stringify)).size !== value.length) throw new Error(`${path} must contain unique items`);
     for (const requiredItem of schema.requiredItems ?? []) {
       if (!value.includes(requiredItem)) {
@@ -1088,7 +1099,9 @@ function validateJson(schema, value, path = "$") {
         `${path} must contain unique ${schema.uniqueItemProperty} values`,
       );
     }
-    value.forEach((item, index) => validateJson(schema.items, item, `${path}[${index}]`));
+    for (let index = 0; index < value.length; index += 1) {
+      validateJson(schema.items, value[index], `${path}[${index}]`);
+    }
   }
   if (schema.type === "object") {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be an object`);
