@@ -9,7 +9,6 @@ import {
   MAX_PLANNING_OBJECTIVE_CHARACTERS,
   MAX_PLANNING_RESPONSE_CHARACTERS,
   PLANNER_ROUTE,
-  PLANNER_TITLE,
 } from "./planning-bootstrap.mjs";
 import {
   defaultCodexSessionsRoot,
@@ -26,6 +25,7 @@ export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
 
 const MAX_RECORD_BYTES = 64 * 1024;
+const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 1;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const BOOTSTRAP_ID = /^plan:[a-f0-9]{24}$/u;
 const AGENT_PATH =
@@ -55,6 +55,7 @@ const REQUEST_FIELDS = new Set([
   "objective",
   "context",
   "maxParallel",
+  "cleanupIntended",
   "bootstrapId",
   "receipt",
 ]);
@@ -85,6 +86,7 @@ const RECORD_FIELDS = new Set([
   "identity",
   "responseDigest",
   "attentionReason",
+  "interruptedTurnReconciliations",
   "consumedReceipts",
 ]);
 const IDENTITY_FIELDS = new Set([
@@ -153,6 +155,13 @@ function successfulTurnStatus(value) {
   );
 }
 
+function interruptedTurnStatus(value) {
+  return (
+    String(value ?? "").replaceAll(/[_\s-]/gu, "").toLowerCase() ===
+    "interrupted"
+  );
+}
+
 function bootstrapIdFor(queenThreadId, idempotencyKey) {
   return `plan:${digest(["planning-lifecycle-v1", queenThreadId, idempotencyKey]).slice(0, 24)}`;
 }
@@ -167,10 +176,6 @@ function waitActionId(bootstrapId) {
 
 function readActionId(bootstrapId) {
   return `planning-lifecycle-v1/${bootstrapId}/read-result`;
-}
-
-function titleActionId(bootstrapId) {
-  return `planning-lifecycle-v1/${bootstrapId}/set-planner-title`;
 }
 
 function normalizeRequest(value) {
@@ -205,6 +210,10 @@ function normalizeRequest(value) {
   ) {
     throw new Error(`maxParallel must be between 1 and ${MAX_PARALLEL_SLICES}`);
   }
+  const cleanupIntended = value.cleanupIntended ?? true;
+  if (typeof cleanupIntended !== "boolean") {
+    throw new Error("cleanupIntended must be a boolean");
+  }
   const derivedBootstrapId = bootstrapIdFor(queenThreadId, idempotencyKey);
   if (
     value.bootstrapId !== undefined &&
@@ -220,6 +229,7 @@ function normalizeRequest(value) {
     objective,
     context,
     maxParallel,
+    cleanupIntended,
     bootstrapId: derivedBootstrapId,
   };
 }
@@ -282,6 +292,19 @@ function requestDigest(request) {
     objective: request.objective,
     context: request.context,
     maxParallel: request.maxParallel,
+    ...(request.cleanupIntended === false ? { cleanupIntended: false } : {}),
+  });
+}
+
+function requestDigestWithExplicitDefaultCleanup(request) {
+  return digest({
+    schemaVersion: request.schemaVersion,
+    idempotencyKey: request.idempotencyKey,
+    queenThreadId: request.queenThreadId,
+    objective: request.objective,
+    context: request.context,
+    maxParallel: request.maxParallel,
+    cleanupIntended: request.cleanupIntended,
   });
 }
 
@@ -333,6 +356,18 @@ function normalizeRecord(value) {
   ) {
     throw new Error("planning lifecycle attention reason is invalid");
   }
+  const interruptedTurnReconciliations =
+    value.interruptedTurnReconciliations ?? 0;
+  if (
+    !Number.isSafeInteger(interruptedTurnReconciliations) ||
+    interruptedTurnReconciliations < 0 ||
+    interruptedTurnReconciliations >
+      MAX_INTERRUPTED_TURN_RECONCILIATIONS
+  ) {
+    throw new Error(
+      "planning lifecycle interrupted-turn reconciliation count is invalid",
+    );
+  }
   if (
     !Array.isArray(value.consumedReceipts) ||
     value.consumedReceipts.length > 8
@@ -360,6 +395,7 @@ function normalizeRecord(value) {
     identity,
     responseDigest: value.responseDigest,
     attentionReason: value.attentionReason,
+    interruptedTurnReconciliations,
     consumedReceipts,
   };
 }
@@ -492,7 +528,22 @@ function attentionAction(reason, fields = {}) {
   };
 }
 
-function statusAction(record, thread) {
+function publicPlannerIdentity(identity) {
+  return {
+    ...identity,
+    lifecycle: "subagent",
+    memberKind: "joined-subagent",
+    primaryId: "agentPath",
+    controlSurface: "collaboration",
+  };
+}
+
+function statusAction(
+  record,
+  thread,
+  latestTurn,
+  { reconciledInterruptedTurn = false } = {},
+) {
   if (thread.status === "systemError") {
     return {
       schemaVersion: 1,
@@ -501,31 +552,50 @@ function statusAction(record, thread) {
       threadId: thread.threadId,
     };
   }
-  if (thread.title !== PLANNER_TITLE) {
+  if (
+    latestTurn === null ||
+    !terminalTurnStatus(latestTurn.status) ||
+    reconciledInterruptedTurn
+  ) {
     return {
       schemaVersion: 1,
-      kind: "native-set-title",
-      actionId: titleActionId(record.bootstrapId),
+      kind: "native-wait-subagent",
+      actionId: waitActionId(record.bootstrapId),
+      agentPath: record.identity.agentPath,
       threadId: thread.threadId,
-      title: PLANNER_TITLE,
-      verify: true,
+      turnId: latestTurn?.turnId ?? null,
       after: "repeat-planner-launch-receipt",
+      ...(reconciledInterruptedTurn
+        ? {
+            reconciliation: {
+              reason: "planner-turn-observation-conflict",
+              retryable: true,
+              appServerTurnStatus: latestTurn.status,
+              nativeCollaborationStatus: "unavailable",
+              observation: record.interruptedTurnReconciliations,
+              maximumObservations:
+                MAX_INTERRUPTED_TURN_RECONCILIATIONS,
+            },
+          }
+        : {}),
     };
   }
-  if (thread.status === "active" || thread.status === "notLoaded") {
+  if (!successfulTurnStatus(latestTurn.status)) {
     return {
       schemaVersion: 1,
-      kind: "native-wait",
-      actionId: waitActionId(record.bootstrapId),
-      threadIds: [thread.threadId],
-      after: "repeat-planner-launch-receipt",
+      kind: "attention",
+      reason: "planner-turn-failed",
+      threadId: thread.threadId,
+      turnId: latestTurn.turnId,
     };
   }
   return {
     schemaVersion: 1,
-    kind: "native-read",
+    kind: "native-read-subagent-result",
     actionId: readActionId(record.bootstrapId),
+    agentPath: record.identity.agentPath,
     threadId: thread.threadId,
+    turnId: latestTurn.turnId,
     purpose: "read-planner-result",
   };
 }
@@ -536,7 +606,6 @@ export class PlanningLifecycleCoordinatorV1 {
   #resolveSubagent;
   #verifyRoute;
   #withLock;
-  #currentThreadId;
 
   constructor({
     store = new PlanningLifecycleStoreV1(),
@@ -544,17 +613,20 @@ export class PlanningLifecycleCoordinatorV1 {
     resolveSubagent = resolveNativeSubagentThreadV1,
     verifyRoute = verifyRuntimeIntelligenceV1,
     withLock = withPlanningLifecycleLock,
-    currentThreadId = () => process.env.CODEX_THREAD_ID,
   } = {}) {
     this.#store = store;
     this.#sessionsRoot = sessionsRoot;
     this.#resolveSubagent = resolveSubagent;
     this.#verifyRoute = verifyRoute;
     this.#withLock = withLock;
-    this.#currentThreadId = currentThreadId;
   }
 
-  async #inspectVerified(record, request, appServerBridge) {
+  async #inspectVerified(
+    record,
+    request,
+    appServerBridge,
+    { turnId = undefined } = {},
+  ) {
     const identity = record.identity;
     if (!identity || identity.parentThreadId !== request.queenThreadId) {
       throw new Error("planning lifecycle has no verified planner identity");
@@ -565,6 +637,7 @@ export class PlanningLifecycleCoordinatorV1 {
         threadId: identity.threadId,
         model: PLANNER_ROUTE.requestedModel,
         effort: PLANNER_ROUTE.requestedEffort,
+        ...(turnId ? { turnId } : {}),
         sessionsRoot: this.#sessionsRoot,
       });
     } catch {
@@ -586,21 +659,43 @@ export class PlanningLifecycleCoordinatorV1 {
         thread,
       };
     }
-    return { route, thread };
+    let latestTurn;
+    try {
+      latestTurn = await appServerBridge.latestTurn({
+        threadId: identity.threadId,
+      });
+    } catch {
+      return {
+        attentionReason: "planner-turn-evidence-unavailable",
+        route,
+        thread,
+      };
+    }
+    return { route, thread, latestTurn };
   }
 
-  async advance(value, { appServerBridge }) {
-    const request = normalizeRequest(value);
-    const hostThreadId = this.#currentThreadId();
+  async #reconcileInterruptedTurn(record, latestTurn) {
     if (
-      typeof hostThreadId !== "string" ||
-      !IDENTIFIER.test(hostThreadId) ||
-      hostThreadId !== request.queenThreadId
+      !interruptedTurnStatus(latestTurn?.status) ||
+      record.interruptedTurnReconciliations >=
+        MAX_INTERRUPTED_TURN_RECONCILIATIONS
     ) {
-      throw new Error(
-        "queenThreadId must match the current host task identity",
-      );
+      return { record, reconciled: false };
     }
+    const updated = await this.#store.write(
+      {
+        ...record,
+        revision: record.revision + 1,
+        interruptedTurnReconciliations:
+          record.interruptedTurnReconciliations + 1,
+      },
+      { expectedRevision: record.revision },
+    );
+    return { record: updated, reconciled: true };
+  }
+
+  async advance(value, { appServerBridge, preservedSliceIds = [] }) {
+    const request = normalizeRequest(value);
     const receipt = normalizeReceipt(value.receipt);
     const bootstrap = createPlanningBootstrapV1({
       objective: request.objective,
@@ -627,6 +722,7 @@ export class PlanningLifecycleCoordinatorV1 {
             identity: null,
             responseDigest: null,
             attentionReason: null,
+            interruptedTurnReconciliations: 0,
             consumedReceipts: [],
           },
           { expectedRevision: 0 },
@@ -641,7 +737,13 @@ export class PlanningLifecycleCoordinatorV1 {
           ),
         });
       }
-      if (record.requestDigest !== expectedRequestDigest) {
+      const compatibleRequestDigests = new Set([
+        expectedRequestDigest,
+        ...(request.cleanupIntended === true
+          ? [requestDigestWithExplicitDefaultCleanup(request)]
+          : []),
+      ]);
+      if (!compatibleRequestDigests.has(record.requestDigest)) {
         throw new Error("planning idempotency key is already bound to different intent");
       }
 
@@ -745,7 +847,7 @@ export class PlanningLifecycleCoordinatorV1 {
             },
           );
         }
-        const { route, thread } = inspected;
+        const { route, thread, latestTurn } = inspected;
         if (record.phase !== "verified") {
           record = await this.#store.write(
             {
@@ -757,11 +859,24 @@ export class PlanningLifecycleCoordinatorV1 {
             { expectedRevision: record.revision },
           );
         }
-        return lifecycleOutput(record, bootstrap, statusAction(record, thread), {
-          identity: { ...identity },
-          route,
-          thread,
-        });
+        const reconciliation = await this.#reconcileInterruptedTurn(
+          record,
+          latestTurn,
+        );
+        record = reconciliation.record;
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          statusAction(record, thread, latestTurn, {
+            reconciledInterruptedTurn: reconciliation.reconciled,
+          }),
+          {
+            identity: publicPlannerIdentity(identity),
+            route,
+            thread,
+            latestTurn,
+          },
+        );
       }
 
       if (!["verified", "completed", "attention"].includes(record.phase)) {
@@ -789,6 +904,7 @@ export class PlanningLifecycleCoordinatorV1 {
             bootstrapId: request.bootstrapId,
           },
           receipt.response,
+          { preservedSliceIds },
         );
         if (finalized.ready !== (record.phase === "completed")) {
           throw new Error("terminal planning lifecycle has an invalid result receipt");
@@ -812,19 +928,28 @@ export class PlanningLifecycleCoordinatorV1 {
           plan: finalized.plan,
         });
       }
-      let thread;
-      try {
-        thread = await appServerBridge.inspect({ threadId: receipt.threadId });
-      } catch {
+      const inspected = await this.#inspectVerified(
+        record,
+        request,
+        appServerBridge,
+        { turnId: receipt.turnId },
+      );
+      if (inspected.attentionReason) {
         return lifecycleOutput(
           record,
           bootstrap,
-          attentionAction("planner-result-thread-evidence-unavailable", {
-            retryable: true,
+          attentionAction(inspected.attentionReason, {
+            retryable: inspected.attentionReason.endsWith("-unavailable"),
             actionId: receipt.actionId,
           }),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            ...(inspected.route ? { route: inspected.route } : {}),
+            ...(inspected.thread ? { thread: inspected.thread } : {}),
+          },
         );
       }
+      const { thread, latestTurn } = inspected;
       if (thread.parentThreadId !== request.queenThreadId) {
         return lifecycleOutput(
           record,
@@ -836,43 +961,22 @@ export class PlanningLifecycleCoordinatorV1 {
         );
       }
       if (
-        thread.title !== PLANNER_TITLE ||
-        ["active", "notLoaded"].includes(thread.status)
-      ) {
-        return lifecycleOutput(record, bootstrap, statusAction(record, thread), {
-          identity: { ...record.identity },
-          thread,
-        });
-      }
-      if (thread.status === "systemError") {
-        return lifecycleOutput(
-          record,
-          bootstrap,
-          attentionAction("planner-system-error", {
-            threadId: receipt.threadId,
-          }),
-        );
-      }
-      let latestTurn;
-      try {
-        latestTurn = await appServerBridge.latestTurn({
-          threadId: receipt.threadId,
-        });
-      } catch {
-        return lifecycleOutput(
-          record,
-          bootstrap,
-          attentionAction("planner-result-turn-evidence-unavailable", {
-            retryable: true,
-            actionId: receipt.actionId,
-          }),
-        );
-      }
-      if (
+        thread.status === "systemError" ||
         latestTurn === null ||
-        latestTurn.turnId !== receipt.turnId ||
         !terminalTurnStatus(latestTurn.status)
       ) {
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          statusAction(record, thread, latestTurn),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            thread,
+            latestTurn,
+          },
+        );
+      }
+      if (latestTurn.turnId !== receipt.turnId) {
         return lifecycleOutput(
           record,
           bootstrap,
@@ -880,6 +984,25 @@ export class PlanningLifecycleCoordinatorV1 {
             retryable: true,
             actionId: receipt.actionId,
           }),
+        );
+      }
+      const reconciliation = await this.#reconcileInterruptedTurn(
+        record,
+        latestTurn,
+      );
+      record = reconciliation.record;
+      if (reconciliation.reconciled) {
+        return lifecycleOutput(
+          record,
+          bootstrap,
+          statusAction(record, thread, latestTurn, {
+            reconciledInterruptedTurn: true,
+          }),
+          {
+            identity: publicPlannerIdentity(record.identity),
+            thread,
+            latestTurn,
+          },
         );
       }
       if (!successfulTurnStatus(latestTurn.status)) {
@@ -931,6 +1054,7 @@ export class PlanningLifecycleCoordinatorV1 {
           bootstrapId: request.bootstrapId,
         },
         receipt.response,
+        { preservedSliceIds },
       );
       if (!replay) {
         record = await this.#store.write(
@@ -1036,6 +1160,11 @@ export const PLANNING_LIFECYCLE_INPUT_SCHEMA = Object.freeze({
       type: "integer",
       minimum: 1,
       maximum: MAX_PARALLEL_SLICES,
+    },
+    cleanupIntended: {
+      type: "boolean",
+      description:
+        "Grant durable spin-offs archive capability for terminal cleanup. Defaults to true; cleanup still asks before archiving unless a preference says otherwise.",
     },
     bootstrapId: {
       type: "string",

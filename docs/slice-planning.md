@@ -6,16 +6,17 @@ high-level work:
 1. For an unstructured objective, `nelos_plan_lifecycle` durably prepares and
    coordinates one bounded, read-only Sol/medium planning subagent.
 2. Typed launch and result receipts advance a replay-safe lifecycle. Nelos
-   independently verifies child identity, direct-parent topology, title, and
-   exact route before validating the result fence, request identity,
+   independently verifies the planner's collaboration identity, direct-parent
+   topology, exact route, and terminal result turn before validating the result
+   fence, request identity,
    confidence, evidence, parallelism, and complete plan schema.
 3. `nelos plan slices` validates that topology, schedules deterministic
    parallel waves, and applies the reviewed model/reasoning policy to every
    slice. Nelos persists a content-addressed plan run with authoritative wave
    membership, title, and route contracts.
 4. `nelos_launch_verify_batch` blocks result use until every launched member in
-   the current wave has exact identity, available topology, title, and route
-   evidence.
+   the current wave has lifecycle-appropriate identity, available topology,
+   and route evidence. Native title verification applies only to spinoffs.
 
 An explicit user-supplied structured plan skips the Sol bootstrap and enters
 step 3 directly. A plan authored by the starting queen does not qualify for this
@@ -42,10 +43,13 @@ Sol/medium native route, required child identity, and exact verification.
 
 `forkTurns` maps to the native subagent launcher's `fork_turns` argument. The
 generated prompt is therefore self-contained rather than relying on inherited
-turns. The launcher returns a canonical agent path; Nelos resolves it together
-with the current parent task ID against bounded local `session_meta`, requiring
-one exact native child task. The agent path is never treated as the task ID.
-Missing or ambiguous identity evidence stops with `attention`.
+turns. The launcher returns a canonical agent path, which is the joined
+subagent's primary control identity. Nelos resolves it together with the
+current parent task ID against bounded local `session_meta`, requiring one
+exact native child task. That internal thread ID is verification evidence only:
+current Codex collaboration controls do not expose joined-subagent title
+mutation or treat the child as a durable task. Missing or ambiguous identity
+evidence stops with `attention`.
 
 Each native action is returned with a stable action ID. The caller repeats the
 unchanged request and `bootstrapId` with the exact typed receipt. Identical
@@ -61,9 +65,32 @@ After creating every current-wave member, call
 `waveIndex`, and `waveDigest`, plus all member identity and turn receipts.
 Expected membership, title, model, and effort come from the persisted wave
 contract rather than caller-supplied claims. Joined subagents are resolved
-from parent task plus canonical agent path; spinoffs use their returned task
-IDs. Any missing, altered, duplicate, unreadable, wrong-parent, wrong-title,
-or wrong-route member blocks the entire batch before wait, read, or acceptance.
+from parent task plus canonical agent path and report title verification as
+`not-applicable`; spinoffs use returned task IDs and require exact native
+titles. Any missing, altered, duplicate, unreadable, wrong-parent, applicable
+wrong-title, or wrong-route member blocks the entire batch before wait, read,
+or acceptance.
+
+For a plan containing durable spinoffs, the plan run also persists one
+queen-owned compact web identity. The queen and every spinoff title are rendered
+from that identity before a wave is returned. Replays reuse the same identity
+and exact titles; conflicting persisted or observed identities fail closed.
+
+Each durable `launch-wave` member carries an exact
+`nelos_orchestrate_create` preparation call. The queen must execute that call
+before native task creation, create only from its returned effect, and submit
+the exact task-ID receipt to bind the work unit. This guarantees the callback
+target exists before the worker can call `nelos_spinoff_complete`.
+Durable spin-offs are cleanup-capable by default: omitted `cleanupIntended`
+behaves as `true` and grants the work unit `archive` capability. This is
+authority for the later lifecycle step, not permission to archive immediately;
+the default cleanup policy remains `ask`. Explicit `false` is a deliberate
+opt-out that leaves the work unit archive-incapable.
+
+The `create-thread` launcher does not imply a creation-time title argument:
+current Codex `create_thread` has no title field. The prompt's `Task title:`
+line is non-authoritative seeding. Post-bind native read/set/verify is expected,
+and exact settled-title verification gates the wave.
 
 `nelos_plan_replan` reuses the same receipt lifecycle only for typed terminal
 failure/blocking, changed requirements, or insufficient confidence. Timeouts,
@@ -71,6 +98,15 @@ unavailable reads, and normal success are not triggers. The supplied base plan
 must match its persisted plan-run digest. Persisted lineage bounds generation
 to one; completed slices must remain semantically unchanged, and the execution
 plan removes them so accepted work is never launched again.
+
+Corrective follow-up and exception replacement are intentionally different
+operations. A corrective follow-up asks an existing durable task to repair a
+result while retaining its established route. An exception replan creates new
+required work and can therefore require a different model or reasoning effort.
+Its pending joined subagents receive a fresh, generation-one, plan-run-scoped
+task name even when the semantic slice ID is reused. The launcher then resolves
+and batch-verifies that exact new child and current turn; it must never send a
+follow-up to an earlier joined path as a substitute for the fresh launch.
 
 ## Example
 
@@ -156,14 +192,16 @@ The result has three waves:
 
 | Wave | Concurrent slices | Default route |
 | --- | --- | --- |
-| 1 | `architecture`, `inventory` | Sol/Medium, Luna/Low |
+| 1 | `architecture`, `inventory` | Sol/Medium, Terra/Low |
 | 2 | `implementation`, `documentation` | Terra/Low, Luna/Low |
 | 3 | `verification` | Sol/Medium |
 
 Every launch member now carries an explicit `memberKind` and `launcher`.
 `spinoff` maps to `memberKind: "spinoff"` and `launcher: "create-thread"`;
 `subagent` maps to `memberKind: "joined-subagent"` and
-`launcher: "spawn-subagent"`. The queen passes the slice's
+`launcher: "spawn-subagent"`. A joined subagent is controlled through its
+canonical `agentPath`; a durable spinoff is controlled through its `threadId`.
+The queen must not describe or route one as the other. The queen passes the slice's
 `route.launch.nativeTask` unchanged to that launcher. It launches only the
 current wave, gives each concurrent writer a different worktree, waits for
 accepted results, and then unlocks the next wave. Durable slices become sidebar
@@ -173,9 +211,11 @@ The route is fail-closed. The queen must not omit or substitute a decided model
 or reasoning value when native task creation requires additional authorization.
 It obtains approval for the exact values or does not launch. After creation it
 runs `nelos intelligence verify` for the returned task ID and expected
-route. Work from an unverified or mismatched task cannot settle a wave or enter
-queen acceptance. A launcher result without a native `threadId` also fails
-closed; an agent name is not a substitute for the child thread identity.
+route. Work from an unverified or mismatched member cannot settle a wave or
+enter queen acceptance. A spinoff launcher result without a native `threadId`
+fails closed. A joined-subagent result instead requires its exact `agentPath`;
+its resolved internal thread ID remains verification evidence, not its control
+handle.
 
 ## Overrides and Guardrails
 

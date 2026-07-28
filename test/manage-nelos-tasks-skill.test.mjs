@@ -32,16 +32,33 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /`native-set-title`/);
   assert.match(skill, /`launch-planner`/);
   assert.match(skill, /`launch-wave`/);
+  assert.match(skill, /primary identity is `agentPath`/);
+  assert.match(skill, /internal thread ID is verification\s+evidence only/);
+  assert.match(skill, /Never call it a spinoff/);
+  assert.match(skill, /Joined subagents support only Sol or Terra/);
+  assert.match(skill, /Luna is\s+valid only for durable spinoffs/);
+  assert.match(skill, /`native-wait-subagent` and `native-read-subagent-result`/);
+  assert.match(skill, /`native-wait-wave`/);
   assert.match(skill, /`native-wait` and `native-read`/);
   assert.match(skill, /`attach-native-task-options`/);
-  assert.match(skill, /never omit, substitute, or inherit a decided\s+`nativeTask`/i);
+  assert.match(
+    skill,
+    /never omit,\s+substitute, or inherit a decided `nativeTask`/i,
+  );
   assert.match(skill, /`forkTurns` to the\s+native launcher's `fork_turns` field/);
-  assert.match(skill, /never bind an agent name as a thread ID/i);
+  assert.match(skill, /never bind an agent name as a\s+thread ID/i);
   assert.match(skill, /`nelos_launch_verify_batch`/);
   assert.match(skill, /`allVerified` is true/);
   assert.match(skill, /`nelos_plan_replan`/);
   assert.match(skill, /second autonomous replan stops/);
   assert.match(skill, /`decide`/);
+  assert.match(skill, /call `nelos_queen_decide`/);
+  assert.match(skill, /exact consumed `native-result-read` receipt/);
+  assert.match(skill, /returned\s+`nelos_orchestrate_advance` action/);
+  assert.match(skill, /`cleanup-spinoffs`/);
+  assert.match(skill, /absent a preference, `ask`/);
+  assert.match(skill, /always-archive,\s+always-keep, or always-ask default/);
+  assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
   assert.doesNotMatch(skill, /--socket|app-server|standalone|NELOS_PROMPT/);
@@ -50,8 +67,8 @@ test("the skill has one native path driven by machine-generated next actions", (
   // must reference only the bundled MCP tools, never shell commands.
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
-  assert.ok(skill.length < 5_000, "agent-facing skill should remain compact");
-  assert.ok(skill.split("\n").length < 90, "agent-facing skill should be scannable");
+  assert.ok(skill.length < 6_800, "agent-facing skill should remain compact");
+  assert.ok(skill.split("\n").length < 115, "agent-facing skill should be scannable");
 });
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {

@@ -10,6 +10,11 @@ import {
 } from "../src/execution-store.mjs";
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
 import { OrchestrationCheckpointStoreV1 } from "../src/orchestration-checkpoint-store.mjs";
+import {
+  createPlanRunV1,
+  PlanRunStoreV1,
+} from "../src/plan-run-store.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
 
 function workUnit(overrides = {}) {
   return createWorkUnitSpecV1({
@@ -21,7 +26,7 @@ function workUnit(overrides = {}) {
     attempt: 1,
     memberKind: "spinoff",
     capabilities: ["observe", "read-result"],
-    title: "🕸️ A1 · Alpha",
+    title: "🕷️ A1 · Alpha",
     objectiveSummary: "Implement alpha.",
     deliverable: "Source and tests.",
     acceptanceCriteria: ["Tests pass"],
@@ -51,16 +56,21 @@ async function fixture(t) {
       return this.decisions;
     },
   };
+  const planRunStore = new PlanRunStoreV1({
+    directory: join(root, "plan-runs"),
+  });
   return {
     root,
     executionStore,
     checkpointStore,
     acceptanceStore,
+    planRunStore,
     adapter: () =>
       new McpJoinAdapterV1({
         executionStore,
         checkpointStore,
         acceptanceStore,
+        planRunStore,
       }),
   };
 }
@@ -341,6 +351,232 @@ test("acceptance advances collection to continuation without claiming Desktop wa
     reason: "all-required-results-accepted",
     automaticWake: false,
   });
+  assert.deepEqual(continued.nextAction, {
+    schemaVersion: 1,
+    kind: "cleanup-spinoffs",
+    tool: "nelos_spinoff_cleanup",
+    arguments: {
+      webId: "A1",
+      queenThreadId: "queen",
+    },
+  });
+});
+
+test("acceptance launches the next persisted dependency wave before cleanup", async (t) => {
+  const current = await fixture(t);
+  const planned = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Run dependency-ordered durable work",
+    slices: [
+      {
+        id: "alpha",
+        title: "Alpha",
+        objective: "Complete alpha",
+        deliverable: "Alpha result",
+        acceptanceCriteria: ["Alpha passes"],
+        dependsOn: [],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+      {
+        id: "beta",
+        title: "Beta",
+        objective: "Complete beta",
+        deliverable: "Beta result",
+        acceptanceCriteria: ["Beta passes"],
+        dependsOn: ["alpha"],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+    ],
+  });
+  const run = await current.planRunStore.create(
+    createPlanRunV1(planned, {
+      queenThreadId: "queen",
+      sourceId: "multi-wave-observation",
+      webIdentity: {
+        schemaVersion: 1,
+        webId: "A1",
+        queenThreadId: "queen",
+        queenTitle: "👑 A1 · Queen",
+      },
+    }),
+  );
+  await current.planRunStore.markWaveVerified({
+    planRunId: run.planRunId,
+    queenThreadId: "queen",
+    waveIndex: 1,
+    waveDigest: run.waves[0].waveDigest,
+  });
+  await bind(current.executionStore, workUnit());
+  const waiting = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  const waitEffect = waiting.join.effects.find(
+    ({ type }) => type === "native-wait",
+  );
+  const reading = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: waitEffect.actionId,
+      webId: "A1",
+      queenThreadId: "queen",
+      status: "event",
+      targets: waitEffect.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-alpha",
+        lifecycle: "completed",
+        latestTurnId: "turn-1",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const readEffect = reading.join.effects.find(
+    ({ type }) => type === "native-read-result",
+  );
+  await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-result-read",
+      actionId: readEffect.actionId,
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      bindingGeneration: 1,
+      memberThreadId: "thread-alpha",
+      requestedTurnId: "turn-1",
+      sourceTurnId: "turn-1",
+      resultEnvelope: {
+        schemaVersion: 1,
+        workUnitId: "alpha",
+        specRevision: 1,
+        attempt: 1,
+        outcome: "succeeded",
+        summary: "done",
+        artifacts: [],
+        verification: [],
+        blockers: [],
+        recoveryHint: null,
+      },
+    },
+  });
+  current.acceptanceStore.decisions.push({
+    decision: "accepted",
+    workUnitId: "alpha",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "thread-alpha",
+    sourceTurnId: "turn-1",
+  });
+  const advanced = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  assert.equal(advanced.join.boundary.type, "continue");
+  assert.equal(advanced.nextAction.kind, "launch-wave");
+  assert.equal(advanced.nextAction.waveIndex, 2);
+  assert.equal(advanced.nextAction.members[0].sliceId, "beta");
+
+  await current.planRunStore.markWaveVerified({
+    planRunId: run.planRunId,
+    queenThreadId: "queen",
+    waveIndex: 2,
+    waveDigest: run.waves[1].waveDigest,
+  });
+  await bind(
+    current.executionStore,
+    workUnit({
+      workUnitId: "beta",
+      title: "🕷️ A1 · Beta",
+      dependencies: ["alpha"],
+    }),
+    "thread-beta",
+  );
+  const betaWaiting = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  const betaWait = betaWaiting.join.effects.find(
+    ({ type, targets }) =>
+      type === "native-wait" &&
+      targets.some(({ workUnitId }) => workUnitId === "beta"),
+  );
+  const betaReading = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: betaWait.actionId,
+      webId: "A1",
+      queenThreadId: "queen",
+      status: "event",
+      targets: betaWait.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-beta",
+        lifecycle: "completed",
+        latestTurnId: "turn-beta",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const betaRead = betaReading.join.effects.find(
+    ({ type, workUnitId }) =>
+      type === "native-read-result" && workUnitId === "beta",
+  );
+  await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-result-read",
+      actionId: betaRead.actionId,
+      workUnitId: "beta",
+      specRevision: 1,
+      attempt: 1,
+      bindingGeneration: 1,
+      memberThreadId: "thread-beta",
+      requestedTurnId: "turn-beta",
+      sourceTurnId: "turn-beta",
+      resultEnvelope: {
+        schemaVersion: 1,
+        workUnitId: "beta",
+        specRevision: 1,
+        attempt: 1,
+        outcome: "succeeded",
+        summary: "done",
+        artifacts: [],
+        verification: [],
+        blockers: [],
+        recoveryHint: null,
+      },
+    },
+  });
+  current.acceptanceStore.decisions.push({
+    decision: "accepted",
+    workUnitId: "beta",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "thread-beta",
+    sourceTurnId: "turn-beta",
+  });
+  const completed = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  assert.equal(completed.nextAction.kind, "cleanup-spinoffs");
 });
 
 test("observation adapter has no app-server or process-control dependency", async () => {

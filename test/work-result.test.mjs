@@ -346,14 +346,14 @@ test("web collection returns one current bounded result per direct active member
     {
       threadId: "queen",
       baseTitle: "Queen",
-      renderedTitle: "🕷️ A1 · Queen",
+      renderedTitle: "👑 A1 · Queen",
       outboundWebId: "A1",
       archivedAt: null,
     },
     {
       threadId: "member-b",
       baseTitle: "B member",
-      renderedTitle: "🕸️ A1 · B member",
+      renderedTitle: "🕷️ A1 · B member",
       inboundWebId: "A1",
       outboundWebId: null,
       queenThreadId: "queen",
@@ -362,7 +362,7 @@ test("web collection returns one current bounded result per direct active member
     {
       threadId: "member-a",
       baseTitle: "A member",
-      renderedTitle: "🕸️ A1 · A member",
+      renderedTitle: "👑 A1.1 🕷️ A1 · A member",
       inboundWebId: "A1",
       outboundWebId: "A1.1",
       queenThreadId: "queen",

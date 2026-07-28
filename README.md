@@ -76,16 +76,22 @@ Nelos is one Codex plugin with two parts:
 - **An MCP server with a scoped Codex app-server bridge.**
   `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
   typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
-  waves and, for spinoffs, synchronizes the queen title as
-  `[🕸️ inbound] [🕷️ outbound] [👑] · base title`. Thread inspection,
+  waves and returns any required queen title effect before launch. Durable
+  spinoff titles are read, set, and verified after native creation and binding.
+  A repeated call verifies the compact role-first grammar:
+  queens begin `👑 WEB_ID ·`, while durable spin-offs begin `🕷️ WEB_ID ·`.
+  Thread inspection,
   inventory, bounded waiting, and health tools expose no prompts or transcripts.
-  Batch launch verification gates every wave on exact identity, topology,
-  title, and route evidence. Typed exceptions can trigger one bounded Sol
+  Batch launch verification gates every wave on lifecycle-appropriate identity,
+  topology, and route evidence: joined subagents use their collaboration
+  `agentPath`, while durable spinoffs use their task `threadId` and native
+  title. Typed exceptions can trigger one bounded Sol
   replan without relaunching completed slices. Finishing spinoffs durably hand
-  off through `nelos_spinoff_complete`; accepted members follow an explicit
-  `ask`, `auto`, or `keep` cleanup policy. Intelligence routing, verification,
-  and native subagent identity resolution remain read-only; callback
-  orchestration tools journal native effects. The bridge starts one
+  off through receipt-bound host wake effects from `nelos_spinoff_complete`;
+  accepted members follow an explicit `ask`, `auto`, or `keep` cleanup policy
+  through receipt-bound native archive effects. Intelligence routing,
+  verification, and native subagent identity resolution remain read-only;
+  callback orchestration tools journal native effects. The bridge starts one
   `codex app-server --stdio` child lazily and exposes no prompts or transcripts.
 - **A skill** — `manage-nelos-tasks`, the playbook that bootstraps planning
   independently of the starting model and executes each tool's next action.

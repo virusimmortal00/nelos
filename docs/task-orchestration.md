@@ -123,7 +123,7 @@ The launch intent should persist at least:
   "intentId": "launch:A1:api:r1:a1",
   "queenThreadId": "queen-task-id",
   "workUnitId": "api",
-  "requestedTitle": "🕸️ A1 · API changes",
+  "requestedTitle": "🕷️ A1 · API changes",
   "promptDigest": "sha256:...",
   "target": {},
   "nativeTask": {},
@@ -150,55 +150,68 @@ reuse of an `intentId` with different inputs.
    lock, then dispatch the persisted launcher exactly once:
    `create-thread` for a spinoff or `spawn-subagent` for a joined subagent.
 3. **Record the native receipt before further effects.**
-   - A returned `threadId` moves launch directly to `bound`.
-   - A subagent result that exposes only an agent name moves launch to
-     `attention`; the name is not a native child thread identity.
+   - A spinoff's returned `threadId` moves launch directly to `bound`.
+   - A joined subagent's returned canonical `agentPath` is its primary control
+     identity. Its resolved internal thread ID is retained only as verification
+     evidence.
    - A returned `clientThreadId` moves launch to `provisioning`. It must be
      resolved to a `threadId` through a host-provided creation result before
      the task can be titled or waited on.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Mark the queen, then verify seeded child titles.** When a valid plan
-   contains a durable spinoff, the MCP planner uses its lazy app-server bridge
-   to read the current task title, preserve its web-lineage markers, render the
-   crown in canonical order (`[🕸️ inbound] [🕷️ outbound] [👑] · base title`),
-   and verify the mutation before returning any launch action. Legacy titles
-   with an outer crown are normalized into that order. A failed inspection,
-   preflight title change, rename, or verification makes the planning tool fail
-   closed. Codex `0.144.x` offers no title compare-and-set, so a simultaneous
-   manual Desktop rename during the final read/write window is unsupported.
-   Child launch
-   prompts retain their semantic titles and start with
-   `Task title: <short intended title>`. Once a child exists, observe its settled
-   native title first. Exact equality completes title synchronization without a
-   mutation. Only a mismatch emits an idempotent native rename followed by
-   verification. A title failure changes only `titleState`; it does not relaunch
-   or misclassify the running task.
+4. **Persist one web identity, then settle queen and spinoff titles.** For a
+   durable plan, Nelos reuses the queen's existing legacy web record or marked
+   title, or allocates through that compatibility registry once. The web ID,
+   exact queen title, and every durable member's decorated title are persisted
+   in the plan-run contract before launch. Conflicting record, title, or
+   plan-run identities fail closed rather than overwriting lineage.
+
+   The planner reads the current queen title twice and returns one deterministic
+   host-owned `native-set-title` effect when the persisted queen title is not
+   settled. Repeated planning reuses the same effect identity; no wave is
+   returned until exact equality is observed.
+
+   Current Codex `create_thread` has no title field. `Task title: <decorated
+   intended title>` remains only a non-authoritative prompt seed. After binding,
+   batch verification reads a durable spinoff's title. A title-only mismatch
+   returns one deterministic post-bind `native-set-title`/verify action and
+   gates the wave until exact equality is observed. Joined subagents have no
+   native title-control contract; their title check is `not-applicable`.
 5. **Join required work.** Once every required current-wave member is bound,
    enter the queen join loop. Detached members are recorded but excluded.
 
 The standalone app-server adapter can continue its stronger sequence of
 `thread/start`, title synchronization, then `turn/start`. Native Desktop
 creation currently starts the initial turn as part of creation. Prompt seeding
-normally gives that task its intended short title immediately, while native
-observation and conditional rename remain the compatibility fallback.
+may give that task an approximate useful title, but it is never settled-title
+evidence. Native read/set/verify is the normal compatibility path.
 
 ## Queen Join Loop
 
-For required spinoffs and joined subagents with verified child thread IDs, the
-queen should remain active and use the native multi-task wait primitive rather
-than serial status polling:
+For required members, the queen should remain active and wait through each
+member's actual control surface rather than serial status polling:
 
-1. Call one wait with all nonterminal required `threadId`/`hostId` pairs.
+1. Route the generated `native-wait-wave` targets independently: collaboration
+   `agentPath` for joined subagents and Codex-task `threadId` for spinoffs.
 2. When the first member completes or needs attention, persist its returned
    cursor and read only the bounded result needed for collection.
 3. Classify the result as current, stale, correctable, blocked, or failed.
 4. Send a same-task corrective turn when allowed, or stop for queen attention.
 5. Wait again on the remaining nonterminal members, supplying their latest
    cursors.
-6. After all required results are current, perform explicit queen acceptance,
-   advance the dependency wave, or synthesize the final response.
+6. After all required results are current, call `nelos_queen_decide` with the
+   exact consumed result receipt, execute its returned
+   `nelos_orchestrate_advance`, then advance the dependency wave or synthesize
+   the final response only when observation reports acceptance.
+
+The queen-only call is a workflow role constraint. A bundled STDIO MCP server
+is long-lived and does not receive a documented per-call Codex task identity,
+so its decision adapter must not authorize from the server process's launch-time
+`CODEX_THREAD_ID`. Instead it fails closed by matching the asserted queen ID,
+web ID, bound work unit, consumed current-result receipt, and fresh terminal
+turn evidence. The CLI remains free to use its per-invocation
+`CODEX_THREAD_ID`.
 
 `wait_threads` is an event wait from the queen's perspective; it is the
 preferred "pull" mechanism while the queen turn is alive. A bounded timeout is
@@ -226,14 +239,12 @@ continue the join loop.
 Codex still exposes no native persistent completion subscription. Nelos closes
 that gap at the application layer: every durable launch prompt carries an exact
 `nelos_spinoff_complete` callback identity. The member persists its completion
-before its final response and the MCP-owned app-server bridge reconciles a
-stable client message ID before mutation. A known active queen turn is steered;
-an unloaded queen is resumed; and an idle queen receives one new continuation
-turn. A pre-mutation `delivering` revision distinguishes crash recovery from a
-fresh first attempt when the bounded queen history is truncated. Deferred
-delivery receives bounded in-call retries, and the member retries the same
-idempotent callback before final if the persisted state remains `deferred`.
-Ambiguous delivery is retained as `attention` and never blindly replayed.
+before its final response and receives one deterministic host-owned native
+send-message effect. The member executes it through
+`codex_app.send_message_to_thread`, whose successful result contains only the
+target `threadId`, then supplies that exact result without adding lifecycle or
+effect fields. A persisted in-flight operation returns a reconciliation effect
+rather than another send.
 
 The callback complements rather than replaces the queen join loop. A member can
 crash before making its callback, so a live queen still uses bounded native
@@ -243,24 +254,24 @@ silently installed daemon is required for normal successful completion.
 ## Spin-off Cleanup
 
 Completion, queen acceptance, and archival remain separate. Once all required
-current spin-off results are accepted, `nelos_spinoff_cleanup` derives an exact
-candidate set from the durable execution and acceptance records:
+current results are accepted, `nelos_orchestrate_advance` emits the exact
+`nelos_spinoff_cleanup` next action. That tool derives a candidate set from the
+durable execution and acceptance records:
 
 - `ask` is the default and returns names and task IDs without mutation;
-- `auto` archives all eligible candidates;
+- `auto` returns native archive effects for all eligible candidates;
 - `keep` records the decision without archiving; and
 - `rememberPolicy: true` persists the chosen default.
 
 If any required current spin-off lacks a successful current acceptance, cleanup
 returns `not-ready` with the exact pending work units and performs no mutation.
 Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
-without an explicit `archive` capability is never eligible. Archive is a native
-app-server mutation and each outcome is recorded independently so partial
-cleanup remains recoverable. A persisted `archiving` state requires attention
-and is never replayed as a second archive request. A certainly rejected archive
-returns to `pending` so a later cleanup can safely retry it. Terminal `archived`
-and `kept` records remain addressable by an exact confirmation replay, allowing
-a lost MCP response to be reconciled without another native mutation.
+without an explicit `archive` capability is never eligible. Archive remains a
+host-owned native mutation. Each exact host receipt is recorded independently
+so partial cleanup remains recoverable. A persisted `archiving` state returns a
+reconciliation effect and is never replayed as a second archive request.
+Terminal `archived` and `kept` records remain addressable by an exact
+confirmation replay.
 
 ## Upstream Native API Improvements
 
@@ -302,11 +313,12 @@ Until then, the title receipt and queen join loop are the compatibility layer.
    identity. The callback adapter now serializes one work unit and emits a
    non-creating reconciliation action after an uncertain first dispatch; live
    host inventory reconciliation is still required.
-4. Make `launch-wave` emit a complete native action chain:
-   `native-create` with a title-seeded prompt → `native-bind` →
-   `native-read-title` → conditional `native-set-title` → `native-wait`.
-   The callback adapters now reach verified title, cursor-aware wait, and
-   current-turn result-read steps through strict host receipts.
+4. Make `launch-wave` emit lifecycle-specific native actions. Joined subagents
+   bind to collaboration `agentPath` and skip title mutation; durable spinoffs
+   first execute their machine-generated `nelos_orchestrate_create` preparation,
+   then bind its exact task-ID receipt, verify their native title, and may emit
+   a conditional `native-set-title`. The callback adapters reach cursor-aware
+   wait and current-turn result-read steps through strict host receipts.
 5. [Implemented](observation-join.md): use a cursor-aware queen join reducer
    with at most one batched `native-wait` while required members are
    nonterminal.

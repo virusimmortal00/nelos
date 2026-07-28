@@ -166,7 +166,11 @@ function sameDefinition(left, right) {
 function launchPromptFor(record) {
   return buildTaskLaunchPromptV1({
     title: record.title,
-    objective: record.objectiveSummary,
+    objective:
+      record.memberKind === "spinoff"
+        ? "You are this durable spin-off. Do not create or delegate another " +
+          `task. ${record.objectiveSummary}`
+        : record.objectiveSummary,
     deliverable: record.deliverable,
     acceptanceCriteria: record.acceptanceCriteria,
     resultTemplate: createTaskResultTemplateV1(record),

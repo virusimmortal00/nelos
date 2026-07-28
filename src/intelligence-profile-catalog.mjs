@@ -43,15 +43,15 @@ export const INTELLIGENCE_PROFILE_CATALOG = Object.freeze({
   }),
   hostCapabilityEvidence: Object.freeze({
     kind: "current-codex-desktop-capability",
-    observedAt: "2026-07-21",
+    observedAt: "2026-07-25",
     summary:
-      "The current Desktop task API exposes model and thinking overrides, including Codex-only Ultra eligibility for Sol and Terra; the host remains authoritative at launch.",
+      "The current Desktop durable-task API exposes Sol, Terra, and Luna, while the joined-subagent collaboration launcher exposes only Sol and Terra; routing must respect the selected launcher.",
   }),
   policy: Object.freeze({
     kind: "local-reviewed-policy",
-    version: 2,
+    version: 3,
     summary:
-      "Nelos independently inherits, recommends, or overrides model and reasoning choices and maps them to native launch options without claiming entitlement.",
+      "Nelos independently routes model and reasoning choices through launcher-specific capabilities, keeping Luna on durable tasks and Sol or Terra on joined subagents.",
   }),
   profiles,
 });

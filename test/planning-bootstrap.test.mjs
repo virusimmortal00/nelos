@@ -37,6 +37,11 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
   assert.match(first.planner.prompt, /^Task title: Plan and classify the work\n\n/u);
   assert.match(first.planner.prompt, /Do not implement, edit files, launch tasks/u);
   assert.match(first.planner.prompt, /Do not include routing or raw model\/effort overrides/u);
+  assert.match(first.planner.prompt, /between 1 and 8 testable acceptance criteria/u);
+  assert.match(first.planner.prompt, /Every new or changed slice id must end with -[a-f0-9]{12}/u);
+  assert.match(first.planner.prompt, /plain undecorated text/u);
+  assert.match(first.planner.prompt, /peer tasks, not children of the queen/u);
+  assert.match(first.planner.prompt, /queen-owned post-result steps/u);
   assert.match(first.planner.prompt, /```nelos-plan/u);
   assert.equal(first.planner.resultContract.nextTool, "nelos_plan_bootstrap");
   assert.deepEqual(first.planner.threadIdentity, {
@@ -45,7 +50,23 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
     resolver: "nelos_intelligence_resolve_subagent",
     parentThreadIdSource: "current-task",
     agentPathSource: "launcher-result",
+    turnIdSource: "resolved-native-session",
   });
+  assert.deepEqual(first.planner.identityContract, {
+    lifecycle: "subagent",
+    memberKind: "joined-subagent",
+    primaryId: "agentPath",
+    controlSurface: "collaboration",
+    nativeThreadIdUse: "verification-only",
+    nativeTitleControl: false,
+  });
+  assert.equal(first.planner.titlePolicy.verifyAfterLaunch, false);
+  assert.equal(first.planner.titlePolicy.evidence, "agent-path");
+  assert.equal(first.planner.continuation.wait.action, "native-wait-subagent");
+  assert.equal(
+    first.planner.continuation.read.action,
+    "native-read-subagent-result",
+  );
   assert.match(first.planner.agentTaskName, /^nelos_planner_[a-f0-9]{12}$/u);
   assert.deepEqual(first.planner.continuation.verify, {
     tool: "nelos_intelligence_verify",
@@ -56,6 +77,7 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
 });
 
 function plannerResponse(bootstrap, overrides = {}) {
+  const sliceIdSuffix = bootstrap.bootstrapId.slice(5, 17);
   return [
     "Planning completed.",
     "```nelos-plan",
@@ -72,7 +94,7 @@ function plannerResponse(bootstrap, overrides = {}) {
         maxParallel: 2,
         slices: [
           {
-            id: "design",
+            id: `design-${sliceIdSuffix}`,
             title: "Resolve the design",
             objective: "Choose the architecture",
             deliverable: "An architecture decision",
@@ -102,6 +124,10 @@ test("planning bootstrap deterministically finalizes a matching confident plan",
   assert.equal(finalized.ready, true);
   assert.equal(finalized.confidence, "high");
   assert.equal(finalized.plan.summary.slices, 1);
+  assert.match(
+    finalized.plan.waves[0].slices[0].id,
+    /^design-[a-f0-9]{12}$/u,
+  );
   assert.deepEqual(
     finalized.plan.waves[0].slices[0].route.launch.nativeTask,
     { model: "gpt-5.6-sol", thinking: "medium" },
@@ -146,6 +172,66 @@ test("planning bootstrap materializes the requested parallelism when omitted", (
   assert.equal(finalized.plan.maxParallel, 1);
 });
 
+test("preservedSliceIds permits an authorized caller to reuse an earlier slice ID", () => {
+  const context = JSON.stringify({
+    mode: "exception-replan",
+    policy: { preserveCompletedSlicesExactly: true },
+    trigger: { completedSliceIds: ["accepted-old"] },
+  });
+  const initialRequest = {
+    objective: "Revise the failed work",
+    context,
+    maxParallel: 2,
+  };
+  const bootstrap = createPlanningBootstrapV1(initialRequest);
+  const request = { ...initialRequest, bootstrapId: bootstrap.bootstrapId };
+  const response = plannerResponse(bootstrap, {
+    plan: {
+      schemaVersion: 1,
+      objective: "Revise the failed work",
+      maxParallel: 2,
+      slices: [
+        {
+          id: "accepted-old",
+          title: "Accepted work",
+          objective: "Preserve accepted work",
+          deliverable: "The existing accepted result",
+          acceptanceCriteria: ["The accepted slice is unchanged"],
+          dependsOn: [],
+          lifecycle: "subagent",
+          workspaceMode: "shared-read-only",
+          taskShape: "everyday",
+        },
+        {
+          id: `replacement-${bootstrap.bootstrapId.slice(5, 17)}`,
+          title: "Replacement work",
+          objective: "Replace the failed work",
+          deliverable: "A corrected result",
+          acceptanceCriteria: ["The replacement is verified"],
+          dependsOn: ["accepted-old"],
+          lifecycle: "spinoff",
+          workspaceMode: "isolated-write",
+          taskShape: "everyday",
+        },
+      ],
+    },
+  });
+
+  assert.throws(
+    () => finalizePlanningBootstrapV1(request, response),
+    /slice id accepted-old must end with/u,
+  );
+  const finalized = finalizePlanningBootstrapV1(request, response, {
+    preservedSliceIds: ["accepted-old"],
+  });
+  assert.deepEqual(
+    finalized.plan.waves.flatMap((wave) =>
+      wave.slices.map(({ id }) => id),
+    ),
+    ["accepted-old", `replacement-${bootstrap.bootstrapId.slice(5, 17)}`],
+  );
+});
+
 test("planning bootstrap rejects stale, malformed, or over-parallel results", async (t) => {
   const initialRequest = { objective: "Ship the feature", maxParallel: 2 };
   const bootstrap = createPlanningBootstrapV1(initialRequest);
@@ -162,6 +248,30 @@ test("planning bootstrap rejects stale, malformed, or over-parallel results", as
       /must not contain trailing prose/u,
     ],
     [
+      "reused unsuffixed slice identity",
+      plannerResponse(bootstrap, {
+        plan: {
+          schemaVersion: 1,
+          objective: "Ship the feature",
+          maxParallel: 2,
+          slices: [
+            {
+              id: "design",
+              title: "Resolve the design",
+              objective: "Choose the architecture",
+              deliverable: "An architecture decision",
+              acceptanceCriteria: ["The boundary is justified"],
+              dependsOn: [],
+              lifecycle: "subagent",
+              workspaceMode: "shared-read-only",
+              taskShape: "complex/open-ended",
+            },
+          ],
+        },
+      }),
+      /must end with -[a-f0-9]{12}/u,
+    ],
+    [
       "over parallel",
       plannerResponse(bootstrap, {
         plan: {
@@ -170,7 +280,7 @@ test("planning bootstrap rejects stale, malformed, or over-parallel results", as
           maxParallel: 3,
           slices: [
             {
-              id: "design",
+              id: `design-${bootstrap.bootstrapId.slice(5, 17)}`,
               title: "Resolve the design",
               objective: "Choose the architecture",
               deliverable: "An architecture decision",
@@ -194,7 +304,7 @@ test("planning bootstrap rejects stale, malformed, or over-parallel results", as
           maxParallel: 2,
           slices: [
             {
-              id: "design",
+              id: `design-${bootstrap.bootstrapId.slice(5, 17)}`,
               title: "Resolve the design",
               objective: "Choose the architecture",
               deliverable: "An architecture decision",

@@ -22,7 +22,15 @@ const ROUTES = Object.freeze({
   }),
 });
 
+const JOINED_SUBAGENT_ROUTE = Object.freeze({
+  profileId: "terra",
+  effort: "low",
+  rationale:
+    "Clear, repeatable joined-subagent work uses Terra with low reasoning because the current native collaboration launcher supports Sol and Terra, not Luna.",
+});
+
 const INDEPENDENT_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+const LAUNCH_SURFACES = new Set(["durable-task", "joined-subagent"]);
 
 function assertPlainInput(input) {
   if (input === undefined || input === null) return;
@@ -39,9 +47,17 @@ function assertPlainInput(input) {
 export function routeIntelligenceProfile(input) {
   assertPlainInput(input);
   if (input === undefined || input === null || Object.keys(input).length === 0) return null;
+  if (!LAUNCH_SURFACES.has(input.launchSurface)) {
+    throw new Error(`unsupported intelligence launch surface: ${input.launchSurface}`);
+  }
 
-  const recommendation =
+  const baseRecommendation =
     input.taskShape === undefined ? null : ROUTES[input.taskShape];
+  const recommendation =
+    input.launchSurface === "joined-subagent" &&
+    baseRecommendation?.profileId === "luna"
+      ? JOINED_SUBAGENT_ROUTE
+      : baseRecommendation;
   if (input.taskShape !== undefined && !recommendation) {
     throw new Error(`unsupported intelligence task shape: ${input.taskShape}`);
   }
@@ -63,6 +79,14 @@ export function routeIntelligenceProfile(input) {
   const selectedProfile = profileOverride ?? modelOverride ?? recommendedProfile;
   const requestedModel = selectedProfile?.requestedModel ?? null;
   const requestedEffort = input.effortOverride ?? recommendation?.effort ?? null;
+  if (
+    input.launchSurface === "joined-subagent" &&
+    requestedModel === "gpt-5.6-luna"
+  ) {
+    throw new Error(
+      "joined-subagent launches do not support gpt-5.6-luna; use Sol or Terra",
+    );
+  }
 
   if (
     requestedEffort !== null &&

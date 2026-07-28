@@ -186,15 +186,29 @@ export async function resolveNativeSubagentThreadsV1({
     if (unique.length > 1) {
       throw new Error("multiple native child tasks match the subagent launch");
     }
-    resolvedByPath.set(
+    const threadId = unique[0];
+    const rolloutMatches = await findRolloutFiles(sessionsRoot, threadId);
+    if (rolloutMatches.length !== 1) {
+      throw new Error(`native child task ${threadId} has ambiguous rollout evidence`);
+    }
+    const contexts = await readTurnContexts(rolloutMatches[0]);
+    if (contexts.length === 0) {
+      throw new Error(`native child task ${threadId} has no current turn context`);
+    }
+    // A joined agent path is the only host launch receipt.  The final bounded
+    // turn-context event in its resolved child rollout is the current launch
+    // turn; accepting a repeated ID would make that derivation ambiguous.
+    const current = contexts.at(-1);
+    if (contexts.filter(({ turnId }) => turnId === current.turnId).length !== 1) {
+      throw new Error(`native child task ${threadId} has ambiguous current turn evidence`);
+    }
+    resolvedByPath.set(agentPath, Object.freeze({
+      schemaVersion: RUNTIME_INTELLIGENCE_VERIFICATION_SCHEMA_VERSION,
+      parentThreadId: normalizedParent,
       agentPath,
-      Object.freeze({
-        schemaVersion: RUNTIME_INTELLIGENCE_VERIFICATION_SCHEMA_VERSION,
-        parentThreadId: normalizedParent,
-        agentPath,
-        threadId: unique[0],
-      }),
-    );
+      threadId,
+      turnId: current.turnId,
+    }));
   }
   return Object.freeze(
     normalizedPaths.map((agentPath) => resolvedByPath.get(agentPath)),
@@ -203,7 +217,8 @@ export async function resolveNativeSubagentThreadsV1({
 
 /**
  * Resolve only the native child task identity for one exact native subagent
- * launch. Agent path plus parent task identity must match a unique rollout.
+ * launch. Agent path plus parent task identity must match a unique rollout
+ * with one unambiguous current turn-context event.
  */
 export async function resolveNativeSubagentThreadV1(value) {
   return (await resolveNativeSubagentThreadsV1({

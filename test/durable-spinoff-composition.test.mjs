@@ -80,6 +80,20 @@ function createReceipt(effect, memberThreadId) {
   };
 }
 
+function wakeReceipt(effect) {
+  return { threadId: effect.threadId };
+}
+
+function archiveReceipt(effect) {
+  return {
+    schemaVersion: 1,
+    actionId: effect.actionId,
+    type: "native-archive",
+    threadId: effect.threadId,
+    archived: true,
+  };
+}
+
 function resultReceipt(workUnit, sourceTurnId, resultEnvelopeValue) {
   return {
     schemaVersion: 1,
@@ -108,18 +122,6 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   const deliveries = [];
   const archived = [];
   const bridge = {
-    async deliverParentWake(value) {
-      deliveries.push(value);
-      return {
-        delivered: true,
-        replayed: false,
-        queenTurnId: `queen-turn-${deliveries.length}`,
-      };
-    },
-    async archiveThread({ threadId }) {
-      archived.push(threadId);
-      return { archived: true, threadId };
-    },
     async latestTurn({ threadId }) {
       return {
         turnId:
@@ -190,7 +192,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     receipt: createReceipt(upstreamEffect, "task-upstream"),
   });
 
-  await restarted("task-upstream").composition.complete({
+  const upstreamCompletion = {
     webId: "A1",
     queenThreadId: "queen",
     workUnitId: "upstream",
@@ -199,7 +201,16 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     memberThreadId: "task-upstream",
     outcome: "succeeded",
     summary: "UPSTREAM_RESULT",
-  }, bridge);
+    receipt: null,
+  };
+  const upstreamWake = await restarted("task-upstream").composition.complete(
+    upstreamCompletion,
+  );
+  deliveries.push(upstreamWake.effects[0]);
+  await restarted("task-upstream").composition.complete({
+    ...upstreamCompletion,
+    receipt: wakeReceipt(upstreamWake.effects[0]),
+  });
   assert.equal(deliveries.length, 1);
 
   const upstream = await restarted("queen").executionStore.read("upstream");
@@ -253,7 +264,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     workUnitId: "dependent",
     receipt: createReceipt(dependentEffect, "task-dependent"),
   });
-  await restarted("task-dependent").composition.complete({
+  const dependentCompletion = {
     webId: "A1",
     queenThreadId: "queen",
     workUnitId: "dependent",
@@ -262,7 +273,16 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     memberThreadId: "task-dependent",
     outcome: "succeeded",
     summary: "DEPENDENT_RESULT",
-  }, bridge);
+    receipt: null,
+  };
+  const dependentWake = await restarted("task-dependent").composition.complete(
+    dependentCompletion,
+  );
+  deliveries.push(dependentWake.effects[0]);
+  await restarted("task-dependent").composition.complete({
+    ...dependentCompletion,
+    receipt: wakeReceipt(dependentWake.effects[0]),
+  });
   const dependent = await restarted("queen").executionStore.read("dependent");
   await restarted("queen").composition.acceptNativeResult({
     webId: "A1",
@@ -278,15 +298,22 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   const preview = await cleanup.cleanup({
     webId: "A1",
     queenThreadId: "queen",
-  }, bridge);
+  });
   assert.deepEqual(preview.candidates, [
     { workUnitId: "dependent", threadId: "task-dependent", title: "Dependent" },
     { workUnitId: "upstream", threadId: "task-upstream", title: "Upstream" },
   ]);
+  const archiveRequest = await cleanup.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    confirmedThreadIds: preview.candidates.map(({ threadId }) => threadId),
+  });
+  archived.push(...archiveRequest.effects.map(({ threadId }) => threadId));
   await cleanup.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     confirmedThreadIds: preview.candidates.map(({ threadId }) => threadId),
-  }, bridge);
+    archiveReceipts: archiveRequest.effects.map(archiveReceipt),
+  });
   assert.deepEqual(archived, ["task-dependent", "task-upstream"]);
 });

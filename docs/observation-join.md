@@ -16,13 +16,24 @@ app-server process.
 3. incorporate exact current queen-acceptance provenance;
 4. reduce the checkpoint;
 5. return typed host effects and a `waiting`, `attention`, `decide`, or
-   `continue` boundary.
+   `continue` boundary; and
+6. when every required current result is accepted, return the exact
+   `nelos_spinoff_cleanup` next action.
 
 The caller executes returned effects and submits the receipt on the next call.
 An exact receipt replay is a no-op. Reusing an action ID with different content
 fails closed. Receipt digests retain the newest 1,000-action replay window;
 older identities are compacted before persistence so long-running timeout loops
 cannot exceed the checkpoint schema bound.
+
+At a `decide` boundary, the queen submits the exact consumed
+`native-result-read` receipt to `nelos_queen_decide` with a versioned accepted
+or rejected decision. The operation verifies the persisted checkpoint, current
+durable binding, calling queen, and latest successful host turn before
+recording through `QueenAcceptanceStoreV1`. It returns the unchanged arguments
+for the next `nelos_orchestrate_advance`; that call projects an exact accepted
+decision into member coordination and emits the cleanup action. Cleanup is not
+attempted before this advance reports acceptance.
 
 ## Durable checkpoint
 
@@ -38,6 +49,15 @@ Each bound member has four orthogonal state groups:
 | Execution | `unknown`, `waiting`, `running`, `terminal`, `attention` |
 | Result | `absent`, `current`, `stale`, `malformed` |
 | Coordination | `unjoined`, `waiting`, `collected`, `accepted`, `detached` |
+
+Required planned members receive `observe` and `read-result` so their final
+envelope can become acceptance evidence. Lower-level contracts may deliberately
+be observe-only; when such a member reaches a terminal turn, Nelos emits no
+result-read effect and returns `attention` rather than fabricating a result or
+claiming acceptance. `archive` is granted to durable spinoffs by default so the
+terminal cleanup policy can be honored; explicit `cleanupIntended: false`
+removes it. Authority does not imply mutation: the default policy still asks.
+Joined subagents can never receive it.
 
 A title mismatch never changes execution or result state. A terminal task does
 not imply a current result. A collected result does not imply queen acceptance.

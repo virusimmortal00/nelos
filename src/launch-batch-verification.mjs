@@ -88,10 +88,18 @@ export const LAUNCH_BATCH_VERIFICATION_OUTPUT_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["sliceId", "lifecycle", "threadId", "checks", "verified"],
+        required: [
+          "sliceId",
+          "lifecycle",
+          "identityEvidence",
+          "threadId",
+          "checks",
+          "verified",
+        ],
         properties: {
           sliceId: { type: "string" },
           lifecycle: { enum: ["subagent", "spinoff"] },
+          identityEvidence: { enum: ["agent-path", "native-thread-title"] },
           threadId: { anyOf: [{ type: "string" }, { type: "null" }] },
           verified: { type: "boolean" },
           attentionReason: { type: "string" },
@@ -103,7 +111,14 @@ export const LAUNCH_BATCH_VERIFICATION_OUTPUT_SCHEMA = Object.freeze({
               identity: { enum: ["verified", "failed"] },
               read: { enum: ["verified", "failed", "not-attempted"] },
               topology: { enum: ["verified", "failed", "not-attempted"] },
-              title: { enum: ["verified", "failed", "not-attempted"] },
+              title: {
+                enum: [
+                  "verified",
+                  "failed",
+                  "not-attempted",
+                  "not-applicable",
+                ],
+              },
               route: { enum: ["verified", "failed", "not-attempted"] },
             },
           },
@@ -226,6 +241,10 @@ function record(member, threadId = null) {
   return {
     sliceId: member.sliceId,
     lifecycle: member.lifecycle,
+    identityEvidence:
+      member.lifecycle === "subagent"
+        ? "agent-path"
+        : "native-thread-title",
     threadId,
     checks: {
       identity: "failed",
@@ -279,13 +298,17 @@ function sameParent(left, right) {
 
 function publicResult(result) {
   const attentionReason = result.reasons[0];
+  const checksVerified = Object.values(result.checks).every(
+    (value) => value === "verified" || value === "not-applicable",
+  );
   return Object.freeze({
     sliceId: result.sliceId,
     lifecycle: result.lifecycle,
+    identityEvidence: result.identityEvidence,
     threadId: result.threadId,
     checks: Object.freeze({ ...result.checks }),
     ...(attentionReason ? { attentionReason } : {}),
-    verified: result.reasons.length === 0 && Object.values(result.checks).every((value) => value === "verified"),
+    verified: result.reasons.length === 0 && checksVerified,
   });
 }
 
@@ -489,7 +512,11 @@ export async function verifyLaunchBatchV1(value, {
       } else {
         result.checks.topology = "verified";
       }
-      if (thread.title === member.expected.title) {
+      if (member.lifecycle === "subagent") {
+        // Joined subagents are controlled by canonical agent path. Current
+        // Codex hosts expose no native title mutation contract for them.
+        result.checks.title = "not-applicable";
+      } else if (thread.title === member.expected.title) {
         result.checks.title = "verified";
       } else {
         result.checks.title = "failed";

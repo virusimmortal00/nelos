@@ -26,13 +26,13 @@ const INITIALIZE = {
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } },
 };
 
-function validPlan() {
+function validPlan(sliceId = "explore") {
   return {
     schemaVersion: 1,
     objective: "demo objective",
     slices: [
       {
-        id: "explore",
+        id: sliceId,
         title: "Explore",
         objective: "bounded exploration",
         deliverable: "notes",
@@ -52,12 +52,86 @@ async function roundTrip(messages, options = {}) {
   const chunks = [];
   output.on("data", (chunk) => chunks.push(chunk));
   const exited = new Promise((resolve) => {
+    const webRecords = new Map();
+    const webRegistry = {
+      async withLock(callback) {
+        return callback();
+      },
+      async read(threadId) {
+        return webRecords.get(threadId) ?? null;
+      },
+      async list() {
+        return [...webRecords.values()];
+      },
+      async write(record) {
+        webRecords.set(record.threadId, structuredClone(record));
+      },
+    };
+    const planRuns = new Map();
+    const planRunStore = {
+      async read(planRunId) {
+        return planRuns.get(planRunId) ?? null;
+      },
+      async create(record) {
+        const existing = planRuns.get(record.planRunId);
+        if (
+          existing &&
+          JSON.stringify(existing) !== JSON.stringify(record)
+        ) {
+          throw new Error("plan run identity conflicts with persisted intent");
+        }
+        planRuns.set(record.planRunId, structuredClone(record));
+        return structuredClone(record);
+      },
+      async requireWave({
+        planRunId,
+        queenThreadId,
+        waveIndex,
+        waveDigest,
+      }) {
+        const record = planRuns.get(planRunId);
+        if (!record) throw new Error("launch batch references an unknown plan run");
+        if (record.queenThreadId !== queenThreadId) {
+          throw new Error("plan run belongs to a different queen");
+        }
+        const wave = record.waves.find(
+          (candidate) =>
+            candidate.waveIndex === waveIndex &&
+            candidate.waveDigest === waveDigest,
+        );
+        if (!wave) {
+          throw new Error(
+            "launch batch conflicts with its persisted wave contract",
+          );
+        }
+        return { record, wave };
+      },
+      async markWaveVerified({
+        planRunId,
+        queenThreadId,
+        waveIndex,
+        waveDigest,
+      }) {
+        const { record } = await this.requireWave({
+          planRunId,
+          queenThreadId,
+          waveIndex,
+          waveDigest,
+        });
+        if (!record.verifiedWaveIndexes.includes(waveIndex)) {
+          record.verifiedWaveIndexes.push(waveIndex);
+        }
+        return structuredClone(record);
+      },
+    };
     startNelosMcpServer({
       input,
       output,
       serverVersion: "0.0.0-test",
       onExit: resolve,
       currentThreadId: () => "queen-1",
+      planRunStore,
+      webRegistry,
       ...options,
     });
   });
@@ -115,6 +189,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_intelligence_resolve_subagent",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
+      "nelos_queen_decide",
       "nelos_spinoff_complete",
       "nelos_spinoff_cleanup",
     ],
@@ -177,6 +252,37 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   });
   assert.equal(advance.inputSchema.additionalProperties, false);
   assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
+  const queenDecision = tools.find(
+    ({ name }) => name === "nelos_queen_decide",
+  );
+  assert.deepEqual(queenDecision.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  assert.deepEqual(queenDecision.inputSchema.required, [
+    "schemaVersion",
+    "webId",
+    "queenThreadId",
+    "decision",
+    "decisionSummary",
+    "receipt",
+  ]);
+  assert.equal(queenDecision.inputSchema.properties.schemaVersion.const, 1);
+  assert.deepEqual(
+    queenDecision.inputSchema.properties.decision.enum,
+    ["accepted", "rejected"],
+  );
+  assert.equal(
+    queenDecision.inputSchema.properties.receipt.additionalProperties,
+    false,
+  );
+  assert.equal(
+    queenDecision.inputSchema.properties.receipt.properties.resultEnvelope
+      .additionalProperties,
+    false,
+  );
   const complete = tools.find(
     ({ name }) => name === "nelos_spinoff_complete",
   );
@@ -186,6 +292,17 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     idempotentHint: true,
     openWorldHint: false,
   });
+  assert.deepEqual(
+    complete.inputSchema.properties.receipt.anyOf[1],
+    {
+      type: "object",
+      properties: {
+        threadId: { type: "string", minLength: 1, maxLength: 512 },
+      },
+      required: ["threadId"],
+      additionalProperties: false,
+    },
+  );
   const cleanup = tools.find(
     ({ name }) => name === "nelos_spinoff_cleanup",
   );
@@ -252,7 +369,7 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
       bootstrapId,
       confidence: "high",
       classificationEvidence: ["The bounded exploration is ordinary work."],
-      plan: validPlan(),
+      plan: validPlan(`explore-${bootstrapId.slice(5, 17)}`),
     }),
     "```",
   ].join("\n");
@@ -264,7 +381,12 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
       method: "tools/call",
       params: {
         name: "nelos_plan_bootstrap",
-        arguments: { ...request, bootstrapId, response: responseText },
+        arguments: {
+          ...request,
+          queenThreadId: "queen-1",
+          bootstrapId,
+          response: responseText,
+        },
       },
     },
   ]);
@@ -275,11 +397,11 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
   assert.equal(body.nextAction.kind, "launch-wave");
 });
 
-test("nelos_plan_bootstrap synchronizes the queen before launching a planned spinoff", async () => {
+test("nelos_plan_bootstrap returns a host-owned queen-title effect for a planned spinoff", async () => {
   const request = { objective: "Ship an isolated implementation" };
   const bootstrapId = (await import("../src/planning-bootstrap.mjs"))
     .createPlanningBootstrapV1(request).bootstrapId;
-  const plan = validPlan();
+  const plan = validPlan(`explore-${bootstrapId.slice(5, 17)}`);
   plan.slices[0] = {
     ...plan.slices[0],
     lifecycle: "spinoff",
@@ -306,21 +428,24 @@ test("nelos_plan_bootstrap synchronizes the queen before launching a planned spi
         method: "tools/call",
         params: {
           name: "nelos_plan_bootstrap",
-          arguments: { ...request, bootstrapId, response: responseText },
+          arguments: {
+            ...request,
+            queenThreadId: "queen-1",
+            bootstrapId,
+            response: responseText,
+          },
         },
       },
     ],
     {
       appServerBridge: {
-        async synchronizeQueenTitle() {
-          calls.push("synchronizeQueenTitle");
+        async inspect({ threadId }) {
+          calls.push(["inspect", threadId]);
           return {
             schemaVersion: 1,
             threadId: "queen-1",
-            previousTitle: "Release",
-            title: "👑 · Release",
-            changed: true,
-            verified: true,
+            title: "Release",
+            status: "idle",
           };
         },
         async close() {
@@ -331,10 +456,13 @@ test("nelos_plan_bootstrap synchronizes the queen before launching a planned spi
   );
   const { isError, body } = toolBody(response);
   assert.equal(isError, false);
-  assert.equal(body.nextAction.kind, "launch-wave");
-  assert.equal(body.nextAction.members[0].lifecycle, "spinoff");
-  assert.equal(body.queenTitleSync.verified, true);
-  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+  assert.equal(body.nextAction.kind, "native-set-title");
+  assert.equal(body.queenTitleSync.verified, false);
+  assert.deepEqual(calls, [
+    ["inspect", "queen-1"],
+    ["inspect", "queen-1"],
+    "close",
+  ]);
 });
 
 test("nelos_plan_lifecycle forwards exact receipts and emits a planned launch wave", async () => {
@@ -409,6 +537,7 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
     generation: 1,
     receipt: null,
   };
+  let createdPlanRun = null;
   const [, response] = await roundTrip(
     [
       INITIALIZE,
@@ -451,9 +580,12 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
             queenThreadId: "queen-1",
             rootPlanRunId: "run:1234567890abcdef1234567890abcdef12345678",
             replanGeneration: 0,
+            cleanupIntended: false,
+            webIdentity: null,
           };
         },
         async create(record) {
+          createdPlanRun = structuredClone(record);
           return record;
         },
       },
@@ -464,6 +596,16 @@ test("nelos_plan_replan forwards typed exceptions and excludes completed work fr
   assert.equal(body.command, "plan slices");
   assert.equal(body.replanning.generation, 1);
   assert.equal(body.nextAction.kind, "launch-wave");
+  assert.equal(body.nextAction.members[0].launcher, "spawn-subagent");
+  assert.match(
+    body.nextAction.members[0].agentTaskName,
+    /^nelos_explore_replan1_[a-f0-9]{12}$/u,
+  );
+  assert.equal(
+    body.nextAction.members.some(({ launcher }) => launcher === "followup-task"),
+    false,
+  );
+  assert.equal(createdPlanRun.cleanupIntended, false);
 });
 
 test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
@@ -545,6 +687,14 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
             });
             return { record: {}, wave };
           },
+          async markWaveVerified(value) {
+            assert.deepEqual(value, {
+              planRunId: args.planRunId,
+              queenThreadId: args.parentThreadId,
+              waveIndex: args.waveIndex,
+              waveDigest: args.waveDigest,
+            });
+          },
         },
         currentThreadId: () => "queen-1",
       },
@@ -553,12 +703,116 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
     assert.equal(isError, false);
     assert.equal(
       body.nextAction.kind,
-      allVerified ? "native-wait" : "attention",
+      allVerified ? "native-wait-wave" : "attention",
     );
+    if (allVerified) {
+      assert.deepEqual(body.nextAction.targets, [{
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        memberKind: "spinoff",
+        controlSurface: "codex-task",
+        primaryId: "threadId",
+        threadId: "member-1",
+        turnId: "turn-1",
+      }]);
+    }
   }
 });
 
-test("nelos_launch_verify_batch rejects a parent outside the current host task", async () => {
+test("nelos_launch_verify_batch returns one replay-stable post-bind title synchronization", async () => {
+  const args = {
+    planRunId: "run:1234567890abcdef1234567890abcdef12345678",
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    parentThreadId: "queen-1",
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        threadId: "member-1",
+        turnId: "turn-1",
+      },
+    ],
+  };
+  const wave = {
+    waveIndex: 1,
+    waveDigest: "a".repeat(64),
+    members: [
+      {
+        sliceId: "explore",
+        lifecycle: "spinoff",
+        title: "🕷️ A1 · Explore",
+        model: "gpt-5.6-terra",
+        effort: "low",
+      },
+    ],
+  };
+  const [, first, replay] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_launch_verify_batch", arguments: args },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "nelos_launch_verify_batch", arguments: args },
+      },
+    ],
+    {
+      async launchBatchVerifier() {
+        return {
+          schemaVersion: 1,
+          parentThreadId: "queen-1",
+          allVerified: false,
+          members: [
+            {
+              sliceId: "explore",
+              lifecycle: "spinoff",
+              threadId: "member-1",
+              checks: {
+                identity: "verified",
+                read: "verified",
+                topology: "verified",
+                title: "failed",
+                route: "verified",
+              },
+              attentionReason: "title-mismatch",
+              verified: false,
+            },
+          ],
+        };
+      },
+      planRunStore: {
+        async read() {
+          return null;
+        },
+        async requireWave() {
+          return { record: {}, wave };
+        },
+      },
+    },
+  );
+  const firstAction = toolBody(first).body.nextAction;
+  assert.deepEqual(firstAction, {
+    schemaVersion: 1,
+    kind: "native-set-title",
+    actionId:
+      "plan-title:1234567890abcdef1234567890abcdef12345678:" +
+      "wave-1:explore",
+    threadId: "member-1",
+    title: "🕷️ A1 · Explore",
+    verify: true,
+    after: "repeat-launch-verify-batch",
+  });
+  assert.deepEqual(toolBody(replay).body.nextAction, firstAction);
+});
+
+test("nelos_launch_verify_batch relies on persisted queen ownership", async () => {
   const args = {
     planRunId: "run:1234567890abcdef1234567890abcdef12345678",
     waveIndex: 1,
@@ -597,7 +851,7 @@ test("nelos_launch_verify_batch rejects a parent outside the current host task",
   );
   const { isError, body } = toolBody(response);
   assert.equal(isError, true);
-  assert.match(body.error, /must match the current host task/u);
+  assert.match(body.error, /must not read a foreign wave/u);
 });
 
 test("nelos_launch_verify_batch rejects another queen's persisted run", async () => {
@@ -690,6 +944,65 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
   assert.equal(result.body.join.effects[0].type, "native-wait");
 });
 
+test("nelos_queen_decide forwards the strict versioned decision lifecycle", async () => {
+  const calls = [];
+  const args = {
+    schemaVersion: 1,
+    webId: "A1",
+    queenThreadId: "queen",
+    decision: "accepted",
+    decisionSummary: "Queen verified the result.",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-result-read",
+      actionId: "result-action",
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      bindingGeneration: 1,
+      memberThreadId: "thread-alpha",
+      requestedTurnId: "turn-alpha",
+      sourceTurnId: "turn-alpha",
+      resultEnvelope: {},
+    },
+  };
+  const appServerBridge = { marker: "bridge", close() {} };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_queen_decide", arguments: args },
+      },
+    ],
+    {
+      appServerBridge,
+      queenDecisionAdapter: {
+        async decide(value, context) {
+          calls.push({ value, context });
+          return {
+            schemaVersion: 1,
+            replayed: false,
+            decision: { decisionId: "queen-acceptance-v1/example" },
+          };
+        },
+      },
+    },
+  );
+  assert.deepEqual(calls, [{
+    value: args,
+    context: { appServerBridge },
+  }]);
+  const result = toolBody(response);
+  assert.equal(result.isError, false);
+  assert.equal(
+    result.body.decision.decisionId,
+    "queen-acceptance-v1/example",
+  );
+});
+
 test("spin-off lifecycle tools forward exact bounded arguments", async () => {
   const calls = [];
   const completion = {
@@ -701,6 +1014,7 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     memberThreadId: "member",
     outcome: "succeeded",
     summary: "Verified result.",
+    receipt: null,
   };
   const cleanup = {
     webId: "A1",
@@ -726,12 +1040,12 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     ],
     {
       lifecycleAdapter: {
-        async complete(value, bridge) {
-          calls.push(["complete", value, bridge]);
+        async complete(value) {
+          calls.push(["complete", value]);
           return { state: "delivered" };
         },
-        async cleanup(value, bridge) {
-          calls.push(["cleanup", value, bridge]);
+        async cleanup(value) {
+          calls.push(["cleanup", value]);
           return { state: "complete" };
         },
       },
@@ -742,7 +1056,6 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     ["complete", completion],
     ["cleanup", cleanup],
   ]);
-  assert.equal(calls[0][2], calls[1][2]);
   assert.equal(toolBody(completeResponse).body.state, "delivered");
   assert.equal(toolBody(cleanupResponse).body.state, "complete");
 });
@@ -814,8 +1127,15 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.body.effects.length, 1);
   const { prompt: launchPrompt, ...launchEffect } = initial.body.effects[0];
   assert.match(launchPrompt, /^Task title: Member A\n\n/u);
+  assert.match(
+    launchPrompt,
+    /You are this durable spin-off\. Do not create or delegate another task\./u,
+  );
   assert.match(launchPrompt, /call `nelos_spinoff_complete`/u);
-  assert.match(launchPrompt, /wakeState is `deferred`/u);
+  assert.match(launchPrompt, /Set receipt to null/u);
+  assert.match(launchPrompt, /codex_app\.send_message_to_thread/u);
+  assert.match(launchPrompt, /receipt: \{"threadId":"queen-thread"\}/u);
+  assert.match(launchPrompt, /Do not add actionId, specRevision/u);
   assert.match(
     launchPrompt,
     /"queenThreadId":"queen-thread".*"workUnitId":"member-a"/u,
@@ -865,6 +1185,29 @@ test("stdio orchestration creates once, then requires reconciliation before any 
     },
   );
   assert.equal((await fixture.store.read("member-a")).binding.state, "launch-pending");
+});
+
+test("stdio orchestration rejects Luna before returning a joined-subagent effect", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const workUnit = workUnitInput({
+    memberKind: "joined-subagent",
+    launch: {
+      workspaceMode: "shared-read-only",
+      nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
+    },
+  });
+  const [, response] = await roundTrip(
+    [INITIALIZE, orchestrationCall(2, workUnit)],
+    fixture.options,
+  );
+  const result = toolBody(response);
+
+  assert.equal(result.isError, true);
+  assert.match(
+    result.body.error,
+    /joined-subagent launches do not support gpt-5\.6-luna/,
+  );
+  assert.deepEqual(await fixture.store.list(), []);
 });
 
 test("stdio orchestration validates a host callback before binding and replays idempotently", async (t) => {
@@ -1018,7 +1361,10 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "nelos_plan_slices", arguments: { plan: validPlan() } },
+      params: {
+        name: "nelos_plan_slices",
+        arguments: { plan: validPlan(), queenThreadId: "queen-1" },
+      },
     },
   ]);
   const { isError, body } = toolBody(response);
@@ -1046,8 +1392,18 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
         titlePolicy: {
           mode: "prompt-seeded",
           recommendedMaxCharacters: 48,
-          verifyAfterLaunch: true,
-          onMismatch: "native-set-title",
+          verifyAfterLaunch: false,
+          evidence: "agent-path",
+          onMismatch: "attention",
+        },
+        agentTaskName: "nelos_explore_6f281157",
+        identityContract: {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
         },
         workspaceMode: "shared-read-only",
         nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
@@ -1070,7 +1426,7 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
   assert.match(body.nextAction.members[0].prompt, /^Task title: Explore\n\n/u);
 });
 
-test("nelos_plan_slices synchronizes the queen before returning a spinoff", async () => {
+test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff", async () => {
   const plan = validPlan();
   plan.slices[0] = {
     ...plan.slices[0],
@@ -1079,15 +1435,13 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
   };
   const calls = [];
   const appServerBridge = {
-    async synchronizeQueenTitle() {
-      calls.push("synchronizeQueenTitle");
+    async inspect({ threadId }) {
+      calls.push(["inspect", threadId]);
       return {
         schemaVersion: 1,
         threadId: "queen-1",
-        previousTitle: "Release",
-        title: "👑 · Release",
-        changed: true,
-        verified: true,
+        title: "Release",
+        status: "idle",
       };
     },
     async close() {
@@ -1101,7 +1455,13 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "nelos_plan_slices", arguments: { plan } },
+        params: {
+          name: "nelos_plan_slices",
+          arguments: {
+            plan,
+            queenThreadId: "queen-1",
+          },
+        },
       },
     ],
     { appServerBridge },
@@ -1111,16 +1471,29 @@ test("nelos_plan_slices synchronizes the queen before returning a spinoff", asyn
   assert.deepEqual(body.queenTitleSync, {
     schemaVersion: 1,
     threadId: "queen-1",
+    webId: "A1",
     previousTitle: "Release",
-    title: "👑 · Release",
+    title: "👑 A1 · Release",
     changed: true,
-    verified: true,
+    verified: false,
   });
-  assert.equal(body.nextAction.members[0].title, "Explore");
-  assert.deepEqual(calls, ["synchronizeQueenTitle", "close"]);
+  assert.deepEqual(body.nextAction, {
+    schemaVersion: 1,
+    kind: "native-set-title",
+    actionId: `plan-title:${body.planRun.planRunId.slice(4)}:queen`,
+    threadId: "queen-1",
+    title: "👑 A1 · Release",
+    verify: true,
+    after: "repeat-plan-slices",
+  });
+  assert.deepEqual(calls, [
+    ["inspect", "queen-1"],
+    ["inspect", "queen-1"],
+    "close",
+  ]);
 });
 
-test("nelos_plan_slices fails closed when queen title synchronization fails", async () => {
+test("nelos_plan_slices launches only after the host-owned title is observed", async () => {
   const plan = validPlan();
   plan.slices[0] = {
     ...plan.slices[0],
@@ -1134,21 +1507,210 @@ test("nelos_plan_slices fails closed when queen title synchronization fails", as
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "nelos_plan_slices", arguments: { plan } },
+        params: {
+          name: "nelos_plan_slices",
+          arguments: {
+            plan,
+            queenThreadId: "queen-1",
+          },
+        },
       },
     ],
     {
       appServerBridge: {
-        async synchronizeQueenTitle() {
-          throw new Error("queen title verification failed");
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "👑 A1 · Release",
+            status: "idle",
+          };
         },
       },
     },
   );
   const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.queenTitleSync.verified, true);
+  assert.equal(body.nextAction.kind, "launch-wave");
+  assert.equal(body.planRun.webIdentity.webId, "A1");
+  assert.equal(body.nextAction.members[0].title, "🕷️ A1 · Explore");
+  assert.equal(
+    body.nextAction.members[0].orchestration.tool,
+    "nelos_orchestrate_create",
+  );
+  assert.deepEqual(
+    body.nextAction.members[0].orchestration.arguments.workUnit.capabilities,
+    ["observe", "read-result", "follow-up", "archive"],
+  );
+  assert.match(
+    body.nextAction.members[0].prompt,
+    /^Task title: 🕷️ A1 · Explore\n\n/u,
+  );
+});
+
+test("replayed durable planning reuses one identity and one queen-title effect", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  let record = null;
+  let writes = 0;
+  const webRegistry = {
+    async withLock(callback) {
+      return callback();
+    },
+    async read() {
+      return record;
+    },
+    async list() {
+      return record ? [record] : [];
+    },
+    async write(value) {
+      writes += 1;
+      record = structuredClone(value);
+    },
+  };
+  const call = (id) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: {
+      name: "nelos_plan_slices",
+      arguments: { plan, queenThreadId: "queen-1" },
+    },
+  });
+  const [, first, replay] = await roundTrip(
+    [INITIALIZE, call(2), call(3)],
+    {
+      webRegistry,
+      appServerBridge: {
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "Release",
+            status: "idle",
+          };
+        },
+      },
+    },
+  );
+  const firstBody = toolBody(first).body;
+  const replayBody = toolBody(replay).body;
+  assert.equal(writes, 1);
+  assert.equal(firstBody.planRun.webIdentity.webId, "A1");
+  assert.equal(replayBody.planRun.webIdentity.webId, "A1");
+  assert.deepEqual(replayBody.nextAction, firstBody.nextAction);
+  assert.equal(
+    replayBody.planRun.waves[0].members[0].title,
+    "🕷️ A1 · Explore",
+  );
+});
+
+test("an archived queen allocates a fresh web instead of trusting its stale title", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const records = new Map([
+    ["queen-1", {
+      threadId: "queen-1",
+      baseTitle: "Release",
+      inboundWebId: null,
+      outboundWebId: "A1",
+      queenThreadId: null,
+      queenMarked: true,
+      renderedTitle: "👑 A1 · Release",
+      createdAt: "2026-07-26T00:00:00.000Z",
+      updatedAt: "2026-07-26T01:00:00.000Z",
+      archivedAt: "2026-07-26T01:00:00.000Z",
+    }],
+    ["other-queen", {
+      threadId: "other-queen",
+      baseTitle: "Other",
+      inboundWebId: null,
+      outboundWebId: "A1",
+      queenThreadId: null,
+      queenMarked: true,
+      renderedTitle: "👑 A1 · Other",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      archivedAt: null,
+    }],
+  ]);
+  const webRegistry = {
+    async withLock(callback) {
+      return callback();
+    },
+    async read(threadId) {
+      return structuredClone(records.get(threadId) ?? null);
+    },
+    async list() {
+      return [...records.values()].map((record) => structuredClone(record));
+    },
+    async write(record) {
+      records.set(record.threadId, structuredClone(record));
+    },
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan, queenThreadId: "queen-1" },
+        },
+      },
+    ],
+    {
+      webRegistry,
+      appServerBridge: {
+        async inspect() {
+          return {
+            schemaVersion: 1,
+            threadId: "queen-1",
+            title: "👑 A1 · Release",
+            status: "idle",
+          };
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.equal(body.planRun.webIdentity.webId, "A2");
+  assert.equal(body.queenTitleSync.title, "👑 A2 · Release");
+  assert.equal(records.get("queen-1").outboundWebId, "A2");
+  assert.equal(records.get("queen-1").archivedAt, null);
+});
+
+test("nelos_plan_slices requires an explicit queen ID", async () => {
+  const plan = validPlan();
+  plan.slices[0] = {
+    ...plan.slices[0],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+  };
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "nelos_plan_slices", arguments: { plan } },
+    },
+  ]);
+  const { isError, body } = toolBody(response);
   assert.equal(isError, true);
-  assert.match(body.error, /queen title verification failed/);
-  assert.equal(body.nextAction, undefined);
+  assert.match(body.error, /requires argument queenThreadId/u);
 });
 
 test("nelos_thread_inspect returns only bridge-bounded metadata", async () => {
@@ -1460,6 +2022,53 @@ test("nelos_plan_slices reports invalid plans as tool errors", async () => {
   assert.equal(synchronizationCalls, 0);
 });
 
+test("nelos_plan_slices never emits a Luna joined-subagent launch", async () => {
+  const plan = validPlan();
+  plan.slices[0].taskShape = "clear/repeatable";
+  const [, recommended, rejected] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_slices",
+        arguments: { plan, queenThreadId: "queen-1" },
+      },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_slices",
+        arguments: {
+          plan: {
+            ...plan,
+            slices: [{
+              ...plan.slices[0],
+              routing: { model: "gpt-5.6-luna" },
+            }],
+          },
+          queenThreadId: "queen-1",
+        },
+      },
+    },
+  ]);
+  const recommendedBody = toolBody(recommended);
+  assert.equal(recommendedBody.isError, false);
+  assert.equal(
+    recommendedBody.body.nextAction.members[0].nativeTask.model,
+    "gpt-5.6-terra",
+  );
+  const rejectedBody = toolBody(rejected);
+  assert.equal(rejectedBody.isError, true);
+  assert.match(
+    rejectedBody.body.error,
+    /joined-subagent launches do not support gpt-5\.6-luna/,
+  );
+});
+
 test("nelos_intelligence_route mirrors the CLI mapping", async () => {
   const [, routed, invalid] = await roundTrip([
     INITIALIZE,
@@ -1469,7 +2078,7 @@ test("nelos_intelligence_route mirrors the CLI mapping", async () => {
       method: "tools/call",
       params: {
         name: "nelos_intelligence_route",
-        arguments: { taskShape: "everyday" },
+        arguments: { taskShape: "everyday", launchSurface: "durable-task" },
       },
     },
     {
@@ -1478,7 +2087,7 @@ test("nelos_intelligence_route mirrors the CLI mapping", async () => {
       method: "tools/call",
       params: {
         name: "nelos_intelligence_route",
-        arguments: { taskShape: "unsupported-shape" },
+        arguments: { taskShape: "unsupported-shape", launchSurface: "durable-task" },
       },
     },
   ]);
@@ -1572,7 +2181,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           },
         },
       },
-    })}\n`,
+    })}\n${JSON.stringify(turnContext("turn-older", "gpt-5.6-sol", "medium"))}\n${JSON.stringify(turnContext("turn-current", "gpt-5.6-terra", "high"))}\n`,
   );
   await withCodexHome(root, async () => {
     const [, response] = await roundTrip([
@@ -1586,8 +2195,8 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           arguments: {
             parentThreadId: "parent-thread",
             agentPath: "/root/nelos_planner_abc123",
-            model: "gpt-5.6-sol",
-            effort: "medium",
+            model: "gpt-5.6-terra",
+            effort: "high",
           },
         },
       },
@@ -1601,10 +2210,22 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
       tool: "nelos_intelligence_verify",
       arguments: {
         threadId: childThreadId,
-        model: "gpt-5.6-sol",
-        effort: "medium",
+        model: "gpt-5.6-terra",
+        effort: "high",
+        turnId: "turn-current",
       },
     });
+    const [, verified] = await roundTrip([
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: body.nextAction.tool, arguments: body.nextAction.arguments },
+      },
+    ]);
+    assert.equal(toolBody(verified).isError, false);
+    assert.equal(toolBody(verified).body.verified, true);
 
     const [, rejected] = await roundTrip([
       INITIALIZE,

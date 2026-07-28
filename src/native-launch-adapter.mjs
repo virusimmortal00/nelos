@@ -17,7 +17,9 @@ function launchRequest(member) {
     memberKind,
     launcher,
     ...(lifecycle === "spinoff" ? { actionId: member.actionId } : {}),
-    title: member.title,
+    // Current Codex create_thread has no title field. This is contract
+    // metadata for post-bind verification, never a creation argument.
+    settledTitle: member.title,
     prompt: member.prompt,
     workspaceMode: launch.workspaceMode,
     nativeTask: { ...launch.nativeTask },

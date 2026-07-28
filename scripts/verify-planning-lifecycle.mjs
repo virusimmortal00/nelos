@@ -304,9 +304,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["planner-1"] = thread(
         "planner-1",
-        "Plan and classify the work",
+        null,
         "queen-1",
-        "active",
+        "notLoaded",
       );
       value.threads["planner-1"].turns = [
         { id: "planner-turn", status: "inProgress", items: [] },
@@ -325,7 +325,7 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(waiting.nextAction.kind, "native-wait");
+    assert.equal(waiting.nextAction.kind, "native-wait-subagent");
     await mcp.stop();
     mcp = startMcp(environment);
     await mcp.initialize();
@@ -334,9 +334,8 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(resumed.nextAction.kind, "native-wait");
+    assert.equal(resumed.nextAction.kind, "native-wait-subagent");
     await mutateState(appStatePath, (value) => {
-      value.threads["planner-1"].status = "idle";
       value.threads["planner-1"].updatedAt += 1;
       value.threads["planner-1"].turns[0].status = "completed";
     });
@@ -345,16 +344,20 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId,
       receipt: launchReceipt,
     });
-    assert.equal(readable.nextAction.kind, "native-read");
+    assert.equal(readable.nextAction.kind, "native-read-subagent-result");
 
+    const initialSuffix = bootstrapId.slice(5, 17);
+    const researchSliceId = `research-${initialSuffix}`;
+    const implementationSliceId = `implementation-${initialSuffix}`;
+    const followupSliceId = `followup-${initialSuffix}`;
     const plannedSlices = [
-      slice("research", {
+      slice(researchSliceId, {
         lifecycle: "subagent",
         workspaceMode: "shared-read-only",
         taskShape: "clear/repeatable",
       }),
-      slice("implementation"),
-      slice("followup", { dependsOn: ["implementation"] }),
+      slice(implementationSliceId),
+      slice(followupSliceId, { dependsOn: [implementationSliceId] }),
     ];
     const rawPlan = {
       schemaVersion: 1,
@@ -362,7 +365,7 @@ export async function runPlanningLifecycleScenario() {
       maxParallel: 2,
       slices: plannedSlices,
     };
-    const planned = await mcp.tool("nelos_plan_lifecycle", {
+    const completedPlanningRequest = {
       ...lifecycleRequest,
       bootstrapId,
       receipt: {
@@ -374,18 +377,36 @@ export async function runPlanningLifecycleScenario() {
         turnId: "planner-turn",
         response: fencedPlan(bootstrapId, rawPlan),
       },
-    });
+    };
+    let planned = await mcp.tool(
+      "nelos_plan_lifecycle",
+      completedPlanningRequest,
+    );
+    if (planned.nextAction.kind === "native-set-title") {
+      await mutateState(appStatePath, (value) => {
+        value.threads[planned.nextAction.threadId].name =
+          planned.nextAction.title;
+        value.threads[planned.nextAction.threadId].updatedAt += 1;
+      });
+      planned = await mcp.tool(
+        "nelos_plan_lifecycle",
+        completedPlanningRequest,
+      );
+    }
     assert.equal(planned.nextAction.kind, "launch-wave");
     assert.equal(planned.nextAction.members.length, 2);
     const stateAfterPlan = JSON.parse(await readFile(appStatePath, "utf8"));
-    assert.equal(stateAfterPlan.threads["queen-1"].name, "👑 · Planning smoke");
+    assert.equal(
+      stateAfterPlan.threads["queen-1"].name,
+      planned.planRun.webIdentity.queenTitle,
+    );
 
     await Promise.all([
       writeRollout(codexHome, "research-1", {
         parentThreadId: "queen-1",
         agentPath: "/root/research",
         turnId: "research-turn",
-        model: "gpt-5.6-luna",
+        model: "gpt-5.6-terra",
         effort: "low",
       }),
       writeRollout(codexHome, "implementation-1", {
@@ -397,8 +418,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["research-1"] = thread(
         "research-1",
-        "research task",
+        null,
         "queen-1",
+        "notLoaded",
       );
       value.threads["implementation-1"] = thread(
         "implementation-1",
@@ -406,31 +428,65 @@ export async function runPlanningLifecycleScenario() {
         null,
       );
     });
-    const batch = await mcp.tool("nelos_launch_verify_batch", {
+    const batchRequest = {
       planRunId: planned.nextAction.verification.planRunId,
       waveIndex: planned.nextAction.verification.waveIndex,
       waveDigest: planned.nextAction.verification.waveDigest,
       parentThreadId: "queen-1",
       members: [
         {
-          sliceId: "research",
+          sliceId: researchSliceId,
           lifecycle: "subagent",
           agentPath: "/root/research",
           turnId: "research-turn",
         },
         {
-          sliceId: "implementation",
+          sliceId: implementationSliceId,
           lifecycle: "spinoff",
           actionId: planned.nextAction.members.find(
-            ({ sliceId }) => sliceId === "implementation",
+            ({ sliceId }) => sliceId === implementationSliceId,
           ).actionId,
           threadId: "implementation-1",
           turnId: "implementation-turn",
         },
       ],
+    };
+    let batch = await mcp.tool("nelos_launch_verify_batch", batchRequest);
+    assert.equal(batch.nextAction.kind, "native-set-title");
+    await mutateState(appStatePath, (value) => {
+      value.threads[batch.nextAction.threadId].name = batch.nextAction.title;
+      value.threads[batch.nextAction.threadId].updatedAt += 1;
     });
+    batch = await mcp.tool("nelos_launch_verify_batch", batchRequest);
     assert.equal(batch.verification.allVerified, true);
-    assert.equal(batch.nextAction.kind, "native-wait");
+    assert.equal(batch.nextAction.kind, "native-wait-wave");
+    assert.deepEqual(
+      batch.nextAction.targets.map(
+        ({ sliceId, lifecycle, memberKind, controlSurface, primaryId }) => ({
+          sliceId,
+          lifecycle,
+          memberKind,
+          controlSurface,
+          primaryId,
+        }),
+      ),
+      [
+        {
+          sliceId: researchSliceId,
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          controlSurface: "collaboration",
+          primaryId: "agentPath",
+        },
+        {
+          sliceId: implementationSliceId,
+          lifecycle: "spinoff",
+          memberKind: "spinoff",
+          controlSurface: "codex-task",
+          primaryId: "threadId",
+        },
+      ],
+    );
 
     const replanRequest = {
       schemaVersion: 1,
@@ -443,8 +499,8 @@ export async function runPlanningLifecycleScenario() {
         type: "execution-failed",
         eventId: "implementation-failed",
         summary: "The implementation failed its required verification",
-        affectedSliceIds: ["implementation"],
-        completedSliceIds: ["research"],
+        affectedSliceIds: [implementationSliceId],
+        completedSliceIds: [researchSliceId],
         evidence: ["The current terminal result reports a failed outcome."],
       },
       generation: 1,
@@ -463,9 +519,9 @@ export async function runPlanningLifecycleScenario() {
     await mutateState(appStatePath, (value) => {
       value.threads["replanner-1"] = thread(
         "replanner-1",
-        "Plan and classify the work",
+        null,
         "queen-1",
-        "idle",
+        "notLoaded",
       );
       value.threads["replanner-1"].turns = [
         { id: "replanner-turn", status: "completed", items: [] },
@@ -484,15 +540,21 @@ export async function runPlanningLifecycleScenario() {
       bootstrapId: replanBootstrapId,
       receipt: replanLaunchReceipt,
     });
-    assert.equal(replanReadable.nextAction.kind, "native-read");
+    assert.equal(
+      replanReadable.nextAction.kind,
+      "native-read-subagent-result",
+    );
+    const replanSuffix = replanBootstrapId.slice(5, 17);
+    const replacementSliceId = `replacement-${replanSuffix}`;
+    const revisedFollowupSliceId = `followup-${replanSuffix}`;
     const revisedPlan = {
       schemaVersion: 1,
       objective: "Ship the revised mixed task wave",
       maxParallel: 2,
       slices: [
         plannedSlices[0],
-        slice("replacement"),
-        slice("followup", { dependsOn: ["replacement"] }),
+        slice(replacementSliceId),
+        slice(revisedFollowupSliceId, { dependsOn: [replacementSliceId] }),
       ],
     };
     const replanned = await mcp.tool("nelos_plan_replan", {
@@ -511,9 +573,12 @@ export async function runPlanningLifecycleScenario() {
     assert.equal(replanned.nextAction.kind, "launch-wave");
     assert.deepEqual(
       replanned.nextAction.members.map(({ sliceId }) => sliceId),
-      ["replacement"],
+      [replacementSliceId],
     );
-    assert.deepEqual(replanned.replanning.completedSliceIds, ["research"]);
+    assert.deepEqual(
+      replanned.replanning.completedSliceIds,
+      [researchSliceId],
+    );
 
     const report = {
       schemaVersion: 1,

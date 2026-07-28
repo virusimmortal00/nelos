@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,7 @@ function request(overrides = {}) {
 }
 
 function plannerResponse(bootstrapId, overrides = {}) {
+  const sliceIdSuffix = bootstrapId.slice(5, 17);
   return [
     "```nelos-plan",
     JSON.stringify({
@@ -35,7 +37,7 @@ function plannerResponse(bootstrapId, overrides = {}) {
         maxParallel: 2,
         slices: [
           {
-            id: "implement",
+            id: `implement-${sliceIdSuffix}`,
             title: "Implement history view",
             objective: "Implement the bounded view",
             deliverable: "Working view and tests",
@@ -53,7 +55,11 @@ function plannerResponse(bootstrapId, overrides = {}) {
   ].join("\n");
 }
 
-async function fixture({ title = "Plan and classify the work", status = "active" } = {}) {
+async function fixture({
+  title = null,
+  status = "notLoaded",
+  latestTurnStatus = "inProgress",
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), "nelos-planning-lifecycle-"));
   const store = new PlanningLifecycleStoreV1({
     directory: join(root, "records"),
@@ -70,7 +76,7 @@ async function fixture({ title = "Plan and classify the work", status = "active"
     updatedAt: 2,
     latestTurn: {
       turnId: "planner-turn",
-      status: "completed",
+      status: latestTurnStatus,
     },
   };
   const dependencies = {
@@ -187,10 +193,14 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       { appServerBridge: value.bridge },
     );
     assert.equal(launched.lifecycle.phase, "verified");
-    assert.equal(launched.nextAction.kind, "native-wait");
+    assert.equal(launched.nextAction.kind, "native-wait-subagent");
+    assert.equal(launched.identity.lifecycle, "subagent");
+    assert.equal(launched.identity.memberKind, "joined-subagent");
+    assert.equal(launched.identity.primaryId, "agentPath");
+    assert.equal(launched.identity.controlSurface, "collaboration");
     assert.equal(launched.identity.threadId, "planner-1");
 
-    value.thread.status = "idle";
+    value.thread.latestTurn.status = "completed";
     const settled = await value.restart().advance(
       request({
         bootstrapId: initial.lifecycle.bootstrapId,
@@ -198,7 +208,7 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       }),
       { appServerBridge: value.bridge },
     );
-    assert.equal(settled.nextAction.kind, "native-read");
+    assert.equal(settled.nextAction.kind, "native-read-subagent-result");
 
     const response = plannerResponse(initial.lifecycle.bootstrapId);
     const completed = await value.restart().advance(
@@ -282,7 +292,46 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
   }
 });
 
-test("planning lifecycle returns title repair and blocks out-of-order or conflicting receipts", async () => {
+test("default cleanup intent replays records written with the explicit-default digest", async () => {
+  const value = await fixture();
+  try {
+    const requested = request();
+    const initial = await value.coordinator.advance(requested, {
+      appServerBridge: value.bridge,
+    });
+    const record = await value.store.read(initial.lifecycle.bootstrapId);
+    const explicitDefaultDigest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          schemaVersion: 1,
+          idempotencyKey: requested.idempotencyKey,
+          queenThreadId: requested.queenThreadId,
+          objective: requested.objective,
+          context: "",
+          maxParallel: requested.maxParallel,
+          cleanupIntended: true,
+        }),
+        "utf8",
+      )
+      .digest("hex");
+    await value.store.write(
+      {
+        ...record,
+        revision: record.revision + 1,
+        requestDigest: explicitDefaultDigest,
+      },
+      { expectedRevision: record.revision },
+    );
+    const replay = await value.restart().advance(requested, {
+      appServerBridge: value.bridge,
+    });
+    assert.equal(replay.nextAction.kind, "reconcile-planner-launch");
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("planning lifecycle ignores unsupported subagent titles and blocks conflicting receipts", async () => {
   const value = await fixture({ title: "Unexpected planner title" });
   try {
     const initial = await value.coordinator.advance(request(), {
@@ -297,11 +346,11 @@ test("planning lifecycle returns title repair and blocks out-of-order or conflic
     );
     assert.deepEqual(launched.nextAction, {
       schemaVersion: 1,
-      kind: "native-set-title",
-      actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/set-planner-title`,
+      kind: "native-wait-subagent",
+      actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/wait`,
+      agentPath: "/root/nelos_planner_feature",
       threadId: "planner-1",
-      title: "Plan and classify the work",
-      verify: true,
+      turnId: "planner-turn",
       after: "repeat-planner-launch-receipt",
     });
 
@@ -417,6 +466,136 @@ test("planning lifecycle rejects a result from a failed terminal planner turn", 
   }
 });
 
+test("planning lifecycle bounds one interrupted-turn observation while native collaboration status is unavailable", async (t) => {
+  for (const status of ["active", "notLoaded"]) {
+    await t.test(status, async () => {
+      const value = await fixture({
+        status,
+        latestTurnStatus: "interrupted",
+      });
+      try {
+        const initial = await value.coordinator.advance(request(), {
+          appServerBridge: value.bridge,
+        });
+        const launched = await value.coordinator.advance(
+          request({
+            bootstrapId: initial.lifecycle.bootstrapId,
+            receipt: launchReceipt(initial),
+          }),
+          { appServerBridge: value.bridge },
+        );
+        assert.equal(launched.lifecycle.phase, "verified");
+        assert.deepEqual(launched.nextAction, {
+          schemaVersion: 1,
+          kind: "native-wait-subagent",
+          actionId: `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/wait`,
+          agentPath: "/root/nelos_planner_feature",
+          threadId: "planner-1",
+          turnId: "planner-turn",
+          after: "repeat-planner-launch-receipt",
+          reconciliation: {
+            reason: "planner-turn-observation-conflict",
+            retryable: true,
+            appServerTurnStatus: "interrupted",
+            nativeCollaborationStatus: "unavailable",
+            observation: 1,
+            maximumObservations: 1,
+          },
+        });
+        assert.equal(
+          (await value.store.read(initial.lifecycle.bootstrapId))
+            .interruptedTurnReconciliations,
+          1,
+        );
+
+        value.thread.status = "idle";
+        value.thread.latestTurn.status = "completed";
+        const settled = await value.restart().advance(
+          request({
+            bootstrapId: initial.lifecycle.bootstrapId,
+            receipt: launchReceipt(initial),
+          }),
+          { appServerBridge: value.bridge },
+        );
+        assert.equal(settled.nextAction.kind, "native-read-subagent-result");
+        assert.equal(
+          settled.nextAction.actionId,
+          `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/read-result`,
+        );
+        assert.equal(settled.nextAction.turnId, "planner-turn");
+      } finally {
+        await rm(value.root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("planning lifecycle terminates a permanently interrupted planner after the bounded reconciliation", async () => {
+  const value = await fixture({
+    status: "notLoaded",
+    latestTurnStatus: "interrupted",
+  });
+  try {
+    const initial = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    const reconciled = await value.coordinator.advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(reconciled.nextAction.kind, "native-wait-subagent");
+
+    const terminated = await value.restart().advance(
+      request({
+        bootstrapId: initial.lifecycle.bootstrapId,
+        receipt: launchReceipt(initial),
+      }),
+      { appServerBridge: value.bridge },
+    );
+    assert.equal(terminated.nextAction.kind, "attention");
+    assert.equal(terminated.nextAction.reason, "planner-turn-failed");
+    assert.equal(terminated.nextAction.turnId, "planner-turn");
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("planning lifecycle keeps failed and error planner turns fail-closed", async (t) => {
+  for (const scenario of [
+    { threadStatus: "active", turnStatus: "failed" },
+    { threadStatus: "notLoaded", turnStatus: "error" },
+  ]) {
+    await t.test(
+      `${scenario.threadStatus}/${scenario.turnStatus}`,
+      async () => {
+        const value = await fixture({
+          status: scenario.threadStatus,
+          latestTurnStatus: scenario.turnStatus,
+        });
+        try {
+          const initial = await value.coordinator.advance(request(), {
+            appServerBridge: value.bridge,
+          });
+          const launched = await value.coordinator.advance(
+            request({
+              bootstrapId: initial.lifecycle.bootstrapId,
+              receipt: launchReceipt(initial),
+            }),
+            { appServerBridge: value.bridge },
+          );
+          assert.equal(launched.nextAction.kind, "attention");
+          assert.equal(launched.nextAction.reason, "planner-turn-failed");
+        } finally {
+          await rm(value.root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+});
+
 test("planning lifecycle fails closed on topology, route, active-result, and low-confidence evidence", async (t) => {
   await t.test("wrong parent", async () => {
     const value = await fixture();
@@ -526,8 +705,8 @@ test("planning lifecycle fails closed on topology, route, active-result, and low
         }),
         { appServerBridge: value.bridge },
       );
-      assert.equal(active.nextAction.kind, "native-wait");
-      value.thread.status = "idle";
+      assert.equal(active.nextAction.kind, "native-wait-subagent");
+      value.thread.latestTurn.status = "completed";
       const attention = await value.coordinator.advance(
         request({
           bootstrapId: initial.lifecycle.bootstrapId,
@@ -576,20 +755,17 @@ test("planning lifecycle rejects idempotency-key reuse with different intent", a
   }
 });
 
-test("planning lifecycle binds queen identity to the current host task", async () => {
+test("planning lifecycle uses the explicit queen identity without ambient host state", async () => {
   const value = await fixture();
   try {
     value.coordinator = new PlanningLifecycleCoordinatorV1({
       store: value.store,
       withLock: async (_id, callback) => callback(),
-      currentThreadId: () => "other-queen",
     });
-    await assert.rejects(
-      value.coordinator.advance(request(), {
-        appServerBridge: value.bridge,
-      }),
-      /must match the current host task identity/u,
-    );
+    const result = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    assert.equal(result.nextAction.kind, "launch-planner");
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }

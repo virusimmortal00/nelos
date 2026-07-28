@@ -13,9 +13,9 @@ test("queen titles are visibly marked and idempotent", () => {
   assert.equal(renderQueenTitle("👑 Research"), "👑 · Research");
   assert.equal(
     renderQueenTitle("🕷️ a1 · Release planning"),
-    "🕷️ A1 👑 · Release planning",
+    "👑 A1 · Release planning",
   );
-  const nestedQueen = "🕸️ A1 🕷️ A1.1 👑 · Contract tests";
+  const nestedQueen = "👑 A1.1 🕷️ A1 · Contract tests";
   assert.equal(
     renderQueenTitle("🕸️ A1 🕷️ A1.1 · Contract tests"),
     nestedQueen,
@@ -76,4 +76,21 @@ test("the shared task result template preserves launch identity", () => {
     { workUnitId: "alpha", specRevision: 2, attempt: 3 },
   );
   assert.match(prompt(), /"workUnitId":"alpha"/u);
+});
+
+test("durable launch prompts require the exact threadId-only Codex host result", () => {
+  const value = prompt({
+    completionWake: {
+      webId: "A4",
+      queenThreadId: "queen-thread",
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+    },
+  });
+  assert.match(value, /codex_app\.send_message_to_thread/u);
+  assert.match(value, /receipt: \{"threadId":"queen-thread"\}/u);
+  assert.match(value, /Do not add actionId, specRevision/u);
+  assert.match(value, /immediately return your final result/u);
+  assert.match(value, /Never wait for queen acceptance/u);
 });

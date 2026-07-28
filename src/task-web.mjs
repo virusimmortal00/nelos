@@ -1,9 +1,22 @@
 const WEB_ID_PATTERN = /^[A-Z][1-9]\d*(?:\.[1-9]\d*)*$/;
-const INBOUND_MARKER = "🕸️";
-const OUTBOUND_MARKER = "🕷️";
+const LEGACY_INBOUND_MARKER = "🕸️";
+const MEMBER_MARKER = "🕷️";
 const QUEEN_MARKER = "👑";
+const WEB_ID_SOURCE = "([A-Za-z][1-9]\\d*(?:\\.[1-9]\\d*)*)";
 const QUEEN_MARKER_PATTERN = new RegExp(
   `^${QUEEN_MARKER}(?:\\s*·)?\\s*`,
+  "u",
+);
+const QUEEN_WITH_WEB_PATTERN = new RegExp(
+  `^${QUEEN_MARKER}\\s+${WEB_ID_SOURCE}\\s*`,
+  "u",
+);
+const LEGACY_INBOUND_PATTERN = new RegExp(
+  `^${LEGACY_INBOUND_MARKER}\\s+${WEB_ID_SOURCE}\\s*`,
+  "u",
+);
+const MEMBER_PATTERN = new RegExp(
+  `^${MEMBER_MARKER}\\s+${WEB_ID_SOURCE}\\s*`,
   "u",
 );
 
@@ -20,39 +33,74 @@ export function assertWebId(webId) {
 function consumeQueenMarkers(title) {
   let remaining = title.trim();
   let queenMarked = false;
+  let delimited = false;
   while (remaining.startsWith(QUEEN_MARKER)) {
     const queen = remaining.match(QUEEN_MARKER_PATTERN);
     queenMarked = true;
+    delimited ||= queen[0].includes("·");
     remaining = remaining.slice(queen[0].length).trim();
   }
-  return { queenMarked, remaining };
+  return { queenMarked, delimited, remaining };
 }
 
 function parseTitleMarkers(title) {
   let remaining = String(title || "").trim();
   let inboundWebId = null;
   let outboundWebId = null;
-  const outerQueen = consumeQueenMarkers(remaining);
-  let queenMarked = outerQueen.queenMarked;
-  remaining = outerQueen.remaining;
+  let queenMarked = false;
+  let legacySpiderOnlyWebId = null;
 
-  const inbound = remaining.match(
-    /^🕸️\s+([A-Za-z][1-9]\d*(?:\.[1-9]\d*)*)\s*/u,
-  );
-  if (inbound) {
-    inboundWebId = assertWebId(inbound[1]);
-    remaining = remaining.slice(inbound[0].length);
+  const canonicalQueen = remaining.match(QUEEN_WITH_WEB_PATTERN);
+  if (canonicalQueen) {
+    queenMarked = true;
+    outboundWebId = assertWebId(canonicalQueen[1]);
+    remaining = remaining.slice(canonicalQueen[0].length);
+    const inboundMember = remaining.match(MEMBER_PATTERN);
+    if (inboundMember) {
+      inboundWebId = assertWebId(inboundMember[1]);
+      remaining = remaining.slice(inboundMember[0].length);
+    }
+  } else {
+    const outerQueen = consumeQueenMarkers(remaining);
+    queenMarked = outerQueen.queenMarked;
+    remaining = outerQueen.remaining;
+
+    const legacyInbound = remaining.match(LEGACY_INBOUND_PATTERN);
+    if (legacyInbound) {
+      inboundWebId = assertWebId(legacyInbound[1]);
+      remaining = remaining.slice(legacyInbound[0].length);
+      const legacyOutbound = remaining.match(MEMBER_PATTERN);
+      if (legacyOutbound) {
+        outboundWebId = assertWebId(legacyOutbound[1]);
+        remaining = remaining.slice(legacyOutbound[0].length);
+      }
+    } else {
+      const member = remaining.match(MEMBER_PATTERN);
+      if (member) {
+        const webId = assertWebId(member[1]);
+        remaining = remaining.slice(member[0].length);
+        const legacyInnerQueen = consumeQueenMarkers(remaining);
+        // Legacy `👑 🕷️ A1 · X` stores A1 as inbound, while
+        // `👑 · 🕷️ A1 · X` stores it as outbound; the delimiter marks the
+        // outer crown as a distinct queen marker and flips the direction.
+        if (
+          legacyInnerQueen.queenMarked ||
+          (outerQueen.queenMarked && outerQueen.delimited)
+        ) {
+          queenMarked = true;
+          outboundWebId = webId;
+          remaining = legacyInnerQueen.remaining;
+        } else if (outerQueen.queenMarked) {
+          inboundWebId = webId;
+        } else {
+          inboundWebId = webId;
+          legacySpiderOnlyWebId = webId;
+        }
+      }
+    }
   }
 
-  const outbound = remaining.match(
-    /^🕷️\s+([A-Za-z][1-9]\d*(?:\.[1-9]\d*)*)\s*/u,
-  );
-  if (outbound) {
-    outboundWebId = assertWebId(outbound[1]);
-    remaining = remaining.slice(outbound[0].length);
-  }
-
-  if (inboundWebId || outboundWebId) {
+  if (inboundWebId || outboundWebId || queenMarked) {
     remaining = remaining.replace(/^·\s*/, "").trim();
   }
 
@@ -65,6 +113,7 @@ function parseTitleMarkers(title) {
     inboundWebId,
     outboundWebId,
     queenMarked,
+    legacySpiderOnlyWebId,
   };
 }
 
@@ -107,9 +156,18 @@ function renderTitleMarkers({
   if (!normalizedBaseTitle) throw new Error("task title must not be empty");
 
   const markers = [];
-  if (inboundWebId) markers.push(`${INBOUND_MARKER} ${assertWebId(inboundWebId)}`);
-  if (outboundWebId) markers.push(`${OUTBOUND_MARKER} ${assertWebId(outboundWebId)}`);
-  if (queenMarked) markers.push(QUEEN_MARKER);
+  if (queenMarked || outboundWebId) {
+    markers.push(
+      outboundWebId
+        ? `${QUEEN_MARKER} ${assertWebId(outboundWebId)}`
+        : QUEEN_MARKER,
+    );
+    if (inboundWebId) {
+      markers.push(`${MEMBER_MARKER} ${assertWebId(inboundWebId)}`);
+    }
+  } else if (inboundWebId) {
+    markers.push(`${MEMBER_MARKER} ${assertWebId(inboundWebId)}`);
+  }
   return markers.length > 0
     ? `${markers.join(" ")} · ${normalizedBaseTitle}`
     : normalizedBaseTitle;
@@ -143,9 +201,70 @@ export function renderQueenTitle(title) {
   }
   return renderTitleMarkers({
     baseTitle: parsed.baseTitle,
-    inboundWebId: parsed.inboundWebId,
-    outboundWebId: parsed.outboundWebId,
+    inboundWebId: parsed.legacySpiderOnlyWebId
+      ? null
+      : parsed.inboundWebId,
+    outboundWebId:
+      parsed.outboundWebId ?? parsed.legacySpiderOnlyWebId,
     queenMarked: true,
+  });
+}
+
+function assertMatchingMarker(actual, expected, label) {
+  if (actual && assertWebId(actual) !== assertWebId(expected)) {
+    throw new Error(
+      `${label} ${assertWebId(actual)} conflicts with persisted web identity ${assertWebId(expected)}`,
+    );
+  }
+}
+
+/**
+ * Decorate the current queen with one already-chosen legacy web identity.
+ *
+ * Allocation intentionally does not live here. The compatibility registry may
+ * supply today's A1-style identity; permanent hexadecimal allocation and
+ * migration are owned by GitHub issue #23.
+ */
+export function renderPersistedQueenWebTitle(title, webId) {
+  const normalizedWebId = assertWebId(webId);
+  const parsed = parseTitleMarkers(title);
+  if (!parsed.baseTitle) {
+    throw new Error("current queen task has no settled title");
+  }
+  const parsedOutboundWebId =
+    parsed.outboundWebId ?? parsed.legacySpiderOnlyWebId;
+  const parsedInboundWebId = parsed.legacySpiderOnlyWebId
+    ? null
+    : parsed.inboundWebId;
+  assertMatchingMarker(
+    parsedOutboundWebId,
+    normalizedWebId,
+    "queen outbound marker",
+  );
+  return renderTitleMarkers({
+    baseTitle: parsed.baseTitle,
+    inboundWebId: parsedInboundWebId,
+    outboundWebId: normalizedWebId,
+    queenMarked: true,
+  });
+}
+
+/**
+ * Decorate a durable child without discarding a pre-existing nested-queen
+ * marker. A conflicting inbound marker is lineage evidence, not a rename hint.
+ */
+export function renderPersistedDurableChildTitle(title, webId) {
+  const normalizedWebId = assertWebId(webId);
+  const parsed = parseTitleMarkers(title);
+  if (!parsed.baseTitle) {
+    throw new Error("durable child title must include visible text");
+  }
+  assertMatchingMarker(parsed.inboundWebId, normalizedWebId, "child inbound marker");
+  return renderTitleMarkers({
+    baseTitle: parsed.baseTitle,
+    inboundWebId: normalizedWebId,
+    outboundWebId: parsed.outboundWebId,
+    queenMarked: parsed.queenMarked,
   });
 }
 

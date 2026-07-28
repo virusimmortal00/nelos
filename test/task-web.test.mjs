@@ -5,6 +5,8 @@ import {
   allocateWebId,
   assertWebId,
   parseWebTitle,
+  renderPersistedDurableChildTitle,
+  renderPersistedQueenWebTitle,
   renderWebTitle,
   resolveQueenMarked,
 } from "../src/task-web.mjs";
@@ -12,11 +14,11 @@ import {
 test("web titles render queen, spinoff, and nested queen roles", () => {
   assert.equal(
     renderWebTitle({ baseTitle: "Release planning", outboundWebId: "A1" }),
-    "🕷️ A1 · Release planning",
+    "👑 A1 · Release planning",
   );
   assert.equal(
     renderWebTitle({ baseTitle: "API changes", inboundWebId: "A1" }),
-    "🕸️ A1 · API changes",
+    "🕷️ A1 · API changes",
   );
   assert.equal(
     renderWebTitle({
@@ -24,30 +26,12 @@ test("web titles render queen, spinoff, and nested queen roles", () => {
       inboundWebId: "A1",
       outboundWebId: "A1.1",
     }),
-    "🕸️ A1 🕷️ A1.1 · Contract tests",
+    "👑 A1.1 🕷️ A1 · Contract tests",
   );
 });
 
 test("web title parsing makes rendering idempotent", () => {
-  const title = "🕸️ B2 🕷️ B2.1 · Documentation";
-  assert.deepEqual(parseWebTitle(title), {
-    baseTitle: "Documentation",
-    inboundWebId: "B2",
-    outboundWebId: "B2.1",
-    queenMarked: false,
-  });
-  assert.equal(
-    renderWebTitle({
-      baseTitle: title,
-      inboundWebId: "B2",
-      outboundWebId: "B2.1",
-    }),
-    title,
-  );
-});
-
-test("crown and web markers share one idempotent topology-preserving grammar", () => {
-  const title = "🕸️ B2 🕷️ B2.1 👑 · Documentation";
+  const title = "👑 B2.1 🕷️ B2 · Documentation";
   assert.deepEqual(parseWebTitle(title), {
     baseTitle: "Documentation",
     inboundWebId: "B2",
@@ -64,8 +48,25 @@ test("crown and web markers share one idempotent topology-preserving grammar", (
   );
 });
 
+test("crown and web markers share one idempotent topology-preserving grammar", () => {
+  const title = "👑 · 🕷️ B2.1 · Documentation";
+  assert.deepEqual(parseWebTitle(title), {
+    baseTitle: "Documentation",
+    inboundWebId: null,
+    outboundWebId: "B2.1",
+    queenMarked: true,
+  });
+  assert.equal(
+    renderWebTitle({
+      baseTitle: title,
+      outboundWebId: "B2.1",
+    }),
+    "👑 B2.1 · Documentation",
+  );
+});
+
 test("legacy outer crowns normalize after web markers without duplication", () => {
-  const canonical = "🕸️ A1 🕷️ A1.1 👑 · Documentation";
+  const canonical = "👑 A1.1 🕷️ A1 · Documentation";
   for (const legacy of [
     "👑 · 🕸️ a1 🕷️ a1.1 · Documentation",
     "🕸️ a1 🕷️ a1.1 · 👑 · Documentation",
@@ -88,7 +89,7 @@ test("legacy outer crowns normalize after web markers without duplication", () =
   }
 });
 
-test("explicit crown state preserves or removes the marker deterministically", () => {
+test("outbound web responsibility remains crown-first deterministically", () => {
   assert.equal(
     renderWebTitle({
       baseTitle: "Documentation",
@@ -96,16 +97,16 @@ test("explicit crown state preserves or removes the marker deterministically", (
       outboundWebId: "A1.1",
       queenMarked: true,
     }),
-    "🕸️ A1 🕷️ A1.1 👑 · Documentation",
+    "👑 A1.1 🕷️ A1 · Documentation",
   );
   assert.equal(
     renderWebTitle({
-      baseTitle: "🕸️ A1 🕷️ A1.1 👑 · Documentation",
+      baseTitle: "👑 A1.1 🕷️ A1 · Documentation",
       inboundWebId: "A1",
       outboundWebId: "A1.1",
       queenMarked: false,
     }),
-    "🕸️ A1 🕷️ A1.1 · Documentation",
+    "👑 A1.1 🕷️ A1 · Documentation",
   );
   assert.throws(
     () => renderWebTitle({ baseTitle: "Documentation", queenMarked: "true" }),
@@ -167,12 +168,12 @@ test("queen-mark resolution shares requested, live, and record precedence", () =
 });
 
 test("lowercase web IDs normalize without duplicating title markers", () => {
-  const title = "🕸️ a1 🕷️ a1.1 · Documentation";
+  const title = "👑 a1.1 🕷️ a1 · Documentation";
   assert.deepEqual(parseWebTitle(title), {
     baseTitle: "Documentation",
     inboundWebId: "A1",
     outboundWebId: "A1.1",
-    queenMarked: false,
+    queenMarked: true,
   });
   assert.equal(
     renderWebTitle({
@@ -180,7 +181,7 @@ test("lowercase web IDs normalize without duplicating title markers", () => {
       inboundWebId: "a1",
       outboundWebId: "a1.1",
     }),
-    "🕸️ A1 🕷️ A1.1 · Documentation",
+    "👑 A1.1 🕷️ A1 · Documentation",
   );
 });
 
@@ -226,5 +227,34 @@ test("settled but unarchived queens keep normalized web IDs reserved", () => {
   assert.equal(
     allocateWebId([{ ...records[0], outboundWebId: "A1" }]),
     "A2",
+  );
+});
+
+test("persisted queen and durable child titles converge without duplicate markers", () => {
+  assert.equal(
+    renderPersistedQueenWebTitle("👑 · 🕷️ a1 · Release", "A1"),
+    "👑 A1 · Release",
+  );
+  assert.equal(
+    renderPersistedDurableChildTitle(
+      "🕸️ a1 🕷️ a1.1 👑 · Nested delivery",
+      "A1",
+    ),
+    "👑 A1.1 🕷️ A1 · Nested delivery",
+  );
+  assert.equal(
+    renderPersistedDurableChildTitle("👑 · Nested delivery", "A1"),
+    "👑 🕷️ A1 · Nested delivery",
+  );
+});
+
+test("persisted title decoration fails closed on conflicting lineage", () => {
+  assert.throws(
+    () => renderPersistedQueenWebTitle("🕷️ A2 · Release", "A1"),
+    /queen outbound marker A2 conflicts with persisted web identity A1/u,
+  );
+  assert.throws(
+    () => renderPersistedDurableChildTitle("🕸️ A2 · Delivery", "A1"),
+    /child inbound marker A2 conflicts with persisted web identity A1/u,
   );
 });

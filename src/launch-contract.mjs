@@ -11,6 +11,10 @@ const LIFECYCLE_MEMBER_KINDS = Object.freeze({
 });
 
 const WORKSPACE_MODES = new Set(["shared-read-only", "isolated-write"]);
+const JOINED_SUBAGENT_MODELS = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+]);
 const NATIVE_TASK_FIELDS = new Set(["model", "thinking"]);
 const LAUNCH_FIELDS = new Set([
   "schemaVersion",
@@ -129,6 +133,15 @@ export function normalizeNativeLaunchV1(value, memberKind) {
     "native launch nativeTask.thinking",
     32,
   );
+  if (
+    memberKind === "joined-subagent" &&
+    model !== undefined &&
+    !JOINED_SUBAGENT_MODELS.has(model)
+  ) {
+    throw new Error(
+      `joined-subagent launches do not support ${model}; use Sol or Terra`,
+    );
+  }
   if (model !== undefined) normalizedNativeTask.model = model;
   if (thinking !== undefined) normalizedNativeTask.thinking = thinking;
 

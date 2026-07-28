@@ -1,12 +1,15 @@
+import { createHash } from "node:crypto";
+
 import {
   RECOMMENDED_SEEDED_TITLE_CHARACTERS,
   buildTaskLaunchPromptV1,
   createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
 import {
-  launcherForMemberKind,
-  memberKindForLifecycle,
+  normalizeLaunchMemberV1,
 } from "./launch-contract.mjs";
+import { workUnitDefinitionV1 } from "./execution-store.mjs";
+import { workUnitFromLaunchMemberV1 } from "./plan-orchestration-bridge.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
 
 export const NEXT_ACTION_SCHEMA_VERSION = 1;
@@ -42,9 +45,9 @@ function readTaskResult(threadId, turnId = null) {
   });
 }
 
-function memberPrompt(slice) {
+function memberPrompt(slice, title = slice.title) {
   return buildTaskLaunchPromptV1({
-    title: slice.title,
+    title,
     objective: slice.objective,
     deliverable: slice.deliverable,
     acceptanceCriteria: slice.acceptanceCriteria,
@@ -56,32 +59,119 @@ function memberPrompt(slice) {
   });
 }
 
-function launchMember(slice) {
-  const memberKind = memberKindForLifecycle(slice.lifecycle);
-  return {
+function joinedAgentTaskName(sliceId, planRun) {
+  const stem = sliceId
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "")
+    .slice(0, 32) || "task";
+  // A joined child cannot be re-routed after it exists.  In particular, an
+  // exception replan may reuse a semantic slice ID while requiring a new
+  // model/effort route.  Give generation-one work a plan-run-scoped native
+  // name so it cannot resolve to the generation-zero child.  Generation zero
+  // retains its historic deterministic name for ordinary launch replays.
+  if (planRun?.replanGeneration === 1) {
+    const suffix = createHash("sha256")
+      .update(`${planRun.planRunId}\u0000${sliceId}`, "utf8")
+      .digest("hex")
+      .slice(0, 12);
+    return `nelos_${stem}_replan1_${suffix}`;
+  }
+  const suffix = createHash("sha256")
+    .update(sliceId, "utf8")
+    .digest("hex")
+    .slice(0, 8);
+  return `nelos_${stem}_${suffix}`;
+}
+
+function launchMember(
+  slice,
+  persistedMember = null,
+  planRun = null,
+  cleanupIntended = true,
+) {
+  const normalizedLaunch = normalizeLaunchMemberV1({
+    ...slice,
+    nativeTask: slice.route.launch.nativeTask,
+  });
+  const { memberKind, launcher } = normalizedLaunch;
+  const joinedSubagent = slice.lifecycle === "subagent";
+  const title = persistedMember?.title ?? slice.title;
+  const member = {
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
     memberKind,
-    launcher: launcherForMemberKind(memberKind),
-    title: slice.title,
+    launcher,
+    title,
     objective: slice.objective,
     deliverable: slice.deliverable,
     acceptanceCriteria: [...slice.acceptanceCriteria],
     dependsOn: [...(slice.dependsOn ?? [])],
     titlePolicy: {
-      mode: "prompt-seeded",
+      mode: joinedSubagent
+        ? "prompt-seeded"
+        : "post-bind-read-set-verify",
       recommendedMaxCharacters: RECOMMENDED_SEEDED_TITLE_CHARACTERS,
-      verifyAfterLaunch: true,
-      onMismatch: "native-set-title",
+      verifyAfterLaunch: !joinedSubagent,
+      ...(joinedSubagent ? { evidence: "agent-path" } : {}),
+      ...(!joinedSubagent
+        ? {
+            creationTitleSupported: false,
+            promptSeedAuthoritative: false,
+          }
+        : {}),
+      onMismatch: joinedSubagent ? "attention" : "native-set-title",
     },
+    ...(joinedSubagent
+      ? { agentTaskName: joinedAgentTaskName(slice.id, planRun) }
+      : {}),
+    identityContract: joinedSubagent
+      ? {
+          lifecycle: "subagent",
+          memberKind: "joined-subagent",
+          primaryId: "agentPath",
+          controlSurface: "collaboration",
+          nativeThreadIdUse: "verification-only",
+          nativeTitleControl: false,
+        }
+      : {
+          lifecycle: "spinoff",
+          memberKind: "spinoff",
+          primaryId: "threadId",
+          controlSurface: "codex-task",
+          nativeThreadIdUse: "control-and-verification",
+          nativeTitleControl: true,
+        },
     workspaceMode: slice.workspaceMode,
-    nativeTask: slice.route.launch.nativeTask,
+    nativeTask: normalizedLaunch.launch.nativeTask,
     routeEnforcement: {
       mode: "exact",
       onUnavailable: "stop",
       verifyAfterLaunch: true,
     },
-    prompt: memberPrompt(slice),
+    prompt: memberPrompt(slice, title),
+  };
+  if (joinedSubagent) return member;
+  if (!planRun?.webIdentity) {
+    throw new Error("durable launch requires a persisted web identity");
+  }
+  const workUnit = workUnitDefinitionV1(
+    workUnitFromLaunchMemberV1(member, {
+      webId: planRun.webIdentity.webId,
+      queenThreadId: planRun.queenThreadId,
+      cleanupIntended,
+    }),
+  );
+  return {
+    ...member,
+    orchestration: {
+      tool: "nelos_orchestrate_create",
+      arguments: {
+        workUnit,
+        receipt: null,
+      },
+      bindReceiptType: "native-create",
+    },
   };
 }
 
@@ -100,8 +190,18 @@ function correctionPrompt(member) {
   ].join(" ");
 }
 
-function launchWave(plan, planRun = null) {
-  const currentWave = plan.waves[0];
+export function derivePlanWaveActionV1(
+  plan,
+  planRun = null,
+  waveIndex = plan?.waves?.[0]?.index,
+  cleanupIntended = true,
+) {
+  const currentWave = plan?.waves?.find(
+    ({ index }) => index === waveIndex,
+  );
+  if (!currentWave) {
+    throw new Error(`plan has no launchable wave ${waveIndex}`);
+  }
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
   }
@@ -113,10 +213,31 @@ function launchWave(plan, planRun = null) {
       `plan run ${planRun.planRunId} has no contract for wave ${currentWave.index}`,
     );
   }
+  if (
+    verification.members.length !== currentWave.slices.length ||
+    currentWave.slices.some((slice) => {
+      const member = verification.members.find(
+        ({ sliceId }) => sliceId === slice.id,
+      );
+      return (
+        !member ||
+        member.lifecycle !== slice.lifecycle ||
+        member.model !== slice.route.launch.nativeTask.model ||
+        member.effort !== slice.route.launch.nativeTask.thinking
+      );
+    })
+  ) {
+    throw new Error("launch wave conflicts with its persisted member contract");
+  }
   return action("launch-wave", {
     waveIndex: currentWave.index,
     members: currentWave.slices.map((slice) => ({
-      ...launchMember(slice),
+      ...launchMember(
+        slice,
+        verification.members.find(({ sliceId }) => sliceId === slice.id),
+        planRun,
+        cleanupIntended,
+      ),
       ...(slice.lifecycle === "spinoff"
         ? {
             actionId: planRunLaunchActionIdV1({
@@ -133,7 +254,9 @@ function launchWave(plan, planRun = null) {
       waveDigest: verification.waveDigest,
     },
     settleBeforeWaveIndex: currentWave.index + 1,
-    remainingWaveCount: plan.waves.length - 1,
+    remainingWaveCount: plan.waves.filter(
+      ({ index }) => index > currentWave.index,
+    ).length,
   });
 }
 
@@ -266,10 +389,16 @@ export function deriveNextAction(output) {
           threadId: output.threadId,
           model: output.expected.model,
           effort: output.expected.effort,
+          turnId: output.turnId,
         },
       });
     case "plan slices":
-      return launchWave(output.plan, output.planRun);
+      return derivePlanWaveActionV1(
+        output.plan,
+        output.planRun,
+        output.plan.waves[0]?.index,
+        output.cleanupIntended ?? true,
+      );
     case "web begin":
     case "web join":
       return output.requiresNativeTitleSync

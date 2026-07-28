@@ -22,6 +22,14 @@ const WAKE_STATES = new Set([
   "attention",
 ]);
 const CLEANUP_STATES = new Set(["pending", "kept", "archiving", "archived", "attention"]);
+const WAKE_RECEIPT_FIELDS = ["threadId"];
+const ARCHIVE_RECEIPT_FIELDS = [
+  "schemaVersion",
+  "actionId",
+  "type",
+  "threadId",
+  "archived",
+];
 
 export const SPINOFF_COMPLETE_INPUT_SCHEMA = Object.freeze({
   type: "object",
@@ -38,10 +46,23 @@ export const SPINOFF_COMPLETE_INPUT_SCHEMA = Object.freeze({
       minLength: 1,
       maxLength: MAX_SUMMARY_CHARACTERS,
     },
+    receipt: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          properties: {
+            threadId: { type: "string", minLength: 1, maxLength: 512 },
+          },
+          required: WAKE_RECEIPT_FIELDS,
+          additionalProperties: false,
+        },
+      ],
+    },
   },
   required: [
     "webId", "queenThreadId", "workUnitId", "specRevision", "attempt",
-    "memberThreadId", "outcome", "summary",
+    "memberThreadId", "outcome", "summary", "receipt",
   ],
   additionalProperties: false,
 });
@@ -58,6 +79,23 @@ export const SPINOFF_CLEANUP_INPUT_SCHEMA = Object.freeze({
       maxItems: 100,
       uniqueItems: true,
       items: { type: "string", minLength: 1, maxLength: 512 },
+    },
+    archiveReceipts: {
+      type: "array",
+      maxItems: 100,
+      uniqueItems: true,
+      items: {
+        type: "object",
+        properties: {
+          schemaVersion: { const: 1 },
+          actionId: { type: "string", minLength: 1, maxLength: 512 },
+          type: { const: "native-archive" },
+          threadId: { type: "string", minLength: 1, maxLength: 512 },
+          archived: { const: true },
+        },
+        required: ARCHIVE_RECEIPT_FIELDS,
+        additionalProperties: false,
+      },
     },
   },
   required: ["webId", "queenThreadId"],
@@ -132,7 +170,7 @@ export function spinoffWakeIdV1(value) {
 export function validateSpinoffCompletionV1(value) {
   exact(value, [
     "webId", "queenThreadId", "workUnitId", "specRevision", "attempt",
-    "memberThreadId", "outcome", "summary",
+    "memberThreadId", "outcome", "summary", "receipt",
   ], "spinoff completion");
   const identity = lifecycleIdentity(value);
   if (!OUTCOMES.has(value.outcome)) throw new Error("outcome is invalid");
@@ -140,6 +178,42 @@ export function validateSpinoffCompletionV1(value) {
     ...identity,
     outcome: value.outcome,
     summary: text(value.summary, "summary", MAX_SUMMARY_CHARACTERS),
+    receipt: validateWakeReceipt(value.receipt, identity),
+  };
+}
+
+function wakeActionId(identity) {
+  return `${spinoffWakeIdV1(identity)}/native-send-message`;
+}
+
+function archiveActionId(identity) {
+  return `${spinoffWakeIdV1(identity)}/native-archive`;
+}
+
+function validateWakeReceipt(value, identity) {
+  if (value === null) return null;
+  exact(value, WAKE_RECEIPT_FIELDS, "native send-message host result");
+  if (value.threadId !== identity.queenThreadId) {
+    throw new Error("native send-message host result is stale or conflicting");
+  }
+  return { threadId: value.threadId };
+}
+
+function validateArchiveReceipt(value) {
+  exact(value, ARCHIVE_RECEIPT_FIELDS, "native archive receipt");
+  if (
+    value.schemaVersion !== 1 ||
+    value.type !== "native-archive" ||
+    value.archived !== true
+  ) {
+    throw new Error("native archive receipt is invalid");
+  }
+  return {
+    schemaVersion: 1,
+    actionId: id(value.actionId, "archive receipt actionId"),
+    type: "native-archive",
+    threadId: id(value.threadId, "archive receipt threadId"),
+    archived: true,
   };
 }
 
@@ -191,14 +265,19 @@ function validateRecord(value) {
 }
 
 function initialRecord(completion, now) {
-  const identity = validateSpinoffCompletionV1(completion);
+  const identity = validateSpinoffCompletionV1({
+    ...completion,
+    receipt: completion.receipt ?? null,
+  });
   const wakeId = spinoffWakeIdV1(identity);
   return validateRecord({
     schemaVersion: SPINOFF_LIFECYCLE_SCHEMA_VERSION,
     revision: 1,
     wakeId,
     clientUserMessageId: wakeId,
-    ...identity,
+    ...lifecycleIdentity(identity),
+    outcome: identity.outcome,
+    summary: identity.summary,
     wakeState: "pending",
     wakeReason: null,
     queenTurnId: null,
@@ -359,47 +438,22 @@ export class SpinoffLifecycleAdapterV1 {
   #executionStore;
   #acceptanceStore;
   #store;
-  #callerThreadId;
   #now;
-  #sleep;
-  #wakeRetryDelays;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
     acceptanceStore = new QueenAcceptanceStoreV1(),
     store = new SpinoffLifecycleStoreV1(),
-    callerThreadId = () => process.env.CODEX_THREAD_ID ?? null,
     now = () => new Date().toISOString(),
-    sleep = (milliseconds) =>
-      new Promise((resolve) => setTimeout(resolve, milliseconds)),
-    wakeRetryDelays = [250, 500, 1_000, 2_000],
   } = {}) {
-    if (
-      !Array.isArray(wakeRetryDelays) ||
-      wakeRetryDelays.length > 5 ||
-      wakeRetryDelays.some(
-        (delay) =>
-          !Number.isSafeInteger(delay) ||
-          delay < 0 ||
-          delay > 5_000,
-      )
-    ) {
-      throw new Error("wakeRetryDelays must contain at most five bounded delays");
-    }
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#store = store;
-    this.#callerThreadId = callerThreadId;
     this.#now = now;
-    this.#sleep = sleep;
-    this.#wakeRetryDelays = [...wakeRetryDelays];
   }
 
-  async complete(value, appServerBridge) {
+  async complete(value) {
     const completion = validateSpinoffCompletionV1(value);
-    if (this.#callerThreadId() !== completion.memberThreadId) {
-      throw new Error("only the bound spin-off may deliver its completion wake");
-    }
     const workUnit = await this.#executionStore.read(completion.workUnitId);
     assertWorkUnitMatches(workUnit, completion);
     return withQueenSpinoffLock(completion.queenThreadId, async () => {
@@ -420,68 +474,67 @@ export class SpinoffLifecycleAdapterV1 {
       if (record.wakeState === "attention") {
         return { schemaVersion: 1, replayed: true, record };
       }
-      try {
-        let reconciliationRequired = record.wakeState === "delivering";
-        for (
-          let deliveryAttempt = 0;
-          deliveryAttempt <= this.#wakeRetryDelays.length;
-          deliveryAttempt += 1
-        ) {
-          if (record.wakeState !== "delivering") {
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              wakeState: "delivering",
-              wakeReason: null,
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-          }
-          const delivery = await appServerBridge.deliverParentWake({
-            queenThreadId: completion.queenThreadId,
-            clientUserMessageId: record.clientUserMessageId,
-            message: wakeMessage(completion),
-            reconciliationRequired,
-          });
-          reconciliationRequired = false;
-          record = await this.#store.write({
-            ...record,
-            revision: record.revision + 1,
-            wakeState: delivery.delivered ? "delivered" : "deferred",
-            wakeReason: delivery.reason ?? null,
-            queenTurnId: delivery.queenTurnId,
-            updatedAt: this.#now(),
-          }, { expectedRevision: record.revision });
-          if (
-            delivery.delivered ||
-            deliveryAttempt === this.#wakeRetryDelays.length
-          ) {
-            return {
-              schemaVersion: 1,
-              replayed: delivery.replayed,
-              deliveryAttempts: deliveryAttempt + 1,
-              delivery,
-              record,
-            };
-          }
-          await this.#sleep(this.#wakeRetryDelays[deliveryAttempt]);
+      if (completion.receipt !== null) {
+        if (record.wakeState !== "delivering") {
+          throw new Error("native send-message receipt has no pending effect");
         }
-        throw new Error("spinoff wake retry loop ended unexpectedly");
-      } catch (error) {
         record = await this.#store.write({
           ...record,
           revision: record.revision + 1,
-          wakeState: error?.mutationUncertain ? "attention" : "pending",
-          wakeReason: error?.mutationUncertain
-            ? "delivery-uncertain"
-            : "delivery-rejected",
+          wakeState: "delivered",
+          wakeReason: null,
+          queenTurnId: null,
           updatedAt: this.#now(),
         }, { expectedRevision: record.revision });
-        const wrapped = new Error(
-          `${error.message}; completion was persisted as ${record.wakeState}`,
-        );
-        wrapped.cause = error;
-        throw wrapped;
+        return {
+          schemaVersion: 1,
+          replayed: false,
+          record,
+          effects: [],
+        };
       }
+      if (record.wakeState === "delivering") {
+        return {
+          schemaVersion: 1,
+          replayed: true,
+          record,
+          effects: [{
+            schemaVersion: 1,
+            actionId: `${wakeActionId(completion)}/reconcile`,
+            type: "native-reconcile-send-message",
+            originalActionId: wakeActionId(completion),
+            threadId: completion.queenThreadId,
+            policy: {
+              onFound: "return-exact-send-message-host-result",
+              onAbsent: "return-attention-before-retry",
+              onAmbiguous: "return-attention",
+            },
+          }],
+        };
+      }
+      record = await this.#store.write({
+        ...record,
+        revision: record.revision + 1,
+        wakeState: "delivering",
+        wakeReason: null,
+        updatedAt: this.#now(),
+      }, { expectedRevision: record.revision });
+      return {
+        schemaVersion: 1,
+        replayed: false,
+        record,
+        effects: [{
+          schemaVersion: 1,
+          actionId: wakeActionId(completion),
+          type: "native-send-message",
+          threadId: completion.queenThreadId,
+          prompt: wakeMessage(completion),
+          preconditions: {
+            expectedCallerThreadId: completion.memberThreadId,
+            expectedBoundMemberThreadId: completion.memberThreadId,
+          },
+        }],
+      };
     });
   }
 
@@ -491,14 +544,12 @@ export class SpinoffLifecycleAdapterV1 {
     policy = null,
     rememberPolicy = false,
     confirmedThreadIds,
-  } = {}, appServerBridge) {
+    archiveReceipts = [],
+  } = {}) {
     const identity = {
       webId: id(webId, "webId"),
       queenThreadId: id(queenThreadId, "queenThreadId"),
     };
-    if (this.#callerThreadId() !== identity.queenThreadId) {
-      throw new Error("only the queen may clean up its spin-offs");
-    }
     if (typeof rememberPolicy !== "boolean") {
       throw new Error("rememberPolicy must be a boolean");
     }
@@ -511,6 +562,17 @@ export class SpinoffLifecycleAdapterV1 {
       )
     ) {
       throw new Error("confirmedThreadIds must contain at most 100 unique task IDs");
+    }
+    if (!Array.isArray(archiveReceipts) || archiveReceipts.length > 100) {
+      throw new Error("archiveReceipts must contain at most 100 receipts");
+    }
+    const receiptByThreadId = new Map();
+    for (const value of archiveReceipts) {
+      const receipt = validateArchiveReceipt(value);
+      if (receiptByThreadId.has(receipt.threadId)) {
+        throw new Error("archiveReceipts must identify unique task IDs");
+      }
+      receiptByThreadId.set(receipt.threadId, receipt);
     }
     const resolvedPolicy =
       policy === null ? await this.#store.preference() : policy;
@@ -607,7 +669,11 @@ export class SpinoffLifecycleAdapterV1 {
         !["archived", "kept"].includes(record?.cleanupState),
     );
 
-    if (resolvedPolicy === "ask" && confirmedThreadIds === undefined) {
+    if (
+      resolvedPolicy === "ask" &&
+      confirmedThreadIds === undefined &&
+      receiptByThreadId.size === 0
+    ) {
       if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
       return {
         schemaVersion: 1,
@@ -636,7 +702,24 @@ export class SpinoffLifecycleAdapterV1 {
     const selected = reconciliationCandidates.filter(
       ({ threadId }) => confirmed.has(threadId),
     );
+    for (const candidate of allCandidates) {
+      if (
+        receiptByThreadId.has(candidate.threadId) &&
+        candidate.record?.cleanupState === "archived" &&
+        !selected.some(({ threadId }) => threadId === candidate.threadId)
+      ) {
+        selected.push(candidate);
+      }
+    }
+    if (
+      [...receiptByThreadId.keys()].some(
+        (threadId) => !selected.some((candidate) => candidate.threadId === threadId),
+      )
+    ) {
+      throw new Error("archive receipt identifies an unselected spin-off");
+    }
     const results = [];
+    const effects = [];
     for (const candidate of selected) {
       const completion = candidate.completion;
       try {
@@ -650,6 +733,13 @@ export class SpinoffLifecycleAdapterV1 {
             );
           }
           if (record.cleanupState === "archived") {
+            const receipt = receiptByThreadId.get(candidate.threadId);
+            if (
+              receipt &&
+              receipt.actionId !== archiveActionId(completion)
+            ) {
+              throw new Error("native archive receipt is stale or conflicting");
+            }
             results.push({
               threadId: candidate.threadId,
               state: "archived",
@@ -689,18 +779,45 @@ export class SpinoffLifecycleAdapterV1 {
             return;
           }
           if (record.cleanupState === "archiving") {
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "attention",
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
+            const receipt = receiptByThreadId.get(candidate.threadId);
+            if (receipt) {
+              if (receipt.actionId !== archiveActionId(completion)) {
+                throw new Error("native archive receipt is stale or conflicting");
+              }
+              record = await this.#store.write({
+                ...record,
+                revision: record.revision + 1,
+                cleanupState: "archived",
+                updatedAt: this.#now(),
+              }, { expectedRevision: record.revision });
+              results.push({
+                threadId: candidate.threadId,
+                state: "archived",
+                replayed: false,
+              });
+              return;
+            }
+            effects.push({
+              schemaVersion: 1,
+              actionId: `${archiveActionId(completion)}/reconcile`,
+              type: "native-reconcile-archive",
+              originalActionId: archiveActionId(completion),
+              threadId: candidate.threadId,
+              policy: {
+                onFound: "return-native-archive-receipt",
+                onAbsent: "return-attention-before-retry",
+                onAmbiguous: "return-attention",
+              },
+            });
             results.push({
               threadId: candidate.threadId,
-              state: "attention",
-              reason: "prior-archive-in-flight",
+              state: "archiving",
+              replayed: true,
             });
             return;
+          }
+          if (receiptByThreadId.has(candidate.threadId)) {
+            throw new Error("native archive receipt has no pending effect");
           }
           record = await this.#store.write({
             ...record,
@@ -709,50 +826,22 @@ export class SpinoffLifecycleAdapterV1 {
             cleanupPolicy: resolvedPolicy,
             updatedAt: this.#now(),
           }, { expectedRevision: record.revision });
-          try {
-            await appServerBridge.archiveThread({ threadId: candidate.threadId });
-          } catch (error) {
-            const uncertain = error?.mutationUncertain === true;
-            await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: uncertain ? "attention" : "pending",
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: uncertain ? "attention" : "pending",
-              reason: uncertain
-                ? "archive-uncertain"
-                : "archive-rejected",
-            });
-            return;
-          }
-          try {
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "archived",
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: "archived",
-              replayed: false,
-            });
-          } catch {
-            await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "attention",
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: "attention",
-              reason: "archive-committed-persistence-failed",
-            });
-          }
+          effects.push({
+            schemaVersion: 1,
+            actionId: archiveActionId(completion),
+            type: "native-archive",
+            threadId: candidate.threadId,
+            archived: true,
+            preconditions: {
+              expectedQueenThreadId: identity.queenThreadId,
+              expectedAcceptedWorkUnitId: candidate.workUnit.workUnitId,
+            },
+          });
+          results.push({
+            threadId: candidate.threadId,
+            state: "archiving",
+            replayed: false,
+          });
         });
       } catch {
         results.push({
@@ -765,12 +854,13 @@ export class SpinoffLifecycleAdapterV1 {
     return {
       schemaVersion: 1,
       policy: resolvedPolicy,
-      state: results.some(({ state }) => state === "attention")
+      state: effects.length > 0
+        ? "effects-required"
+        : results.some(({ state }) => state === "attention")
         ? "attention"
-        : results.some(({ state }) => state === "pending")
-          ? "pending"
-          : "complete",
+        : "complete",
       results,
+      effects,
     };
   }
 }

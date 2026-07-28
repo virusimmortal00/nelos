@@ -27,8 +27,8 @@ Delivered:
   JSONL requests, initialization, shutdown, and fail-closed errors;
 - [x] automatically mark the current task as the queen whenever a validated
   Nelos plan contains spinoffs, preserving web-lineage markers and rendering
-  `[🕸️ inbound] [🕷️ outbound] [👑] · base title` before verifying the persisted
-  title and returning the launch action; and
+  the role-first `👑 WEB_ID · base title` before verifying the persisted title
+  and returning the launch action; and
 - [x] expose bounded read-only task inspection without turns, previews, prompts,
   or transcripts.
 
