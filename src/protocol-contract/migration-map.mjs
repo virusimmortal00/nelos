@@ -54,4 +54,4 @@ export const PROTOCOL_MIGRATION_MAP_V1 = Object.freeze([
     enforcingContract: "semanticInput:coordinated-work-selection,user-facing-communication",
     compatibilityAdapter: "manage-nelos-tasks/SKILL.md",
   },
-]);
+].map((entry) => Object.freeze(entry)));

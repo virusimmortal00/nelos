@@ -96,6 +96,7 @@ const NEXT_ACTION_MEMBERS = [
   }, ["actionId", "agentPath", "threadId", "turnId", "after"]),
   discriminated("kind", "native-read-subagent-result", {
     actionId: ID,
+    bootstrapId: ID,
     agentPath: ID,
     threadId: ID,
     turnId: ID,
@@ -396,16 +397,53 @@ const RECEIPT_MEMBERS = [
       },
     },
   }),
+];
+
+const RESULT_LIST = {
+  type: "array",
+  maxItems: 8,
+  items: { type: "string", minLength: 1, maxLength: 500 },
+};
+
+function resultEnvelope(outcome, blockers) {
+  return closed({
+    schemaVersion: VERSION,
+    workUnitId: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    },
+    specRevision: POSITIVE,
+    attempt: POSITIVE,
+    outcome: { const: outcome },
+    summary: { type: "string", minLength: 1, maxLength: 2_000 },
+    artifacts: RESULT_LIST,
+    verification: RESULT_LIST,
+    blockers,
+    recoveryHint: {
+      anyOf: [
+        { type: "null" },
+        { type: "string", minLength: 1, maxLength: 1_000 },
+      ],
+    },
+  });
+}
+
+export const PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1 = {
+  oneOf: [
+    resultEnvelope("succeeded", { ...RESULT_LIST, maxItems: 0 }),
+    resultEnvelope("blocked", { ...RESULT_LIST, minItems: 1 }),
+    resultEnvelope("failed", RESULT_LIST),
+  ],
+};
+
+RECEIPT_MEMBERS.push(
   discriminated("type", "native-result-read", {
     ...OBSERVATION_IDENTITY,
     requestedTurnId: ID,
     sourceTurnId: ID,
-    resultEnvelope: {
-      type: "object",
-      minProperties: 10,
-      maxProperties: 10,
-      additionalProperties: true,
-    },
+    resultEnvelope: PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1,
   }),
   closed({ threadId: ID }),
   discriminated("type", "native-archive", {
@@ -413,7 +451,7 @@ const RECEIPT_MEMBERS = [
     threadId: ID,
     archived: { const: true },
   }),
-];
+);
 
 export const PROTOCOL_RECEIPT_SCHEMA_V1 = { oneOf: RECEIPT_MEMBERS };
 
@@ -431,6 +469,7 @@ export const RECOVERY_COMMANDS_V1 = Object.freeze([
   "request-semantic-input",
   "restart-current-action",
   "return-exact-receipt",
+  "repeat-planner-launch-receipt",
 ]);
 
 function code(category, recoveryCommand, terminal = false) {
@@ -448,34 +487,37 @@ export const PROTOCOL_CODE_REGISTRY_V1 = Object.freeze({
   "receipt.cross-action": code("receipt-conflict", null, true),
   "evidence.unavailable": code("evidence-unavailable", "retry-read"),
   "native.outcome-uncertain": code("native-outcome-uncertain", "reconcile-native-outcome"),
+  "planner.result-not-yet-authorized": code(
+    "retryable-attention",
+    "repeat-planner-launch-receipt",
+  ),
   "semantic.input-required": code("retryable-attention", "request-semantic-input"),
 });
 
-export const PROTOCOL_ERROR_SCHEMA_V1 = closed({
-  schemaVersion: VERSION,
-  code: { enum: Object.keys(PROTOCOL_CODE_REGISTRY_V1) },
-  category: {
-    enum: [
-      "retryable-attention", "terminal-attention", "protocol-error",
-      "receipt-conflict", "evidence-unavailable", "native-outcome-uncertain",
-    ],
-  },
-  message: SHORT_TEXT,
-  recoveryCommand: {
-    anyOf: [{ type: "null" }, { enum: RECOVERY_COMMANDS_V1 }],
-  },
-});
+export const PROTOCOL_ERROR_SCHEMA_V1 = {
+  oneOf: Object.entries(PROTOCOL_CODE_REGISTRY_V1)
+    .map(([errorCode, declaration]) =>
+      closed({
+        schemaVersion: VERSION,
+        code: { const: errorCode },
+        category: { const: declaration.category },
+        message: SHORT_TEXT,
+        recoveryCommand: { const: declaration.recoveryCommand },
+      })),
+};
 
-export const PROTOCOL_ATTENTION_SCHEMA_V1 = closed({
-  schemaVersion: VERSION,
-  kind: { const: "attention" },
-  code: { enum: Object.keys(PROTOCOL_CODE_REGISTRY_V1) },
-  message: SHORT_TEXT,
-  terminal: { type: "boolean" },
-  recoveryCommand: {
-    anyOf: [{ type: "null" }, { enum: RECOVERY_COMMANDS_V1 }],
-  },
-});
+export const PROTOCOL_ATTENTION_SCHEMA_V1 = {
+  oneOf: Object.entries(PROTOCOL_CODE_REGISTRY_V1)
+    .map(([attentionCode, declaration]) =>
+      closed({
+        schemaVersion: VERSION,
+        kind: { const: "attention" },
+        code: { const: attentionCode },
+        message: SHORT_TEXT,
+        terminal: { const: declaration.terminal },
+        recoveryCommand: { const: declaration.recoveryCommand },
+      })),
+};
 
 const SEMANTIC_MEMBERS = [
   discriminated("type", "coordinated-work-selection", {
@@ -632,18 +674,57 @@ export const PROTOCOL_VALUE_ENVELOPE_SCHEMA_V1 = {
   oneOf: VALUE_ENVELOPE_MEMBERS,
 };
 
+function unionFailureScore(message) {
+  const path = String(message).split(" ", 1)[0];
+  return [...path].filter((character) =>
+    character === "." || character === "[").length;
+}
+
+function mostRelevantUnionFailure(failures) {
+  return failures.reduce((best, failure) =>
+    unionFailureScore(failure) >= unionFailureScore(best)
+      ? failure
+      : best);
+}
+
 function validateJson(schema, value, path = "$") {
   if (schema.oneOf) {
+    const failures = [];
     const count = schema.oneOf.filter((candidate) => {
-      try { validateJson(candidate, value, path); return true; } catch { return false; }
+      try {
+        validateJson(candidate, value, path);
+        return true;
+      } catch (error) {
+        failures.push(error.message);
+        return false;
+      }
     }).length;
-    if (count !== 1) throw new Error(`${path} must match exactly one union member`);
+    if (count !== 1) {
+      const detail = count === 0
+        ? `: ${mostRelevantUnionFailure(failures)}`
+        : "";
+      throw new Error(`${path} must match exactly one union member${detail}`);
+    }
     return value;
   }
   if (schema.anyOf) {
-    if (!schema.anyOf.some((candidate) => {
-      try { validateJson(candidate, value, path); return true; } catch { return false; }
-    })) throw new Error(`${path} does not match an allowed shape`);
+    const failures = [];
+    const matched = schema.anyOf.some((candidate) => {
+      try {
+        validateJson(candidate, value, path);
+        return true;
+      } catch (error) {
+        failures.push(error.message);
+        return false;
+      }
+    });
+    if (!matched) {
+      throw new Error(
+        `${path} does not match an allowed shape: ${
+          mostRelevantUnionFailure(failures)
+        }`,
+      );
+    }
     return value;
   }
   if (Object.hasOwn(schema, "const") && value !== schema.const) {
@@ -821,7 +902,7 @@ function assertReceiptIdentity(executable, receipt) {
   }
   const direct = [
     "workUnitId", "specRevision", "attempt", "bindingGeneration",
-    "memberThreadId", "threadId", "webId", "queenThreadId",
+    "memberThreadId", "threadId", "webId", "queenThreadId", "bootstrapId",
   ];
   for (const field of direct) {
     if (
@@ -850,7 +931,13 @@ function assertReceiptIdentity(executable, receipt) {
   if (
     action.type === "native-read-result" &&
     (receipt.requestedTurnId !== action.requestedTurnId ||
-      receipt.sourceTurnId !== action.requestedTurnId)
+      receipt.sourceTurnId !== action.requestedTurnId ||
+      ["workUnitId", "specRevision", "attempt"].some(
+        (field) => !isDeepStrictEqual(
+          receipt.resultEnvelope[field],
+          action[field],
+        ),
+      ))
   ) return "receipt.conflicting";
   if (
     ["native-read-title", "native-set-title"].includes(action.type) &&
@@ -872,7 +959,9 @@ function assertReceiptIdentity(executable, receipt) {
   }
   if (
     action.kind === "native-read-subagent-result" &&
-    (receipt.threadId !== action.threadId || receipt.turnId !== action.turnId)
+    (receipt.bootstrapId !== action.bootstrapId ||
+      receipt.threadId !== action.threadId ||
+      receipt.turnId !== action.turnId)
   ) return "receipt.conflicting";
   return null;
 }
@@ -945,24 +1034,44 @@ export function reduceProtocolTransitionV1(state, action, receipt) {
 }
 
 export function validateRecoveryTransitionV1(error, command) {
-  const normalized = validateProtocolContractV1("error", error);
+  let normalized;
+  try {
+    normalized = validateProtocolContractV1("error", error);
+  } catch (cause) {
+    return {
+      ...transitionError("protocol.malformed", cause.message),
+      command: null,
+    };
+  }
   const declaration = PROTOCOL_CODE_REGISTRY_V1[normalized.code];
   if (!RECOVERY_COMMANDS_V1.includes(command)) {
-    return transitionError("protocol.malformed", "unknown recovery command");
+    return {
+      ...transitionError("protocol.malformed", "unknown recovery command"),
+      command: null,
+    };
   }
   if (
     declaration.category !== normalized.category ||
     declaration.recoveryCommand !== command ||
     normalized.recoveryCommand !== command
   ) {
-    return transitionError(
-      declaration.recoveryCommand === null
-        ? "attention.terminal"
-        : "receipt.conflicting",
-      "recovery command is forbidden",
-    );
+    return {
+      ...transitionError(
+        declaration.recoveryCommand === null
+          ? "attention.terminal"
+          : "receipt.conflicting",
+        "recovery command is forbidden",
+      ),
+      command: null,
+    };
   }
-  return { accepted: true, replayed: false, command, error: null };
+  return {
+    accepted: true,
+    replayed: false,
+    state: null,
+    command,
+    error: null,
+  };
 }
 
 export const MCP_PROTOCOL_TOOL_CONTRACTS_V1 = Object.freeze(

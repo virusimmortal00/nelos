@@ -998,8 +998,9 @@ export function startNelosMcpServer({
       if (error instanceof PlanningLifecycleProtocolError) {
         body.code = error.code;
         body.retryable = error.retryable;
-        if (error.recoveryAction !== null) {
-          body.recoveryAction = error.recoveryAction;
+        body.protocolError = error.protocolError;
+        if (error.recoveryCommand !== null) {
+          body.recoveryCommand = error.recoveryCommand;
         }
       }
       return {

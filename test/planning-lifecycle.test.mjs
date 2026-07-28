@@ -209,6 +209,10 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
       { appServerBridge: value.bridge },
     );
     assert.equal(settled.nextAction.kind, "native-read-subagent-result");
+    assert.equal(
+      settled.nextAction.bootstrapId,
+      initial.lifecycle.bootstrapId,
+    );
 
     const response = plannerResponse(initial.lifecycle.bootstrapId);
     const completed = await value.restart().advance(
@@ -519,6 +523,10 @@ test("planning lifecycle bounds one interrupted-turn observation while native co
         );
         assert.equal(settled.nextAction.kind, "native-read-subagent-result");
         assert.equal(
+          settled.nextAction.bootstrapId,
+          initial.lifecycle.bootstrapId,
+        );
+        assert.equal(
           settled.nextAction.actionId,
           `planning-lifecycle-v1/${initial.lifecycle.bootstrapId}/read-result`,
         );
@@ -564,12 +572,19 @@ test("planning lifecycle explains how to recover from an early planner result", 
       ),
       (error) => {
         assert.equal(error.name, "PlanningLifecycleProtocolError");
-        assert.equal(error.code, "planner-result-not-yet-authorized");
+        assert.equal(error.code, "planner.result-not-yet-authorized");
         assert.equal(error.retryable, true);
         assert.equal(
-          error.recoveryAction,
+          error.recoveryCommand,
           "repeat-planner-launch-receipt",
         );
+        assert.deepEqual(error.protocolError, {
+          schemaVersion: 1,
+          code: "planner.result-not-yet-authorized",
+          category: "retryable-attention",
+          message: error.message,
+          recoveryCommand: "repeat-planner-launch-receipt",
+        });
         assert.match(error.message, /native-read-subagent-result/);
         return true;
       },

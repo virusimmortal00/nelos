@@ -550,12 +550,8 @@ test("nelos_plan_lifecycle returns structured recovery for an early planner resu
       planningLifecycle: {
         async advance() {
           throw new PlanningLifecycleProtocolError(
-            "planner-result-not-yet-authorized",
+            "planner.result-not-yet-authorized",
             message,
-            {
-              retryable: true,
-              recoveryAction: "repeat-planner-launch-receipt",
-            },
           );
         },
       },
@@ -565,9 +561,16 @@ test("nelos_plan_lifecycle returns structured recovery for an early planner resu
   assert.equal(isError, true);
   assert.deepEqual(body, {
     error: message,
-    code: "planner-result-not-yet-authorized",
+    code: "planner.result-not-yet-authorized",
     retryable: true,
-    recoveryAction: "repeat-planner-launch-receipt",
+    recoveryCommand: "repeat-planner-launch-receipt",
+    protocolError: {
+      schemaVersion: 1,
+      code: "planner.result-not-yet-authorized",
+      category: "retryable-attention",
+      message,
+      recoveryCommand: "repeat-planner-launch-receipt",
+    },
   });
 });
 

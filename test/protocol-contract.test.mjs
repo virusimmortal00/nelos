@@ -384,7 +384,11 @@ test("tool argument maps enforce value schemas and property-name bounds", () => 
       ...base,
       arguments: { threadId: { nested: "not-allowed" } },
     }),
-    /exactly one/,
+    (error) => {
+      assert.match(error.message, /exactly one/);
+      assert.match(error.message, /\$\.arguments\.threadId/);
+      return true;
+    },
   );
   assert.throws(
     () => validateProtocolContractV1("action", {
@@ -562,12 +566,35 @@ test("transition reducer binds full persisted action and all receipt identities"
     readReceipt({ requestedTurnId: "turn-altered" }),
     readReceipt({ sourceTurnId: "turn-altered" }),
     readReceipt({ bindingGeneration: 3 }),
+    readReceipt({
+      resultEnvelope: {
+        ...resultEnvelope(),
+        workUnitId: "other-member",
+      },
+    }),
   ]) {
     assert.equal(
       reduceProtocolTransitionV1(state, action, changedReceipt).accepted,
       false,
     );
   }
+  assert.equal(
+    reduceProtocolTransitionV1(state, action, readReceipt({
+      resultEnvelope: {
+        arbitraryA: 1,
+        arbitraryB: 2,
+        arbitraryC: 3,
+        arbitraryD: 4,
+        arbitraryE: 5,
+        arbitraryF: 6,
+        arbitraryG: 7,
+        arbitraryH: 8,
+        arbitraryI: 9,
+        arbitraryJ: 10,
+      },
+    })).error.code,
+    "protocol.malformed",
+  );
 });
 
 test("transition initialization accepts only explicit receipt-consuming executables", () => {
@@ -603,6 +630,7 @@ test("transition initialization accepts only explicit receipt-consuming executab
     schemaVersion: 1,
     kind: "native-read-subagent-result",
     actionId: "planner-read-1",
+    bootstrapId: "plan:1234567890abcdef12345678",
     agentPath: "/root/planner",
     threadId: "planner-thread",
     turnId: "planner-turn",
@@ -620,6 +648,18 @@ test("transition initialization accepts only explicit receipt-consuming executab
       response: "```nelos-plan\n{}\n```",
     }).accepted,
     true,
+  );
+  assert.equal(
+    reduceProtocolTransitionV1(state, plannerRead, {
+      schemaVersion: 1,
+      type: "native-planner-result",
+      actionId: "planner-read-1",
+      bootstrapId: "plan:abcdef1234567890abcdef12",
+      threadId: "planner-thread",
+      turnId: "planner-turn",
+      response: "```nelos-plan\n{}\n```",
+    }).error.code,
+    "receipt.conflicting",
   );
 });
 
@@ -744,11 +784,57 @@ test("registry and forbidden recovery transitions remain centralized", () => {
     message: "Malformed.",
     recoveryCommand: null,
   }, "retry-read").accepted, false);
+
+  const recovered = validateRecoveryTransitionV1({
+    schemaVersion: 1,
+    code: "native.outcome-uncertain",
+    category: "native-outcome-uncertain",
+    message: "Outcome uncertain.",
+    recoveryCommand: "reconcile-native-outcome",
+  }, "reconcile-native-outcome");
+  assert.equal(recovered.accepted, true);
+  assert.equal(recovered.command, "reconcile-native-outcome");
+  assert.equal(recovered.state, null);
+
+  const terminal = validateRecoveryTransitionV1({
+    schemaVersion: 1,
+    code: "attention.terminal",
+    category: "terminal-attention",
+    message: "Stop.",
+    recoveryCommand: null,
+  }, "retry-read");
+  assert.equal(terminal.error.code, "attention.terminal");
+  assert.equal(terminal.command, null);
+
+  const malformed = validateRecoveryTransitionV1({
+    schemaVersion: 1,
+    code: "attention.terminal",
+    category: "retryable-attention",
+    message: "Conflicting declaration.",
+    recoveryCommand: "retry-read",
+  }, "retry-read");
+  assert.equal(malformed.error.code, "protocol.malformed");
+  assert.equal(malformed.command, null);
+
+  assert.throws(
+    () => validateProtocolContractV1("error", {
+      schemaVersion: 1,
+      code: "attention.terminal",
+      category: "retryable-attention",
+      message: "Conflicting declaration.",
+      recoveryCommand: "retry-read",
+    }),
+    /exactly one/,
+  );
 });
 
 test("listed MCP producers advertise the shared compatibility envelope", () => {
   const listed = new Map(listNelosMcpTools().map((tool) => [tool.name, tool]));
   for (const producer of RUNTIME_OUTPUTS.keys()) {
+    assert.ok(
+      listed.has(producer),
+      `${producer} is not advertised by listNelosMcpTools()`,
+    );
     assert.deepEqual(
       listed.get(producer)._meta["nelos/protocolContract"],
       {
@@ -768,6 +854,11 @@ test("listed MCP producers advertise the shared compatibility envelope", () => {
 
 test("migration map preserves downstream compatibility adapters", () => {
   assert.ok(PROTOCOL_MIGRATION_MAP_V1.length >= 10);
+  assert.ok(Object.isFrozen(PROTOCOL_MIGRATION_MAP_V1));
+  assert.ok(PROTOCOL_MIGRATION_MAP_V1.every(Object.isFrozen));
+  assert.throws(() => {
+    PROTOCOL_MIGRATION_MAP_V1[0].skillClause = "mutated";
+  }, TypeError);
   PROTOCOL_MIGRATION_MAP_V1.forEach((entry) => {
     assert.ok(entry.skillClause);
     assert.ok(entry.enforcingContract);

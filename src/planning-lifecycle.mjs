@@ -15,6 +15,10 @@ import {
   resolveNativeSubagentThreadV1,
   verifyRuntimeIntelligenceV1,
 } from "./runtime-intelligence-verification.mjs";
+import {
+  PROTOCOL_CODE_REGISTRY_V1,
+  validateProtocolContractV1,
+} from "./protocol-contract/index.mjs";
 import { MAX_PARALLEL_SLICES } from "./slice-planner.mjs";
 import {
   taskStateDirectory,
@@ -25,12 +29,23 @@ export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
 
 export class PlanningLifecycleProtocolError extends Error {
-  constructor(code, message, { retryable = false, recoveryAction = null } = {}) {
+  constructor(code, message) {
     super(message);
+    const declaration = PROTOCOL_CODE_REGISTRY_V1[code];
+    if (!declaration) {
+      throw new Error(`unknown planning lifecycle protocol code ${code}`);
+    }
     this.name = "PlanningLifecycleProtocolError";
     this.code = code;
-    this.retryable = retryable;
-    this.recoveryAction = recoveryAction;
+    this.retryable = !declaration.terminal;
+    this.recoveryCommand = declaration.recoveryCommand;
+    this.protocolError = validateProtocolContractV1("error", {
+      schemaVersion: 1,
+      code,
+      category: declaration.category,
+      message,
+      recoveryCommand: declaration.recoveryCommand,
+    });
   }
 }
 
@@ -603,6 +618,7 @@ function statusAction(
     schemaVersion: 1,
     kind: "native-read-subagent-result",
     actionId: readActionId(record.bootstrapId),
+    bootstrapId: record.bootstrapId,
     agentPath: record.identity.agentPath,
     threadId: thread.threadId,
     turnId: latestTurn.turnId,
@@ -895,12 +911,8 @@ export class PlanningLifecycleCoordinatorV1 {
       if (receipt.actionId !== readActionId(record.bootstrapId)) {
         if (record.phase === "verified") {
           throw new PlanningLifecycleProtocolError(
-            "planner-result-not-yet-authorized",
+            "planner.result-not-yet-authorized",
             "planner result is not authorized yet; replay the verified launch receipt until Nelos returns native-read-subagent-result, then copy that actionId unchanged",
-            {
-              retryable: true,
-              recoveryAction: "repeat-planner-launch-receipt",
-            },
           );
         }
         throw new Error("planner result receipt has a stale or future actionId");
