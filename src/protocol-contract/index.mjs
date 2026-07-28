@@ -6,6 +6,12 @@ import {
   MAX_PLANNING_OBJECTIVE_CHARACTERS,
   MAX_PLANNING_RESPONSE_CHARACTERS,
 } from "../planning-bootstrap.mjs";
+import {
+  MAX_WORK_UNIT_ACCEPTANCE_CRITERIA_ITEMS,
+  MAX_WORK_UNIT_LIST_ITEM_CHARACTERS,
+  MAX_WORK_UNIT_SUMMARY_CHARACTERS,
+  MAX_WORK_UNIT_TITLE_CHARACTERS,
+} from "../execution-store.mjs";
 
 export const PROTOCOL_CONTRACT_SCHEMA_VERSION = 1;
 
@@ -21,6 +27,15 @@ const THREAD_ID = {
   minLength: 1,
   maxLength: 256,
   pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$",
+};
+const BOOTSTRAP_ID = {
+  type: "string",
+  pattern: "^plan:[a-f0-9]{24}$",
+};
+const AGENT_PATH = {
+  ...ID,
+  pattern:
+    "^/[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._:-]*){0,15}$",
 };
 const SHORT_ID = { ...ID, maxLength: 128 };
 const WORK_UNIT_ID = {
@@ -48,7 +63,14 @@ const PLANNER_RESPONSE = {
 const NATIVE_CREATE_PROMPT = {
   type: "string",
   minLength: 1,
-  maxLength: 12_000,
+  maxLength:
+    MAX_WORK_UNIT_TITLE_CHARACTERS +
+    (2 * MAX_WORK_UNIT_SUMMARY_CHARACTERS) +
+    (
+      MAX_WORK_UNIT_ACCEPTANCE_CRITERIA_ITEMS *
+      MAX_WORK_UNIT_LIST_ITEM_CHARACTERS
+    ) +
+    4_000,
 };
 const POSITIVE = { type: "integer", minimum: 1 };
 const NULLABLE_ID = { anyOf: [{ type: "null" }, ID] };
@@ -728,15 +750,15 @@ const WAIT_TARGET_SCHEMA = {
 const RECEIPT_MEMBERS = [
   discriminated("type", "native-planner-created", {
     actionId: ID,
-    bootstrapId: ID,
-    parentThreadId: ID,
-    agentPath: ID,
+    bootstrapId: BOOTSTRAP_ID,
+    parentThreadId: THREAD_ID,
+    agentPath: AGENT_PATH,
   }),
   discriminated("type", "native-planner-result", {
     actionId: ID,
-    bootstrapId: ID,
-    threadId: ID,
-    turnId: ID,
+    bootstrapId: BOOTSTRAP_ID,
+    threadId: THREAD_ID,
+    turnId: THREAD_ID,
     response: PLANNER_RESPONSE,
   }),
   discriminated("type", "native-create", {

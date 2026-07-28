@@ -23,14 +23,15 @@ export const WORK_UNIT_MEMBER_KINDS = Object.freeze([
   "spinoff",
   "joined-subagent",
 ]);
+export const MAX_WORK_UNIT_TITLE_CHARACTERS = 512;
+export const MAX_WORK_UNIT_SUMMARY_CHARACTERS = 2_000;
+export const MAX_WORK_UNIT_ACCEPTANCE_CRITERIA_ITEMS = 16;
+export const MAX_WORK_UNIT_LIST_ITEM_CHARACTERS = 1_000;
 
 const MAX_RECORD_BYTES = 64 * 1024;
 const MAX_ATTEMPTS = 10;
 const MAX_THREAD_ID_CHARACTERS = 256;
-const MAX_TITLE_CHARACTERS = 512;
-const MAX_SUMMARY_CHARACTERS = 2_000;
 const MAX_LIST_ITEMS = 100;
-const MAX_LIST_ITEM_CHARACTERS = 1_000;
 const WORK_UNIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ACTION_ID_PATTERN = /^[^\s\u0000-\u001f\u007f]{1,512}$/u;
 const SPEC_FIELDS = new Set([
@@ -139,7 +140,10 @@ function assertThreadId(value, field = "memberThreadId") {
 function normalizeStringList(
   value,
   field,
-  { maximumItems = MAX_LIST_ITEMS, itemMaximum = MAX_LIST_ITEM_CHARACTERS } = {},
+  {
+    maximumItems = MAX_LIST_ITEMS,
+    itemMaximum = MAX_WORK_UNIT_LIST_ITEM_CHARACTERS,
+  } = {},
 ) {
   if (!Array.isArray(value) || value.length > maximumItems) {
     throw new Error(`${field} must contain at most ${maximumItems} strings`);
@@ -364,7 +368,7 @@ export function validateWorkUnitSpecV1(value) {
   const acceptanceCriteria = normalizeStringList(
     value.acceptanceCriteria,
     "acceptanceCriteria",
-    { maximumItems: 16 },
+    { maximumItems: MAX_WORK_UNIT_ACCEPTANCE_CRITERIA_ITEMS },
   );
   const dependencies = normalizeDependencies(value.dependencies, workUnitId);
   if (typeof value.required !== "boolean") {
@@ -384,16 +388,20 @@ export function validateWorkUnitSpecV1(value) {
     memberKind,
     capabilities,
     launch,
-    title: normalizeText(value.title, "title", MAX_TITLE_CHARACTERS),
+    title: normalizeText(
+      value.title,
+      "title",
+      MAX_WORK_UNIT_TITLE_CHARACTERS,
+    ),
     objectiveSummary: normalizeText(
       value.objectiveSummary,
       "objectiveSummary",
-      MAX_SUMMARY_CHARACTERS,
+      MAX_WORK_UNIT_SUMMARY_CHARACTERS,
     ),
     deliverable: normalizeText(
       value.deliverable,
       "deliverable",
-      MAX_SUMMARY_CHARACTERS,
+      MAX_WORK_UNIT_SUMMARY_CHARACTERS,
     ),
     acceptanceCriteria,
     dependencies,

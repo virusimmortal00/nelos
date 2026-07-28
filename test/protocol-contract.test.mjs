@@ -96,6 +96,10 @@ function example(schema, seed = 0) {
   if (schema.type === "null") return null;
   if (schema.type === "string") {
     if (schema.pattern === "^[a-f0-9]{64}$") return "a".repeat(64);
+    if (schema.pattern === "^plan:[a-f0-9]{24}$") {
+      return `plan:${"a".repeat(24)}`;
+    }
+    if (schema.pattern?.startsWith("^/")) return "/root/planner";
     return `value-${seed}`;
   }
   if (schema.type === "integer") return schema.minimum ?? 0;
@@ -497,6 +501,31 @@ test("compatibility and contract discriminators are correlated to value schemas"
     validateProtocolContractV1("receipt", largePlannerReceipt),
     largePlannerReceipt,
   );
+  const plannerCreatedReceipt = {
+    schemaVersion: 1,
+    type: "native-planner-created",
+    actionId: "planner-launch-1",
+    bootstrapId: "plan:aaaaaaaaaaaaaaaaaaaaaaaa",
+    parentThreadId: "queen-1",
+    agentPath: "/root/planner",
+  };
+  assert.deepEqual(
+    validateProtocolContractV1("receipt", plannerCreatedReceipt),
+    plannerCreatedReceipt,
+  );
+  for (const overrides of [
+    { bootstrapId: "bad" },
+    { agentPath: "planner" },
+    { parentThreadId: "queen 1" },
+  ]) {
+    assert.throws(
+      () => validateProtocolContractV1("receipt", {
+        ...plannerCreatedReceipt,
+        ...overrides,
+      }),
+      /exactly one/,
+    );
+  }
   assert.throws(
     () => validateProtocolContractV1("receipt", {
       ...largePlannerReceipt,

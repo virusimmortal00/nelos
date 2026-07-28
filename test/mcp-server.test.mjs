@@ -1328,6 +1328,34 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal((await fixture.store.read("member-a")).binding.state, "launch-pending");
 });
 
+test("stdio orchestration advertises the maximum direct WorkUnitSpec launch prompt", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const workUnit = workUnitInput({
+    title: "t".repeat(512),
+    objectiveSummary: "o".repeat(2_000),
+    deliverable: "d".repeat(2_000),
+    acceptanceCriteria: Array.from(
+      { length: 16 },
+      () => "a".repeat(1_000),
+    ),
+  });
+  const [, response] = await roundTrip(
+    [INITIALIZE, orchestrationCall(2, workUnit)],
+    fixture.options,
+  );
+  const result = toolBody(response);
+
+  assert.equal(result.isError, false);
+  assert.ok(result.body.effects[0].prompt.length > 12_000);
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1(
+      "nelos_orchestrate_create",
+      result.body,
+    ).value,
+    result.body,
+  );
+});
+
 test("stdio orchestration rejects Luna before returning a joined-subagent effect", async (t) => {
   const fixture = await orchestrationFixture(t);
   const workUnit = workUnitInput({

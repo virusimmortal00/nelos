@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.4.0+codex.20260728193505",
+  "version": "0.4.0+codex.20260728194748",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
     "name": "Nelos Maintainers",
