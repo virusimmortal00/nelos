@@ -564,11 +564,13 @@ const OBSERVATION_IDENTITY = {
   bindingGeneration: POSITIVE,
   memberThreadId: ID,
 };
-const RECONCILE_POLICY = closed({
-  onFound: { type: "string", minLength: 1, maxLength: 64 },
-  onAbsent: { const: "return-attention-before-retry" },
-  onAmbiguous: { const: "return-attention" },
-});
+function reconcilePolicy(onFound) {
+  return closed({
+    onFound: { const: onFound },
+    onAbsent: { const: "return-attention-before-retry" },
+    onAmbiguous: { const: "return-attention" },
+  });
+}
 function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
   const nativeTask = closed({
     model: memberKind === "joined-subagent"
@@ -619,7 +621,7 @@ function nativeReconcileCreateMember(memberKind, launcher, workspaceMode) {
     launch: nativeLaunchSchema(memberKind, launcher, workspaceMode),
     title: { type: "string", minLength: 1, maxLength: 512 },
     prompt: NATIVE_CREATE_PROMPT,
-    policy: RECONCILE_POLICY,
+    policy: reconcilePolicy("return-native-create-receipt"),
   });
 }
 
@@ -676,7 +678,7 @@ const EFFECT_MEMBERS = [
     actionId: ID,
     originalActionId: ID,
     threadId: ID,
-    policy: RECONCILE_POLICY,
+    policy: reconcilePolicy("return-exact-send-message-host-result"),
   }),
   discriminated("type", "native-archive", {
     actionId: ID,
@@ -691,7 +693,7 @@ const EFFECT_MEMBERS = [
     actionId: ID,
     originalActionId: ID,
     threadId: ID,
-    policy: RECONCILE_POLICY,
+    policy: reconcilePolicy("return-native-archive-receipt"),
   }),
 ];
 

@@ -156,6 +156,36 @@ test("every action, native effect, and receipt union member validates closed", (
   }
 });
 
+test("reconciliation success policies are correlated to native effect types", () => {
+  const policies = new Map([
+    ["native-reconcile-create", "return-native-create-receipt"],
+    [
+      "native-reconcile-send-message",
+      "return-exact-send-message-host-result",
+    ],
+    ["native-reconcile-archive", "return-native-archive-receipt"],
+  ]);
+
+  for (const [type, onFound] of policies) {
+    const schema = PROTOCOL_NATIVE_EFFECT_SCHEMA_V1.oneOf.find(
+      ({ properties }) => properties.type?.const === type,
+    );
+    const effect = example(schema);
+    assert.equal(effect.policy.onFound, onFound);
+    assert.deepEqual(validateProtocolContractV1("effect", effect), effect);
+    assert.throws(
+      () => validateProtocolContractV1("effect", {
+        ...effect,
+        policy: {
+          ...effect.policy,
+          onFound: "return-wrong-receipt",
+        },
+      }),
+      /exactly one/,
+    );
+  }
+});
+
 test("work-unit identifiers use the canonical orchestration identifier shape", () => {
   assert.throws(
     () => validateProtocolContractV1("effect", {
