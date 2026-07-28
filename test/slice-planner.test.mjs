@@ -178,6 +178,11 @@ test("slice plans reject malformed topology and unsafe isolation", async (t) => 
       /contain a cycle/,
     ],
     [
+      "decorated role title",
+      { ...base, slices: [slice("a", { title: "🕷️ A1 · Implement" })] },
+      /title must be plain undecorated text/u,
+    ],
+    [
       "subagent writer",
       {
         ...base,

@@ -21,7 +21,7 @@ export function workUnitFromLaunchMemberV1(
     attempt = 1,
     required = true,
     maxAttempts = 3,
-    cleanupIntended = false,
+    cleanupIntended = true,
   },
 ) {
   if (typeof cleanupIntended !== "boolean") {

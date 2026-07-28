@@ -287,7 +287,7 @@ test("launch members bridge into durable lifecycle-specific work units", () => {
     [
       {
         memberKind: "spinoff",
-        capabilities: ["observe", "read-result", "follow-up"],
+        capabilities: ["observe", "read-result", "follow-up", "archive"],
         launcher: "create-thread",
         workspaceMode: "isolated-write",
         nativeTask: { model: "gpt-5.6-terra", thinking: "low" },

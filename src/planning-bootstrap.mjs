@@ -83,7 +83,32 @@ function normalizeText(value, field, maximum, { optional = false } = {}) {
   return normalized;
 }
 
+function preservedExceptionSliceIds(context) {
+  if (!context) return new Set();
+  try {
+    const parsed = JSON.parse(context);
+    if (
+      parsed?.mode !== "exception-replan" ||
+      parsed?.policy?.preserveCompletedSlicesExactly !== true ||
+      !Array.isArray(parsed?.trigger?.completedSliceIds)
+    ) {
+      return new Set();
+    }
+    return new Set(
+      parsed.trigger.completedSliceIds.filter(
+        (id) =>
+          typeof id === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function plannerPrompt({ objective, context, maxParallel, bootstrapId }) {
+  const sliceIdSuffix = bootstrapId.slice("plan:".length, "plan:".length + 12);
+  const preservedSliceIds = preservedExceptionSliceIds(context);
   const contextSection = context
     ? [
         "",
@@ -105,9 +130,18 @@ function plannerPrompt({ objective, context, maxParallel, bootstrapId }) {
     ...contextSection,
     "",
     "Produce the smallest dependency-safe semantic decomposition that fully covers the objective.",
-    "For every slice provide one concrete deliverable, testable acceptance criteria, explicit dependencies, lifecycle, workspace isolation, and taskShape.",
+    "For every slice provide one concrete deliverable, between 1 and 8 testable acceptance criteria, explicit dependencies, lifecycle, workspace isolation, and taskShape.",
+    `Every new or changed slice id must end with -${sliceIdSuffix}; keep the readable stem short enough that the complete id remains at most 128 characters. Use those exact suffixed ids in dependsOn.`,
+    ...(preservedSliceIds.size > 0
+      ? [
+          `Preserve these already-completed slice ids exactly even though they use an earlier identity suffix: ${[...preservedSliceIds].join(", ")}.`,
+        ]
+      : []),
+    "Slice titles must be plain undecorated text. Never add crown, spider, web, role, lineage, or web-ID markers; Nelos owns title decoration.",
     "Do not include routing or raw model/effort overrides; Nelos owns those decisions.",
     "Use subagent/shared-read-only for bounded analysis or verification. Use spinoff/isolated-write only for durable writers.",
+    "Codex durable spinoffs are peer tasks, not children of the queen. Never claim or require a native parent edge between a spinoff and the queen.",
+    "Acceptance criteria must cover only work and evidence the assigned worker can complete before returning its result. Queen acceptance, coordination, archival, and cleanup are queen-owned post-result steps and must not be assigned to a slice.",
     "Classify complex/open-ended when ambiguity, novelty, cross-domain judgment, or low confidence requires frontier judgment.",
     "Classify everyday for ordinary implementation with clear boundaries. Classify clear/repeatable only when the procedure and verification are explicit.",
     "Prefer independent parallel slices, but never create concurrent writers for the same workspace.",
@@ -130,7 +164,7 @@ function plannerPrompt({ objective, context, maxParallel, bootstrapId }) {
         maxParallel,
         slices: [
           {
-            id: "bounded-id",
+            id: `bounded-id-${sliceIdSuffix}`,
             title: "Short task title",
             objective: "One bounded objective",
             deliverable: "One concrete deliverable",
@@ -324,7 +358,11 @@ function parsePlannerResponse(response) {
   return { ...result, classificationEvidence };
 }
 
-export function finalizePlanningBootstrapV1(request, response) {
+export function finalizePlanningBootstrapV1(
+  request,
+  response,
+  { preservedSliceIds = [] } = {},
+) {
   if (request?.bootstrapId === undefined) {
     throw new Error("bootstrapId is required when finalizing a planner response");
   }
@@ -367,6 +405,36 @@ export function finalizePlanningBootstrapV1(request, response) {
       classificationEvidence: Object.freeze(result.classificationEvidence),
       reason: "low-planner-confidence",
     });
+  }
+  const requiredSliceIdSuffix =
+    `-${bootstrap.bootstrapId.slice("plan:".length, "plan:".length + 12)}`;
+  if (
+    !Array.isArray(preservedSliceIds) ||
+    preservedSliceIds.some(
+      (id) =>
+        typeof id !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id),
+    ) ||
+    new Set(preservedSliceIds).size !== preservedSliceIds.length
+  ) {
+    throw new Error("preservedSliceIds must contain unique valid slice IDs");
+  }
+  const preserved = new Set(preservedSliceIds);
+  const unsuffixedSlice = Array.isArray(result.plan?.slices)
+    ? result.plan.slices.find(
+        (slice) =>
+          slice &&
+          typeof slice === "object" &&
+          !Array.isArray(slice) &&
+          typeof slice.id === "string" &&
+          !slice.id.endsWith(requiredSliceIdSuffix) &&
+          !preserved.has(slice.id),
+      )
+    : null;
+  if (unsuffixedSlice) {
+    throw new Error(
+      `nelos-plan slice id ${unsuffixedSlice.id} must end with ${requiredSliceIdSuffix}`,
+    );
   }
   return Object.freeze({
     schemaVersion: PLANNING_BOOTSTRAP_SCHEMA_VERSION,

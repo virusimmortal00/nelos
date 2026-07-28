@@ -26,13 +26,13 @@ const INITIALIZE = {
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } },
 };
 
-function validPlan() {
+function validPlan(sliceId = "explore") {
   return {
     schemaVersion: 1,
     objective: "demo objective",
     slices: [
       {
-        id: "explore",
+        id: sliceId,
         title: "Explore",
         objective: "bounded exploration",
         deliverable: "notes",
@@ -275,6 +275,17 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     idempotentHint: true,
     openWorldHint: false,
   });
+  assert.deepEqual(
+    complete.inputSchema.properties.receipt.anyOf[1],
+    {
+      type: "object",
+      properties: {
+        threadId: { type: "string", minLength: 1, maxLength: 512 },
+      },
+      required: ["threadId"],
+      additionalProperties: false,
+    },
+  );
   const cleanup = tools.find(
     ({ name }) => name === "nelos_spinoff_cleanup",
   );
@@ -341,7 +352,7 @@ test("nelos_plan_bootstrap validates the planner response before launching slice
       bootstrapId,
       confidence: "high",
       classificationEvidence: ["The bounded exploration is ordinary work."],
-      plan: validPlan(),
+      plan: validPlan(`explore-${bootstrapId.slice(5, 17)}`),
     }),
     "```",
   ].join("\n");
@@ -373,7 +384,7 @@ test("nelos_plan_bootstrap returns a host-owned queen-title effect for a planned
   const request = { objective: "Ship an isolated implementation" };
   const bootstrapId = (await import("../src/planning-bootstrap.mjs"))
     .createPlanningBootstrapV1(request).bootstrapId;
-  const plan = validPlan();
+  const plan = validPlan(`explore-${bootstrapId.slice(5, 17)}`);
   plan.slices[0] = {
     ...plan.slices[0],
     lifecycle: "spinoff",
@@ -1092,6 +1103,9 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   );
   assert.match(launchPrompt, /call `nelos_spinoff_complete`/u);
   assert.match(launchPrompt, /Set receipt to null/u);
+  assert.match(launchPrompt, /codex_app\.send_message_to_thread/u);
+  assert.match(launchPrompt, /receipt: \{"threadId":"queen-thread"\}/u);
+  assert.match(launchPrompt, /Do not add actionId, specRevision/u);
   assert.match(
     launchPrompt,
     /"queenThreadId":"queen-thread".*"workUnitId":"member-a"/u,
@@ -1416,7 +1430,6 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
           arguments: {
             plan,
             queenThreadId: "queen-1",
-            cleanupIntended: true,
           },
         },
       },
@@ -1469,7 +1482,6 @@ test("nelos_plan_slices launches only after the host-owned title is observed", a
           arguments: {
             plan,
             queenThreadId: "queen-1",
-            cleanupIntended: true,
           },
         },
       },

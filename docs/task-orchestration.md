@@ -240,9 +240,11 @@ Codex still exposes no native persistent completion subscription. Nelos closes
 that gap at the application layer: every durable launch prompt carries an exact
 `nelos_spinoff_complete` callback identity. The member persists its completion
 before its final response and receives one deterministic host-owned native
-send-message effect. After the host performs it, the member supplies the exact
-receipt to finish the durable transition. A persisted in-flight operation
-returns a reconciliation effect rather than another send.
+send-message effect. The member executes it through
+`codex_app.send_message_to_thread`, whose successful result contains only the
+target `threadId`, then supplies that exact result without adding lifecycle or
+effect fields. A persisted in-flight operation returns a reconciliation effect
+rather than another send.
 
 The callback complements rather than replaces the queen join loop. A member can
 crash before making its callback, so a live queen still uses bounded native
@@ -252,8 +254,9 @@ silently installed daemon is required for normal successful completion.
 ## Spin-off Cleanup
 
 Completion, queen acceptance, and archival remain separate. Once all required
-current spin-off results are accepted, `nelos_spinoff_cleanup` derives an exact
-candidate set from the durable execution and acceptance records:
+current results are accepted, `nelos_orchestrate_advance` emits the exact
+`nelos_spinoff_cleanup` next action. That tool derives a candidate set from the
+durable execution and acceptance records:
 
 - `ask` is the default and returns names and task IDs without mutation;
 - `auto` returns native archive effects for all eligible candidates;

@@ -209,10 +209,11 @@ native subscription. Before returning its final result, a durable spin-off
 calls `nelos_spinoff_complete` using the fixed identity embedded in its launch
 prompt and its current task ID. Nelos writes the completion record before
 returning one deterministic `native-send-message` effect. The member executes
-that effect through the host and returns its exact receipt. A persisted
-in-flight state returns only a reconciliation effect, never another send.
-Native waiting remains authoritative if a member terminates before completing
-the callback cycle.
+that effect through `codex_app.send_message_to_thread` and returns the host
+tool's exact `{ "threadId": "..." }` result without adding lifecycle or effect
+fields. A persisted in-flight state returns only a reconciliation effect, never
+another send. Native waiting remains authoritative if a member terminates
+before completing the callback cycle.
 
 The same protocol exposes no title compare-and-set field or expected revision.
 Queen synchronization therefore performs two preflight title reads, aborts if
@@ -346,10 +347,12 @@ Codex task identity, so this adapter does not treat its launch-time
 against the persisted web/work-unit binding and the exact consumed current
 result; the skill keeps the decision call on the queen side of the workflow.
 Only an accepted exact-current decision changes the member coordination state
-to `accepted`. Only after that observation may `nelos_spinoff_cleanup` derive
-an archive candidate. Missing, rejected, stale, mismatched, failed, blocked,
-or cross-queen evidence remains cleanup `not-ready` and yields no archive
-effect.
+to `accepted`. When all required current results are accepted, that observation
+returns a machine-generated `cleanup-spinoffs` next action containing the exact
+`nelos_spinoff_cleanup` call. The cleanup adapter applies the remembered policy,
+or returns an exact confirmation list under the default `ask` policy. Missing,
+rejected, stale, mismatched, failed, blocked, or cross-queen evidence remains
+cleanup `not-ready` and yields no archive effect.
 
 ## User-visible install contract
 

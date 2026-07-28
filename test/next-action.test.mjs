@@ -237,7 +237,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   );
   assert.deepEqual(
     members[1].orchestration.arguments.workUnit.capabilities,
-    ["observe", "read-result", "follow-up"],
+    ["observe", "read-result", "follow-up", "archive"],
   );
   assert.equal(
     Object.hasOwn(members[1].orchestration.arguments.workUnit, "binding"),
@@ -252,15 +252,15 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   );
   assert.equal(members[1].orchestration.arguments.receipt, null);
 
-  const cleanupMember = withNextAction({
+  const cleanupDisabledMember = withNextAction({
     command: "plan slices",
     plan,
     planRun,
-    cleanupIntended: true,
+    cleanupIntended: false,
   }).nextAction.members[1];
   assert.deepEqual(
-    cleanupMember.orchestration.arguments.workUnit.capabilities,
-    ["observe", "read-result", "follow-up", "archive"],
+    cleanupDisabledMember.orchestration.arguments.workUnit.capabilities,
+    ["observe", "read-result", "follow-up"],
   );
 });
 

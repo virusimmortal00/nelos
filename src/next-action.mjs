@@ -88,7 +88,7 @@ function launchMember(
   slice,
   persistedMember = null,
   planRun = null,
-  cleanupIntended = false,
+  cleanupIntended = true,
 ) {
   const normalizedLaunch = normalizeLaunchMemberV1({
     ...slice,
@@ -190,7 +190,7 @@ function correctionPrompt(member) {
   ].join(" ");
 }
 
-function launchWave(plan, planRun = null, cleanupIntended = false) {
+function launchWave(plan, planRun = null, cleanupIntended = true) {
   const currentWave = plan.waves[0];
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
@@ -384,7 +384,7 @@ export function deriveNextAction(output) {
       return launchWave(
         output.plan,
         output.planRun,
-        output.cleanupIntended ?? false,
+        output.cleanupIntended ?? true,
       );
     case "web begin":
     case "web join":

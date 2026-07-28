@@ -346,14 +346,18 @@ export async function runPlanningLifecycleScenario() {
     });
     assert.equal(readable.nextAction.kind, "native-read-subagent-result");
 
+    const initialSuffix = bootstrapId.slice(5, 17);
+    const researchSliceId = `research-${initialSuffix}`;
+    const implementationSliceId = `implementation-${initialSuffix}`;
+    const followupSliceId = `followup-${initialSuffix}`;
     const plannedSlices = [
-      slice("research", {
+      slice(researchSliceId, {
         lifecycle: "subagent",
         workspaceMode: "shared-read-only",
         taskShape: "clear/repeatable",
       }),
-      slice("implementation"),
-      slice("followup", { dependsOn: ["implementation"] }),
+      slice(implementationSliceId),
+      slice(followupSliceId, { dependsOn: [implementationSliceId] }),
     ];
     const rawPlan = {
       schemaVersion: 1,
@@ -431,16 +435,16 @@ export async function runPlanningLifecycleScenario() {
       parentThreadId: "queen-1",
       members: [
         {
-          sliceId: "research",
+          sliceId: researchSliceId,
           lifecycle: "subagent",
           agentPath: "/root/research",
           turnId: "research-turn",
         },
         {
-          sliceId: "implementation",
+          sliceId: implementationSliceId,
           lifecycle: "spinoff",
           actionId: planned.nextAction.members.find(
-            ({ sliceId }) => sliceId === "implementation",
+            ({ sliceId }) => sliceId === implementationSliceId,
           ).actionId,
           threadId: "implementation-1",
           turnId: "implementation-turn",
@@ -468,14 +472,14 @@ export async function runPlanningLifecycleScenario() {
       ),
       [
         {
-          sliceId: "research",
+          sliceId: researchSliceId,
           lifecycle: "subagent",
           memberKind: "joined-subagent",
           controlSurface: "collaboration",
           primaryId: "agentPath",
         },
         {
-          sliceId: "implementation",
+          sliceId: implementationSliceId,
           lifecycle: "spinoff",
           memberKind: "spinoff",
           controlSurface: "codex-task",
@@ -495,8 +499,8 @@ export async function runPlanningLifecycleScenario() {
         type: "execution-failed",
         eventId: "implementation-failed",
         summary: "The implementation failed its required verification",
-        affectedSliceIds: ["implementation"],
-        completedSliceIds: ["research"],
+        affectedSliceIds: [implementationSliceId],
+        completedSliceIds: [researchSliceId],
         evidence: ["The current terminal result reports a failed outcome."],
       },
       generation: 1,
@@ -540,14 +544,17 @@ export async function runPlanningLifecycleScenario() {
       replanReadable.nextAction.kind,
       "native-read-subagent-result",
     );
+    const replanSuffix = replanBootstrapId.slice(5, 17);
+    const replacementSliceId = `replacement-${replanSuffix}`;
+    const revisedFollowupSliceId = `followup-${replanSuffix}`;
     const revisedPlan = {
       schemaVersion: 1,
       objective: "Ship the revised mixed task wave",
       maxParallel: 2,
       slices: [
         plannedSlices[0],
-        slice("replacement"),
-        slice("followup", { dependsOn: ["replacement"] }),
+        slice(replacementSliceId),
+        slice(revisedFollowupSliceId, { dependsOn: [replacementSliceId] }),
       ],
     };
     const replanned = await mcp.tool("nelos_plan_replan", {
@@ -566,9 +573,12 @@ export async function runPlanningLifecycleScenario() {
     assert.equal(replanned.nextAction.kind, "launch-wave");
     assert.deepEqual(
       replanned.nextAction.members.map(({ sliceId }) => sliceId),
-      ["replacement"],
+      [replacementSliceId],
     );
-    assert.deepEqual(replanned.replanning.completedSliceIds, ["research"]);
+    assert.deepEqual(
+      replanned.replanning.completedSliceIds,
+      [researchSliceId],
+    );
 
     const report = {
       schemaVersion: 1,

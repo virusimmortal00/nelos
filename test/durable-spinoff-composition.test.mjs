@@ -80,16 +80,8 @@ function createReceipt(effect, memberThreadId) {
   };
 }
 
-function wakeReceipt(effect, memberThreadId) {
-  return {
-    schemaVersion: 1,
-    actionId: effect.actionId,
-    type: "native-send-message",
-    threadId: effect.threadId,
-    memberThreadId,
-    delivered: true,
-    turnId: `queen-turn-${memberThreadId}`,
-  };
+function wakeReceipt(effect) {
+  return { threadId: effect.threadId };
 }
 
 function archiveReceipt(effect) {
@@ -185,7 +177,6 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
     plan: plan(),
     webId: "A1",
     queenThreadId: "queen",
-    cleanupIntended: true,
   });
   assert.deepEqual(persisted.persistedWorkUnitIds, ["dependent", "upstream"]);
   assert.equal((await initial.executionStore.read("dependent")).binding.state, "unbound");
@@ -218,7 +209,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   deliveries.push(upstreamWake.effects[0]);
   await restarted("task-upstream").composition.complete({
     ...upstreamCompletion,
-    receipt: wakeReceipt(upstreamWake.effects[0], "task-upstream"),
+    receipt: wakeReceipt(upstreamWake.effects[0]),
   });
   assert.equal(deliveries.length, 1);
 
@@ -290,7 +281,7 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   deliveries.push(dependentWake.effects[0]);
   await restarted("task-dependent").composition.complete({
     ...dependentCompletion,
-    receipt: wakeReceipt(dependentWake.effects[0], "task-dependent"),
+    receipt: wakeReceipt(dependentWake.effects[0]),
   });
   const dependent = await restarted("queen").executionStore.read("dependent");
   await restarted("queen").composition.acceptNativeResult({

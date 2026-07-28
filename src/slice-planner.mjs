@@ -15,6 +15,7 @@ const MAX_DELIVERABLE_CHARACTERS = 1_000;
 const MAX_CRITERIA = 8;
 const MAX_CRITERION_CHARACTERS = 500;
 const SLICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const DECORATED_TITLE_PATTERN = /^(?:👑|🕷️|🕸️)/u;
 const PLAN_FIELDS = new Set(["schemaVersion", "objective", "maxParallel", "slices"]);
 const SLICE_FIELDS = new Set([
   "id",
@@ -294,9 +295,19 @@ function normalizeSlice(value, index) {
     `slices[${index}].taskShape`,
     32,
   );
+  const title = normalizeText(
+    value.title,
+    `slices[${index}].title`,
+    MAX_TITLE_CHARACTERS,
+  );
+  if (DECORATED_TITLE_PATTERN.test(title)) {
+    throw new Error(
+      `slices[${index}].title must be plain undecorated text; Nelos adds role and web markers`,
+    );
+  }
   return {
     id,
-    title: normalizeText(value.title, `slices[${index}].title`, MAX_TITLE_CHARACTERS),
+    title,
     objective: normalizeText(
       value.objective,
       `slices[${index}].objective`,

@@ -55,7 +55,10 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /call `nelos_queen_decide`/);
   assert.match(skill, /exact consumed `native-result-read` receipt/);
   assert.match(skill, /returned\s+`nelos_orchestrate_advance` action/);
-  assert.match(skill, /Only after that advance reports the member accepted/);
+  assert.match(skill, /`cleanup-spinoffs`/);
+  assert.match(skill, /absent a preference, `ask`/);
+  assert.match(skill, /always-archive,\s+always-keep, or always-ask default/);
+  assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
   assert.doesNotMatch(skill, /--socket|app-server|standalone|NELOS_PROMPT/);

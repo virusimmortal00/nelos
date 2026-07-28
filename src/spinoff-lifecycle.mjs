@@ -22,15 +22,7 @@ const WAKE_STATES = new Set([
   "attention",
 ]);
 const CLEANUP_STATES = new Set(["pending", "kept", "archiving", "archived", "attention"]);
-const WAKE_RECEIPT_FIELDS = [
-  "schemaVersion",
-  "actionId",
-  "type",
-  "threadId",
-  "memberThreadId",
-  "delivered",
-  "turnId",
-];
+const WAKE_RECEIPT_FIELDS = ["threadId"];
 const ARCHIVE_RECEIPT_FIELDS = [
   "schemaVersion",
   "actionId",
@@ -60,18 +52,7 @@ export const SPINOFF_COMPLETE_INPUT_SCHEMA = Object.freeze({
         {
           type: "object",
           properties: {
-            schemaVersion: { const: 1 },
-            actionId: { type: "string", minLength: 1, maxLength: 512 },
-            type: { const: "native-send-message" },
             threadId: { type: "string", minLength: 1, maxLength: 512 },
-            memberThreadId: { type: "string", minLength: 1, maxLength: 512 },
-            delivered: { const: true },
-            turnId: {
-              anyOf: [
-                { type: "null" },
-                { type: "string", minLength: 1, maxLength: 512 },
-              ],
-            },
           },
           required: WAKE_RECEIPT_FIELDS,
           additionalProperties: false,
@@ -211,26 +192,11 @@ function archiveActionId(identity) {
 
 function validateWakeReceipt(value, identity) {
   if (value === null) return null;
-  exact(value, WAKE_RECEIPT_FIELDS, "native send-message receipt");
-  if (
-    value.schemaVersion !== 1 ||
-    value.type !== "native-send-message" ||
-    value.delivered !== true ||
-    value.actionId !== wakeActionId(identity) ||
-    value.threadId !== identity.queenThreadId ||
-    value.memberThreadId !== identity.memberThreadId
-  ) {
-    throw new Error("native send-message receipt is stale or conflicting");
+  exact(value, WAKE_RECEIPT_FIELDS, "native send-message host result");
+  if (value.threadId !== identity.queenThreadId) {
+    throw new Error("native send-message host result is stale or conflicting");
   }
-  return {
-    schemaVersion: 1,
-    actionId: value.actionId,
-    type: "native-send-message",
-    threadId: value.threadId,
-    memberThreadId: value.memberThreadId,
-    delivered: true,
-    turnId: value.turnId === null ? null : id(value.turnId, "turnId"),
-  };
+  return { threadId: value.threadId };
 }
 
 function validateArchiveReceipt(value) {
@@ -517,7 +483,7 @@ export class SpinoffLifecycleAdapterV1 {
           revision: record.revision + 1,
           wakeState: "delivered",
           wakeReason: null,
-          queenTurnId: completion.receipt.turnId,
+          queenTurnId: null,
           updatedAt: this.#now(),
         }, { expectedRevision: record.revision });
         return {
@@ -539,7 +505,7 @@ export class SpinoffLifecycleAdapterV1 {
             originalActionId: wakeActionId(completion),
             threadId: completion.queenThreadId,
             policy: {
-              onFound: "return-native-send-message-receipt",
+              onFound: "return-exact-send-message-host-result",
               onAbsent: "return-attention-before-retry",
               onAmbiguous: "return-attention",
             },

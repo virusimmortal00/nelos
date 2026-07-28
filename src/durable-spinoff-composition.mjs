@@ -129,7 +129,7 @@ export class DurableSpinoffCompositionV1 {
    * Persist every planned contract before returning the first native launch
    * effect. This is intentionally batch-first even when only wave one is ready.
    */
-  async persistPlan({ plan, webId, queenThreadId, cleanupIntended = false } = {}) {
+  async persistPlan({ plan, webId, queenThreadId, cleanupIntended = true } = {}) {
     if (this.#callerThreadId() !== queenThreadId) {
       throw new Error("only the plan's queen may persist durable work");
     }

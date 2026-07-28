@@ -101,6 +101,21 @@ function sameState(left, right) {
   return JSON.stringify(statePayload(left)) === JSON.stringify(statePayload(right));
 }
 
+function terminalNextAction(join, webId, queenThreadId) {
+  if (
+    join.boundary.type !== "continue" ||
+    join.boundary.reason !== "all-required-results-accepted"
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    kind: "cleanup-spinoffs",
+    tool: "nelos_spinoff_cleanup",
+    arguments: { webId, queenThreadId },
+  };
+}
+
 /**
  * Callback-only adapter. It reads durable Nelos state and returns typed host
  * effects; it never discovers, starts, or connects to an app-server process.
@@ -180,12 +195,14 @@ export class McpJoinAdapterV1 {
           reason: "required-members-unbound",
         };
       }
+      const nextAction = terminalNextAction(join, webId, queenThreadId);
       return {
         schemaVersion: MCP_OBSERVATION_SCHEMA_VERSION,
         webId,
         queenThreadId,
         checkpoint,
         join,
+        ...(nextAction === null ? {} : { nextAction }),
       };
     });
   }

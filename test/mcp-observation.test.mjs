@@ -341,6 +341,15 @@ test("acceptance advances collection to continuation without claiming Desktop wa
     reason: "all-required-results-accepted",
     automaticWake: false,
   });
+  assert.deepEqual(continued.nextAction, {
+    schemaVersion: 1,
+    kind: "cleanup-spinoffs",
+    tool: "nelos_spinoff_cleanup",
+    arguments: {
+      webId: "A1",
+      queenThreadId: "queen",
+    },
+  });
 });
 
 test("observation adapter has no app-server or process-control dependency", async () => {

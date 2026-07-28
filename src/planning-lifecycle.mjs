@@ -210,7 +210,7 @@ function normalizeRequest(value) {
   ) {
     throw new Error(`maxParallel must be between 1 and ${MAX_PARALLEL_SLICES}`);
   }
-  const cleanupIntended = value.cleanupIntended ?? false;
+  const cleanupIntended = value.cleanupIntended ?? true;
   if (typeof cleanupIntended !== "boolean") {
     throw new Error("cleanupIntended must be a boolean");
   }
@@ -682,7 +682,7 @@ export class PlanningLifecycleCoordinatorV1 {
     return { record: updated, reconciled: true };
   }
 
-  async advance(value, { appServerBridge }) {
+  async advance(value, { appServerBridge, preservedSliceIds = [] }) {
     const request = normalizeRequest(value);
     const receipt = normalizeReceipt(value.receipt);
     const bootstrap = createPlanningBootstrapV1({
@@ -886,6 +886,7 @@ export class PlanningLifecycleCoordinatorV1 {
             bootstrapId: request.bootstrapId,
           },
           receipt.response,
+          { preservedSliceIds },
         );
         if (finalized.ready !== (record.phase === "completed")) {
           throw new Error("terminal planning lifecycle has an invalid result receipt");
@@ -1038,6 +1039,7 @@ export class PlanningLifecycleCoordinatorV1 {
           bootstrapId: request.bootstrapId,
         },
         receipt.response,
+        { preservedSliceIds },
       );
       if (!replay) {
         record = await this.#store.write(
@@ -1147,7 +1149,7 @@ export const PLANNING_LIFECYCLE_INPUT_SCHEMA = Object.freeze({
     cleanupIntended: {
       type: "boolean",
       description:
-        "Grant durable spin-offs archive capability only when cleanup was explicitly requested.",
+        "Grant durable spin-offs archive capability for terminal cleanup. Defaults to true; cleanup still asks before archiving unless a preference says otherwise.",
     },
     bootstrapId: {
       type: "string",

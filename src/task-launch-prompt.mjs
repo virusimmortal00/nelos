@@ -36,9 +36,14 @@ export function buildTaskLaunchPromptV1({
   const wakeInstructions = completionWake
     ? [
         "Before your final response, call `nelos_spinoff_complete`.",
-        "Set receipt to null on the first call. Execute only its returned native",
-        "send-message effect, then call the same tool with the exact host receipt.",
+        "Set receipt to null on the first call. Execute the returned effect with",
+        "`codex_app.send_message_to_thread`, passing its threadId and prompt unchanged.",
+        "That host tool returns only a threadId. Pass its exact result unchanged as",
+        `receipt: ${JSON.stringify({ threadId: completionWake.queenThreadId })}.`,
+        "Do not add actionId, specRevision, memberThreadId, delivered, type, or turnId.",
         "A reconciliation effect means stop for attention; never resend blindly.",
+        "After the exact receipt is acknowledged, immediately return your final result.",
+        "Never wait for queen acceptance, coordination, archival, or cleanup; those are queen-owned post-result steps.",
         "Use the outcome and concise summary you will place in the result block,",
         "set memberThreadId to this task's CODEX_THREAD_ID, and use these fixed fields:",
         JSON.stringify(completionWake),

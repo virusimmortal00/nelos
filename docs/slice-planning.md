@@ -81,8 +81,11 @@ Each durable `launch-wave` member carries an exact
 before native task creation, create only from its returned effect, and submit
 the exact task-ID receipt to bind the work unit. This guarantees the callback
 target exists before the worker can call `nelos_spinoff_complete`.
-`cleanupIntended` is explicit planning input; only `true` grants the durable
-work unit `archive` capability.
+Durable spin-offs are cleanup-capable by default: omitted `cleanupIntended`
+behaves as `true` and grants the work unit `archive` capability. This is
+authority for the later lifecycle step, not permission to archive immediately;
+the default cleanup policy remains `ask`. Explicit `false` is a deliberate
+opt-out that leaves the work unit archive-incapable.
 
 The `create-thread` launcher does not imply a creation-time title argument:
 current Codex `create_thread` has no title field. The prompt's `Task title:`

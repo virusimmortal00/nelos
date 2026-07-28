@@ -213,6 +213,15 @@ test("queen decision persists exact provenance, advances observation, and gates 
     reason: "all-required-results-accepted",
     automaticWake: false,
   });
+  assert.deepEqual(observed.nextAction, {
+    schemaVersion: 1,
+    kind: "cleanup-spinoffs",
+    tool: "nelos_spinoff_cleanup",
+    arguments: {
+      webId: "A1",
+      queenThreadId: "queen",
+    },
+  });
 
   const cleanup = await current.lifecycle.cleanup({
     webId: "A1",

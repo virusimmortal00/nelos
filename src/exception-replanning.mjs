@@ -310,7 +310,10 @@ export class ExceptionReplanningCoordinatorV1 {
     const trigger = normalizeTrigger(value.trigger, basePlan);
     const result = await this.#planningLifecycle.advance(
       lifecycleRequest(value, basePlan, trigger),
-      context,
+      {
+        ...context,
+        preservedSliceIds: trigger.completedSliceIds,
+      },
     );
     if (!result.plan) {
       return {

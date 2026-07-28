@@ -22,6 +22,7 @@ function request(overrides = {}) {
 }
 
 function plannerResponse(bootstrapId, overrides = {}) {
+  const sliceIdSuffix = bootstrapId.slice(5, 17);
   return [
     "```nelos-plan",
     JSON.stringify({
@@ -35,7 +36,7 @@ function plannerResponse(bootstrapId, overrides = {}) {
         maxParallel: 2,
         slices: [
           {
-            id: "implement",
+            id: `implement-${sliceIdSuffix}`,
             title: "Implement history view",
             objective: "Implement the bounded view",
             deliverable: "Working view and tests",

@@ -77,3 +77,20 @@ test("the shared task result template preserves launch identity", () => {
   );
   assert.match(prompt(), /"workUnitId":"alpha"/u);
 });
+
+test("durable launch prompts require the exact threadId-only Codex host result", () => {
+  const value = prompt({
+    completionWake: {
+      webId: "A4",
+      queenThreadId: "queen-thread",
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+    },
+  });
+  assert.match(value, /codex_app\.send_message_to_thread/u);
+  assert.match(value, /receipt: \{"threadId":"queen-thread"\}/u);
+  assert.match(value, /Do not add actionId, specRevision/u);
+  assert.match(value, /immediately return your final result/u);
+  assert.match(value, /Never wait for queen acceptance/u);
+});

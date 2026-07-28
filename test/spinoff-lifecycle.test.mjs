@@ -98,13 +98,7 @@ async function fixture(
 
 function wakeReceipt(effect, overrides = {}) {
   return {
-    schemaVersion: 1,
-    actionId: effect.actionId,
-    type: "native-send-message",
     threadId: effect.threadId,
-    memberThreadId: "member-thread",
-    delivered: true,
-    turnId: "queen-turn",
     ...overrides,
   };
 }
@@ -137,7 +131,7 @@ test("spin-off completion persists before returning one host-owned wake effect",
     completion({ receipt: wakeReceipt(first.effects[0]) }),
   );
   assert.equal(delivered.record.wakeState, "delivered");
-  assert.equal(delivered.record.queenTurnId, "queen-turn");
+  assert.equal(delivered.record.queenTurnId, null);
   assert.deepEqual(delivered.effects, []);
 
   const replay = await adapter.complete(completion());
@@ -160,10 +154,21 @@ test("spin-off completion rejects stale receipts and unbound identities", async 
   await assert.rejects(
     adapter.complete(
       completion({
-        receipt: wakeReceipt(first.effects[0], { memberThreadId: "other" }),
+        receipt: wakeReceipt(first.effects[0], { threadId: "other" }),
       }),
     ),
     /stale or conflicting/u,
+  );
+  await assert.rejects(
+    adapter.complete(
+      completion({
+        receipt: {
+          threadId: first.effects[0].threadId,
+          specRevision: 1,
+        },
+      }),
+    ),
+    /incompatible shape/u,
   );
   await assert.rejects(
     adapter.complete(completion({ memberThreadId: "other" })),

@@ -113,7 +113,7 @@ async function plannedSlicesOutput(
     planRunStore,
     parentPlanRun = null,
     webRegistry,
-    cleanupIntended = false,
+    cleanupIntended = true,
   },
 ) {
   const sourceId =
@@ -347,7 +347,7 @@ const TOOLS = [
           queenThreadId: args.queenThreadId,
           planRunStore,
           webRegistry,
-          cleanupIntended: args.cleanupIntended ?? false,
+          cleanupIntended: args.cleanupIntended ?? true,
         },
       );
     },
@@ -434,7 +434,7 @@ const TOOLS = [
         cleanupIntended: {
           type: "boolean",
           description:
-            "Grant archive capability only when durable cleanup was explicitly requested.",
+            "Grant archive capability for terminal cleanup. Defaults to true; cleanup still asks before archiving unless a preference says otherwise.",
         },
       },
       required: ["plan", "queenThreadId"],
@@ -451,7 +451,7 @@ const TOOLS = [
           queenThreadId: args.queenThreadId,
           planRunStore,
           webRegistry,
-          cleanupIntended: args.cleanupIntended ?? false,
+          cleanupIntended: args.cleanupIntended ?? true,
         },
       );
     },
@@ -825,7 +825,9 @@ const TOOLS = [
     name: "nelos_orchestrate_advance",
     description:
       "Advance the durable callback-only title/wait/result join checkpoint. " +
-      "Returns typed host-owned effects and never starts or discovers an app server.",
+      "Returns typed host-owned effects and, after all required results are " +
+      "accepted, an exact nelos_spinoff_cleanup next action. Never starts or " +
+      "discovers an app server.",
     inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { joinAdapter }) {
@@ -848,8 +850,9 @@ const TOOLS = [
     name: "nelos_spinoff_complete",
     description:
       "Persist one bound spin-off completion and return one host-owned native " +
-      "send-message effect, or validate its exact receipt. Replays return a " +
-      "non-sending reconciliation effect instead of duplicating the wake.",
+      "send-message effect, or validate the exact threadId-only host result. " +
+      "Replays return a non-sending reconciliation effect instead of " +
+      "duplicating the wake.",
     inputSchema: SPINOFF_COMPLETE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { lifecycleAdapter }) {
