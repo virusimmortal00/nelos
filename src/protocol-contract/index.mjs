@@ -74,6 +74,7 @@ const NATIVE_CREATE_PROMPT = {
 };
 const POSITIVE = { type: "integer", minimum: 1 };
 const NULLABLE_ID = { anyOf: [{ type: "null" }, ID] };
+const NULLABLE_THREAD_ID = { anyOf: [{ type: "null" }, THREAD_ID] };
 
 function closed(properties, required = Object.keys(properties)) {
   return {
@@ -111,7 +112,7 @@ const ROUTE_OBSERVATION = closed({
   matches: { type: "boolean" },
 });
 const PLANNER_MEMBER_PROPERTIES = {
-  bootstrapId: ID,
+  bootstrapId: BOOTSTRAP_ID,
   agentTaskName: SHORT_ID,
   lifecycle: { const: "subagent" },
   memberKind: { const: "joined-subagent" },
@@ -147,7 +148,7 @@ const PLANNER_MEMBER_PROPERTIES = {
   prompt: PLANNER_PROMPT,
   resultContract: closed({
     fence: { const: "nelos-plan" },
-    bootstrapId: ID,
+    bootstrapId: BOOTSTRAP_ID,
     nextTool: { const: "nelos_plan_bootstrap" },
     responseArgument: { const: "response" },
     reuseRequest: { const: true },
@@ -170,9 +171,9 @@ const PLANNER_MEMBER_PROPERTIES = {
   }),
 };
 const PLANNER_LIFECYCLE_PRECONDITIONS = closed({
-  bootstrapId: ID,
+  bootstrapId: BOOTSTRAP_ID,
   expectedPhase: { const: "launch-pending" },
-  expectedParentThreadId: ID,
+  expectedParentThreadId: THREAD_ID,
 });
 const PLANNER_MEMBER = {
   oneOf: [
@@ -412,9 +413,9 @@ const NEXT_ACTION_MEMBERS = [
   }),
   discriminated("kind", "native-wait-subagent", {
     actionId: ID,
-    agentPath: ID,
-    threadId: ID,
-    turnId: NULLABLE_ID,
+    agentPath: AGENT_PATH,
+    threadId: THREAD_ID,
+    turnId: NULLABLE_THREAD_ID,
     after: { const: "repeat-planner-launch-receipt" },
     reconciliation: closed({
       reason: { const: "planner-turn-observation-conflict" },
@@ -427,10 +428,10 @@ const NEXT_ACTION_MEMBERS = [
   }, ["actionId", "agentPath", "threadId", "turnId", "after"]),
   discriminated("kind", "native-read-subagent-result", {
     actionId: ID,
-    bootstrapId: ID,
-    agentPath: ID,
-    threadId: ID,
-    turnId: ID,
+    bootstrapId: BOOTSTRAP_ID,
+    agentPath: AGENT_PATH,
+    threadId: THREAD_ID,
+    turnId: THREAD_ID,
     purpose: { const: "read-planner-result" },
   }),
   discriminated("kind", "launch-wave", {
@@ -672,6 +673,7 @@ const EFFECT_MEMBERS = [
       type: "array",
       minItems: 1,
       maxItems: 100,
+      uniqueItemProperty: "workUnitId",
       items: closed({
         workUnitId: WORK_UNIT_ID,
         specRevision: POSITIVE,

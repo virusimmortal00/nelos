@@ -1091,6 +1091,20 @@ test("transition initialization accepts only explicit receipt-consuming executab
     purpose: "read-planner-result",
   };
   const state = initialProtocolTransitionStateV1([plannerRead]);
+  for (const overrides of [
+    { bootstrapId: "bad" },
+    { agentPath: "planner" },
+    { threadId: "planner/thread" },
+    { turnId: "planner/turn" },
+  ]) {
+    assert.throws(
+      () => initialProtocolTransitionStateV1([{
+        ...plannerRead,
+        ...overrides,
+      }]),
+      /not valid|exactly one/,
+    );
+  }
   assert.equal(
     reduceProtocolTransitionV1(state, plannerRead, {
       schemaVersion: 1,
@@ -1118,6 +1132,13 @@ test("transition initialization accepts only explicit receipt-consuming executab
 });
 
 test("wait target identity and thread-only wake receipts are exact", () => {
+  assert.throws(
+    () => validateProtocolContractV1("effect", {
+      ...waitEffect,
+      targets: [waitEffect.targets[0], waitEffect.targets[0]],
+    }),
+    /duplicate|exactly one/,
+  );
   const waitState = initialProtocolTransitionStateV1([waitEffect]);
   const waitReceipt = {
     schemaVersion: 1,
