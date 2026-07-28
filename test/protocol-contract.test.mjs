@@ -99,6 +99,9 @@ function example(schema, seed = 0) {
     if (schema.pattern === "^plan:[a-f0-9]{24}$") {
       return `plan:${"a".repeat(24)}`;
     }
+    if (schema.pattern === "^run:[a-f0-9]{40}$") {
+      return `run:${"a".repeat(40)}`;
+    }
     if (schema.pattern?.startsWith("^/")) return "/root/planner";
     return `value-${seed}`;
   }
@@ -239,6 +242,48 @@ test("planner interrupted-turn reconciliation evidence is closed and typed", () 
       },
     }),
     /exactly one|not allowed/,
+  );
+});
+
+test("wave actions use persisted plan-run and collaboration identities", () => {
+  const launchWaveSchema = PROTOCOL_ACTION_SCHEMA_V1.oneOf.find(
+    ({ properties }) => properties.kind?.const === "launch-wave",
+  );
+  const launchWave = example(launchWaveSchema, 5);
+  assert.deepEqual(validateProtocolContractV1("action", launchWave), launchWave);
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...launchWave,
+      verification: {
+        ...launchWave.verification,
+        planRunId: "bad",
+      },
+    }),
+    /exactly one/,
+  );
+
+  const waitWaveSchema = PROTOCOL_ACTION_SCHEMA_V1.oneOf.find(
+    ({ properties }) => properties.kind?.const === "native-wait-wave",
+  );
+  const waitWave = example(waitWaveSchema, 6);
+  waitWave.targets[0] = {
+    ...waitWave.targets[0],
+    lifecycle: "subagent",
+    memberKind: "joined-subagent",
+    controlSurface: "collaboration",
+    primaryId: "agentPath",
+    agentPath: "/root/member",
+  };
+  assert.deepEqual(validateProtocolContractV1("action", waitWave), waitWave);
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...waitWave,
+      targets: [{
+        ...waitWave.targets[0],
+        agentPath: "member",
+      }],
+    }),
+    /exactly one/,
   );
 });
 

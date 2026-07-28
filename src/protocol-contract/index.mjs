@@ -32,6 +32,10 @@ const BOOTSTRAP_ID = {
   type: "string",
   pattern: "^plan:[a-f0-9]{24}$",
 };
+const PLAN_RUN_ID = {
+  type: "string",
+  pattern: "^run:[a-f0-9]{40}$",
+};
 const AGENT_PATH = {
   ...ID,
   pattern:
@@ -212,7 +216,7 @@ const MEMBER_TARGET = {
       memberKind: { const: "joined-subagent" },
       controlSurface: { const: "collaboration" },
       primaryId: { const: "agentPath" },
-      agentPath: ID,
+      agentPath: AGENT_PATH,
     }),
     closed({
       ...MEMBER_TARGET_IDENTITY,
@@ -443,7 +447,7 @@ const NEXT_ACTION_MEMBERS = [
       items: LAUNCH_WAVE_MEMBER,
     },
     verification: closed({
-      planRunId: ID,
+      planRunId: PLAN_RUN_ID,
       waveIndex: POSITIVE,
       waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
     }),
@@ -549,7 +553,7 @@ const NEXT_ACTION_MEMBERS = [
     bootstrapId: ID,
     confidence: { enum: ["low", "medium", "high"] },
     webId: ID,
-    planRunId: ID,
+    planRunId: PLAN_RUN_ID,
     nextWaveIndex: POSITIVE,
     sliceIds: { type: "array", maxItems: 16, uniqueItems: true, items: SHORT_ID },
     workUnitIds: { type: "array", maxItems: 100, uniqueItems: true, items: WORK_UNIT_ID },
