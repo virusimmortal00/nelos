@@ -15,6 +15,10 @@ import {
   resolveNativeSubagentThreadV1,
   verifyRuntimeIntelligenceV1,
 } from "./runtime-intelligence-verification.mjs";
+import {
+  PROTOCOL_CODE_REGISTRY_V1,
+  validateProtocolContractV1,
+} from "./protocol-contract/index.mjs";
 import { MAX_PARALLEL_SLICES } from "./slice-planner.mjs";
 import {
   taskStateDirectory,
@@ -23,6 +27,27 @@ import {
 
 export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
+
+export class PlanningLifecycleProtocolError extends Error {
+  constructor(code, message) {
+    super(message);
+    if (!Object.hasOwn(PROTOCOL_CODE_REGISTRY_V1, code)) {
+      throw new Error(`unknown planning lifecycle protocol code ${code}`);
+    }
+    const declaration = PROTOCOL_CODE_REGISTRY_V1[code];
+    this.name = "PlanningLifecycleProtocolError";
+    this.code = code;
+    this.retryable = !declaration.terminal;
+    this.recoveryCommand = declaration.recoveryCommand;
+    this.protocolError = validateProtocolContractV1("error", {
+      schemaVersion: 1,
+      code,
+      category: declaration.category,
+      message,
+      recoveryCommand: declaration.recoveryCommand,
+    });
+  }
+}
 
 const MAX_RECORD_BYTES = 64 * 1024;
 const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 1;
@@ -570,7 +595,7 @@ function statusAction(
             reconciliation: {
               reason: "planner-turn-observation-conflict",
               retryable: true,
-              appServerTurnStatus: latestTurn.status,
+              appServerTurnStatus: "interrupted",
               nativeCollaborationStatus: "unavailable",
               observation: record.interruptedTurnReconciliations,
               maximumObservations:
@@ -593,6 +618,7 @@ function statusAction(
     schemaVersion: 1,
     kind: "native-read-subagent-result",
     actionId: readActionId(record.bootstrapId),
+    bootstrapId: record.bootstrapId,
     agentPath: record.identity.agentPath,
     threadId: thread.threadId,
     turnId: latestTurn.turnId,
@@ -883,6 +909,12 @@ export class PlanningLifecycleCoordinatorV1 {
         throw new Error("planner result receipt arrived before launch verification");
       }
       if (receipt.actionId !== readActionId(record.bootstrapId)) {
+        if (record.phase === "verified") {
+          throw new PlanningLifecycleProtocolError(
+            "planner.result-not-yet-authorized",
+            "planner result is not authorized yet; replay the verified launch receipt until Nelos returns native-read-subagent-result, then copy that actionId unchanged",
+          );
+        }
         throw new Error("planner result receipt has a stale or future actionId");
       }
       if (receipt.threadId !== record.identity?.threadId) {

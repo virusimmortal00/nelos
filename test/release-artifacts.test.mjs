@@ -190,8 +190,11 @@ test("release artifact build is reproducible and checksum-complete", async () =>
   try {
     await cp(repositoryRoot, fixtureRoot, {
       recursive: true,
-      filter: (source) =>
-        ![".git", "node_modules", "dist"].includes(basename(source)),
+      filter: (source) => {
+        const name = basename(source);
+        return ![".git", "node_modules", "dist"].includes(name)
+          && !name.startsWith(".nelos-worktree-launch-");
+      },
     });
     const packageMetadata = JSON.parse(
       await readFile(join(fixtureRoot, "package.json"), "utf8"),
