@@ -14,7 +14,7 @@ const ID = {
   type: "string",
   minLength: 1,
   maxLength: 512,
-  pattern: "^[^\\u0000-\\u001f\\u007f]+$",
+  pattern: "^[^\\s\\u0000-\\u001f\\u007f]+$",
 };
 const THREAD_ID = {
   type: "string",
@@ -43,6 +43,7 @@ const PLANNER_RESPONSE = {
   type: "string",
   minLength: 1,
   maxLength: MAX_PLANNING_RESPONSE_CHARACTERS,
+  pattern: "[^\\s\\u0000-\\u001f\\u007f]",
 };
 const NATIVE_CREATE_PROMPT = {
   type: "string",

@@ -467,6 +467,20 @@ test("compatibility and contract discriminators are correlated to value schemas"
     validateProtocolContractV1("receipt", largePlannerReceipt),
     largePlannerReceipt,
   );
+  assert.throws(
+    () => validateProtocolContractV1("receipt", {
+      ...largePlannerReceipt,
+      response: "   \n\t",
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("effect", {
+      ...readEffect(),
+      actionId: "read 1",
+    }),
+    /exactly one/,
+  );
 
   const subagentWait = {
     ...verificationOutput.nextAction,
