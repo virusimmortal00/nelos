@@ -100,6 +100,14 @@ const NATIVE_TASK = closed({
   model: { type: "string", minLength: 1, maxLength: 128 },
   thinking: { type: "string", minLength: 1, maxLength: 32 },
 });
+const PLANNER_NATIVE_TASK = closed({
+  model: { const: "gpt-5.6-sol" },
+  thinking: { const: "medium" },
+});
+const JOINED_SUBAGENT_NATIVE_TASK = closed({
+  model: { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] },
+  thinking: { type: "string", minLength: 1, maxLength: 32 },
+});
 const ROUTE_ENFORCEMENT = closed({
   mode: { const: "exact" },
   onUnavailable: { const: "stop" },
@@ -131,7 +139,7 @@ const PLANNER_MEMBER_PROPERTIES = {
   }),
   workspaceMode: { const: "shared-read-only" },
   forkTurns: { const: "none" },
-  nativeTask: NATIVE_TASK,
+  nativeTask: PLANNER_NATIVE_TASK,
   routeEnforcement: ROUTE_ENFORCEMENT,
   threadIdentity: closed({
     required: { const: true },
@@ -259,6 +267,7 @@ const SUBAGENT_LAUNCH_MEMBER = closed({
   lifecycle: { const: "subagent" },
   memberKind: { const: "joined-subagent" },
   launcher: { const: "spawn-subagent" },
+  nativeTask: JOINED_SUBAGENT_NATIVE_TASK,
   titlePolicy: closed({
     mode: { const: "prompt-seeded" },
     recommendedMaxCharacters: POSITIVE,
@@ -444,6 +453,7 @@ const NEXT_ACTION_MEMBERS = [
       type: "array",
       minItems: 1,
       maxItems: 16,
+      uniqueItemProperty: "sliceId",
       items: LAUNCH_WAVE_MEMBER,
     },
     verification: closed({

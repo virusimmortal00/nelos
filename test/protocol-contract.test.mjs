@@ -246,6 +246,28 @@ test("planner interrupted-turn reconciliation evidence is closed and typed", () 
 });
 
 test("wave actions use persisted plan-run and collaboration identities", () => {
+  const launchPlannerSchema = PROTOCOL_ACTION_SCHEMA_V1.oneOf.find(
+    ({ properties }) => properties.kind?.const === "launch-planner",
+  );
+  const launchPlanner = example(launchPlannerSchema, 1);
+  assert.deepEqual(
+    validateProtocolContractV1("action", launchPlanner),
+    launchPlanner,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...launchPlanner,
+      member: {
+        ...launchPlanner.member,
+        nativeTask: {
+          ...launchPlanner.member.nativeTask,
+          model: "gpt-5.6-luna",
+        },
+      },
+    }),
+    /exactly one/,
+  );
+
   const launchWaveSchema = PROTOCOL_ACTION_SCHEMA_V1.oneOf.find(
     ({ properties }) => properties.kind?.const === "launch-wave",
   );
@@ -260,6 +282,36 @@ test("wave actions use persisted plan-run and collaboration identities", () => {
       },
     }),
     /exactly one/,
+  );
+  const subagentMemberSchema =
+    launchWaveSchema.properties.members.items.oneOf.find(
+      ({ properties }) => properties.lifecycle?.const === "subagent",
+    );
+  const subagentMember = example(subagentMemberSchema, 1);
+  const subagentWave = { ...launchWave, members: [subagentMember] };
+  assert.deepEqual(
+    validateProtocolContractV1("action", subagentWave),
+    subagentWave,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...subagentWave,
+      members: [{
+        ...subagentMember,
+        nativeTask: {
+          ...subagentMember.nativeTask,
+          model: "gpt-5.6-luna",
+        },
+      }],
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...subagentWave,
+      members: [subagentMember, { ...subagentMember }],
+    }),
+    /duplicate|exactly one/,
   );
 
   const waitWaveSchema = PROTOCOL_ACTION_SCHEMA_V1.oneOf.find(
