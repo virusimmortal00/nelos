@@ -631,6 +631,15 @@ test("transition reducer binds full persisted action and all receipt identities"
     })).error.code,
     "protocol.malformed",
   );
+  assert.equal(
+    reduceProtocolTransitionV1(state, action, readReceipt({
+      resultEnvelope: {
+        ...resultEnvelope(),
+        summary: "\u0000\n\t ",
+      },
+    })).error.code,
+    "protocol.malformed",
+  );
 });
 
 test("transition initialization accepts only explicit receipt-consuming executables", () => {
@@ -796,6 +805,30 @@ test("wait target identity and thread-only wake receipts are exact", () => {
     ).accepted,
     false,
   );
+
+  const repeatedWake = {
+    ...sendEffect,
+    actionId: "wake-2",
+    prompt: "Another member completed.",
+  };
+  const twoWakeState = initialProtocolTransitionStateV1([
+    sendEffect,
+    repeatedWake,
+  ]);
+  const firstWake = reduceProtocolTransitionV1(
+    twoWakeState,
+    sendEffect,
+    { threadId: "queen-1" },
+  );
+  const secondWake = reduceProtocolTransitionV1(
+    firstWake.state,
+    repeatedWake,
+    { threadId: "queen-1" },
+  );
+  assert.equal(firstWake.accepted, true);
+  assert.equal(secondWake.accepted, true);
+  assert.equal(secondWake.replayed, false);
+  assert.equal(secondWake.state.cursor, 2);
 });
 
 test("transition rejects stale, duplicated, cross-action, and out-of-order receipts", () => {
@@ -828,7 +861,7 @@ test("transition rejects stale, duplicated, cross-action, and out-of-order recei
       second,
       readReceipt(),
     ).error.code,
-    "receipt.duplicate",
+    "receipt.cross-action",
   );
   assert.equal(
     reduceProtocolTransitionV1(

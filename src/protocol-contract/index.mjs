@@ -521,7 +521,12 @@ function resultEnvelope(outcome, blockers) {
     specRevision: POSITIVE,
     attempt: POSITIVE,
     outcome: { const: outcome },
-    summary: { type: "string", minLength: 1, maxLength: 2_000 },
+    summary: {
+      type: "string",
+      minLength: 1,
+      maxLength: 2_000,
+      pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+    },
     artifacts: RESULT_LIST,
     verification: RESULT_LIST,
     blockers,
@@ -1081,7 +1086,10 @@ export function reduceProtocolTransitionV1(state, action, receipt) {
   }
   const expected = state.actions[state.cursor];
   const digest = protocolReceiptDigestV1(normalizedReceipt);
-  const replay = state.consumedReceipts.find(({ digest: value }) => value === digest);
+  const replay = state.consumedReceipts.find(
+    ({ actionId, digest: value }) =>
+      actionId === executable.value.actionId && value === digest,
+  );
   if (replay) {
     const original = state.actions.find(
       ({ value }) => value.actionId === replay.actionId,
@@ -1095,9 +1103,7 @@ export function reduceProtocolTransitionV1(state, action, receipt) {
       return { accepted: true, replayed: true, state: structuredClone(state), error: null };
     }
     return transitionError(
-      replay.actionId === executable.value.actionId
-        ? "receipt.conflicting"
-        : "receipt.duplicate",
+      "receipt.conflicting",
       "replayed receipt does not match its original persisted executable",
     );
   }
