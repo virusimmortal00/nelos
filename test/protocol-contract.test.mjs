@@ -157,6 +157,10 @@ const plannerBootstrapFixture = createPlanningBootstrapV1({
   maxParallel: 2,
   bootstrapId: "plan:1234567890abcdef12345678",
 });
+const cliPlannerAction = deriveNextAction({
+  command: "plan bootstrap",
+  bootstrap: plannerBootstrapFixture,
+});
 
 const launchPlannerOutput = {
   schemaVersion: 1,
@@ -375,6 +379,38 @@ test("compatibility and contract discriminators are correlated to value schemas"
   );
   assert.equal(actionEnvelope.contract, "action");
   assert.deepEqual(actionEnvelope.value, verificationOutput.nextAction);
+  assert.deepEqual(
+    validateProtocolContractV1("action", cliPlannerAction),
+    cliPlannerAction,
+  );
+
+  const subagentWait = {
+    ...verificationOutput.nextAction,
+    targets: [{
+      sliceId: "member",
+      lifecycle: "subagent",
+      memberKind: "joined-subagent",
+      controlSurface: "collaboration",
+      primaryId: "agentPath",
+      agentPath: "/root/member",
+      threadId: "thread-member",
+      turnId: "turn-member",
+    }],
+  };
+  assert.deepEqual(
+    validateProtocolContractV1("action", subagentWait),
+    subagentWait,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...verificationOutput.nextAction,
+      targets: [{
+        ...verificationOutput.nextAction.targets[0],
+        agentPath: "/root/member",
+      }],
+    }),
+    /exactly one/,
+  );
 
   assert.throws(
     () => validateProtocolContractV1("action", {
@@ -640,6 +676,19 @@ test("transition reducer binds full persisted action and all receipt identities"
     })).error.code,
     "protocol.malformed",
   );
+  for (const field of ["artifacts", "verification", "blockers"]) {
+    const malformedEvidence = {
+      ...resultEnvelope(),
+      [field]: ["\u0000\n\t "],
+    };
+    if (field === "blockers") malformedEvidence.outcome = "blocked";
+    assert.equal(
+      reduceProtocolTransitionV1(state, action, readReceipt({
+        resultEnvelope: malformedEvidence,
+      })).error.code,
+      "protocol.malformed",
+    );
+  }
 });
 
 test("transition initialization accepts only explicit receipt-consuming executables", () => {

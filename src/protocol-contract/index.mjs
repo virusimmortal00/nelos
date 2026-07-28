@@ -51,7 +51,7 @@ const ROUTE_OBSERVATION = closed({
   effort: { type: "string", minLength: 1, maxLength: 32 },
   matches: { type: "boolean" },
 });
-const PLANNER_MEMBER = closed({
+const PLANNER_MEMBER_PROPERTIES = {
   bootstrapId: ID,
   agentTaskName: SHORT_ID,
   lifecycle: { const: "subagent" },
@@ -109,13 +109,22 @@ const PLANNER_MEMBER = closed({
       responseArgument: { const: "response" },
     }),
   }),
-  actionId: ID,
-  preconditions: closed({
-    bootstrapId: ID,
-    expectedPhase: { const: "launch-pending" },
-    expectedParentThreadId: ID,
-  }),
+};
+const PLANNER_LIFECYCLE_PRECONDITIONS = closed({
+  bootstrapId: ID,
+  expectedPhase: { const: "launch-pending" },
+  expectedParentThreadId: ID,
 });
+const PLANNER_MEMBER = {
+  oneOf: [
+    closed(PLANNER_MEMBER_PROPERTIES),
+    closed({
+      ...PLANNER_MEMBER_PROPERTIES,
+      actionId: ID,
+      preconditions: PLANNER_LIFECYCLE_PRECONDITIONS,
+    }),
+  ],
+};
 const TOOL_ARGUMENTS = {
   type: "object",
   minProperties: 1,
@@ -130,18 +139,30 @@ const TOOL_ARGUMENTS = {
     ],
   },
 };
-const MEMBER_TARGET = closed({
+const MEMBER_TARGET_IDENTITY = {
   sliceId: SHORT_ID,
-  lifecycle: { enum: ["subagent", "spinoff"] },
-  memberKind: { enum: ["joined-subagent", "spinoff"] },
-  controlSurface: { enum: ["collaboration", "codex-task"] },
-  primaryId: { enum: ["agentPath", "threadId"] },
   threadId: ID,
   turnId: ID,
-}, [
-  "sliceId", "lifecycle", "memberKind", "controlSurface", "primaryId",
-  "threadId", "turnId",
-]);
+};
+const MEMBER_TARGET = {
+  oneOf: [
+    closed({
+      ...MEMBER_TARGET_IDENTITY,
+      lifecycle: { const: "subagent" },
+      memberKind: { const: "joined-subagent" },
+      controlSurface: { const: "collaboration" },
+      primaryId: { const: "agentPath" },
+      agentPath: ID,
+    }),
+    closed({
+      ...MEMBER_TARGET_IDENTITY,
+      lifecycle: { const: "spinoff" },
+      memberKind: { const: "spinoff" },
+      controlSurface: { const: "codex-task" },
+      primaryId: { const: "threadId" },
+    }),
+  ],
+};
 
 const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "launch-planner", {
@@ -506,7 +527,12 @@ const RECEIPT_MEMBERS = [
 const RESULT_LIST = {
   type: "array",
   maxItems: 8,
-  items: { type: "string", minLength: 1, maxLength: 500 },
+  items: {
+    type: "string",
+    minLength: 1,
+    maxLength: 500,
+    pattern: "[^\\s\\u0000-\\u001f\\u007f]",
+  },
 };
 
 function resultEnvelope(outcome, blockers) {

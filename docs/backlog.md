@@ -7,7 +7,7 @@ to **Done**, and revise **Next** before beginning new product work.
 This backlog is the source of truth for longer-term queen-driven coordination
 work. Order future slices by their evidence and acceptance gates.
 
-**Last reviewed:** 2026-07-28 13:45 EDT (`America/New_York`)
+**Last reviewed:** 2026-07-28 13:54 EDT (`America/New_York`)
 
 Refresh this timestamp whenever **Next** is reordered, an item changes state, or
 a material implementation lands that changes the remaining scope.
