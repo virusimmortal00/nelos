@@ -1,6 +1,6 @@
 {
   "source": "codex-cli 0.144.5 and Codex Desktop 0.144.6: codex app-server generate-json-schema --experimental",
-  "compatibleCodexVersions": [
+  "testedCodexVersions": [
     "0.144.5",
     "0.144.6"
   ],

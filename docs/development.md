@@ -52,12 +52,14 @@ the transport for tasks expected to appear live in the desktop sidebar. The
 app-server interface is experimental, so keep its protocol behind the shared
 client and re-run the standalone verifier after Codex CLI upgrades.
 
-The MCP bridge is pinned more narrowly because it performs title, wake, and
-archive mutations. After a Codex upgrade, generate the experimental schema
-into a temporary directory and compare the initialization response plus
-`thread/read`, `thread/name/set`, `thread/resume`, `thread/turns/list`,
-`turn/start`, `turn/steer`, and `thread/archive`. Then update the compact
-protocol fixture and supported version together:
+The MCP bridge has a reviewed minimum version because it performs title, wake,
+and archive mutations. Newer stable Codex versions are allowed provisionally
+and reported as untested until their protocol shapes have been reviewed. After
+a Codex upgrade, generate the experimental schema into a temporary directory
+and compare the initialization response plus `thread/read`, `thread/name/set`,
+`thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`, and
+`thread/archive`. Then update the compact protocol fixture and tested-version
+list together:
 
 ```bash
 codex app-server generate-json-schema --experimental --out /private/tmp/codex-schemas
@@ -71,9 +73,10 @@ do not claim simultaneous Desktop/MCP title-writer safety until a reviewed
 schema adds one. Wake delivery reconciles its stable client-message ID against
 a bounded recent-turn window before retrying. Archive responses that may have
 been lost are recorded for attention and are not blindly retried.
-Do not widen the supported version list without reviewing those generated
-shapes and running the bridge's batching, polling, timeout, reconnect, and
-no-mutation-replay tests.
+Do not mark a version as tested without reviewing those generated shapes and
+running the bridge's batching, polling, timeout, reconnect, and
+no-mutation-replay tests. An untested newer stable version may run, but strict
+response validation and single-attempt mutation semantics remain mandatory.
 
 ## Verifiers
 

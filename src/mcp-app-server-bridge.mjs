@@ -4,10 +4,15 @@ import { createHash } from "node:crypto";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
 
 export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
-export const SUPPORTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
+export const TESTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
   "0.144.5",
   "0.144.6",
 ]);
+export const MINIMUM_CODEX_APP_SERVER_VERSION = "0.144.5";
+// Backward-compatible package export. These are the versions Nelos has tested,
+// not an exhaustive allowlist of versions that may use the bridge.
+export const SUPPORTED_CODEX_APP_SERVER_VERSIONS =
+  TESTED_CODEX_APP_SERVER_VERSIONS;
 export const REQUIRED_CODEX_APP_SERVER_INITIALIZE_FIELDS = Object.freeze([
   "codexHome",
   "platformFamily",
@@ -161,7 +166,17 @@ function publicThread(thread, expectedThreadId) {
   };
 }
 
-function initializeCompatibility(result, supportedVersions) {
+function compareStableVersions(left, right) {
+  const leftParts = left.split(".").map(BigInt);
+  const rightParts = right.split(".").map(BigInt);
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] < rightParts[index]) return -1;
+    if (leftParts[index] > rightParts[index]) return 1;
+  }
+  return 0;
+}
+
+function initializeCompatibility(result, testedVersions, minimumVersion) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw bridgeError(
       "Codex app-server initialize response is incompatible",
@@ -201,9 +216,9 @@ function initializeCompatibility(result, supportedVersions) {
     );
   }
   const version = versionMatch[1];
-  if (!supportedVersions.includes(version)) {
+  if (compareStableVersions(version, minimumVersion) < 0) {
     const error = bridgeError(
-      `unsupported Codex app-server version ${version}; supported: ${supportedVersions.join(", ")}`,
+      `Codex app-server version ${version} predates the minimum compatible version ${minimumVersion}`,
       "incompatible-version",
     );
     error.observedVersion = version;
@@ -211,6 +226,7 @@ function initializeCompatibility(result, supportedVersions) {
   }
   return {
     version,
+    versionTested: testedVersions.includes(version),
     platformFamily,
     platformOs,
   };
@@ -387,7 +403,8 @@ export class CodexAppServerBridgeV1 {
   #requestTimeoutMs;
   #spawnProcess;
   #stdoutBuffer = "";
-  #supportedVersions;
+  #minimumVersion;
+  #testedVersions;
   #topologyProjections = 0;
   #waitEvents = 0;
   #waitInitialInspectionAllowanceMs;
@@ -397,9 +414,11 @@ export class CodexAppServerBridgeV1 {
 
   constructor({
     command = "codex",
+    minimumVersion = MINIMUM_CODEX_APP_SERVER_VERSION,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     spawnProcess = spawn,
-    supportedVersions = SUPPORTED_CODEX_APP_SERVER_VERSIONS,
+    supportedVersions,
+    testedVersions = supportedVersions ?? TESTED_CODEX_APP_SERVER_VERSIONS,
     waitInitialInspectionAllowanceMs = WAIT_INITIAL_INSPECTION_ALLOWANCE_MS,
   } = {}) {
     if (typeof command !== "string" || !command.trim()) {
@@ -419,22 +438,33 @@ export class CodexAppServerBridgeV1 {
       );
     }
     if (
-      !Array.isArray(supportedVersions) ||
-      supportedVersions.length === 0 ||
-      supportedVersions.some(
+      !Array.isArray(testedVersions) ||
+      testedVersions.length === 0 ||
+      testedVersions.some(
         (version) =>
           typeof version !== "string" ||
-          !/^\d+\.\d+\.\d+$/u.test(version),
+          !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version),
       )
     ) {
       throw new Error(
-        "app-server supportedVersions must contain semantic versions",
+        "app-server testedVersions must contain stable semantic versions",
+      );
+    }
+    if (
+      typeof minimumVersion !== "string" ||
+      !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
+        minimumVersion,
+      )
+    ) {
+      throw new Error(
+        "app-server minimumVersion must be a stable semantic version",
       );
     }
     this.#command = command;
+    this.#minimumVersion = minimumVersion;
     this.#requestTimeoutMs = requestTimeoutMs;
     this.#spawnProcess = spawnProcess;
-    this.#supportedVersions = Object.freeze([...new Set(supportedVersions)]);
+    this.#testedVersions = Object.freeze([...new Set(testedVersions)]);
     this.#waitInitialInspectionAllowanceMs =
       waitInitialInspectionAllowanceMs;
   }
@@ -491,7 +521,8 @@ export class CodexAppServerBridgeV1 {
       );
       const compatibility = initializeCompatibility(
         initialized,
-        this.#supportedVersions,
+        this.#testedVersions,
+        this.#minimumVersion,
       );
       this.#compatibility = {
         state: "ready",
@@ -726,9 +757,17 @@ export class CodexAppServerBridgeV1 {
       state: this.#compatibility.state,
       compatible: this.#compatibility.state === "ready",
       version: this.#compatibility.version,
+      versionTested:
+        this.#compatibility.version === null
+          ? null
+          : this.#testedVersions.includes(this.#compatibility.version),
       platformFamily: this.#compatibility.platformFamily,
       platformOs: this.#compatibility.platformOs,
-      supportedVersions: [...this.#supportedVersions],
+      minimumVersion: this.#minimumVersion,
+      testedVersions: [...this.#testedVersions],
+      // Retained for schema-v1 consumers. New integrations should use
+      // testedVersions; newer stable versions are not blocked.
+      supportedVersions: [...this.#testedVersions],
       requiredMethods: [...REQUIRED_CODEX_APP_SERVER_METHODS],
       connectionAttempts: this.#connectionAttempts,
       reconnects: Math.max(0, this.#connectionAttempts - 1),
