@@ -18,6 +18,18 @@ function result(state, selector, server, detail) {
   return { state, detail, recovery };
 }
 
+export function missingBundledMcpState(
+  selector,
+  server = BUNDLED_MCP_SERVER,
+) {
+  return result(
+    "missing",
+    selector,
+    server,
+    "bundled server metadata is missing",
+  );
+}
+
 async function readBoundedRegularFile(path) {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_MCP_INSPECTION_BYTES) {
@@ -74,7 +86,7 @@ export async function inspectBundledMcpState({
     metadata = JSON.parse(await readBoundedRegularFile(join(pluginRoot, ".mcp.json")));
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return result("missing", selector, server, "bundled server metadata is missing");
+      return missingBundledMcpState(selector, server);
     }
     return reinstall();
   }

@@ -35,7 +35,10 @@ import {
   validateProvenance,
 } from "../src/distribution-provenance.mjs";
 import { ensureCanonicalDirectory } from "../src/path-safety.mjs";
-import { inspectBundledMcpState } from "../src/bundled-mcp-state.mjs";
+import {
+  inspectBundledMcpState,
+  missingBundledMcpState,
+} from "../src/bundled-mcp-state.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -261,7 +264,8 @@ async function main() {
         : cacheSelection;
   const pluginRoot = installation?.plugin?.installedPath ??
     (plugin?.path ? dirname(plugin.path) : null);
-  const pluginSelector = installation?.plugin?.selector ?? `${PLUGIN_NAME}@personal`;
+  const pluginSelector = installation?.plugin?.selector ??
+    `${PLUGIN_NAME}@${cacheSelection?.marketplace ?? "personal"}`;
   const mcpState = pluginRoot
     ? await inspectBundledMcpState({
         pluginRoot,
@@ -269,11 +273,7 @@ async function main() {
         expectedVersion: expected.revision,
         configPath: resolve(options.configPath ?? join(codexHome, "config.toml")),
       })
-    : {
-        state: "missing",
-        detail: "bundled server metadata is missing",
-        recovery: `Run \`codex plugin add ${pluginSelector}\` to reinstall the bundled server.`,
-      };
+    : missingBundledMcpState(pluginSelector);
 
   if (installationError) {
     const detail = `invalid install state: ${installationError.message}`;

@@ -67,11 +67,12 @@ async function createDistributionFixture(overrides = {}) {
   const codexHome = join(root, "codex-home");
   const cliRoot = join(root, "cli");
   const cliPath = join(cliRoot, "bin", "nelos");
+  const marketplace = overrides.marketplace ?? "personal";
   const pluginRoot = join(
     codexHome,
     "plugins",
     "cache",
-    "personal",
+    marketplace,
     "nelos",
     "0.1.0+fixture",
   );
@@ -119,7 +120,7 @@ async function createDistributionFixture(overrides = {}) {
   );
   await writeFile(
     join(codexHome, "config.toml"),
-    '[plugins."nelos@personal".mcp_servers."nelos"]\nenabled = true\n',
+    `[plugins.${JSON.stringify(`nelos@${marketplace}`)}.mcp_servers."nelos"]\nenabled = true\n`,
   );
 
   return {
@@ -269,6 +270,19 @@ test("distribution verifier reports four distinct bundled MCP states without ech
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("verification derives MCP enablement from the cached marketplace", async () => {
+  const fixture = await createDistributionFixture({
+    marketplace: "nelos-marketplace",
+  });
+  try {
+    const result = await runVerifier(fixture.environment);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^MCP HEALTHY:/mu);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
   }
 });
 

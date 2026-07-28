@@ -17,10 +17,10 @@ acceptable.
 
 ## Reporting and enforcement
 
-To report a conduct concern, contact the repository maintainer through an
-organization-approved private channel. Do not use public issues for sensitive
-reports. Reports will be handled as privately as practical, with consideration
-for safety and available context.
+To report a conduct concern privately, email the repository maintainer at
+[rsayers88@gmail.com](mailto:rsayers88@gmail.com). Do not use public issues for
+sensitive reports. Reports will be handled as privately as practical, with
+consideration for safety and available context.
 
 The solo maintainer may clarify expectations, remove content, limit
 participation, or take other proportionate action. This is a volunteer project;

@@ -59,6 +59,14 @@ test("release tags exactly match valid package SemVer", () => {
     /must exactly equal/u,
   );
   assert.throws(() => assertReleaseTag("v01.2.3", "01.2.3"), /valid SemVer/u);
+  assert.throws(() => assertReleaseTag("v1.2.3-01", "1.2.3-01"), /valid SemVer/u);
+  assert.throws(
+    () => assertReleaseTag("v1.2.3-alpha.01", "1.2.3-alpha.01"),
+    /valid SemVer/u,
+  );
+  assert.doesNotThrow(() =>
+    assertReleaseTag("v1.2.3-01-beta", "1.2.3-01-beta"),
+  );
 });
 
 test("release coherence requires every version and provenance surface", () => {
@@ -120,7 +128,12 @@ test("CycloneDX output is deterministic and rooted at the release package", () =
   const lockMetadata = {
     packages: {
       "": packageMetadata,
-      "node_modules/zeta": { name: "zeta", version: "2.0.0", dev: true },
+      "node_modules/zeta": {
+        name: "zeta",
+        version: "2.0.0",
+        dev: true,
+        license: "SEE LICENSE IN LICENSE",
+      },
       "node_modules/alpha": { name: "alpha", version: "1.0.0", license: "MIT" },
     },
   };
@@ -145,6 +158,10 @@ test("CycloneDX output is deterministic and rooted at the release package", () =
     "pkg:npm/alpha@1.0.0",
     "pkg:npm/zeta@2.0.0",
   ]);
+  assert.deepEqual(first.components[0].licenses, [{ license: { id: "MIT" } }]);
+  assert.deepEqual(first.components[1].licenses, [{
+    license: { name: "SEE LICENSE IN LICENSE" },
+  }]);
 });
 
 test("release workflow is tag-only, gated, draft-only, and checksum-aware", async () => {
@@ -160,6 +177,11 @@ test("release workflow is tag-only, gated, draft-only, and checksum-aware", asyn
   assert.match(workflow, /sha256sum --check SHA256SUMS/u);
   assert.match(workflow, /gh release create[\s\S]*--draft[\s\S]*--verify-tag/u);
   assert.doesNotMatch(workflow, /gh release create[\s\S]*--latest/u);
+  assert.doesNotMatch(workflow, /cache:\s*npm/u);
+  assert.equal(
+    (workflow.match(/persist-credentials:\s*false/gu) ?? []).length,
+    2,
+  );
 });
 
 test("release artifact build is reproducible and checksum-complete", async () => {
@@ -239,7 +261,6 @@ test("release artifact build is reproducible and checksum-complete", async () =>
         "distribution-provenance.json",
         `nelos-${packageMetadata.version}.tgz`,
         "release-manifest.json",
-        "release-notes.md",
         "sbom.cdx.json",
       ],
     );

@@ -1,18 +1,17 @@
 # Support
 
-For help using or installing Nelos, first review the [README](README.md) and
-the relevant material in [`docs/`](docs/). When asking for help in the
-repository's normal support channel, include the Nelos version, operating
-system, Node.js version, command or workflow attempted, and a concise,
-sanitized description of what happened.
+Nelos does not currently offer a dedicated general-support channel. For help
+using or installing Nelos, first review the [README](README.md) and the
+relevant material in [`docs/`](docs/).
 
 Do not include API keys, access tokens, private task content, prompts,
 transcripts, raw environment dumps, or other sensitive data.
 
-Use a bug report only for a bounded, actionable defect with reproducible steps.
-Use a feature request for a concrete use case or product gap. Support questions
-may be answered as maintainer availability permits, without a guaranteed
-timeline.
+Use the [bug report form](https://github.com/virusimmortal00/nelos/issues/new?template=bug_report.yml)
+only for a bounded, actionable defect with reproducible steps. Use the
+[feature request form](https://github.com/virusimmortal00/nelos/issues/new?template=feature_request.yml)
+for a concrete use case or product gap. General support requests submitted
+through those forms may be closed.
 
 ## Security concerns
 

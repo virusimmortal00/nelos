@@ -28,10 +28,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
       - run: npm ci
       - name: Verify annotated tag and coherent release metadata
         run: node scripts/build-release-artifacts.mjs --validate-only --tag "$GITHUB_REF_NAME"
@@ -49,10 +49,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
       - run: npm ci
       - name: Build and compare package outputs
         run: >-

@@ -25,6 +25,25 @@ const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const SEMVER =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const SPDX_LICENSE_IDS = new Set([
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "GPL-2.0-only",
+  "GPL-2.0-or-later",
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+  "ISC",
+  "LGPL-2.1-only",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "MIT",
+  "MPL-2.0",
+  "Unlicense",
+]);
 
 function fail(message) {
   throw new Error(message);
@@ -39,7 +58,22 @@ function json(text, label) {
 }
 
 export function assertReleaseTag(tag, version) {
-  if (typeof version !== "string" || !SEMVER.test(version)) {
+  const coreAndPrerelease = typeof version === "string"
+    ? version.split("+", 1)[0]
+    : "";
+  const prereleaseSeparator = coreAndPrerelease.indexOf("-");
+  const prerelease = prereleaseSeparator === -1
+    ? null
+    : coreAndPrerelease.slice(prereleaseSeparator + 1);
+  const hasLeadingZeroNumericIdentifier = prerelease
+    ?.split(".")
+    .some((identifier) => /^\d+$/u.test(identifier) && identifier.length > 1 &&
+      identifier.startsWith("0"));
+  if (
+    typeof version !== "string" ||
+    !SEMVER.test(version) ||
+    hasLeadingZeroNumericIdentifier
+  ) {
     fail(`package version is not valid SemVer: ${version}`);
   }
   if (tag !== `v${version}`) {
@@ -124,7 +158,15 @@ export function buildCycloneDxBom({
         name,
         version: metadata.version,
         purl: reference,
-        ...(metadata.license ? { licenses: [{ license: { id: metadata.license } }] } : {}),
+        ...(metadata.license
+          ? {
+              licenses: [{
+                license: SPDX_LICENSE_IDS.has(metadata.license)
+                  ? { id: metadata.license }
+                  : { name: metadata.license },
+              }],
+            }
+          : {}),
         ...(metadata.dev ? { scope: "excluded" } : {}),
       };
     })
@@ -350,7 +392,12 @@ export async function buildReleaseArtifacts({
       )}\n`,
     );
 
-    const checksumPaths = [...artifactPaths, manifestPath];
+    const checksumPaths = [
+      packagePath,
+      provenancePath,
+      sbomPath,
+      manifestPath,
+    ];
     const checksumLines = await Promise.all(
       checksumPaths
         .sort((left, right) => basename(left).localeCompare(basename(right)))
