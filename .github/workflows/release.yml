@@ -4,12 +4,21 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable annotated release tag
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,15 +35,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      - name: Restore annotated release tag
+        shell: bash
+        run: >-
+          git fetch --force
+          "https://github.com/${GITHUB_REPOSITORY}.git"
+          "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - name: Verify annotated tag and coherent release metadata
-        run: node scripts/build-release-artifacts.mjs --validate-only --tag "$GITHUB_REF_NAME"
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            env -u GITHUB_SHA node scripts/build-release-artifacts.mjs \
+              --validate-only \
+              --tag "$RELEASE_TAG"
+          else
+            node scripts/build-release-artifacts.mjs \
+              --validate-only \
+              --tag "$RELEASE_TAG"
+          fi
       - run: npm run check
       - run: npm test
       - run: npm run verify:golden-loop
@@ -47,21 +73,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      - name: Restore annotated release tag
+        shell: bash
+        run: >-
+          git fetch --force
+          "https://github.com/${GITHUB_REPOSITORY}.git"
+          "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - name: Build and compare package outputs
-        run: >-
-          node scripts/build-release-artifacts.mjs
-          --tag "$GITHUB_REF_NAME"
-          --out-dir dist/release
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            env -u GITHUB_SHA node scripts/build-release-artifacts.mjs \
+              --tag "$RELEASE_TAG" \
+              --out-dir dist/release
+          else
+            node scripts/build-release-artifacts.mjs \
+              --tag "$RELEASE_TAG" \
+              --out-dir dist/release
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: nelos-release-${{ github.ref_name }}
+          name: nelos-release-${{ env.RELEASE_TAG }}
           path: dist/release/*
           if-no-files-found: error
           retention-days: 14
@@ -75,7 +115,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: nelos-release-${{ github.ref_name }}
+          name: nelos-release-${{ env.RELEASE_TAG }}
           path: dist/release
       - name: Verify downloaded release assets
         working-directory: dist/release
@@ -84,7 +124,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
