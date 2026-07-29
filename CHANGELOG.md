@@ -15,12 +15,18 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   Linux, creates reproducible package artifacts with checksums and provenance,
   emits a CycloneDX SBOM, and opens a draft GitHub Release for maintainer
   review.
+- Newer stable Codex versions are no longer rejected solely because they have
+  not yet been tested. MCP health output distinguishes tested versions from
+  provisionally compatible, untested versions.
 
 ### Compatibility requirements
 
 - Node.js 20 or newer on macOS or Linux.
-- Exact supported Codex versions and exercised surfaces must be recorded before
-  a release tag is created.
+- Codex `0.144.5` or newer. Codex `0.144.5` and `0.144.6` are the exact tested
+  versions; newer stable versions may proceed provisionally and are reported as
+  untested until their protocol surface is reviewed.
+- Exact tested Codex versions and exercised surfaces must be recorded before a
+  release tag is created.
 
 ### Migrations
 

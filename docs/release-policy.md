@@ -58,20 +58,29 @@ Nelos surface, not a promise about all releases in a Codex version family.
 The checked-in app-server protocol fixture
 [`test/fixtures/mcp-app-server-protocol-v0.144.x.json`](../test/fixtures/mcp-app-server-protocol-v0.144.x.json)
 is the machine-readable compatibility metadata for the bridge. Its
-`compatibleCodexVersions` list contains only exact versions whose relevant
+`testedCodexVersions` list contains only exact versions whose relevant
 experimental schema shapes were compared, and its `source` records how the
 fixture was obtained. Permission evidence is recorded separately in the
 versioned fixtures under `test/fixtures/`. The plugin manifest declares the MCP
 entry point, but it does not invent a host-version range that the Codex plugin
 schema cannot verify.
 
-A Codex version is added only after maintainers:
+A Codex version is marked as tested only after maintainers:
 
 1. generate and review the experimental app-server schema;
 2. compare every method and field Nelos uses with the checked-in fixture;
-3. run the bridge compatibility and MCP tests, including rejection of unknown
-   versions; and
+3. run the bridge compatibility and MCP tests, including the minimum-version
+   and response-schema guards; and
 4. perform the applicable fresh-task plugin/MCP smoke check on that exact host.
+
+The bridge enforces the oldest protocol version it can safely use, currently
+Codex `0.144.5`, rather than treating the tested-version list as an exhaustive
+allowlist. A stable Codex version at or above that minimum may proceed when it
+has not yet been tested; health output identifies it as compatible but
+untested. Versions below the minimum and malformed, prerelease, or custom
+runtime identities fail during startup. Strict validation remains in place for
+every app-server response Nelos consumes, so an actual protocol incompatibility
+fails at the affected operation instead of being silently accepted.
 
 The compatibility result is communicated in the release's **Compatibility
 requirements** notes, including exact tested Codex versions, operating systems,
@@ -79,8 +88,8 @@ Node.js requirements, and which surfaces were exercised. A passing schema gate
 supports only the reviewed protocol operations. It does not claim that Codex
 provides native event replay, atomic title compare-and-set, result provenance,
 model availability, plugin-root substitution, or any other behavior that was
-not observed. Unknown or malformed runtime versions fail closed where the
-bridge requires a verified protocol. See
+not observed. Untested newer stable versions are provisional compatibility
+claims, not evidence that their complete host surface has been verified. See
 [MCP tool surface](mcp-tool-surface.md#experimental-protocol-compatibility) for
 the current evidence and limitations.
 

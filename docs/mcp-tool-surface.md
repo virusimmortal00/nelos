@@ -179,20 +179,27 @@ by `codex app-server generate-json-schema --experimental` as the capability
 attestation. The relevant initialization, `thread/read`, `thread/name/set`,
 `thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`,
 `thread/archive`, thread-status, and active-flag shapes are identical in public
-stable `0.144.5` and Desktop `0.144.6`; both are supported. The bridge parses
-the version from the initialized server's `userAgent` and rejects unknown
-versions before any thread operation.
+stable `0.144.5` and Desktop `0.144.6`; both are tested. The bridge parses the
+version from the initialized server's `userAgent`, rejects stable versions
+older than `0.144.5`, and provisionally allows newer stable versions. An
+untested version is advisory rather than a startup failure: every response
+still passes the same bounded shape validation, so an actual protocol change
+fails at the affected operation instead of blocking the whole plugin in
+advance.
 
 In a clean plugin MCP environment, the app server identifies itself with the
 initialized client name (`nelos_mcp/<version>`); interactive shells may instead
 report `Codex Desktop/<version>` or `codex-cli/<version>`. All three reviewed
-forms are version-gated.
+forms use the same minimum-version and tested-version classification.
 
 Read transport failures receive exactly one reconnect and replay. A second
 failure is returned. Mutations are attempted once and are never replayed after
 a timeout, disconnect, or malformed response. The health tool exposes only
-bounded counters, compatibility state, platform labels, version, required
-methods, and classified failure codes—never raw stderr or task content.
+bounded counters, compatibility state, platform labels, the observed and
+minimum versions, the tested-version list, whether the current version was
+tested, required methods, and classified failure codes—never raw stderr or task
+content. Its legacy `supportedVersions` field mirrors `testedVersions` for
+schema-v1 consumers and must not be interpreted as an exhaustive allowlist.
 
 Codex `0.144.x` has no native wait method, notification cursor, sequence,
 replay token, or catch-up request. `nelos_thread_wait` therefore polls
