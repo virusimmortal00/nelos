@@ -33,9 +33,9 @@ Codex app-server child process for native task control.
 
 | Marker | Term | What it means |
 | :---: | --- | --- |
-| 👑 + 🕷️ | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
 | 👑 | **Queen** | The coordinating task that plans, launches, and accepts the work. |
 | 🕷️ | **Spinoff** | A durable, focused Codex task that executes one slice of the work. |
+| — | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
 | `B1` | **Web ID** | A short shared ID in every task title that keeps the web recognizable. |
 
 <p align="center">
