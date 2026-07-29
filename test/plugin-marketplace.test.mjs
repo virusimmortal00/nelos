@@ -30,3 +30,16 @@ test("the plugin manifest declares bundled light and dark spider assets", async 
   await access(new URL(`../${composerIcon.slice(2)}`, import.meta.url));
   await access(new URL(`../${logoDark.slice(2)}`, import.meta.url));
 });
+
+test("the plugin manifest offers three distinct showcase prompts within UI limits", async () => {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const prompts = manifest.interface.defaultPrompt;
+
+  assert.deepEqual(prompts, [
+    "Use Nelos to ship team roles across the API, UI, migration, tests, and docs. Plan safe waves and verify every result.",
+    "Use Nelos to diagnose flaky end-to-end tests. Investigate in parallel, reconcile evidence, and ship a verified fix.",
+    "Use Nelos to modernize our billing module safely. Map dependencies, parallelize independent changes, and verify the migration.",
+  ]);
+  assert.equal(new Set(prompts).size, prompts.length);
+  assert.ok(prompts.every((prompt) => prompt.length <= 128 && !/[\r\n]/u.test(prompt)));
+});

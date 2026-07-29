@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { DISTRIBUTION_ENTRIES } from "../src/distribution-provenance.mjs";
+import { listNelosMcpTools } from "../src/mcp-server.mjs";
 import {
   MCP_CONFIG_FILENAME,
   MCP_PLUGIN_VERSION_ENV,
@@ -130,7 +131,10 @@ test("the bootstrap locates the versioned cache and serves the tools", async () 
       name: "nelos",
       version: pluginMetadata.version,
     });
-    assert.equal(responses[1].result.tools.length, 17);
+    assert.equal(
+      responses[1].result.tools.length,
+      listNelosMcpTools().length,
+    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }

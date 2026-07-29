@@ -73,6 +73,14 @@ A Codex version is marked as tested only after maintainers:
    and response-schema guards; and
 4. perform the applicable fresh-task plugin/MCP smoke check on that exact host.
 
+The registry ownership, evidence hierarchy, fail-closed selection rules, and
+safe add/rename/deprecate/delete procedures are defined in
+[Compatibility Architecture and Maintenance](compatibility-architecture.md).
+Scheduled floating-main and uncorroborated source drift are early-warning only,
+and public source cannot establish Desktop, cloud, entitlement, rollout, or
+closed-host behavior. Collectors produce review artifacts; they never update
+claims, fixtures, or supported-version lists.
+
 The bridge enforces the oldest protocol version it can safely use, currently
 Codex `0.144.5`, rather than treating the tested-version list as an exhaustive
 allowlist. A stable Codex version at or above that minimum may proceed when it
@@ -136,6 +144,12 @@ For every public release, maintainers:
    commit; and
 6. publish only artifacts produced from that immutable tag.
 
+The compatibility portion of that review retains the required offline report,
+exact release-ref observation, generated-schema report, exact runtime-transport
+report, and verified release evidence bundle. Trusted-live and semantic runs
+remain explicit, protected, optional lanes, and their artifacts cannot replace
+or override the deterministic release result.
+
 A failed or incomplete gate produces no release tag. Public tags are immutable:
 they are never moved to another commit, deleted and recreated, or added later
 to make an unverified historical state appear released.
@@ -150,6 +164,33 @@ SHA-256 checksums, provenance record, release manifest, release notes, and
 CycloneDX SBOM are attached to a **draft** GitHub Release. A maintainer must
 review and explicitly publish that draft; workflow success alone does not make
 it a public release.
+
+## Stable marketplace promotion
+
+Publishing a stable GitHub Release triggers
+`.github/workflows/promote-marketplace.yml`. The workflow treats the movable
+`marketplace/stable` branch as a distribution channel, not as release
+provenance. It promotes only the commit behind an existing annotated
+`vMAJOR.MINOR.PATCH` tag whose GitHub Release is published, non-draft, and not a
+prerelease.
+
+Before promotion, the workflow reruns the immutable release validation from the
+tag and independently checks the package, plugin, MCP, provenance, lockfile,
+and marketplace identities. It then requires the existing stable branch, when
+present, to be an ancestor of the candidate release. Promotion is therefore
+idempotent and fast-forward-only; it never force-pushes or moves the channel
+backward. A failed validation or push leaves the prior stable channel
+unchanged.
+
+Maintainers can manually dispatch the same workflow with an existing published
+stable tag to recover from an interrupted GitHub event. This recovery path
+applies the same checks. It does not permit promoting a draft, prerelease,
+untagged commit, divergent history, or rebuilt release.
+
+Users who configure the marketplace at `marketplace/stable` can refresh it
+without changing repository coordinates. Exact immutable release tags remain
+the authoritative pin and rollback mechanism; rollback never moves the shared
+stable channel.
 
 ## Release notes
 

@@ -1,46 +1,139 @@
-<p align="center">
-  <img src="docs/assets/nelos-banner.png" alt="Nelos" width="100%">
-</p>
-
-<h1 align="center">Nelos</h1>
+<h1 align="center">Nelos 👑🕷️</h1>
 
 <p align="center">
-  <strong>Turn one big Codex task into a web of safe, parallel work —<br>
-  with the right model and reasoning routed, and verified, for every slice.</strong>
+  <strong>Bring the work. Nelos divvies it up.</strong><br>
+  <em>Smarter orchestration. More parallel work. Better use of every credit. Just more better.</em>
 </p>
 
 <p align="center">
-  <a href="#what-is-nelos">What it does</a> ·
+  <a href="#nelos-in-action">See it work</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#configuration">Configuration</a> ·
   <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="docs/webs.md">Docs</a>
 </p>
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/nelos-web-hero.png"
+    alt="A Nelos queen task in Codex receiving a completed spinoff result alongside its visible B1 web of durable tasks"
+    width="100%">
+</p>
+
+<p align="center"><sub><em>One objective becomes a visible web of focused Codex tasks—and completed work reports back to the coordinator automatically.</em></sub></p>
 
 ---
 
 ## What is Nelos?
 
-Nelos is a plugin for [Codex](https://developers.openai.com/codex) that turns one
-big task into a web of parallel, dependency-aware work — and adds three things you
-don't get from Codex, its native subagents, or hand-run parallel chats:
+Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
+a task-management skill, an MCP orchestration server, and a dedicated official
+Codex app-server child process for native task control.
 
-- **The right model and reasoning for every slice — verified.** Nelos routes each
-  slice to a fit-sized model and effort level, then confirms the task *actually
-  ran* on it and stops the moment they don't match. No silent downgrades, no
+**A little Nelos vocabulary:**
+
+| Marker | Term | What it means |
+| :---: | --- | --- |
+| 👑 | **Queen** | The coordinating task that plans, launches, and accepts the work. |
+| 🕷️ | **Spinoff** | A durable, focused Codex task that executes one slice of the work. |
+| 🕸️ | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
+| `B1` | **Web ID** | A short ID shared by the queen and durable spinoff titles that keeps the web recognizable. |
+
+### From a normal task to a Nelos web
+
+1. **Start exactly as you always have.** Open a normal Codex task and describe
+   the work.
+2. **A dedicated planner decomposes it.** When a web would help, Nelos launches
+   one fresh, bounded, read-only **Sol / medium** planning subagent. That route
+   is fixed and verified regardless of the model or reasoning level selected
+   in the original task, so planning never silently inherits a cheaper starting
+   configuration. A task started on Luna or Terra still gets Sol for
+   decomposition.
+3. **Your original task becomes the queen.** It stays right where it is as the
+   coordinator. When the plan uses durable spinoffs, its title receives the 👑
+   marker and a web ID; each spinoff receives 🕷️ and that same ID.
+4. **The orchestrator chooses the workers—not just their prompts.** A plan may
+   use only joined Codex subagents for bounded work, durable spinoff tasks for
+   work that should remain independently visible and steerable, or a mix of
+   both. Subagents report directly within the queen task; spinoffs live in the
+   sidebar and report home through Nelos.
+
+**The efficiency play:** Nelos spends consistent high intelligence once on the
+plan, then routes every execution slice independently. Straightforward work can
+use faster, cheaper models at lower reasoning levels; difficult work still gets
+more — reducing time and credit use without weakening the decomposition.
+
+#### Example: mixed intelligence, on purpose
+
+Suppose `Add Codex functionality checker` starts on **Terra / max**. The fixed
+Sol / medium planner returns an execution plan with one joined subagent and four
+durable spinoffs. Nelos does not copy one setting to every worker:
+
+| Task | Kind | Model / reasoning | Example state |
+| --- | --- | --- | --- |
+| 👑 `B1 · Add Codex functionality checker` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
+| `Plan and classify the work` | Dedicated planning subagent | **Sol / medium** | Complete — plan accepted |
+| `Inspect the existing plugin surface` | Joined subagent — not shown in the sidebar | **Terra / low** | Running in Wave 1 |
+| 🕷️ `B1 · Collect exact open source evidence` | Durable spinoff | **Luna / low** | Running in Wave 1 |
+| 🕷️ `B1 · Collect bounded documentation evidence` | Durable spinoff | **Terra / medium** | Running in Wave 1 |
+| 🕷️ `B1 · Build the offline deterministic gate` | Durable spinoff | **Sol / high** | Running in Wave 1 |
+| 🕷️ `B1 · Define compatibility contracts` | Durable spinoff | **Terra / high** | Running in Wave 1 |
+
+One objective now uses seven different model/reasoning combinations. Nelos puts
+deeper intelligence where judgment matters, uses faster profiles for bounded or
+repeatable work, and verifies every launched route before accepting its result.
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/web-roles-and-ids.png"
+    alt="Codex task list showing four spider-marked B1 spinoffs and their crown-marked B1 queen"
+    width="880">
+</p>
+
+<p align="center"><em>The same B1 web: four durable spinoffs are visible and steerable; its joined subagent stays attached to the queen.</em></p>
+
+Together, those three layers turn work into a web of parallel, dependency-aware
+Codex tasks, with capabilities you don't get from Codex alone, its native
+subagents, or hand-run parallel chats:
+
+- **Smart Model + Reasoning Router:** The right model and effort for every
+  slice — verified after launch. Nelos routes each slice to a fit-sized model
+  and reasoning level, then confirms the task *actually ran* with that exact
+  route and stops the moment it does not match. No silent downgrades, no
   burning `max`-effort reasoning on trivial work. [How routing works →](docs/routing.md)
-- **Parallel work that respects dependencies.** Slices launch in ordered *waves* —
-  a later one only starts once the upstream work it needs has been accepted, not
-  fire-and-hope.
-- **Durable tasks you can still see and steer.** Spinoffs get their own lifecycle
-  and appear right in the Codex desktop sidebar, so you can open, watch, or take
-  one over by hand while Nelos coordinates the rest.
+- **Dependency-Aware Work Scheduler:** Parallel work that understands
+  prerequisites. Slices launch in ordered *waves* — a later one starts only
+  after the upstream work it needs has been accepted, not fire-and-hope.
+- **Durable Task Orchestrator:** Workers you can still see, steer, and hear
+  back from. Spinoffs remain ordinary Codex tasks in the desktop sidebar, and
+  completed work reports back to the queen even when it is idle.
+- **Native Codex App-Server Bridge:** Native tasks, not a separate task
+  universe. The MCP server lazily starts one official
+  `codex app-server --stdio` child, uses a narrow version-checked control
+  surface, and exposes no prompts or transcripts.
+
+## Nelos in action
+
+### Dependencies wait for accepted work
+
+Nelos can run independent slices in parallel, but it does not release downstream
+work merely because an upstream task stopped. The result must pass the queen's
+acceptance gate first, and the orchestration state survives restarts.
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/acceptance-gates.png"
+    alt="Terminal output from the Nelos golden-loop demo showing acceptance, dependency, restart, recovery, collection, and cleanup checks passing"
+    width="100%">
+</p>
+
+<p align="center"><em>Run the same three-member proof with <code>npm run demo:acceptance-gates</code>.</em></p>
 
 ## Why "Nelos"?
 
 **Nelos** comes from ***Anelosimus***, a genus of cosmopolitan cobweb spiders —
-many of them *social*, cooperating on one shared web. That's the shape of the
-tool: many focused agents working a shared **web** of tasks, led by a **queen**,
-with durable branches called **spinoffs**.
+many of them *social*, cooperating on one shared web. That behavior inspired
+Nelos's name and vocabulary.
 
 ## Quick start
 
@@ -49,7 +142,15 @@ with durable branches called **spinoffs**.
 Install the plugin:
 
 ```bash
-codex plugin marketplace add virusimmortal00/nelos --ref v0.4.0
+codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
+codex plugin add nelos@nelos-marketplace
+```
+
+`marketplace/stable` advances only to a published, validated stable release.
+To upgrade later, refresh that marketplace snapshot and reinstall the plugin:
+
+```bash
+codex plugin marketplace upgrade nelos-marketplace
 codex plugin add nelos@nelos-marketplace
 ```
 
@@ -68,6 +169,30 @@ Use Nelos to plan this feature into safe parallel slices.
 ```
 
 No installer, no manual copying, no `PATH` changes.
+Exact release tags remain available for reproducible installs and rollback; see
+[Installation and distribution trust](docs/installation.md#codex-marketplace-installs-upgrades-and-rollback).
+
+## Configuration
+
+Configure Nelos directly in conversation:
+
+```text
+Show my Nelos settings.
+Set Nelos spin-off cleanup to ask.
+Reset my Nelos spin-off cleanup preference.
+```
+
+The installed plugin handles those requests through its bundled MCP tools; the
+separate contributor CLI is not required. Settings are stored in
+`$XDG_CONFIG_HOME/nelos/config.toml`, or `~/.config/nelos/config.toml` when
+`XDG_CONFIG_HOME` is unset. `NELOS_CONFIG` can select an explicit absolute file.
+Repository-local `.nelos/` settings are intentionally ignored.
+
+Spin-off cleanup defaults to `auto`; users can choose `ask` or `keep`. Valid
+manual TOML edits are observed without restarting the plugin. Existing
+remembered preferences migrate once into TOML; reset returns to the built-in
+default. A cleanup already underway keeps its per-web policy snapshot. See
+[Configuration](docs/configuration.md) for the schema and safety behavior.
 
 ## Codex compatibility
 
@@ -83,32 +208,31 @@ bridge continues to validate every app-server response and reports a focused
 compatibility error if an operation's actual contract has changed. Prerelease
 and custom build version identities are not treated as stable releases.
 
+Pull requests use one required, token-free deterministic compatibility gate.
+Run the identical command locally:
+
+```bash
+npm run compatibility:required
+```
+
+It compares the current `HEAD` with the merge base of
+`COMPATIBILITY_BASE_REF`, `GITHUB_BASE_REF`, or `origin/main` (in that order),
+removes `OPENAI_API_KEY`, and blocks network access for the gate and every
+child test process. Scheduled drift, exact-release evidence, live runtime
+smokes, and semantic advice run in separate workflows and cannot replace this
+required status.
+
 ## What's in the box
 
-Nelos is one Codex plugin with two parts:
+Nelos is one Codex plugin with two cooperating parts:
 
-- **An MCP server with a scoped Codex app-server bridge.**
-  `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
-  typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
-  waves and returns any required queen title effect before launch. Durable
-  spinoff titles are read, set, and verified after native creation and binding.
-  A repeated call verifies the compact role-first grammar:
-  queens begin `👑 WEB_ID ·`, while durable spin-offs begin `🕷️ WEB_ID ·`.
-  Thread inspection,
-  inventory, bounded waiting, and health tools expose no prompts or transcripts.
-  Batch launch verification gates every wave on lifecycle-appropriate identity,
-  topology, and route evidence: joined subagents use their collaboration
-  `agentPath`, while durable spinoffs use their task `threadId` and native
-  title. Typed exceptions can trigger one bounded Sol
-  replan without relaunching completed slices. Finishing spinoffs durably hand
-  off through receipt-bound host wake effects from `nelos_spinoff_complete`;
-  accepted members follow an explicit `ask`, `auto`, or `keep` cleanup policy
-  through receipt-bound native archive effects. Intelligence routing,
-  verification, and native subagent identity resolution remain read-only;
-  callback orchestration tools journal native effects. The bridge starts one
-  `codex app-server --stdio` child lazily and exposes no prompts or transcripts.
-- **A skill** — `manage-nelos-tasks`, the playbook that bootstraps planning
-  independently of the starting model and executes each tool's next action.
+- **An MCP orchestration server** — plans dependency-safe waves, routes and
+  verifies every launch, persists replay-safe receipts, advances accepted work,
+  coordinates completion and per-web cleanup, and exposes conversational
+  machine-local configuration.
+- **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
+  the MCP server's machine-generated next actions independently of whichever
+  model starts as queen.
 
 Spinoffs remain ordinary top-level Codex tasks—visible and steerable in the
 desktop sidebar while Nelos coordinates. Nelos plans and coordinates; you still
@@ -116,6 +240,7 @@ own Git branches, merges, and final review.
 
 ## Learn more
 
+- [Configuration](docs/configuration.md) — conversational settings, TOML schema, and precedence
 - [Model & reasoning routing](docs/routing.md) — how each slice is sized, and verified
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
 - [App Server compatibility contract](docs/app-server-compatibility-contract.md) —

@@ -7,23 +7,51 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### User-facing changes
 
-- None.
+- Added a published-release promotion workflow for the
+  `marketplace/stable` Codex marketplace channel, with immutable-release
+  validation and fast-forward-only updates.
+- Added conversational installed-plugin configuration through the bundled
+  `nelos_config_get`, `nelos_config_set`, and `nelos_config_reset` MCP tools.
+- Added a machine-local TOML configuration file at
+  `$XDG_CONFIG_HOME/nelos/config.toml`, falling back to
+  `~/.config/nelos/config.toml`. Repository-local `.nelos/` configuration is
+  intentionally ignored.
+- Changed the built-in spin-off cleanup policy from `ask` to `auto`. Users can
+  globally choose `auto`, `ask`, or `keep`; changing or resetting that global
+  preference requires an explicit user request.
+- Cleanup now snapshots its effective policy for the whole web when terminal
+  cleanup begins, so later global changes affect future webs without changing
+  an archive or confirmation sequence already underway.
 
 ### Compatibility requirements
 
-- None.
+- `NELOS_CONFIG` and `XDG_CONFIG_HOME`, when set, must be absolute paths.
 
 ### Migrations
 
-- None.
+- Existing exact-tag marketplace installs remain pinned. Users can opt into
+  stable-channel upgrades by removing and re-adding `nelos-marketplace` with
+  `--ref marketplace/stable`, then reinstalling the plugin.
+- The first configuration read migrates an exact valid legacy remembered
+  cleanup preference into TOML and removes the legacy file. Invalid or unsafe
+  legacy state fails closed.
+- Reset removes both the TOML override and any legacy preference, restoring the
+  built-in `auto` default.
 
 ### Security fixes
 
-- None.
+- Configuration now uses a pinned standards-compliant TOML parser, strict
+  schema validation, bounded regular-file checks, private atomic writes, and a
+  machine-local interprocess lock.
+- Project-controlled configuration is not consulted for global cleanup
+  behavior, preventing an opened repository from silently changing that
+  machine-level preference.
 
 ### Known limitations
 
-- None.
+- Nelos does not yet provide a custom Codex Settings pane or MCP settings form.
+  Conversation is the primary interface, with TOML available for manual edits;
+  no Nelos-specific slash command is provided.
 
 ## [0.4.0] - 2026-07-28
 
