@@ -27,10 +27,16 @@
 
 Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
 a task-management skill, an MCP orchestration server, and a dedicated official
-Codex app-server child process for native task control. Together, those three
-layers turn work into a web of parallel, dependency-aware Codex tasks, with
-capabilities you don't get from Codex alone, its native subagents, or hand-run
-parallel chats:
+Codex app-server child process for native task control.
+
+**A little Nelos vocabulary:** A **web** is one coordinated group of tasks. Its
+**queen** plans and accepts the work; durable **spinoffs** execute focused
+slices. Every web gets a short ID (like `B1`) that keeps the whole family
+recognizable in Codex.
+
+Together, those three layers turn work into a web of parallel, dependency-aware
+Codex tasks, with capabilities you don't get from Codex alone, its native
+subagents, or hand-run parallel chats:
 
 - **Smart Model + Reasoning Router:** The right model and effort for every
   slice — verified after launch. Nelos routes each slice to a fit-sized model
@@ -83,9 +89,8 @@ acceptance gate first, and the orchestration state survives restarts.
 ## Why "Nelos"?
 
 **Nelos** comes from ***Anelosimus***, a genus of cosmopolitan cobweb spiders —
-many of them *social*, cooperating on one shared web. That's the shape of the
-tool: many focused agents working a shared **web** of tasks, led by a **queen**,
-with durable branches called **spinoffs**.
+many of them *social*, cooperating on one shared web. That behavior inspired
+Nelos's name and vocabulary.
 
 ## Quick start
 
