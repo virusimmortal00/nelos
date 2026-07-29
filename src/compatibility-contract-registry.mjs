@@ -1,5 +1,6 @@
 export const COMPATIBILITY_CONTRACT_REGISTRY_SCHEMA_VERSION = 1;
 export const COMPATIBILITY_REPORT_SCHEMA_VERSION = 1;
+export const UPSTREAM_SOURCE_OBSERVATION_SCHEMA_VERSION = 1;
 
 export const COMPATIBILITY_EVIDENCE_KINDS = Object.freeze([
   "deterministic-repo",
@@ -156,7 +157,12 @@ function assertSourceForEvidenceKind(source, kind, label) {
 }
 
 function validateUpstreamSource(value, label) {
-  assertClosedObject(value, label, ["repository", "paths", "artifacts"]);
+  assertClosedObject(value, label, [
+    "repository",
+    "paths",
+    "artifacts",
+    "advisoryRef",
+  ]);
   assertUrl(value.repository, `${label}.repository`, { repository: true });
   assertUniqueStrings(
     value.paths,
@@ -169,18 +175,20 @@ function validateUpstreamSource(value, label) {
     value.artifacts,
     `${label}.artifacts`,
     (artifact, artifactLabel) => {
-      assertString(artifact, artifactLabel, { maximum: 1_000 });
-      if (
-        BROAD_PATH_SCOPES.has(artifact) ||
-        artifact.includes("*") ||
-        artifact.endsWith("/")
-      ) {
+      normalizeRepositoryPath(artifact, artifactLabel, { upstream: true });
+      if (artifact.includes("*")) {
         fail(`${artifactLabel} must name a bounded generated artifact`);
       }
     },
   );
   if (value.paths.length + value.artifacts.length === 0) {
     fail(`${label} must declare at least one relevant path or artifact`);
+  }
+  if (value.advisoryRef !== undefined) {
+    assertString(value.advisoryRef, `${label}.advisoryRef`, {
+      pattern: /^refs\/heads\/[A-Za-z0-9._/-]+$/u,
+      maximum: 1_000,
+    });
   }
 }
 
@@ -212,7 +220,12 @@ export function validateCompatibilityRegistryV1(registry) {
   const releaseIds = new Set();
   for (const [index, release] of registry.supportedCodexReleases.entries()) {
     const label = `registry.supportedCodexReleases[${index}]`;
-    assertClosedObject(release, label, ["id", "version", "fixture"]);
+    assertClosedObject(release, label, [
+      "id",
+      "version",
+      "fixture",
+      "upstreamSourceRefs",
+    ]);
     assertString(release.id, `${label}.id`, { pattern: RELEASE_ID_PATTERN });
     assertString(release.version, `${label}.version`, {
       pattern: VERSION_PATTERN,
@@ -221,6 +234,45 @@ export function validateCompatibilityRegistryV1(registry) {
       fail(`${label}.id must resolve to its exact version`);
     }
     normalizeRepositoryPath(release.fixture, `${label}.fixture`);
+    if (!Array.isArray(release.upstreamSourceRefs)) {
+      fail(`${label}.upstreamSourceRefs must be an array`);
+    }
+    const sourceRepositories = new Set();
+    release.upstreamSourceRefs.forEach((source, sourceIndex) => {
+      const sourceLabel = `${label}.upstreamSourceRefs[${sourceIndex}]`;
+      assertClosedObject(source, sourceLabel, [
+        "repository",
+        "requestedRef",
+        "commitSha",
+      ]);
+      assertUrl(source.repository, `${sourceLabel}.repository`, {
+        repository: true,
+      });
+      assertString(source.requestedRef, `${sourceLabel}.requestedRef`, {
+        pattern: /^(?:refs\/tags\/[A-Za-z0-9._/-]+|[a-f0-9]{40})$/u,
+        maximum: 1_000,
+      });
+      if (
+        source.requestedRef.includes("//") ||
+        source.requestedRef.split("/").includes("..")
+      ) {
+        fail(`${sourceLabel}.requestedRef is invalid`);
+      }
+      assertString(source.commitSha, `${sourceLabel}.commitSha`, {
+        pattern: /^[a-f0-9]{40}$/u,
+        maximum: 40,
+      });
+      if (
+        /^[a-f0-9]{40}$/u.test(source.requestedRef) &&
+        source.requestedRef !== source.commitSha
+      ) {
+        fail(`${sourceLabel}.requestedRef commit must match commitSha`);
+      }
+      if (sourceRepositories.has(source.repository)) {
+        fail(`${sourceLabel}.repository is duplicated`);
+      }
+      sourceRepositories.add(source.repository);
+    });
     if (releaseIds.has(release.id)) fail(`duplicate release ID ${release.id}`);
     releaseIds.add(release.id);
   }
@@ -631,11 +683,25 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       id: "codex@0.144.5",
       version: "0.144.5",
       fixture: "test/fixtures/mcp-app-server-protocol-v0.144.x.json",
+      upstreamSourceRefs: Object.freeze([
+        Object.freeze({
+          repository: "https://github.com/openai/codex",
+          requestedRef: "refs/tags/rust-v0.144.5",
+          commitSha: "87db9bc18ba5bc82c1cb4e4381b44f693ee35623",
+        }),
+      ]),
     }),
     Object.freeze({
       id: "codex@0.144.6",
       version: "0.144.6",
       fixture: "test/fixtures/mcp-app-server-protocol-v0.144.x.json",
+      upstreamSourceRefs: Object.freeze([
+        Object.freeze({
+          repository: "https://github.com/openai/codex",
+          requestedRef: "refs/tags/rust-v0.144.6",
+          commitSha: "5d1fbf26c43abc65a203928b2e31561cb039e06d",
+        }),
+      ]),
     }),
   ]),
   checks: Object.freeze([
@@ -744,6 +810,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
               "codex-rs/app-server-protocol/src/protocol/v2.rs",
             ]),
             artifacts: Object.freeze([]),
+            advisoryRef: "refs/heads/main",
           }),
         ]),
         generatedSchema: Object.freeze([
@@ -786,6 +853,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
               "codex-rs/app-server/src/transport.rs",
             ]),
             artifacts: Object.freeze([]),
+            advisoryRef: "refs/heads/main",
           }),
         ]),
         generatedSchema: Object.freeze([

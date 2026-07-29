@@ -76,6 +76,25 @@ test("registry rejects malformed scopes and broad upstream source declarations",
   const broadSource = clone();
   broadSource.capabilities[0].mappings.upstreamSource[0].paths = ["codex-rs/**"];
   assert.throws(() => validateCompatibilityRegistryV1(broadSource), /too broad for upstream-source/u);
+
+  const movingReleaseBranch = clone();
+  movingReleaseBranch.supportedCodexReleases[0].upstreamSourceRefs[0].requestedRef =
+    "refs/heads/release";
+  assert.throws(
+    () => validateCompatibilityRegistryV1(movingReleaseBranch),
+    /requestedRef is invalid/u,
+  );
+
+  const mismatchedCommit = clone();
+  mismatchedCommit.supportedCodexReleases[0].upstreamSourceRefs[0] = {
+    repository: "https://github.com/openai/codex",
+    requestedRef: "1111111111111111111111111111111111111111",
+    commitSha: "2222222222222222222222222222222222222222",
+  };
+  assert.throws(
+    () => validateCompatibilityRegistryV1(mismatchedCommit),
+    /requestedRef commit must match commitSha/u,
+  );
 });
 
 test("changed paths select direct contracts and transitive dependents", () => {

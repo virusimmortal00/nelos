@@ -240,6 +240,23 @@ Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for
 the pinned compatibility claim.
 
+### Bounded public-source observations
+
+The registry also pins the official
+[`openai/codex`](https://github.com/openai/codex) release tags and peeled commit
+SHAs used for source comparison. `collectUpstreamSourceEvidenceV1` accepts only
+a repository, release, and exact paths or generated artifacts already declared
+for the selected capability. It resolves the tag or commit, verifies the
+declared SHA, performs a depth-one blob-filtered fetch, and hashes only the
+selected files. Missing, moved, non-file, unresolved, mismatched, or
+infrastructure-failed inputs produce non-evidence.
+
+The separately declared `refs/heads/main` route is always labeled
+`early-warning-advisory`; it cannot satisfy release or blocking compatibility
+evidence. Public source cannot establish Desktop, cloud, entitlement, rollout,
+or closed-host behavior. Source-only drift remains advisory until corroborated
+by official documentation, generated schemas, or exact runtime evidence.
+
 ## Hardening work derived from this contract
 
 The next implementation slice should make the current distinctions executable
