@@ -24,7 +24,7 @@ Nelos has four distinct App Server profiles:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
-| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, while this revision locally re-probed only `0.144.6`; newer stable versions proceed provisionally behind the same response validators |
+| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; newer stable versions proceed provisionally behind the same response validators |
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
@@ -39,9 +39,10 @@ The supported revision-1 baseline is:
 
 - a stable server identity at or above minimum version `0.144.5`;
 - combined reduced-fixture evidence whose recorded source covers `0.144.5` and
-  `0.144.6`, plus a direct local runtime re-probe of `0.144.6`; this is not a
-  separately checked-in raw `0.144.5` probe, and newer stable versions are
-  reported as compatible but untested;
+  Desktop `0.144.6`, plus `0.4.0` release revalidation of the exact
+  `codex-cli 0.144.5` and `0.144.6` npm distributions; the raw generated
+  schemas remain temporary rather than separately checked-in captures, and
+  newer stable versions are reported as compatible but untested;
 - `initialize`, followed by the outbound `initialized` notification;
 - `capabilities.experimentalApi: true`;
 - stdio JSONL for the strict bridge;
@@ -228,9 +229,12 @@ the missing contracts.
   and the existing bridge decision.
 - [`host-owned-control.md`](host-owned-control.md): proposed host lifecycle and
   implemented endpoint receiver seam.
-- Local runtime check on 2026-07-28: `codex-cli 0.144.6`; experimental JSON
-  schemas generated successfully. No separate `0.144.5` runtime was available
-  for this revision's local re-probe.
+- Release revalidation on 2026-07-28 used isolated npm distributions for
+  `codex-cli 0.144.5` and `0.144.6`. Both generated experimental schemas; the
+  initialization, read, name, resume, bounded turn-list, start, steer, archive,
+  status, and active-flag shapes Nelos consumes were identical. Each exact
+  binary also passed initialization, Unix-socket transport, task creation, two
+  same-task live turns, readback, archival, and cleanup.
 
 Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for

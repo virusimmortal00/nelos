@@ -49,7 +49,7 @@ with durable branches called **spinoffs**.
 Install the plugin:
 
 ```bash
-codex plugin marketplace add virusimmortal00/nelos --ref main
+codex plugin marketplace add virusimmortal00/nelos --ref v0.4.0
 codex plugin add nelos@nelos-marketplace
 ```
 
@@ -165,7 +165,7 @@ marketplace's `plugins` array, then install with `nelos@<marketplace-name>`:
 ```json
 {
   "name": "nelos",
-  "source": { "source": "url", "url": "https://github.com/virusimmortal00/nelos.git", "ref": "main" },
+  "source": { "source": "url", "url": "https://github.com/virusimmortal00/nelos.git", "ref": "v0.4.0" },
   "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
   "category": "Developer Tools"
 }

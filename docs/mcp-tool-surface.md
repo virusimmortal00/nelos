@@ -187,6 +187,14 @@ still passes the same bounded shape validation, so an actual protocol change
 fails at the affected operation instead of blocking the whole plugin in
 advance.
 
+As additional evidence—not a replacement for the Desktop `0.144.6` evidence
+above—the `0.4.0` release gate revalidated isolated npm distributions of
+`codex-cli 0.144.5` and `codex-cli 0.144.6` on 2026-07-28. Their generated
+initialization, read, name, resume, bounded turn-list, start, steer, archive,
+status, and active-flag shapes were identical. Both exact CLI binaries also
+completed the two-turn live App Server verifier with confirmed archival and
+cleanup.
+
 In a clean plugin MCP environment, the app server identifies itself with the
 initialized client name (`nelos_mcp/<version>`); interactive shells may instead
 report `Codex Desktop/<version>` or `codex-cli/<version>`. All three reviewed
