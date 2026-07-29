@@ -446,6 +446,7 @@ function normalizeChange(change, index) {
 }
 
 function isCompatibilitySensitive(path) {
+  if (path.startsWith("docs/assets/")) return false;
   return /^(?:src|bin|scripts|test|docs)\//u.test(path) ||
     [
       "package.json",

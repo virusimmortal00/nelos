@@ -36,7 +36,7 @@ Codex app-server child process for native task control.
 | 👑 | **Queen** | The coordinating task that plans, launches, and accepts the work. |
 | 🕷️ | **Spinoff** | A durable, focused Codex task that executes one slice of the work. |
 | 🕸️ | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
-| `B1` | **Web ID** | A short shared ID in every task title that keeps the web recognizable. |
+| `B1` | **Web ID** | A short ID shared by the queen and durable spinoff titles that keeps the web recognizable. |
 
 ### From a normal task to a Nelos web
 
