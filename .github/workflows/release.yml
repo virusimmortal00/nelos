@@ -64,7 +64,22 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run verify:golden-loop
-      - run: npm run verify:clean-install
+      - name: Verify clean install
+        shell: bash
+        run: |
+          set -euo pipefail
+          clean_install_output="$(mktemp)"
+          node \
+            --import ./scripts/test-bootstrap.mjs \
+            --test \
+            --test-reporter=tap \
+            "--test-name-pattern=a clean isolated home bootstraps source and marketplace idempotently" \
+            test/distribution-install.test.mjs | tee "$clean_install_output"
+          grep -Eq '^# pass 1$' "$clean_install_output"
+          grep -Eq '^# fail 0$' "$clean_install_output"
+          grep -Eq \
+            '^ok [0-9]+ - a clean isolated home bootstraps source and marketplace idempotently$' \
+            "$clean_install_output"
 
   artifacts:
     name: Build reproducible release artifacts
