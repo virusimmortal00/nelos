@@ -1,7 +1,8 @@
 <h1 align="center">Nelos 👑🕷️</h1>
 
 <p align="center">
-  <strong>Turn one Codex task into safe, verified parallel work.</strong>
+  <strong>Bring the work. Nelos divvies it up.</strong><br>
+  <em>Smarter orchestration. More parallel work. Better use of every credit. Just more better.</em>
 </p>
 
 <p align="center">
