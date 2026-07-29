@@ -7,7 +7,9 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### User-facing changes
 
-- None.
+- Added a published-release promotion workflow for the
+  `marketplace/stable` Codex marketplace channel, with immutable-release
+  validation and fast-forward-only updates.
 
 ### Compatibility requirements
 
@@ -15,7 +17,9 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### Migrations
 
-- None.
+- Existing exact-tag marketplace installs remain pinned. Users can opt into
+  stable-channel upgrades by removing and re-adding `nelos-marketplace` with
+  `--ref marketplace/stable`, then reinstalling the plugin.
 
 ### Security fixes
 

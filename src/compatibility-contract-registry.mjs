@@ -952,6 +952,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
         owned: Object.freeze([
+          ".github/workflows/promote-marketplace.yml",
           "bin/nelos-compatibility",
           "bin/nelos-semantic-advisory",
           "src/next-action.mjs",
@@ -962,6 +963,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "scripts/collect-compatibility-evidence.mjs",
           "scripts/offline-network-blocker.cjs",
           "scripts/run-required-compatibility.mjs",
+          "scripts/validate-marketplace-promotion.mjs",
           "scripts/verify-release-compatibility-evidence.mjs",
         ]),
         shared: Object.freeze([
@@ -981,6 +983,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/compatibility-contract-registry.test.mjs",
           "test/compatibility-rollout-e2e.test.mjs",
           "test/compatibility-workflows.test.mjs",
+          "test/marketplace-promotion.test.mjs",
           "test/next-action.test.mjs",
           "test/offline-compatibility-gate.test.mjs",
           "test/release-artifacts.test.mjs",
@@ -993,6 +996,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         documentation: Object.freeze([
           "CONTRIBUTING.md",
           "docs/compatibility-architecture.md",
+          "docs/installation.md",
           "docs/release-policy.md",
           "docs/task-orchestration.md",
           "docs/app-server-compatibility-contract.md",
