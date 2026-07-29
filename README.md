@@ -8,7 +8,7 @@
 <p align="center">
   <a href="#nelos-in-action">See it work</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#native-codex-through-a-narrow-bridge">App Server</a> ·
+  <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="docs/webs.md">Docs</a>
 </p>
 
@@ -26,9 +26,11 @@
 ## What is Nelos?
 
 Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
-a task-management skill with an MCP orchestration server. Together they turn one
-big task into a web of parallel, dependency-aware work — and add three things you
-don't get from Codex, its native subagents, or hand-run parallel chats:
+a task-management skill, an MCP orchestration server, and a dedicated official
+Codex app-server child process for native task control. Together, those three
+layers turn work into a web of parallel, dependency-aware Codex tasks, with
+capabilities you don't get from Codex alone, its native subagents, or hand-run
+parallel chats:
 
 - **Smart Model + Reasoning Router:** The right model and effort for every
   slice — verified after launch. Nelos routes each slice to a fit-sized model
@@ -41,6 +43,10 @@ don't get from Codex, its native subagents, or hand-run parallel chats:
 - **Durable Task Orchestrator:** Workers you can still see, steer, and hear
   back from. Spinoffs remain ordinary Codex tasks in the desktop sidebar, and
   completed work reports back to the queen even when it is idle.
+- **Native Codex App-Server Bridge:** Native tasks, not a separate task
+  universe. The MCP server lazily starts one official
+  `codex app-server --stdio` child, uses a narrow version-checked control
+  surface, and exposes no prompts or transcripts.
 
 ## Nelos in action
 
@@ -160,30 +166,6 @@ Nelos is one Codex plugin with two cooperating parts:
 Spinoffs remain ordinary top-level Codex tasks—visible and steerable in the
 desktop sidebar while Nelos coordinates. Nelos plans and coordinates; you still
 own Git branches, merges, and final review.
-
-## Native Codex, through a narrow bridge
-
-Nelos does not reimplement Codex tasks or create a separate task universe.
-When an MCP operation needs native task access, the bundled server lazily starts
-one official `codex app-server --stdio` child and keeps that connection for the
-life of the MCP process.
-
-That deliberately narrow bridge lets Nelos:
-
-- inspect bounded task identity, status, and direct-parent topology;
-- synchronize and verify queen and spinoff titles;
-- resume, start, or steer the queen when a spinoff reports back; and
-- carry out explicit archive effects under the web's cleanup policy.
-
-Native Codex remains authoritative for tasks, turns, approvals, permissions,
-and archive state. Nelos owns the web: work units, dependencies, attempts,
-receipts, acceptance decisions, and cleanup policy. Every consumed app-server
-response is version- and shape-checked; mismatches fail closed.
-
-The bridge is not a general-purpose app-server proxy. Normal inspection requests
-no turns and returns no prompts, messages, reasoning, previews, transcripts, or
-raw errors. It exposes only the small control surface required to keep native
-Codex tasks visible, coordinated, and able to report home.
 
 ## Learn more
 
