@@ -175,6 +175,10 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
     workflow,
     /RELEASE_TAG: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}/u,
   );
+  assert.match(
+    workflow,
+    /group: release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}/u,
+  );
   assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
   assert.match(workflow, /needs: \[verify, artifacts\]/u);
   assert.match(workflow, /contents: write/u);
