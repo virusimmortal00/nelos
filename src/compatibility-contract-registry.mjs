@@ -953,8 +953,10 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       mappings: Object.freeze({
         owned: Object.freeze([
           "bin/nelos-compatibility",
+          "bin/nelos-semantic-advisory",
           "src/next-action.mjs",
           "src/offline-compatibility-gate.mjs",
+          "src/semantic-advisory-runner.mjs",
           "src/spinoff-lifecycle.mjs",
           "src/queen-acceptance.mjs",
           "scripts/offline-network-blocker.cjs",
@@ -970,6 +972,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         test: Object.freeze([
           "test/next-action.test.mjs",
           "test/offline-compatibility-gate.test.mjs",
+          "test/semantic-advisory-runner.test.mjs",
           "test/spinoff-lifecycle.test.mjs",
           "test/queen-acceptance.test.mjs",
         ]),
