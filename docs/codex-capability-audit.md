@@ -65,7 +65,7 @@ Codex versions tested, and evidence gaps.
 | 10 | Lifecycle hooks | Enforcement, audit, wake, and validation opportunities | `adopt` | Queued; high-impact |
 | 11 | `AGENTS.md`, developer instructions, custom prompts, and project guidance | Durable behavioral correctness | `adopt` | Queued |
 | 12 | Skills, skill metadata, scripts, assets, controls, and discovery | Existing Nelos workflow surface | `adopt` | Core delivered; remaining audit queued |
-| 13 | Plugins, manifests, marketplaces, packaging, updates, controls, and submission checks | Existing distribution surface | `adopt` | Substantially delivered; first release pending |
+| 13 | Plugins, manifests, marketplaces, packaging, updates, controls, and submission checks | Existing distribution surface | `adopt` | Substantially delivered; first verified release published |
 | 14 | MCP tools, resources, prompts, apps/connectors, dynamic tools, authentication, and elicitation | Existing tool and integration surface | `adopt` | Core delivered; broader surface queued |
 | 15 | MCP Apps UI, components, metadata, CSP, and host compatibility | Possible inspect/confirm/navigation UI | `defer` | Deferred behind lifecycle foundations |
 | 16 | Scheduled tasks, chat automations, thread wakeups, notifications, and attention UX | Recovery and unattended coordination | `pilot` | Partial; continuation experiments active Next |
@@ -77,7 +77,7 @@ Codex versions tested, and evidence gaps.
 | 22 | Files, image input/generation, web search, visualizations, Sites, and appshots | Rich evidence and operator artifacts | `pilot` | Queued for bounded operator-artifact experiments |
 | 23 | Memories, Chronicle, projects, chats, side chats, and context compaction | Continuity without corrupting durable state | `defer` | Deferred pending an authority-safe continuity contract |
 | 24 | Authentication, sessions, accounts, usage/spend controls, analytics, telemetry, governance, and admin policy | Operability and enterprise readiness | `adopt` | Governance and diagnostics partially delivered |
-| 25 | Open-source components, release notes, feature maturity, diagnostics, and schema-diff monitoring | Continuous compatibility and audit closure | `adopt` | Release/schema gates delivered; continuous monitoring queued |
+| 25 | Open-source components, release notes, feature maturity, diagnostics, and schema-diff monitoring | Continuous compatibility and audit closure | `adopt` | First release/schema gates delivered; continuous monitoring queued |
 
 Items are ordered by architectural dependency, not novelty. App Server and
 lifecycle semantics precede conveniences built on them; security and permission
@@ -91,11 +91,11 @@ release-readiness change materially advances six families:
 | Item | Newly delivered upstream | Remaining scope |
 | ---: | --- | --- |
 | 8 | Four-state bundled MCP diagnostics distinguish missing, disabled, incompatible, and healthy installations | General config/profile/feature capability negotiation |
-| 13 | Release policy, coherent plugin versioning, reproducible artifacts, upgrade/rollback guidance, and community packaging controls | Publish the first verified release and continue plugin-surface audit |
+| 13 | Release policy, coherent plugin versioning, reproducible artifacts, upgrade/rollback guidance, community packaging controls, and first verified release | Continue plugin-surface audit |
 | 17 | Clean-install verification and release-building CLI automation | Broader `codex exec`, remote TUI, slash-command, and recovery comparison |
 | 19 | Protected checks, Dependabot, CodeQL, PR/issue templates, and a tag-only GitHub release workflow | Codex GitHub Action, Codex code review, Security scans, and custom review rules |
 | 24 | `CODEOWNERS`, contribution/support/conduct policy, integrity diagnostics, and compatibility policy | Account, usage, spend, analytics, telemetry, and managed-admin controls |
-| 25 | Changelog, compatibility/schema review gates, deterministic artifacts, checksums, provenance, SBOM, and draft-release automation | Continuous schema-diff/feature-maturity monitoring and first public release evidence |
+| 25 | Changelog, compatibility/schema review gates, deterministic artifacts, checksums, provenance, SBOM, draft-release automation, and first public release evidence | Continuous schema-diff/feature-maturity monitoring |
 
 No capability family is completely closed by this commit because each family is
 intentionally broader than one implementation slice. Items 13, 17, 24, and 25

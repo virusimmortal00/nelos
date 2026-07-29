@@ -53,13 +53,12 @@ metadata only.
 
 ### Release engineering and open-source readiness
 
-The repository currently has protected `main`, required macOS/Linux checks,
-Dependabot, CodeQL, an MIT license, a security policy, a release policy, a
-changelog, community-health files, and a tag-only draft-release workflow with
-reproducible integrity artifacts. It has no published GitHub releases or Git
-tags yet.
+The repository has protected `main`, required macOS/Linux checks, Dependabot,
+CodeQL, an MIT license, a security policy, a release policy, a changelog,
+community-health files, and a tag-only draft-release workflow with reproducible
+integrity artifacts. Its first verified GitHub release is `0.4.0`.
 
-- [ ] publish the first GitHub Release from the next verified version instead of
+- [x] publish the first GitHub Release from a verified version instead of
   inventing retroactive tags for unverified historical states;
 - [ ] clean up repository presentation and discovery metadata: remove the stale
   `fraktik` topic, set the canonical documentation/homepage link, add CI and

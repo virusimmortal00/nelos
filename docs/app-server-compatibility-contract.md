@@ -228,9 +228,12 @@ the missing contracts.
   and the existing bridge decision.
 - [`host-owned-control.md`](host-owned-control.md): proposed host lifecycle and
   implemented endpoint receiver seam.
-- Local runtime check on 2026-07-28: `codex-cli 0.144.6`; experimental JSON
-  schemas generated successfully. No separate `0.144.5` runtime was available
-  for this revision's local re-probe.
+- Release revalidation on 2026-07-28 used isolated npm distributions for
+  `codex-cli 0.144.5` and `0.144.6`. Both generated experimental schemas; the
+  initialization, read, name, resume, bounded turn-list, start, steer, archive,
+  status, and active-flag shapes Nelos consumes were identical. Each exact
+  binary also passed initialization, Unix-socket transport, task creation, two
+  same-task live turns, readback, archival, and cleanup.
 
 Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for

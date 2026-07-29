@@ -7,26 +7,11 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### User-facing changes
 
-- Added bounded four-state bundled MCP diagnostics to the doctor and
-  distribution verifier.
-- Added release and compatibility policy, community-health files, and
-  repository contribution templates.
-- Added a tag-only workflow that verifies release candidates on macOS and
-  Linux, creates reproducible package artifacts with checksums and provenance,
-  emits a CycloneDX SBOM, and opens a draft GitHub Release for maintainer
-  review.
-- Newer stable Codex versions are no longer rejected solely because they have
-  not yet been tested. MCP health output distinguishes tested versions from
-  provisionally compatible, untested versions.
+- None.
 
 ### Compatibility requirements
 
-- Node.js 20 or newer on macOS or Linux.
-- Codex `0.144.5` or newer. Codex `0.144.5` and `0.144.6` are the exact tested
-  versions; newer stable versions may proceed provisionally and are reported as
-  untested until their protocol surface is reviewed.
-- Exact tested Codex versions and exercised surfaces must be recorded before a
-  release tag is created.
+- None.
 
 ### Migrations
 
@@ -38,8 +23,62 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### Known limitations
 
+- None.
+
+## [0.4.0] - 2026-07-28
+
+### User-facing changes
+
+- Added bounded four-state bundled MCP diagnostics to the doctor and
+  distribution verifier.
+- Added release and compatibility policy, community-health files, and
+  repository contribution templates.
+- Added a tag-only workflow that verifies release candidates on macOS and
+  Linux, creates reproducible package artifacts with checksums and provenance,
+  emits a CycloneDX SBOM, and opens a draft GitHub Release for maintainer
+  review.
+- Newer stable Codex versions are no longer rejected solely because they have
+  not yet been tested. MCP health output distinguishes tested versions from
+  provisionally compatible, untested versions.
+- Added an ordered audit of 25 Codex capability families, including a bounded
+  opt-in pilot contract for native Goals and explicit adoption decisions
+  separate from implementation status.
+- Added a versioned Codex App Server compatibility contract covering authority,
+  profiles, transports, consumed schemas, notifications, privacy boundaries,
+  retry behavior, and failure handling.
+
+### Compatibility requirements
+
+- Node.js 20 or newer on macOS or Linux.
+- Codex `0.144.5` or newer. Codex `0.144.5` and `0.144.6` are the exact tested
+  versions; newer stable versions may proceed provisionally and are reported as
+  untested until their protocol surface is reviewed.
+- Isolated `codex-cli` `0.144.5` and `0.144.6` release checks generated
+  identical schemas for every App Server method Nelos consumes and exercised
+  initialization, Unix-socket transport, task creation, two same-task turns,
+  readback, archival, and cleanup. Codex Desktop `0.144.6` remains covered by
+  the recorded plugin/MCP dogfood smoke.
+
+### Migrations
+
+- Existing Fraktik installations must remove the `fraktik@fraktik` plugin and
+  marketplace before installing `nelos@nelos-marketplace`; the renamed plugin
+  identity is not migrated in place.
+- Existing Nelos development-snapshot users should install the marketplace at
+  Git ref `v0.4.0`, reinstall the plugin, restart Codex when requested, and open
+  a fresh task.
+
+### Security fixes
+
+- None.
+
+### Known limitations
+
 - Windows remains unsupported.
-- Release drafts still require explicit maintainer review and publication.
+- Codex versions newer than `0.144.6` are provisionally compatible but remain
+  untested until their consumed App Server surface is reviewed.
+- Native Goals integration remains an opt-in pilot proposal, not a default or
+  a correctness dependency.
 
 <!--
 Release automation should preserve the Unreleased section above and copy this
