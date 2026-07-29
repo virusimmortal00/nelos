@@ -164,16 +164,32 @@ test("CycloneDX output is deterministic and rooted at the release package", () =
   }]);
 });
 
-test("release workflow is tag-only, gated, draft-only, and checksum-aware", async () => {
+test("release workflow is tag-triggered, recoverable, gated, draft-only, and checksum-aware", async () => {
   const workflow = await readFile(
     join(repositoryRoot, ".github", "workflows", "release.yml"),
     "utf8",
   );
   assert.match(workflow, /tags:\s*\n\s+- "v\*"/u);
-  assert.doesNotMatch(workflow, /workflow_dispatch/u);
+  assert.match(workflow, /workflow_dispatch:[\s\S]*tag:/u);
+  assert.match(
+    workflow,
+    /RELEASE_TAG: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}/u,
+  );
+  assert.match(
+    workflow,
+    /group: release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}/u,
+  );
   assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
   assert.match(workflow, /needs: \[verify, artifacts\]/u);
   assert.match(workflow, /contents: write/u);
+  assert.equal(
+    (workflow.match(/Restore annotated release tag/gu) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (workflow.match(/env -u GITHUB_SHA node scripts\/build-release-artifacts\.mjs/gu) ?? []).length,
+    2,
+  );
   assert.match(workflow, /sha256sum --check SHA256SUMS/u);
   assert.match(workflow, /gh release create[\s\S]*--draft[\s\S]*--verify-tag/u);
   assert.doesNotMatch(workflow, /gh release create[\s\S]*--latest/u);
