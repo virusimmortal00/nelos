@@ -49,7 +49,15 @@ with durable branches called **spinoffs**.
 Install the plugin:
 
 ```bash
-codex plugin marketplace add virusimmortal00/nelos --ref v0.4.0
+codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
+codex plugin add nelos@nelos-marketplace
+```
+
+`marketplace/stable` advances only to a published, validated stable release.
+To upgrade later, refresh that marketplace snapshot and reinstall the plugin:
+
+```bash
+codex plugin marketplace upgrade nelos-marketplace
 codex plugin add nelos@nelos-marketplace
 ```
 
@@ -68,6 +76,8 @@ Use Nelos to plan this feature into safe parallel slices.
 ```
 
 No installer, no manual copying, no `PATH` changes.
+Exact release tags remain available for reproducible installs and rollback; see
+[Installation and distribution trust](docs/installation.md#codex-marketplace-installs-upgrades-and-rollback).
 
 ## Codex compatibility
 

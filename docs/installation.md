@@ -5,7 +5,7 @@ Nelos's transactional installer, the read-only `nelos doctor`
 diagnostic, and the distribution verifier. For the normal Codex installation —
 the marketplace plugin plus its bundled MCP tool surface
 ([docs/mcp-tool-surface.md](mcp-tool-surface.md)) — see
-[Install in Codex](../README.md#install-in-codex); this document covers the
+[Quick start](../README.md#quick-start); this document also covers the
 maintainer-oriented source distribution path, which installs the optional
 `nelos` CLI that the installed plugin no longer depends on.
 
@@ -30,6 +30,52 @@ For example, an installed `nelos@personal` plugin emits only:
 [plugins."nelos@personal".mcp_servers."nelos"]
 enabled = true
 ```
+
+## Codex marketplace installs, upgrades, and rollback
+
+For a normal Codex installation, configure Nelos's stable channel once and
+install the plugin:
+
+```bash
+codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
+codex plugin add nelos@nelos-marketplace
+```
+
+The `marketplace/stable` branch is advanced only by the
+[stable marketplace promotion](release-policy.md#stable-marketplace-promotion)
+workflow after a stable GitHub Release is published and validated. It never
+tracks untagged `main`, a draft, or a prerelease.
+
+To upgrade, read the new release's **Compatibility requirements** and
+**Migrations**, then refresh the configured Git marketplace and reinstall from
+the refreshed snapshot:
+
+```bash
+codex plugin marketplace upgrade nelos-marketplace
+codex plugin add nelos@nelos-marketplace
+```
+
+Restart Codex and open a fresh task after installation or upgrade. Enabling the
+bundled MCP server remains an explicit per-selector configuration step, as
+shown in the [Quick start](../README.md#quick-start).
+
+For a reproducible pin, replace the channel ref with an exact immutable release
+tag. If the stable marketplace is already configured, remove the installed
+plugin and marketplace snapshot before changing its ref:
+
+```bash
+codex plugin remove nelos@nelos-marketplace
+codex plugin marketplace remove nelos-marketplace
+codex plugin marketplace add virusimmortal00/nelos --ref v0.4.0
+codex plugin add nelos@nelos-marketplace
+```
+
+Use the same sequence with an earlier supported release tag to roll back.
+Review migrations first because an older release may not understand persisted
+state written by a newer one. Never use `main`, move an immutable tag, or
+substitute rebuilt bytes to simulate a rollback. Existing users already pinned
+to a tag remain pinned until they deliberately reconfigure the marketplace;
+publishing or promoting a newer release does not alter their installation.
 
 ## The unified installer
 

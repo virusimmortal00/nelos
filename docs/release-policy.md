@@ -165,6 +165,33 @@ CycloneDX SBOM are attached to a **draft** GitHub Release. A maintainer must
 review and explicitly publish that draft; workflow success alone does not make
 it a public release.
 
+## Stable marketplace promotion
+
+Publishing a stable GitHub Release triggers
+`.github/workflows/promote-marketplace.yml`. The workflow treats the movable
+`marketplace/stable` branch as a distribution channel, not as release
+provenance. It promotes only the commit behind an existing annotated
+`vMAJOR.MINOR.PATCH` tag whose GitHub Release is published, non-draft, and not a
+prerelease.
+
+Before promotion, the workflow reruns the immutable release validation from the
+tag and independently checks the package, plugin, MCP, provenance, lockfile,
+and marketplace identities. It then requires the existing stable branch, when
+present, to be an ancestor of the candidate release. Promotion is therefore
+idempotent and fast-forward-only; it never force-pushes or moves the channel
+backward. A failed validation or push leaves the prior stable channel
+unchanged.
+
+Maintainers can manually dispatch the same workflow with an existing published
+stable tag to recover from an interrupted GitHub event. This recovery path
+applies the same checks. It does not permit promoting a draft, prerelease,
+untagged commit, divergent history, or rebuilt release.
+
+Users who configure the marketplace at `marketplace/stable` can refresh it
+without changing repository coordinates. Exact immutable release tags remain
+the authoritative pin and rollback mechanism; rollback never moves the shared
+stable channel.
+
 ## Release notes
 
 [`CHANGELOG.md`](../CHANGELOG.md) is the canonical user-facing release history.
