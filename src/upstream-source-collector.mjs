@@ -88,16 +88,20 @@ function classifyGitFailure(error) {
 }
 
 async function resolveRef(runGit, remote, requestedRef) {
-  if (
-    remote.startsWith("-") ||
-    /[\u0000-\u001f\u007f]/u.test(remote)
-  ) {
+  if (!remote.startsWith("https://")) {
     fail("resolved Git remote is unsafe");
   }
   if (SHA_PATTERN.test(requestedRef)) {
     return { resolvedRef: requestedRef, commitSha: requestedRef };
   }
+  if (!requestedRef.startsWith("refs/")) {
+    fail("declared Git ref is unsafe");
+  }
   if (
+    !(
+      requestedRef.startsWith("refs/heads/") ||
+      requestedRef.startsWith("refs/tags/")
+    ) ||
     !DECLARED_REF_PATTERN.test(requestedRef) ||
     requestedRef.includes("//") ||
     requestedRef.includes("..") ||
@@ -142,7 +146,6 @@ export async function collectUpstreamSourceEvidenceV1(
   request,
   {
     runGit = defaultRunGit,
-    resolveRemote = (repositoryUrl) => repositoryUrl,
     now = () => new Date(),
   } = {},
 ) {
@@ -226,10 +229,7 @@ export async function collectUpstreamSourceEvidenceV1(
     observedAt,
     classification,
   });
-  const remote = resolveRemote(request.repositoryUrl);
-  if (typeof remote !== "string" || remote.length === 0) {
-    fail("resolved Git remote must be a non-empty string");
-  }
+  const remote = request.repositoryUrl;
 
   let checkout;
   try {

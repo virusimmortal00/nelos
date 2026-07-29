@@ -92,19 +92,13 @@ function request(evidenceRef, selectedPaths = [PATH]) {
 
 function options(remote, calls = undefined) {
   return {
-    resolveRemote: (repository) => {
-      assert.equal(repository, REPOSITORY);
-      return remote;
+    runGit: async (args, processOptions) => {
+      calls?.push(args);
+      const fixtureArgs = args.map((argument) =>
+        argument === REPOSITORY ? remote : argument);
+      return git(fixtureArgs, processOptions);
     },
     now: () => OBSERVED_AT,
-    ...(calls
-      ? {
-          runGit: async (args, processOptions) => {
-            calls.push(args);
-            return git(args, processOptions);
-          },
-        }
-      : {}),
   };
 }
 
@@ -151,24 +145,26 @@ test("exact annotated release tag yields bounded compatibility evidence", async 
   assert.deepEqual([...new Set(accessed)], [`FETCH_HEAD:${PATH}`]);
 });
 
-test("Git option injection is rejected before invoking the command runner", async (t) => {
+test("option-looking release refs are rejected before invoking Git", async (t) => {
   const data = await fixture(t);
+  data.registry.supportedCodexReleases[0].upstreamSourceRefs[0].requestedRef =
+    "--upload-pack=malicious-helper";
   let calls = 0;
-  const result = await collectUpstreamSourceEvidenceV1(
-    data.registry,
-    request({ kind: "supported-release", releaseId: "codex@0.144.5" }),
-    {
-      resolveRemote: () => "--upload-pack=malicious-helper",
-      runGit: async () => {
-        calls += 1;
-        throw new Error("must not execute");
+  await assert.rejects(
+    collectUpstreamSourceEvidenceV1(
+      data.registry,
+      request({ kind: "supported-release", releaseId: "codex@0.144.5" }),
+      {
+        runGit: async () => {
+          calls += 1;
+          throw new Error("must not execute");
+        },
+        now: () => OBSERVED_AT,
       },
-      now: () => OBSERVED_AT,
-    },
+    ),
+    /requestedRef is invalid/u,
   );
   assert.equal(calls, 0);
-  assert.equal(result.outcome, "non-evidence");
-  assert.match(result.reason, /infrastructure failure/iu);
 });
 
 test("an exact declared commit can supply release evidence", async (t) => {
