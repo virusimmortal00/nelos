@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/assets/nelos-banner.png" alt="Nelos" width="100%">
-</p>
-
 <h1 align="center">Nelos</h1>
 
 <p align="center">
@@ -10,11 +6,20 @@
 </p>
 
 <p align="center">
-  <a href="#what-is-nelos">What it does</a> ·
+  <a href="#nelos-in-action">See it work</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="docs/webs.md">Docs</a>
 </p>
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/nelos-web-hero.png"
+    alt="A Nelos queen task in Codex receiving a completed spinoff result alongside its visible B1 web of durable tasks"
+    width="100%">
+</p>
+
+<p align="center"><sub><em>One objective becomes a visible web of focused Codex tasks—and completed work reports back to the coordinator automatically.</em></sub></p>
 
 ---
 
@@ -34,6 +39,38 @@ don't get from Codex, its native subagents, or hand-run parallel chats:
 - **Durable tasks you can still see and steer.** Spinoffs get their own lifecycle
   and appear right in the Codex desktop sidebar, so you can open, watch, or take
   one over by hand while Nelos coordinates the rest.
+
+## Nelos in action
+
+### The whole web stays visible
+
+Every task in a web shares one compact ID, so related work is easy to spot in the
+Codex sidebar. The crown marks the queen; spiders mark its durable spinoffs.
+Each one remains an ordinary task you can open, inspect, or steer directly.
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/web-roles-and-ids.png"
+    alt="Codex task list showing four spider-marked B1 spinoffs and their crown-marked B1 queen"
+    width="880">
+</p>
+
+<p align="center"><em>One B1 web: four focused spinoffs coordinated by one queen.</em></p>
+
+### Dependencies wait for accepted work
+
+Nelos can run independent slices in parallel, but it does not release downstream
+work merely because an upstream task stopped. The result must pass the queen's
+acceptance gate first, and the orchestration state survives restarts.
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/acceptance-gates.png"
+    alt="Terminal output from the Nelos golden-loop demo showing acceptance, dependency, restart, recovery, collection, and cleanup checks passing"
+    width="100%">
+</p>
+
+<p align="center"><em>Run the same three-member proof with <code>npm run demo:acceptance-gates</code>.</em></p>
 
 ## Why "Nelos"?
 
