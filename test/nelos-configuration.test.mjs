@@ -139,6 +139,10 @@ test("the bounded TOML parser accepts the supported schema and rejects drift", (
       "schema_version = 1\n[spinoffs]\ncleanup_policy = auto\n",
       /invalid TOML/u,
     ],
+    [
+      "schema_version = 1\nspinoffs = {}\n",
+      /inline tables use valid but unsupported editing syntax/u,
+    ],
   ]) {
     assert.throws(() => parseNelosConfig(source), message);
   }

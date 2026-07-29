@@ -11,6 +11,7 @@ import {
 import {
   SpinoffLifecycleAdapterV1,
   SpinoffLifecycleStoreV1,
+  spinoffWakeIdV1,
 } from "../src/spinoff-lifecycle.mjs";
 
 const testStateHome = await mkdtemp(join(tmpdir(), "nelos-lifecycle-state-"));
@@ -285,6 +286,54 @@ test("an explicit ask policy confirms before returning archive effects", async (
   assert.equal(replay.results[0].replayed, true);
 });
 
+test("ask reconciliation never expands a partial confirmation", async (t) => {
+  const first = workUnit();
+  const second = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: {
+      state: "bound",
+      memberThreadId: "member-thread-b",
+    },
+  });
+  const { adapter } = await fixture(t, {
+    units: [first, second],
+    decisions: [acceptance(first), acceptance(second)],
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "ask",
+    confirmedThreadIds: ["member-thread"],
+  });
+  assert.deepEqual(
+    requested.effects.map(({ threadId }) => threadId),
+    ["member-thread"],
+  );
+
+  const applied = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+  assert.equal(applied.state, "complete");
+  assert.deepEqual(applied.effects, []);
+  assert.deepEqual(
+    applied.results.map(({ threadId, state }) => ({ threadId, state })),
+    [{ threadId: "member-thread", state: "archived" }],
+  );
+
+  const remaining = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+  });
+  assert.equal(remaining.state, "confirmation-required");
+  assert.deepEqual(
+    remaining.candidates.map(({ threadId }) => threadId),
+    ["member-thread-b"],
+  );
+});
+
 test("cleanup never blindly re-emits an in-flight archive", async (t) => {
   const { adapter } = await fixture(t);
   const first = await adapter.cleanup({
@@ -489,6 +538,55 @@ test("competing cleanup starts establish one policy snapshot for the web", async
     policy: results[0].policy === "auto" ? "keep" : "auto",
   });
   assert.equal(replay.policy, results[0].policy);
+});
+
+test("mixed terminal legacy policies do not block cleanup replay", async (t) => {
+  const first = workUnit();
+  const second = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: {
+      state: "bound",
+      memberThreadId: "member-thread-b",
+    },
+  });
+  const { adapter, store } = await fixture(t, {
+    units: [first, second],
+    decisions: [acceptance(first), acceptance(second)],
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  });
+  await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    archiveReceipts: requested.effects.map(archiveReceipt),
+  });
+
+  const secondCompletion = completion({
+    workUnitId: "member-b",
+    memberThreadId: "member-thread-b",
+  });
+  const wakeId = spinoffWakeIdV1(secondCompletion);
+  const legacy = await store.read(wakeId);
+  await store.write({
+    ...legacy,
+    revision: legacy.revision + 1,
+    cleanupState: "kept",
+    cleanupPolicy: "keep",
+    updatedAt: "2026-07-24T13:00:00.000Z",
+  }, { expectedRevision: legacy.revision });
+
+  const replay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "auto",
+  });
+  assert.equal(replay.state, "complete");
+  assert.deepEqual(replay.effects, []);
+  assert.deepEqual(replay.results, []);
 });
 
 test("remembering a cleanup policy requires explicit user intent", async (t) => {

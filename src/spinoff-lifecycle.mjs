@@ -688,15 +688,40 @@ export class SpinoffLifecycleAdapterV1 {
             this.#store.read(spinoffWakeIdV1(completion)),
           ),
         );
-        const policies = new Set(
-          records
+        const activeRecords = records.filter(
+          (record) =>
+            record !== null &&
+            !["archived", "kept"].includes(record.cleanupState),
+        );
+        const activePolicies = new Set(
+          activeRecords
             .map((record) => record?.cleanupPolicy ?? null)
             .filter((value) => value !== null),
         );
-        if (policies.size > 1) {
+        if (activePolicies.size > 1) {
           throw new Error("cleanup policy snapshots conflict within the web");
         }
-        const snapshot = policies.values().next().value ?? requestedPolicy;
+        const hasActiveCandidate = records.some(
+          (record) =>
+            record === null ||
+            !["archived", "kept"].includes(record.cleanupState),
+        );
+        const terminalPolicies = new Set(
+          records
+            .filter((record) =>
+              record !== null &&
+              ["archived", "kept"].includes(record.cleanupState),
+            )
+            .map((record) => record.cleanupPolicy)
+            .filter((value) => value !== null),
+        );
+        const snapshot =
+          activePolicies.values().next().value ??
+          (
+            !hasActiveCandidate && terminalPolicies.size === 1
+              ? terminalPolicies.values().next().value
+              : requestedPolicy
+          );
         for (
           let index = 0;
           index < candidateBlueprints.length;
@@ -704,6 +729,12 @@ export class SpinoffLifecycleAdapterV1 {
         ) {
           const completion = candidateBlueprints[index].completion;
           const record = records[index];
+          if (
+            record !== null &&
+            ["archived", "kept"].includes(record.cleanupState)
+          ) {
+            continue;
+          }
           if (!record) {
             const initial = initialRecord(completion, this.#now());
             await this.#store.write({
@@ -768,7 +799,15 @@ export class SpinoffLifecycleAdapterV1 {
     const reconciliationCandidates =
       confirmedThreadIds === undefined ? candidates : allCandidates;
     const confirmed = confirmedThreadIds === undefined
-      ? new Set(candidates.map(({ threadId }) => threadId))
+      ? new Set(
+          candidates
+            .filter(({ record, threadId }) =>
+              resolvedPolicy !== "ask" ||
+              record?.cleanupState === "archiving" ||
+              receiptByThreadId.has(threadId),
+            )
+            .map(({ threadId }) => threadId),
+        )
       : new Set(confirmedThreadIds.map((thread) => id(thread, "confirmedThreadId")));
     const candidateIds = new Set(
       reconciliationCandidates.map(({ threadId }) => threadId),

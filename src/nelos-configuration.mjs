@@ -193,6 +193,15 @@ export function parseNelosConfig(source) {
   }
   const editable = locateEditableSetting(source);
   if (
+    Object.hasOwn(parsed, "spinoffs") &&
+    cleanupPolicy === null &&
+    editable.locations.spinoffsTableLine === null
+  ) {
+    throw new Error(
+      "spinoffs inline tables use valid but unsupported editing syntax",
+    );
+  }
+  if (
     cleanupPolicy !== null &&
     editable.locations.cleanupPolicyLine === null
   ) {
