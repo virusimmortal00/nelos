@@ -51,33 +51,33 @@ Codex versions tested, and evidence gaps.
 
 ## Ordered capability worklist
 
-| # | Capability family | Initial relevance to Nelos | Audit state |
-| ---: | --- | --- | --- |
-| 1 | Persisted Goals and automatic continuation | Potential execution persistence for queens and durable spinoffs | **Assessed: pilot, not default** |
-| 2 | App Server protocol, transports, schemas, notifications, and capability negotiation | Core native integration boundary | **Assessed: adopted pinned baseline; hardening active** |
-| 3 | Task lifecycle: start, read, list, resume, fork, rollback, archive, unarchive, title, and history | Core durable-spinoff control | Partially delivered; active Next |
-| 4 | Turn lifecycle: start, steer, interrupt, review, approvals, items, and result events | Core execution and correction control | Partially delivered; active Next |
-| 5 | Subagents, custom agent roles, collaboration modes, and parallel joins | Core bounded-work path | Core adopted; remaining surface queued |
-| 6 | Worktrees, handoff, local environments, remote connections, and cloud environments | Isolation and parallel-write safety | Partially delivered; leading candidate |
-| 7 | Models, reasoning effort, speed modes, routing, model availability, and rate limits | Core performance and cost policy | Core routing delivered; calibration queued |
-| 8 | Configuration layers, profiles, feature flags, managed configuration, and environment variables | Install reliability and capability detection | Partial; bundled-MCP diagnostics delivered |
-| 9 | Permissions, sandboxing, approvals, rules, automatic approval review, and internet access | Core safety boundary | Partial; permission/audit work active Next |
-| 10 | Lifecycle hooks | Enforcement, audit, wake, and validation opportunities | Queued; high-impact |
-| 11 | `AGENTS.md`, developer instructions, custom prompts, and project guidance | Durable behavioral correctness | Queued |
-| 12 | Skills, skill metadata, scripts, assets, controls, and discovery | Existing Nelos workflow surface | Core adopted; remaining audit queued |
-| 13 | Plugins, manifests, marketplaces, packaging, updates, controls, and submission checks | Existing distribution surface | Substantially delivered; first release pending |
-| 14 | MCP tools, resources, prompts, apps/connectors, dynamic tools, authentication, and elicitation | Existing tool and integration surface | Core adopted; broader surface queued |
-| 15 | MCP Apps UI, components, metadata, CSP, and host compatibility | Possible inspect/confirm/navigation UI | Deferred behind lifecycle foundations |
-| 16 | Scheduled tasks, chat automations, thread wakeups, notifications, and attention UX | Recovery and unattended coordination | Partial; continuation active Next |
-| 17 | CLI commands, slash commands, `codex exec`, completions, remote TUI, and integrated terminal | Developer, recovery, and automation surfaces | Core adopted; release/clean-install tooling delivered |
-| 18 | Codex SDK | Possible programmatic orchestration alternative | Queued |
-| 19 | GitHub Action, code review, Codex Security, and custom review rules | CI, release, and security quality gates | Partial generic GitHub/CodeQL coverage; Codex-specific audit queued |
-| 20 | Codex MCP server and Agents SDK integration | Alternative outer-orchestrator architecture | Queued |
-| 21 | Browser, Chrome extension, Computer Use, and Record & Replay | UI testing and repeatable external workflows | Queued |
-| 22 | Files, image input/generation, web search, visualizations, Sites, and appshots | Rich evidence and operator artifacts | Queued |
-| 23 | Memories, Chronicle, projects, chats, side chats, and context compaction | Continuity without corrupting durable state | Queued |
-| 24 | Authentication, sessions, accounts, usage/spend controls, analytics, telemetry, governance, and admin policy | Operability and enterprise readiness | Partial governance and diagnostics delivered |
-| 25 | Open-source components, release notes, feature maturity, diagnostics, and schema-diff monitoring | Continuous compatibility and audit closure | Release/schema gates delivered; continuous monitoring queued |
+| # | Capability family | Initial relevance to Nelos | Decision | Delivery status |
+| ---: | --- | --- | --- | --- |
+| 1 | Persisted Goals and automatic continuation | Potential execution persistence for queens and durable spinoffs | `pilot` | Assessed; opt-in queen pilot specified |
+| 2 | App Server protocol, transports, schemas, notifications, and capability negotiation | Core native integration boundary | `adopt` | Pinned baseline accepted; hardening active |
+| 3 | Task lifecycle: start, read, list, resume, fork, rollback, archive, unarchive, title, and history | Core durable-spinoff control | `adopt` | Partially delivered; active Next |
+| 4 | Turn lifecycle: start, steer, interrupt, review, approvals, items, and result events | Core execution and correction control | `adopt` | Partially delivered; active Next |
+| 5 | Subagents, custom agent roles, collaboration modes, and parallel joins | Core bounded-work path | `adopt` | Core delivered; remaining surface queued |
+| 6 | Worktrees, handoff, local environments, remote connections, and cloud environments | Isolation and parallel-write safety | `adopt` | Partially delivered; leading candidate |
+| 7 | Models, reasoning effort, speed modes, routing, model availability, and rate limits | Core performance and cost policy | `adopt` | Core routing delivered; calibration queued |
+| 8 | Configuration layers, profiles, feature flags, managed configuration, and environment variables | Install reliability and capability detection | `adopt` | Bundled-MCP diagnostics delivered; broader audit queued |
+| 9 | Permissions, sandboxing, approvals, rules, automatic approval review, and internet access | Core safety boundary | `adopt` | Partial; permission/audit work active Next |
+| 10 | Lifecycle hooks | Enforcement, audit, wake, and validation opportunities | `adopt` | Queued; high-impact |
+| 11 | `AGENTS.md`, developer instructions, custom prompts, and project guidance | Durable behavioral correctness | `adopt` | Queued |
+| 12 | Skills, skill metadata, scripts, assets, controls, and discovery | Existing Nelos workflow surface | `adopt` | Core delivered; remaining audit queued |
+| 13 | Plugins, manifests, marketplaces, packaging, updates, controls, and submission checks | Existing distribution surface | `adopt` | Substantially delivered; first release pending |
+| 14 | MCP tools, resources, prompts, apps/connectors, dynamic tools, authentication, and elicitation | Existing tool and integration surface | `adopt` | Core delivered; broader surface queued |
+| 15 | MCP Apps UI, components, metadata, CSP, and host compatibility | Possible inspect/confirm/navigation UI | `defer` | Deferred behind lifecycle foundations |
+| 16 | Scheduled tasks, chat automations, thread wakeups, notifications, and attention UX | Recovery and unattended coordination | `pilot` | Partial; continuation experiments active Next |
+| 17 | CLI commands, slash commands, `codex exec`, completions, remote TUI, and integrated terminal | Developer, recovery, and automation surfaces | `adopt` | Core delivered; release/clean-install tooling delivered |
+| 18 | Codex SDK | Possible programmatic orchestration alternative | `monitor` | Alternative architecture remains queued |
+| 19 | GitHub Action, code review, Codex Security, and custom review rules | CI, release, and security quality gates | `pilot` | Generic GitHub/CodeQL coverage partial; Codex-specific audit queued |
+| 20 | Codex MCP server and Agents SDK integration | Alternative outer-orchestrator architecture | `defer` | Deferred pending lifecycle foundations |
+| 21 | Browser, Chrome extension, Computer Use, and Record & Replay | UI testing and repeatable external workflows | `defer` | Deferred pending a bounded UI-testing use case |
+| 22 | Files, image input/generation, web search, visualizations, Sites, and appshots | Rich evidence and operator artifacts | `pilot` | Queued for bounded operator-artifact experiments |
+| 23 | Memories, Chronicle, projects, chats, side chats, and context compaction | Continuity without corrupting durable state | `defer` | Deferred pending an authority-safe continuity contract |
+| 24 | Authentication, sessions, accounts, usage/spend controls, analytics, telemetry, governance, and admin policy | Operability and enterprise readiness | `adopt` | Governance and diagnostics partially delivered |
+| 25 | Open-source components, release notes, feature maturity, diagnostics, and schema-diff monitoring | Continuous compatibility and audit closure | `adopt` | Release/schema gates delivered; continuous monitoring queued |
 
 Items are ordered by architectural dependency, not novelty. App Server and
 lifecycle semantics precede conveniences built on them; security and permission
@@ -286,6 +286,33 @@ verification disagree.
 
 ### Experiments
 
+#### Measurement definitions
+
+Apply these definitions to G2 and to the default-adoption gate:
+
+- An eligible web is a started low-risk web that satisfies the experiment's
+  predeclared inclusion criteria. A completed web has every required current
+  result accepted and terminal cleanup policy settled.
+- One manual continuation is a user or maintainer turn whose sole purpose is to
+  say continue, resume, or check again. Requirement changes, approvals,
+  corrections, and new work are interventions, not manual continuations.
+- Completion rate is `completed eligible webs / started eligible webs`.
+  Completion gain is the Goal-cohort rate minus the matched-control rate,
+  expressed in percentage points; “20-point” means 20 percentage points.
+- Manual-continuation reduction is
+  `(control mean per web - Goal mean per web) / control mean per web * 100%`.
+  If the control mean is zero, this metric is inapplicable and the completion
+  gain must satisfy the benefit gate.
+- Token and elapsed-time regression are each
+  `(Goal cohort median - control cohort median) / control cohort median * 100%`
+  over eligible webs. A zero control median makes the corresponding cost gate
+  fail rather than permitting division by zero.
+- G2 uses the predeclared five-Goal/five-control matched window below. Default
+  adoption uses 30 consecutive eligible Goal-enabled queen webs plus at least
+  30 controls matched by slice-plan size, risk bucket, model route, permission
+  policy, and release/Codex-version window. Exclusions and matching are fixed
+  before outcomes are inspected.
+
 #### G0 — Compatibility and contract
 
 - **Input/procedure:** for every tested Codex binary, generate stable
@@ -330,10 +357,11 @@ verification disagree.
   conflicts, interventions, and rollback success.
 - **Safety/pass/reject:** non-release work, no inferred budget or goal
   replacement. Require zero duplicate committed effects, zero overwritten
-  goals or safety violations, 100% rollback, and either 30% fewer manual
-  continuations or a 20-point completion gain with no more than 20% median
-  token/time regression. Reject if a safety invariant fails or neither benefit
-  threshold is met.
+  goals or safety violations, 100% rollback, and either at least 30% fewer
+  manual continuations or at least a 20-percentage-point completion gain, with
+  no more than 20% median token regression and no more than 20% median
+  elapsed-time regression. Reject if a safety invariant fails or neither
+  benefit threshold is met.
 
 #### G3 — Durable-spinoff dogfood
 
@@ -364,13 +392,13 @@ Goals may become a default for eligible queens only when:
   webs without an unacceptable token/time regression; and
 - the setting has an immediate rollback path.
 
-Default adoption additionally requires G0–G2 to pass, 30 consecutive opt-in
-queen webs with zero duplicate committed effects or authority/worktree/approval
-violations, at least 95% verified attachment, 100% fallback when Goals are
-absent, disabled, conflicting, or malformed, and the same G2 benefit/cost
-thresholds. Reject default adoption if any safety invariant fails, the benefit
-threshold is missed after 30 webs, or median token or elapsed-time regression
-exceeds 20%.
+Default adoption additionally requires G0–G2 to pass, the defined 30-web Goal
+window and matched controls, zero duplicate committed effects or
+authority/worktree/approval violations, at least 95% verified attachment, 100%
+fallback when Goals are absent, disabled, conflicting, or malformed, and the
+same G2 benefit/cost thresholds. Reject default adoption if any safety
+invariant fails, the benefit threshold is missed in that window, or median
+token or elapsed-time regression exceeds 20%.
 
 Until those gates pass, Goals are a promising native accelerator—not a missing
 correctness primitive.
@@ -386,9 +414,10 @@ The accepted
 [Codex App Server Compatibility Contract](app-server-compatibility-contract.md)
 defines four separate profiles rather than one blanket compatibility claim:
 
-- the strict MCP bridge has minimum Codex version `0.144.5`, with `0.144.5` and
-  `0.144.6` tested and newer stable versions provisionally allowed behind the
-  same response validators;
+- the strict MCP bridge has minimum Codex version `0.144.5`; one combined
+  reduced fixture records `0.144.5`/`0.144.6` shapes, this revision directly
+  re-probed `0.144.6`, and newer stable versions are provisionally allowed
+  behind the same response validators;
 - the broader source CLI remains conditional explicit-development behavior
   until its methods, fields, and shared client receive the same attestation;
 - under-development plugin methods are a best-effort installer optimization

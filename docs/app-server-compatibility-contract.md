@@ -24,7 +24,7 @@ Nelos has four distinct App Server profiles:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
-| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; `0.144.5` and `0.144.6` are tested, while newer stable versions proceed provisionally behind the same response validators |
+| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, while this revision locally re-probed only `0.144.6`; newer stable versions proceed provisionally behind the same response validators |
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
@@ -38,8 +38,10 @@ payloads, and installer-only plugin methods do not widen task-control support.
 The supported revision-1 baseline is:
 
 - a stable server identity at or above minimum version `0.144.5`;
-- exact tested-version evidence for `0.144.5` and `0.144.6`, with newer stable
-  versions reported as compatible but untested;
+- combined reduced-fixture evidence whose recorded source covers `0.144.5` and
+  `0.144.6`, plus a direct local runtime re-probe of `0.144.6`; this is not a
+  separately checked-in raw `0.144.5` probe, and newer stable versions are
+  reported as compatible but untested;
 - `initialize`, followed by the outbound `initialized` notification;
 - `capabilities.experimentalApi: true`;
 - stdio JSONL for the strict bridge;
@@ -58,7 +60,7 @@ classified below.
 | Dependency | Evidence and maturity | Nelos rule |
 | --- | --- | --- |
 | JSON-RPC shape | Official: `method`, `params`, and optional `id`, with the JSON-RPC header omitted | Accept only bounded object messages; response `id` must match a pending request |
-| stdio | Official JSONL transport; `--stdio` spelling locally verified on the tested versions | Supported by the strict bridge at or above the minimum version, subject to strict per-operation response validation |
+| stdio | Official JSONL transport; the combined fixture records the reviewed `0.144.x` shapes and `--stdio` was locally re-verified on `0.144.6` for this revision | Supported by the strict bridge at or above the minimum version, subject to strict per-operation response validation |
 | Unix-WebSocket | Official WebSocket-over-Unix transport using HTTP Upgrade | Accept an explicit development `--socket` or validated descriptor only |
 | TCP `ws://` / `wss://` | Official, but WebSocket transport is experimental and unsupported | Outside the revision-1 endpoint descriptor and Nelos product support |
 | Host descriptor | Nelos proposal: `{schemaVersion:1, transport:"unix-websocket", path, protocolVersion}` | Receiver seam only. Codex does not inject, lease, or attest this descriptor today |
@@ -79,7 +81,7 @@ they happen to connect to a pinned runtime.
 
 | Method | Fields Nelos sends or consumes | Classification and rule |
 | --- | --- | --- |
-| `thread/read` | Request: `threadId`, `includeTurns`. Response: `thread.id`, `name`, `status`, `cwd`, `parentThreadId`, `createdAt`, `updatedAt` | Stable documented method; exact subset fixture-attested on both tested versions. Returned ID, status, and flags must validate on every version |
+| `thread/read` | Request: `threadId`, `includeTurns`. Response: `thread.id`, `name`, `status`, `cwd`, `parentThreadId`, `createdAt`, `updatedAt` | Stable documented method; the combined fixture records the same reduced subset for `0.144.5` and `0.144.6`. Returned ID, status, and flags must validate on every version |
 | `thread/name/set` | Request: `threadId`, `name`; response body unused; followed by `thread/read` | Stable method, but no revision or compare-and-set. Support verified single-writer rename only |
 | `thread/resume` | Request: `threadId`, `excludeTurns:true`; resulting task must read idle before a new turn | Stable method; exact behavior is version-specific and fixture-attested |
 | `thread/turns/list` | Request: `threadId`, `limit`, `sortDirection`, `itemsView`, optional `cursor`. Response: `data`, `nextCursor`, turn `id`, `status`, `items`, and user-message `clientId` | Experimental. Requires `experimentalApi`; tested shapes come from the fixture and untested versions must satisfy the same validators |
@@ -122,9 +124,12 @@ these allowlisted groups:
 | Plugin refresh | Summary identity, local source path, installed/enabled state, and local version listed above |
 
 The CLI suppresses reasoning and hook-prompt content, reduces unknown items to
-their type for display, and returns some user-visible previews. The strict MCP
-bridge never requests turns or returns previews, prompts, transcripts, raw
-errors, or item content.
+their type for display, and returns some user-visible previews. Normal strict
+inspection uses `thread/read(includeTurns:false)`. Parent-wake reconciliation
+makes one bounded `thread/turns/list` request for at most 20 recent turns with
+`itemsView:"full"` so it can match a user-message `clientId`; it discards every
+other item field. The strict MCP bridge never returns previews, prompts,
+transcripts, raw errors, or item content.
 
 Turn/item unions are only partially attested. Lifecycle decisions must treat an
 unknown or nonterminal status as active or unknown, never as success. An idle
@@ -214,7 +219,9 @@ the missing contracts.
   protocol, transports, initialization, experimental gating, method maturity,
   events, errors, and approvals.
 - [`test/fixtures/mcp-app-server-protocol-v0.144.x.json`](../test/fixtures/mcp-app-server-protocol-v0.144.x.json):
-  reduced generated-schema evidence for the strict bridge.
+  combined reduced generated-schema evidence for the strict bridge. Its source
+  metadata records generation from CLI `0.144.5` and Desktop `0.144.6`, but it
+  is not a pair of independently checked-in raw schema captures.
 - [`test/fixtures/app-server-permissions-v0.144.6.json`](../test/fixtures/app-server-permissions-v0.144.6.json):
   named-permission payload evidence.
 - [`mcp-tool-surface.md`](mcp-tool-surface.md): verified Desktop/child behavior
@@ -222,7 +229,8 @@ the missing contracts.
 - [`host-owned-control.md`](host-owned-control.md): proposed host lifecycle and
   implemented endpoint receiver seam.
 - Local runtime check on 2026-07-28: `codex-cli 0.144.6`; experimental JSON
-  schemas generated successfully.
+  schemas generated successfully. No separate `0.144.5` runtime was available
+  for this revision's local re-probe.
 
 Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for
