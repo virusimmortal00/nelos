@@ -25,20 +25,22 @@
 
 ## What is Nelos?
 
-Nelos is a plugin for [Codex](https://developers.openai.com/codex) that turns one
-big task into a web of parallel, dependency-aware work — and adds three things you
+Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
+a task-management skill with an MCP orchestration server. Together they turn one
+big task into a web of parallel, dependency-aware work — and add three things you
 don't get from Codex, its native subagents, or hand-run parallel chats:
 
-- **The right model and reasoning for every slice — verified.** Nelos routes each
-  slice to a fit-sized model and effort level, then confirms the task *actually
-  ran* on it and stops the moment they don't match. No silent downgrades, no
+- **Smart Model + Reasoning Router:** The right model and effort for every
+  slice — verified after launch. Nelos routes each slice to a fit-sized model
+  and reasoning level, then confirms the task *actually ran* with that exact
+  route and stops the moment it does not match. No silent downgrades, no
   burning `max`-effort reasoning on trivial work. [How routing works →](docs/routing.md)
-- **Parallel work that respects dependencies.** Slices launch in ordered *waves* —
-  a later one only starts once the upstream work it needs has been accepted, not
-  fire-and-hope.
-- **Durable tasks you can still see and steer.** Spinoffs get their own lifecycle
-  and appear right in the Codex desktop sidebar, so you can open, watch, or take
-  one over by hand while Nelos coordinates the rest.
+- **Dependency-Aware Work Scheduler:** Parallel work that understands
+  prerequisites. Slices launch in ordered *waves* — a later one starts only
+  after the upstream work it needs has been accepted, not fire-and-hope.
+- **Durable Task Orchestrator:** Workers you can still see, steer, and hear
+  back from. Spinoffs remain ordinary Codex tasks in the desktop sidebar, and
+  completed work reports back to the queen even when it is idle.
 
 ## Nelos in action
 
