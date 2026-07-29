@@ -5,10 +5,12 @@ protocol pinned to behavior observed on `codex-cli 0.144.6`.
 
 ## Decision
 
-Ship the plugin's CLI-backed operations as a bundled MCP server so that a
-marketplace install is self-sufficient. The skill calls named tools instead of
-a `nelos` shell command; the CLI remains a developer and automation surface
-installed separately via the distribution installer.
+Ship the plugin's operations as a bundled MCP server so that a marketplace
+install is self-sufficient. The MCP surface is authoritative for installed
+plugin workflows, including configuration. Even when an agent knows the source
+CLI exists, it uses the named MCP tools unless the user is explicitly working
+on contributor or automation tasks. The CLI remains a separately installed
+developer surface and is never a plugin fallback.
 
 Most MCP operations remain local and socket-free. Deliberately scoped planning
 finalization, lifecycle, and thread-control operations use one lazily started,
@@ -75,6 +77,14 @@ long-lived
   Codex sessions directory and fails closed on any mismatch;
 - `nelos_intelligence_resolve_subagent` — resolves one exact native child task
   from bounded parent/agent session metadata before route verification; and
+- `nelos_config_get` — returns the effective installed-plugin configuration,
+  its source, allowed values, and the exact machine-local TOML path; its first
+  call can migrate one exact valid legacy preference into TOML;
+- `nelos_config_set` — atomically persists one validated setting to that TOML
+  file while preserving unrelated comments, only with explicit user intent;
+  and
+- `nelos_config_reset` — with explicit user intent, removes one TOML override
+  and any legacy preference so the built-in default becomes effective;
 - `nelos_orchestrate_create` — a callback-only durable effect adapter. It
   creates one private `WorkUnitSpecV1` execution record, advances its
   deterministic reducer action to `launch-pending`, and returns exactly one
@@ -100,12 +110,13 @@ long-lived
   receipt. An uncertain replay returns a non-sending reconciliation effect
   rather than blindly duplicating a turn; and
 - `nelos_spinoff_cleanup` — derives cleanup candidates only from current exact
-  queen acceptances with an explicit `archive` capability. It previews a named
-  confirmation list under the default `ask` policy, or applies remembered
-  `auto` and `keep` policies only after every required current result is
-  accepted. It returns host-owned native archive effects and persists exact
-  receipts per spin-off; partial and in-flight outcomes remain visible without
-  replaying an archive.
+  queen acceptances with an explicit `archive` capability. Its
+  `auto`/`ask`/`keep` setting defaults to `auto` and is snapshotted for the
+  whole web when terminal cleanup begins; `ask` previews a named confirmation
+  list. It acts only after every required current result is accepted, returns
+  host-owned native archive effects, and persists exact receipts per spin-off;
+  partial and in-flight outcomes remain visible without replaying an archive.
+  Persisting a cleanup choice globally requires explicit user intent.
 
 Bootstrap preparation, batch launch verification, thread inspection,
 inventory, wait, health, routing, verification, and subagent identity
@@ -364,8 +375,10 @@ result; the skill keeps the decision call on the queen side of the workflow.
 Only an accepted exact-current decision changes the member coordination state
 to `accepted`. When all required current results are accepted, that observation
 returns a machine-generated `cleanup-spinoffs` next action containing the exact
-`nelos_spinoff_cleanup` call. The cleanup adapter applies the remembered policy,
-or returns an exact confirmation list under the default `ask` policy. Missing,
+`nelos_spinoff_cleanup` call. The cleanup adapter snapshots the configured
+policy for that web when cleanup begins; the built-in default is `auto`, and
+`ask` returns an exact confirmation list. A later global change applies to
+future webs. Missing,
 rejected, stale, mismatched, failed, blocked, or cross-queen evidence remains
 cleanup `not-ready` and yields no archive effect.
 

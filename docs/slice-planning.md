@@ -84,8 +84,10 @@ target exists before the worker can call `nelos_spinoff_complete`.
 Durable spin-offs are cleanup-capable by default: omitted `cleanupIntended`
 behaves as `true` and grants the work unit `archive` capability. This is
 authority for the later lifecycle step, not permission to archive immediately;
-the default cleanup policy remains `ask`. Explicit `false` is a deliberate
-opt-out that leaves the work unit archive-incapable.
+the built-in cleanup policy is `auto`, while a user can configure `ask` or
+`keep`. Terminal cleanup snapshots that policy for the web; a later global
+change applies only to future webs. Explicit `false` is a deliberate opt-out
+that leaves the work unit archive-incapable.
 
 The `create-thread` launcher does not imply a creation-time title argument:
 current Codex `create_thread` has no title field. The prompt's `Task title:`

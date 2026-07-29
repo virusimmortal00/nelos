@@ -59,8 +59,11 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /exact consumed `native-result-read` receipt/);
   assert.match(skill, /returned\s+`nelos_orchestrate_advance` action/);
   assert.match(skill, /`cleanup-spinoffs`/);
-  assert.match(skill, /absent a preference, `ask`/);
-  assert.match(skill, /always-archive,\s+always-keep, or always-ask default/);
+  assert.match(skill, /snapshotted default `auto`/);
+  assert.match(skill, /`ask` prompts\s+once with exact names\/IDs/);
+  assert.match(skill, /only for an explicit always choice/);
+  assert.match(skill, /`userIntentConfirmed: true`/);
+  assert.match(skill, /Call set\/reset only after an\s+explicit user request/i);
   assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
@@ -68,6 +71,10 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.doesNotMatch(skill, /web collect|web begin|web join|nelos-result/);
   // Marketplace installs ship no `nelos` executable; the installed skill
   // must reference only the bundled MCP tools, never shell commands.
+  assert.match(skill, /`nelos_config_get`/);
+  assert.match(skill, /`nelos_config_set`/);
+  assert.match(skill, /`nelos_config_reset`/);
+  assert.match(skill, /never use the CLI as fallback/i);
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
   assert.ok(skill.length < 7_300, "agent-facing skill should remain compact");
@@ -76,7 +83,7 @@ test("the skill has one native path driven by machine-generated next actions", (
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {
   assert.match(skill, /lifecycle cache; never write lifecycle\s+or archival state/i);
-  assert.match(skill, /reconcile their\s+lifecycle cache on every read/i);
+  assert.match(skill, /Lifecycle reads reconcile their cache on every read/i);
   assert.match(skill, /observation lease is informational/i);
   assert.match(skill, /Never perform a second local lifecycle\s+mutation/i);
   assert.doesNotMatch(skill, /archive THREAD_ID --registry-only/);

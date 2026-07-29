@@ -32,9 +32,9 @@
     "logoDark": "./assets/nelos-spider-icon-dark.png",
     "defaultPrompt": [
       "Use Nelos to plan this feature into safe parallel slices.",
-      "Bootstrap unstructured planning with the exact bounded Sol planner.",
-      "Create durable spinoffs only where they need independent lifecycle.",
-      "Show me the native evidence and topology for this task web."
+      "Show my Nelos settings.",
+      "Set Nelos spin-off cleanup to ask.",
+      "Reset my Nelos spin-off cleanup preference."
     ]
   }
 }

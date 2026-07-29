@@ -56,8 +56,11 @@ be observe-only; when such a member reaches a terminal turn, Nelos emits no
 result-read effect and returns `attention` rather than fabricating a result or
 claiming acceptance. `archive` is granted to durable spinoffs by default so the
 terminal cleanup policy can be honored; explicit `cleanupIntended: false`
-removes it. Authority does not imply mutation: the default policy still asks.
-Joined subagents can never receive it.
+removes it. The built-in policy automatically archives only after exact-current
+acceptance; users can configure `ask` or `keep`. Joined subagents can never
+receive archive authority. The first eligible cleanup call snapshots the
+policy for the web so later global changes cannot alter an in-flight archive
+or confirmation sequence.
 
 A title mismatch never changes execution or result state. A terminal task does
 not imply a current result. A collected result does not imply queen acceptance.

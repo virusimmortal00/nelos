@@ -8,6 +8,7 @@
 <p align="center">
   <a href="#nelos-in-action">See it work</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#configuration">Configuration</a> ·
   <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="docs/webs.md">Docs</a>
 </p>
@@ -171,6 +172,28 @@ No installer, no manual copying, no `PATH` changes.
 Exact release tags remain available for reproducible installs and rollback; see
 [Installation and distribution trust](docs/installation.md#codex-marketplace-installs-upgrades-and-rollback).
 
+## Configuration
+
+Configure Nelos directly in conversation:
+
+```text
+Show my Nelos settings.
+Set Nelos spin-off cleanup to ask.
+Reset my Nelos spin-off cleanup preference.
+```
+
+The installed plugin handles those requests through its bundled MCP tools; the
+separate contributor CLI is not required. Settings are stored in
+`$XDG_CONFIG_HOME/nelos/config.toml`, or `~/.config/nelos/config.toml` when
+`XDG_CONFIG_HOME` is unset. `NELOS_CONFIG` can select an explicit absolute file.
+Repository-local `.nelos/` settings are intentionally ignored.
+
+Spin-off cleanup defaults to `auto`; users can choose `ask` or `keep`. Valid
+manual TOML edits are observed without restarting the plugin. Existing
+remembered preferences migrate once into TOML; reset returns to the built-in
+default. A cleanup already underway keeps its per-web policy snapshot. See
+[Configuration](docs/configuration.md) for the schema and safety behavior.
+
 ## Codex compatibility
 
 Nelos is tested against Codex CLI `0.144.5` and Codex Desktop `0.144.6`.
@@ -205,7 +228,8 @@ Nelos is one Codex plugin with two cooperating parts:
 
 - **An MCP orchestration server** — plans dependency-safe waves, routes and
   verifies every launch, persists replay-safe receipts, advances accepted work,
-  and coordinates completion and cleanup.
+  coordinates completion and per-web cleanup, and exposes conversational
+  machine-local configuration.
 - **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
   the MCP server's machine-generated next actions independently of whichever
   model starts as queen.
@@ -216,6 +240,7 @@ own Git branches, merges, and final review.
 
 ## Learn more
 
+- [Configuration](docs/configuration.md) — conversational settings, TOML schema, and precedence
 - [Model & reasoning routing](docs/routing.md) — how each slice is sized, and verified
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
 - [App Server compatibility contract](docs/app-server-compatibility-contract.md) —

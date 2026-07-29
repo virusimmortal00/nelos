@@ -5,10 +5,11 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 
 # Manage Nelos Tasks
 
-Use this for coordinated work. Planning quality must not
-depend on the queen's model. One bounded Sol planner decomposes unstructured
-work. The queen identifies user-supplied plans and judges result acceptance.
-
+Use this for coordinated work. Planning quality must not depend on the queen's model.
+One bounded Sol planner decomposes unstructured work. The queen identifies user-supplied
+plans and judges result acceptance. For settings, use `nelos_config_get`,
+`nelos_config_set`, or `nelos_config_reset`. Call set/reset only after an
+explicit user request with `userIntentConfirmed: true`; never use the CLI as fallback.
 Keep native kinds exact:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
@@ -87,10 +88,10 @@ After the fast path or validated bootstrap, execute only the returned
   `nelos_orchestrate_advance` action. Never reconstruct result provenance.
   Author slices only when explicitly returned unresolved.
 - `cleanup-spinoffs`: call its exact `tool` with unchanged `arguments`. The
-  saved policy applies; absent a preference, `ask` returns exact task names and
-  IDs. Prompt once, then call `nelos_spinoff_cleanup` with the choice. Set
-  `rememberPolicy: true` only when the user chooses an always-archive,
-  always-keep, or always-ask default. Submit exact receipts until `complete`.
+  snapshotted default `auto` archives eligible accepted spinoffs; `ask` prompts
+  once with exact names/IDs, and `keep` preserves them. Set `rememberPolicy:
+  true` with `userIntentConfirmed: true` only for an explicit always choice;
+  submit exact receipts until `complete`.
 - `attention`: stop and supply the missing launch inputs or resolve the named
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.
@@ -113,6 +114,5 @@ second autonomous replan stops.
 
 Unavailable reads and timed-out waits are unknown evidence, not failure.
 Registry-only topology has a lifecycle cache; never write lifecycle or archival state
-from a native action. CLI-backed reads reconcile their
-lifecycle cache on every read; the observation lease is informational.
+from a native action. Lifecycle reads reconcile their cache on every read; the observation lease is informational.
 Never perform a second local lifecycle mutation to mirror a native archive.

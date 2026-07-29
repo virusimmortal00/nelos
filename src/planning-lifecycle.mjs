@@ -1196,7 +1196,7 @@ export const PLANNING_LIFECYCLE_INPUT_SCHEMA = Object.freeze({
     cleanupIntended: {
       type: "boolean",
       description:
-        "Grant durable spin-offs archive capability for terminal cleanup. Defaults to true; cleanup still asks before archiving unless a preference says otherwise.",
+        "Grant durable spin-offs archive capability for terminal cleanup. Defaults to true; the configured cleanup policy decides whether eligible accepted spin-offs are archived.",
     },
     bootstrapId: {
       type: "string",

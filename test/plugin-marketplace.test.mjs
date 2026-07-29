@@ -30,3 +30,14 @@ test("the plugin manifest declares bundled light and dark spider assets", async 
   await access(new URL(`../${composerIcon.slice(2)}`, import.meta.url));
   await access(new URL(`../${logoDark.slice(2)}`, import.meta.url));
 });
+
+test("the plugin manifest offers conversational configuration prompts", async () => {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
+  assert.deepEqual(manifest.interface.defaultPrompt, [
+    "Use Nelos to plan this feature into safe parallel slices.",
+    "Show my Nelos settings.",
+    "Set Nelos spin-off cleanup to ask.",
+    "Reset my Nelos spin-off cleanup preference.",
+  ]);
+});

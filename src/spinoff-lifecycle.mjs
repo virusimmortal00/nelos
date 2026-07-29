@@ -3,11 +3,15 @@ import * as defaultFileSystem from "node:fs/promises";
 import { join } from "node:path";
 
 import { ExecutionStoreV1 } from "./execution-store.mjs";
+import {
+  NELOS_CLEANUP_POLICIES,
+  NelosConfigurationV1,
+} from "./nelos-configuration.mjs";
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { taskStateDirectory, withQueenSpinoffLock } from "./task-state.mjs";
 
 export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
-export const SPINOFF_CLEANUP_POLICIES = Object.freeze(["ask", "auto", "keep"]);
+export const SPINOFF_CLEANUP_POLICIES = NELOS_CLEANUP_POLICIES;
 
 const MAX_RECORD_BYTES = 32 * 1024;
 const MAX_SUMMARY_CHARACTERS = 2_000;
@@ -74,6 +78,7 @@ export const SPINOFF_CLEANUP_INPUT_SCHEMA = Object.freeze({
     queenThreadId: { type: "string", minLength: 1, maxLength: 512 },
     policy: { type: "string", enum: SPINOFF_CLEANUP_POLICIES },
     rememberPolicy: { type: "boolean" },
+    userIntentConfirmed: { type: "boolean", const: true },
     confirmedThreadIds: {
       type: "array",
       maxItems: 100,
@@ -438,18 +443,29 @@ export class SpinoffLifecycleAdapterV1 {
   #executionStore;
   #acceptanceStore;
   #store;
+  #configuration;
   #now;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
     acceptanceStore = new QueenAcceptanceStoreV1(),
     store = new SpinoffLifecycleStoreV1(),
+    configuration = new NelosConfigurationV1(),
     now = () => new Date().toISOString(),
   } = {}) {
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#store = store;
+    this.#configuration = configuration;
     this.#now = now;
+  }
+
+  #rememberPolicy(policy) {
+    return this.#configuration.set({
+      key: "spinoffs.cleanup_policy",
+      value: policy,
+      userIntentConfirmed: true,
+    });
   }
 
   async complete(value) {
@@ -543,6 +559,7 @@ export class SpinoffLifecycleAdapterV1 {
     queenThreadId,
     policy = null,
     rememberPolicy = false,
+    userIntentConfirmed = false,
     confirmedThreadIds,
     archiveReceipts = [],
   } = {}) {
@@ -552,6 +569,17 @@ export class SpinoffLifecycleAdapterV1 {
     };
     if (typeof rememberPolicy !== "boolean") {
       throw new Error("rememberPolicy must be a boolean");
+    }
+    if (typeof userIntentConfirmed !== "boolean") {
+      throw new Error("userIntentConfirmed must be a boolean");
+    }
+    if (
+      rememberPolicy &&
+      (policy === null || userIntentConfirmed !== true)
+    ) {
+      throw new Error(
+        "remembering a cleanup policy requires an explicit policy and user intent",
+      );
     }
     if (
       confirmedThreadIds !== undefined &&
@@ -574,9 +602,10 @@ export class SpinoffLifecycleAdapterV1 {
       }
       receiptByThreadId.set(receipt.threadId, receipt);
     }
-    const resolvedPolicy =
-      policy === null ? await this.#store.preference() : policy;
-    if (!SPINOFF_CLEANUP_POLICIES.includes(resolvedPolicy)) {
+    const requestedPolicy = policy === null
+      ? (await this.#configuration.get()).setting.value
+      : policy;
+    if (!SPINOFF_CLEANUP_POLICIES.includes(requestedPolicy)) {
       throw new Error("cleanup policy is invalid");
     }
     const [workUnits, decisions] = await Promise.all([
@@ -608,7 +637,7 @@ export class SpinoffLifecycleAdapterV1 {
     if (pendingRequired.length > 0) {
       return {
         schemaVersion: 1,
-        policy: resolvedPolicy,
+        policy: requestedPolicy,
         state: "not-ready",
         pending: pendingRequired
           .sort((left, right) =>
@@ -647,34 +676,118 @@ export class SpinoffLifecycleAdapterV1 {
         title: workUnit.title,
       }))
       .sort((left, right) => left.workUnit.workUnitId.localeCompare(right.workUnit.workUnitId));
-    const allCandidates = (
-      await Promise.all(
-        eligible.map(async (candidate) => {
-          const completion = {
-            ...identity,
-            workUnitId: candidate.workUnit.workUnitId,
-            specRevision: candidate.workUnit.specRevision,
-            attempt: candidate.workUnit.attempt,
-            memberThreadId: candidate.threadId,
-            outcome: candidate.decision.result.outcome,
-            summary: candidate.decision.result.summary,
-          };
-          const record = await this.#store.read(spinoffWakeIdV1(completion));
-          return { ...candidate, completion, record };
-        }),
-      )
+    const candidateBlueprints = eligible.map((candidate) => ({
+      ...candidate,
+      completion: {
+        ...identity,
+        workUnitId: candidate.workUnit.workUnitId,
+        specRevision: candidate.workUnit.specRevision,
+        attempt: candidate.workUnit.attempt,
+        memberThreadId: candidate.threadId,
+        outcome: candidate.decision.result.outcome,
+        summary: candidate.decision.result.summary,
+      },
+    }));
+    const {
+      resolvedPolicy,
+      records: snapshotRecords,
+    } = await withQueenSpinoffLock(
+      identity.queenThreadId,
+      async () => {
+        const records = await Promise.all(
+          candidateBlueprints.map(({ completion }) =>
+            this.#store.read(spinoffWakeIdV1(completion)),
+          ),
+        );
+        const activeRecords = records.filter(
+          (record) =>
+            record !== null &&
+            !["archived", "kept"].includes(record.cleanupState),
+        );
+        const activePolicies = new Set(
+          activeRecords
+            .map((record) => record?.cleanupPolicy ?? null)
+            .filter((value) => value !== null),
+        );
+        if (activePolicies.size > 1) {
+          throw new Error("cleanup policy snapshots conflict within the web");
+        }
+        const terminalPolicies = new Set(
+          records
+            .filter((record) =>
+              record !== null &&
+              ["archived", "kept"].includes(record.cleanupState),
+            )
+            .map((record) => record.cleanupPolicy)
+            .filter((value) => value !== null),
+        );
+        const snapshot =
+          activePolicies.values().next().value ??
+          (
+            terminalPolicies.size === 1
+              ? terminalPolicies.values().next().value
+              : requestedPolicy
+          );
+        const settledRecords = [...records];
+        for (
+          let index = 0;
+          index < candidateBlueprints.length;
+          index += 1
+        ) {
+          const completion = candidateBlueprints[index].completion;
+          const record = records[index];
+          if (
+            record !== null &&
+            ["archived", "kept"].includes(record.cleanupState)
+          ) {
+            continue;
+          }
+          if (!record) {
+            const initial = initialRecord(completion, this.#now());
+            settledRecords[index] = await this.#store.write({
+              ...initial,
+              cleanupPolicy: snapshot,
+            }, { expectedRevision: 0 });
+          } else if (record.cleanupPolicy === null) {
+            settledRecords[index] = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupPolicy: snapshot,
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+          } else if (record.cleanupPolicy !== snapshot) {
+            throw new Error("cleanup policy snapshot is conflicting");
+          }
+        }
+        return {
+          resolvedPolicy: snapshot,
+          records: settledRecords,
+        };
+      },
+    );
+    const allCandidates = candidateBlueprints.map(
+      (candidate, index) => ({
+        ...candidate,
+        record: snapshotRecords[index],
+      }),
     );
     const candidates = allCandidates.filter(
       ({ record }) =>
         !["archived", "kept"].includes(record?.cleanupState),
     );
+    const archiveInFlight = candidates.some(
+      ({ record }) => record?.cleanupState === "archiving",
+    );
 
     if (
       resolvedPolicy === "ask" &&
       confirmedThreadIds === undefined &&
-      receiptByThreadId.size === 0
+      receiptByThreadId.size === 0 &&
+      !archiveInFlight
     ) {
-      if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
+      if (rememberPolicy) {
+        await this.#rememberPolicy(policy);
+      }
       return {
         schemaVersion: 1,
         policy: resolvedPolicy,
@@ -690,7 +803,15 @@ export class SpinoffLifecycleAdapterV1 {
     const reconciliationCandidates =
       confirmedThreadIds === undefined ? candidates : allCandidates;
     const confirmed = confirmedThreadIds === undefined
-      ? new Set(candidates.map(({ threadId }) => threadId))
+      ? new Set(
+          candidates
+            .filter(({ record, threadId }) =>
+              resolvedPolicy !== "ask" ||
+              record?.cleanupState === "archiving" ||
+              receiptByThreadId.has(threadId),
+            )
+            .map(({ threadId }) => threadId),
+        )
       : new Set(confirmedThreadIds.map((thread) => id(thread, "confirmedThreadId")));
     const candidateIds = new Set(
       reconciliationCandidates.map(({ threadId }) => threadId),
@@ -698,7 +819,9 @@ export class SpinoffLifecycleAdapterV1 {
     if ([...confirmed].some((thread) => !candidateIds.has(thread))) {
       throw new Error("cleanup confirmation contains an ineligible spin-off");
     }
-    if (rememberPolicy) await this.#store.rememberPreference(resolvedPolicy);
+    if (rememberPolicy) {
+      await this.#rememberPolicy(policy);
+    }
     const selected = reconciliationCandidates.filter(
       ({ threadId }) => confirmed.has(threadId),
     );
@@ -755,21 +878,6 @@ export class SpinoffLifecycleAdapterV1 {
             });
             return;
           }
-          if (resolvedPolicy === "keep") {
-            record = await this.#store.write({
-              ...record,
-              revision: record.revision + 1,
-              cleanupState: "kept",
-              cleanupPolicy: resolvedPolicy,
-              updatedAt: this.#now(),
-            }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: "kept",
-              replayed: false,
-            });
-            return;
-          }
           if (record.cleanupState === "attention") {
             results.push({
               threadId: candidate.threadId,
@@ -777,6 +885,12 @@ export class SpinoffLifecycleAdapterV1 {
               reason: "prior-archive-attention",
             });
             return;
+          }
+          if (
+            record.cleanupPolicy !== null &&
+            record.cleanupPolicy !== resolvedPolicy
+          ) {
+            throw new Error("cleanup policy snapshot is conflicting");
           }
           if (record.cleanupState === "archiving") {
             const receipt = receiptByThreadId.get(candidate.threadId);
@@ -818,6 +932,21 @@ export class SpinoffLifecycleAdapterV1 {
           }
           if (receiptByThreadId.has(candidate.threadId)) {
             throw new Error("native archive receipt has no pending effect");
+          }
+          if (resolvedPolicy === "keep") {
+            record = await this.#store.write({
+              ...record,
+              revision: record.revision + 1,
+              cleanupState: "kept",
+              cleanupPolicy: resolvedPolicy,
+              updatedAt: this.#now(),
+            }, { expectedRevision: record.revision });
+            results.push({
+              threadId: candidate.threadId,
+              state: "kept",
+              replayed: false,
+            });
+            return;
           }
           record = await this.#store.write({
             ...record,

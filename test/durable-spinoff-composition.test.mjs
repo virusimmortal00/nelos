@@ -295,25 +295,18 @@ test("planned spin-offs compose through restart-safe launch, wake, acceptance, d
   }, bridge);
 
   const cleanup = restarted("queen").composition;
-  const preview = await cleanup.cleanup({
-    webId: "A1",
-    queenThreadId: "queen",
-  });
-  assert.deepEqual(preview.candidates, [
-    { workUnitId: "dependent", threadId: "task-dependent", title: "Dependent" },
-    { workUnitId: "upstream", threadId: "task-upstream", title: "Upstream" },
-  ]);
   const archiveRequest = await cleanup.cleanup({
     webId: "A1",
     queenThreadId: "queen",
-    confirmedThreadIds: preview.candidates.map(({ threadId }) => threadId),
   });
+  assert.equal(archiveRequest.policy, "auto");
+  assert.equal(archiveRequest.state, "effects-required");
   archived.push(...archiveRequest.effects.map(({ threadId }) => threadId));
-  await cleanup.cleanup({
+  const completedCleanup = await cleanup.cleanup({
     webId: "A1",
     queenThreadId: "queen",
-    confirmedThreadIds: preview.candidates.map(({ threadId }) => threadId),
     archiveReceipts: archiveRequest.effects.map(archiveReceipt),
   });
+  assert.equal(completedCleanup.state, "complete");
   assert.deepEqual(archived, ["task-dependent", "task-upstream"]);
 });

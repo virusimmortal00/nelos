@@ -122,6 +122,34 @@ test("changed paths select direct contracts and transitive dependents", () => {
   ]);
 });
 
+test("installed configuration surfaces belong to lifecycle invariants", () => {
+  const paths = [
+    ".codex-plugin/plugin.json",
+    "docs/configuration.md",
+    "docs/observation-join.md",
+    "docs/slice-planning.md",
+    "src/mcp-server.mjs",
+    "src/nelos-configuration.mjs",
+    "src/planning-lifecycle.mjs",
+    "src/vendor/smol-toml-1.6.0.LICENSE",
+    "src/vendor/smol-toml-1.6.0.cjs",
+    "test/durable-spinoff-composition.test.mjs",
+    "test/manage-nelos-tasks-skill.test.mjs",
+    "test/mcp-config.test.mjs",
+    "test/mcp-server.test.mjs",
+    "test/nelos-configuration.test.mjs",
+    "test/plugin-marketplace.test.mjs",
+  ];
+  const selection = selectImpactedCompatibilityContractsV1(
+    COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    paths.map((path) => ({ status: "modified", path })),
+  );
+  assert.equal(selection.ok, true);
+  assert.deepEqual(selection.unmappedSensitivePaths, []);
+  assert.ok(selection.pathSelections.every(({ capabilityIds }) =>
+    capabilityIds.includes("nelos.lifecycle-invariants")));
+});
+
 test("global invariants are selected even when no paths change", () => {
   const selection = selectImpactedCompatibilityContractsV1(
     COMPATIBILITY_CONTRACT_REGISTRY_V1,

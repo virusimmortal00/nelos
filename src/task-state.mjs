@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 
 import {
   processMayOwnLease,
@@ -224,6 +224,30 @@ async function withOwnedStateLock(lockName, callback, timeoutMs) {
 
 export function withWebRegistryLock(callback) {
   return withOwnedStateLock("webs", callback, 60_000);
+}
+
+/**
+ * Serialize one machine-local Nelos configuration transaction across MCP
+ * processes without placing a filesystem path in the lock namespace.
+ */
+export function withNelosConfigurationLock(
+  configPath,
+  callback,
+  timeoutMs = 60_000,
+) {
+  if (
+    typeof configPath !== "string" ||
+    configPath.length === 0 ||
+    configPath.length > 4_096 ||
+    !isAbsolute(configPath)
+  ) {
+    throw new Error("Nelos configuration lock requires a bounded absolute path");
+  }
+  const canonicalPath = normalize(configPath);
+  const lockId = createHash("sha256")
+    .update(canonicalPath, "utf8")
+    .digest("hex");
+  return withOwnedStateLock(`configuration-${lockId}`, callback, timeoutMs);
 }
 
 export function withQueenSpinoffLock(threadId, callback, timeoutMs = 60_000) {
