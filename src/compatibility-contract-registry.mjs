@@ -857,10 +857,15 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       ]),
       mappings: Object.freeze({
         owned: Object.freeze(["src/protocol-contract/**"]),
-        shared: Object.freeze(["src/mcp-app-server-bridge.mjs"]),
+        shared: Object.freeze([
+          "src/mcp-app-server-bridge.mjs",
+          "src/wire-compatibility-collector.mjs",
+        ]),
         test: Object.freeze([
           "test/protocol-contract.test.mjs",
           "test/mcp-app-server-bridge.test.mjs",
+          "test/wire-compatibility-collector.test.mjs",
+          "test/support/fake-wire-codex.mjs",
         ]),
         documentation: Object.freeze([
           "docs/app-server-compatibility-contract.md",
@@ -902,10 +907,14 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       ]),
       mappings: Object.freeze({
         owned: Object.freeze(["src/mcp-app-server-bridge.mjs"]),
-        shared: Object.freeze(["src/app-server-client.mjs"]),
+        shared: Object.freeze([
+          "scripts/collect-runtime-transport.mjs",
+          "src/app-server-client.mjs",
+        ]),
         test: Object.freeze(["test/mcp-app-server-bridge.test.mjs"]),
         documentation: Object.freeze([
           "docs/app-server-compatibility-contract.md",
+          "docs/development.md",
           "docs/mcp-tool-surface.md",
         ]),
         upstreamDocumentation: Object.freeze([

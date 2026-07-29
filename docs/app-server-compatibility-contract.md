@@ -240,6 +240,39 @@ Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for
 the pinned compatibility claim.
 
+### Generated-schema and runtime collectors
+
+`collectGeneratedSchemaEvidenceV1` reads only the artifact path declared by
+the caller, or executes only a declared executable plus argument vector and a
+separately declared identity command. Its normalized report records the exact
+Codex version (and commit when supplied), artifact or command provenance,
+SHA-256 digest, and observation time. Malformed JSON, missing identity,
+identity mismatch, command failure, and timeout are non-evidence; a schema
+contract mismatch is the only collector result classified as incompatible.
+
+The required offline pull-request gate delegates its checked-in fixture check
+to this collector in artifact mode. It does not generate schemas, update the
+fixture, or change the supported-version list.
+
+`collectRuntimeTransportEvidenceV1` starts the exact declared Codex executable
+over stdio JSONL, initializes once, requires an exact declared supported
+version, and performs only the declared bounded read operations. The collector
+does not probe or infer Desktop, cloud, entitlement, rollout, or closed-host
+behavior.
+
+`collectRuntimeLiveEvidenceV1` is a separate entry point and returns
+unavailable without opening a transport unless `enabled: true` is supplied.
+Even when enabled, it accepts only explicitly declared read-only operations.
+It is not registered in the offline gate or any required pull-request script.
+The older `verify:app-server:live` lifecycle smoke remains an explicitly
+requested developer check; it is not compatibility evidence and does not
+update fixtures or version policy.
+
+`concludeWireCompatibilityV1` makes generated-schema and exact runtime results
+decisive. Public implementation-source observations are preserved as
+`advisory-only` and cannot independently produce a compatible or incompatible
+conclusion.
+
 ### Bounded public-source observations
 
 The registry also pins the official

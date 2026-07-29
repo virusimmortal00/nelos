@@ -10,6 +10,10 @@ import {
   validateCompatibilityRegistryV1,
   validateCompatibilityReportV1,
 } from "./compatibility-contract-registry.mjs";
+import {
+  collectGeneratedSchemaEvidenceV1,
+  WireCompatibilityMismatch,
+} from "./wire-compatibility-collector.mjs";
 
 const execFileAsync = promisify(execFile);
 const DETERMINISTIC_KINDS = new Set([
@@ -214,31 +218,60 @@ async function validateSupportedVersionConsistency({ registry, root }) {
 }
 
 async function validateGeneratedSchema({ registry, root }) {
-  const fixtures = stableUnique(
-    registry.supportedCodexReleases.map(({ fixture }) => fixture),
+  const checkDefinition = registry.checks.find(
+    ({ id }) => id === "schema.app-server-v0144x",
   );
-  for (const fixturePath of fixtures) {
-    const fixture = await readJson(resolve(root, fixturePath), fixturePath);
-    const requiredMethods = [
-      "thread/read",
-      "thread/name/set",
-      "thread/resume",
-      "thread/turns/list",
-      "turn/start",
-      "turn/steer",
-      "thread/archive",
-    ];
-    check(
-      requiredMethods.every((method) => Object.hasOwn(fixture.methods ?? {}, method)),
-      `${fixturePath} is missing a required App Server method fixture`,
-    );
-    check(
-      Array.isArray(fixture.threadStatus?.types) &&
-        fixture.threadStatus.types.length > 0,
-      `${fixturePath} is missing thread status fixtures`,
+  if (!checkDefinition) {
+    throw new OfflineCompatibilityGateError(
+      "generated-schema check declaration is missing",
+      { code: "malformed-registry" },
     );
   }
-  return "reduced generated App Server fixture is structurally valid";
+  const report = await collectGeneratedSchemaEvidenceV1({
+    root,
+    declaration: {
+      checkId: checkDefinition.id,
+      expectedCodexIdentities: registry.supportedCodexReleases
+        .map(({ version }) => ({ version, commitSha: null })),
+      artifact: { path: checkDefinition.source },
+    },
+    validateSchema(fixture) {
+      const requiredMethods = [
+        "thread/read",
+        "thread/name/set",
+        "thread/resume",
+        "thread/turns/list",
+        "turn/start",
+        "turn/steer",
+        "thread/archive",
+      ];
+      if (!requiredMethods.every(
+        (method) => Object.hasOwn(fixture.methods ?? {}, method),
+      )) {
+        throw new WireCompatibilityMismatch(
+          `${checkDefinition.source} is missing a required App Server method fixture`,
+        );
+      }
+      if (
+        !Array.isArray(fixture.threadStatus?.types) ||
+        fixture.threadStatus.types.length === 0
+      ) {
+        throw new WireCompatibilityMismatch(
+          `${checkDefinition.source} is missing thread status fixtures`,
+        );
+      }
+    },
+  });
+  if (report.outcome === "failed") {
+    throw new OfflineCompatibilityCheckFailure(report.failure.message);
+  }
+  if (report.outcome !== "passed") {
+    throw new OfflineCompatibilityGateError(
+      `generated-schema evidence unavailable (${report.failure.kind}): ${report.failure.message}`,
+      { code: report.failure.kind },
+    );
+  }
+  return `generated App Server artifact ${report.digest} is valid for ${report.expectedCodexIdentities.map(({ version }) => version).join(", ")}`;
 }
 
 function offlineChildEnvironment() {

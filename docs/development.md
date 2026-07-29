@@ -90,13 +90,19 @@ boundaries:
 npm run verify:planning-lifecycle
 ```
 
-The default standalone-server verifier starts its own temporary Unix socket,
-initializes through Nelos, exercises `thread/list`, and removes its
-process and temporary state. It does not start a task or make a model call:
+The default App Server verifier starts the exact selected Codex executable over
+stdio, verifies that its version is in the checked-in supported-version list,
+performs one bounded read-only `thread/list`, and prints a normalized evidence
+report with provenance, digest, and observation time. It does not start a task
+or make a model call:
 
 ```bash
 npm run verify:app-server
 ```
+
+The older disposable Unix-socket development smoke remains available as
+`npm run verify:app-server:socket`. Neither verifier updates generated fixtures
+or the supported-version list.
 
 The live verifier is deliberately opt-in. It creates one uniquely named,
 read-only task, waits for a model response, starts a second turn on the same
