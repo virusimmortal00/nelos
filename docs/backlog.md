@@ -14,7 +14,19 @@ a material implementation lands that changes the remaining scope.
 
 ## Next
 
+- [ ] complete the ordered [Codex Capability Leverage Audit](codex-capability-audit.md)
+  so every documented Codex capability is explicitly adopted, piloted,
+  deferred, rejected, monitored, or marked not applicable. Item 1, persisted
+  Goals and automatic continuation, is assessed as an opt-in queen-first pilot
+  with protocol, concurrency, permission, dogfood, and rollback gates; runtime
+  integration is intentionally not part of the assessment slice.
+
 ### Host-owned task-control hardening
+
+The accepted [App Server Compatibility Contract](app-server-compatibility-contract.md)
+defines the `0.144.5` minimum, tested-version evidence, provisional
+newer-stable behavior, conditional CLI and installer surfaces, failure rules,
+exclusions, and exact fixture/adapter/test work for this slice.
 
 Nelos owns durable policy, preconditions, and receipts. Codex remains
 authoritative for native task effects. Do not move task mutations into an
