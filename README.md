@@ -38,6 +38,22 @@ Codex app-server child process for native task control.
 | 🕸️ | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
 | `B1` | **Web ID** | A short shared ID in every task title that keeps the web recognizable. |
 
+### From a normal task to a Nelos web
+
+1. **Start exactly as you always have.** Open a normal Codex task and describe
+   the work.
+2. **Nelos plans the work when decomposition would help.** Its bounded planning
+   system turns the objective into dependency-aware slices and proposes the
+   right execution shape for each one.
+3. **Your original task becomes the queen.** It stays right where it is as the
+   coordinator. When the plan uses durable spinoffs, its title receives the 👑
+   marker and a web ID; each spinoff receives 🕷️ and that same ID.
+4. **The orchestrator chooses the workers—not just their prompts.** A plan may
+   use only joined Codex subagents for bounded work, durable spinoff tasks for
+   work that should remain independently visible and steerable, or a mix of
+   both. Subagents report directly within the queen task; spinoffs live in the
+   sidebar and report home through Nelos.
+
 <p align="center">
   <img
     src="docs/assets/showcase/web-roles-and-ids.png"
