@@ -380,6 +380,39 @@ const LAUNCH_EXECUTION_GATE = closed({
   actionId: ID,
   evidenceDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
 });
+const LAUNCH_AUTHORIZATION_REQUEST = closed({
+  schemaVersion: VERSION,
+  type: { const: "native-authorize-launch" },
+  actionId: ID,
+  verification: LAUNCH_AUTHORIZATION_VERIFICATION,
+  members: {
+    type: "array",
+    minItems: 1,
+    maxItems: 16,
+    uniqueItemProperty: "sliceId",
+    items: LAUNCH_AUTHORIZATION_MEMBER,
+  },
+});
+const LAUNCH_AUTHORIZATION_EFFECT = discriminated(
+  "type",
+  "native-authorize-launch",
+  {
+    actionId: ID,
+    tool: { const: "nelos_launch_authorize" },
+    arguments: closed({
+      request: LAUNCH_AUTHORIZATION_REQUEST,
+    }),
+    requiredHostInputs: {
+      type: "array",
+      minItems: 2,
+      maxItems: 2,
+      uniqueItems: true,
+      requiredItems: ["capabilities", "userIntentConfirmed"],
+      items: { enum: ["capabilities", "userIntentConfirmed"] },
+    },
+    receiptType: { const: "native-launch-authorization" },
+  },
+);
 const RESULT_LIST = {
   type: "array",
   maxItems: 8,
@@ -497,6 +530,7 @@ const NEXT_ACTION_MEMBERS = [
       uniqueItemProperty: "sliceId",
       items: LAUNCH_AUTHORIZATION_MEMBER,
     },
+    authorizationEffect: LAUNCH_AUTHORIZATION_EFFECT,
     sliceId: SHORT_ID,
     launcher: { enum: ["create-thread", "spawn-subagent"] },
   }, [
@@ -791,6 +825,7 @@ const EFFECT_MEMBERS = [
     threadId: ID,
     policy: reconcilePolicy("return-native-archive-receipt"),
   }),
+  LAUNCH_AUTHORIZATION_EFFECT,
 ];
 
 export const PROTOCOL_NATIVE_EFFECT_SCHEMA_V1 = { oneOf: EFFECT_MEMBERS };
@@ -1046,6 +1081,10 @@ const COMPATIBILITY_MEMBERS = [
     queenTitleSync: BOUNDED_RECORD,
     nextAction: PROTOCOL_ACTION_SCHEMA_V1,
   }, ["command", "lifecycle", "bootstrap", "nextAction"]),
+  producerOutput("nelos_launch_authorize", {
+    command: { const: "launch authorize" },
+    receipt: PROTOCOL_RECEIPT_SCHEMA_V1,
+  }),
   producerOutput("nelos_launch_verify_batch", {
     command: { const: "launch verify batch" },
     verification: BOUNDED_RECORD,

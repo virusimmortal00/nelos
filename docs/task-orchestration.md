@@ -145,11 +145,12 @@ reuse of an `intentId` with different inputs.
 ## Launch Protocol
 
 1. **Authorize the exact wave before mutation.** Planning returns a bounded
-   `authorization-required` proposal. The native host must return one typed,
-   wave-bound receipt attesting availability, exact route support, and creation
-   authorization for every member. Missing, negative, partial, stale, or
-   mismatched evidence cannot produce `launch-wave`; planning a graph alone is
-   never permission to create user-visible tasks.
+   `authorization-required` proposal with a `native-authorize-launch` effect.
+   Execute its named `nelos_launch_authorize` producer using bounded current
+   native tool-registry capabilities and confirmed user intent, then replay its
+   typed wave-bound receipt. Missing, negative, partial, stale, or mismatched
+   evidence cannot produce `launch-wave`; planning a graph alone is never
+   permission to create user-visible tasks.
 2. **Prepare the intent before mutation.** Write `planned` with the desired
    title, target, route, queen, and work-unit provenance.
 3. **Claim creation once.** Move to `creating` under the existing queen/action
@@ -184,7 +185,7 @@ reuse of an `intentId` with different inputs.
    returns one deterministic post-bind `native-set-title`/verify action and
    gates the wave until exact equality is observed. Joined subagents have no
    native title-control contract; their title check is `not-applicable`.
-5. **Join required work.** Once every required current-wave member is bound,
+6. **Join required work.** Once every required current-wave member is bound,
    enter the queen join loop. Detached members are recorded but excluded.
 
 The standalone app-server adapter can continue its stronger sequence of

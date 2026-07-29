@@ -21,25 +21,46 @@ const fakeCodexPath = fileURLToPath(
   new URL("../test/support/fake-codex-stdio.mjs", import.meta.url),
 );
 
-function authorizeLaunchProposal(proposal) {
-  return {
-    schemaVersion: 1,
-    type: "native-launch-authorization",
-    source: "native-host",
-    actionId: proposal.actionId,
-    planRunId: proposal.verification.planRunId,
-    waveIndex: proposal.verification.waveIndex,
-    waveDigest: proposal.verification.waveDigest,
-    members: proposal.members.map((member) => ({
-      ...member,
-      launcherAvailable: true,
-      taskKindSupported: true,
-      workspaceModeSupported: true,
-      modelSupported: true,
-      reasoningSupported: true,
-      creationAuthorized: true,
-    })),
-  };
+async function authorizeLaunchProposal(mcp, proposal) {
+  const launchers = [];
+  for (const member of proposal.members) {
+    let launcher = launchers.find(
+      (candidate) => candidate.launcher === member.launcher,
+    );
+    if (!launcher) {
+      launcher = {
+        launcher: member.launcher,
+        memberKinds: [],
+        workspaceModes: [],
+        routes: [],
+      };
+      launchers.push(launcher);
+    }
+    if (!launcher.memberKinds.includes(member.memberKind)) {
+      launcher.memberKinds.push(member.memberKind);
+    }
+    if (!launcher.workspaceModes.includes(member.workspaceMode)) {
+      launcher.workspaceModes.push(member.workspaceMode);
+    }
+    let route = launcher.routes.find(
+      (candidate) => candidate.model === member.nativeTask.model,
+    );
+    if (!route) {
+      route = { model: member.nativeTask.model, reasoningEfforts: [] };
+      launcher.routes.push(route);
+    }
+    if (!route.reasoningEfforts.includes(member.nativeTask.thinking)) {
+      route.reasoningEfforts.push(member.nativeTask.thinking);
+    }
+  }
+  return (await mcp.tool("nelos_launch_authorize", {
+    request: proposal.authorizationEffect.arguments.request,
+    capabilities: {
+      source: "native-host-tool-registry",
+      launchers,
+    },
+    userIntentConfirmed: true,
+  })).receipt;
 }
 
 function thread(id, name, parentThreadId, status = "active") {
@@ -417,7 +438,10 @@ export async function runPlanningLifecycleScenario() {
     assert.equal(planned.nextAction.kind, "authorization-required");
     planned = await mcp.tool("nelos_plan_lifecycle", {
       ...completedPlanningRequest,
-      launchAuthorization: authorizeLaunchProposal(planned.nextAction),
+      launchAuthorization: await authorizeLaunchProposal(
+        mcp,
+        planned.nextAction,
+      ),
     });
     assert.equal(planned.nextAction.kind, "launch-wave");
     assert.equal(planned.nextAction.members.length, 2);
@@ -603,7 +627,10 @@ export async function runPlanningLifecycleScenario() {
     assert.equal(replanned.nextAction.kind, "authorization-required");
     replanned = await mcp.tool("nelos_plan_replan", {
       ...completedReplanRequest,
-      launchAuthorization: authorizeLaunchProposal(replanned.nextAction),
+      launchAuthorization: await authorizeLaunchProposal(
+        mcp,
+        replanned.nextAction,
+      ),
     });
     assert.equal(replanned.nextAction.kind, "launch-wave");
     assert.deepEqual(

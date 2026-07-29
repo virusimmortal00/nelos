@@ -58,6 +58,18 @@ test("a create-thread wave requires explicit host authorization evidence", () =>
   assert.equal(proposal.reason, "launch-authorization-evidence-required");
   assert.equal(proposal.members[0].launcher, "create-thread");
   assert.equal(proposal.receiptType, "native-launch-authorization");
+  assert.equal(
+    proposal.authorizationEffect.tool,
+    "nelos_launch_authorize",
+  );
+  assert.deepEqual(
+    proposal.authorizationEffect.requiredHostInputs,
+    ["capabilities", "userIntentConfirmed"],
+  );
+  assert.equal(
+    proposal.authorizationEffect.arguments.request.actionId,
+    proposal.actionId,
+  );
 });
 
 test("unavailable create-thread and spawn-subagent launchers fail closed", () => {
@@ -154,6 +166,17 @@ test("unauthorized, stale, mismatched, and free-form evidence cannot launch", ()
     withNextAction({
       ...input,
       launchAuthorization: mismatched,
+    }).nextAction.reason,
+    "launch-authorization-member-mismatch",
+  );
+
+  const mixed = fixture(["spinoff", "subagent"]);
+  const partial = authorizeLaunchProposal(mixed.proposal);
+  partial.members.pop();
+  assert.equal(
+    withNextAction({
+      ...mixed.input,
+      launchAuthorization: partial,
     }).nextAction.reason,
     "launch-authorization-member-mismatch",
   );

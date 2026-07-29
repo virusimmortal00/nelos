@@ -45,6 +45,11 @@ long-lived
   effect; a repeated call verifies the persisted title before returning a
   launch-authorization proposal. Legacy outer-crown forms are normalized. A subagent-only plan
   does not start the bridge;
+- `nelos_launch_authorize` — consumes the proposal's exact
+  `native-authorize-launch` request, bounded capabilities copied from the
+  current native host tool registry, and explicit user intent. It
+  deterministically produces the receipt that must be replayed through the
+  planning tool and never launches work itself;
 - `nelos_launch_verify_batch` — performs one all-or-nothing read-only gate for
   1–16 launched wave members. It binds receipts to a persisted plan-run,
   wave index, digest, and authoritative member contract; resolves subagents

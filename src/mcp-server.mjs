@@ -64,6 +64,8 @@ import {
   MCP_PROTOCOL_TOOL_CONTRACTS_V1,
 } from "./protocol-contract/index.mjs";
 import {
+  createLaunchAuthorizationReceiptV1,
+  LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
 } from "./launch-execution-gate.mjs";
 import {
@@ -512,6 +514,23 @@ const TOOLS = [
           launchAuthorization: args.launchAuthorization ?? null,
         },
       );
+    },
+  },
+  {
+    name: "nelos_launch_authorize",
+    description:
+      "Produce one exact native-launch-authorization receipt from the " +
+      "machine-generated authorization request, bounded capabilities copied " +
+      "from the current native host tool registry, and explicit user intent. " +
+      "The caller must replay the receipt through the planning lifecycle; " +
+      "this tool never launches work.",
+    inputSchema: LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
+    annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
+    async run(args) {
+      return {
+        command: "launch authorize",
+        receipt: createLaunchAuthorizationReceiptV1(args),
+      };
     },
   },
   {

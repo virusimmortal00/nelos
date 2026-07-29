@@ -65,7 +65,10 @@ the plan-run ID, wave index, wave digest, and each member's exact lifecycle,
 task kind, launcher, workspace mode, model, and reasoning route. Only an exact
 `native-launch-authorization` receipt returned by the native host can attest
 launcher availability, route support, and task-creation authorization for all
-members. The skill must never author or reinterpret that receipt.
+members. The proposal includes an exact `native-authorize-launch` effect naming
+`nelos_launch_authorize`. The host copies bounded capability data from its
+current native tool registry and confirms user intent; the tool produces the
+receipt, which the skill replays unchanged instead of authoring it.
 
 Missing or denied authorization returns `authorization-required`. Missing
 launcher or route support returns `execution-unavailable`. Stale, altered, or

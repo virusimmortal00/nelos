@@ -191,6 +191,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_plan_lifecycle",
       "nelos_plan_replan",
       "nelos_plan_slices",
+      "nelos_launch_authorize",
       "nelos_launch_verify_batch",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
@@ -252,6 +253,20 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     openWorldHint: false,
   });
   assert.deepEqual(orchestration.inputSchema.required, ["workUnit", "receipt"]);
+  const launchAuthorization = tools.find(
+    ({ name }) => name === "nelos_launch_authorize",
+  );
+  assert.deepEqual(launchAuthorization.annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  assert.deepEqual(launchAuthorization.inputSchema.required, [
+    "request",
+    "capabilities",
+    "userIntentConfirmed",
+  ]);
   assert.equal(
     orchestration.inputSchema.properties.receipt.anyOf[1].additionalProperties,
     false,
@@ -1732,11 +1747,72 @@ test("nelos_plan_slices routes a valid plan into an authorization proposal", asy
   assert.equal(body.nextAction.kind, "authorization-required");
   assert.equal(body.nextAction.members[0].sliceId, "explore");
   assert.equal(body.nextAction.members[0].launcher, "spawn-subagent");
+  assert.equal(
+    body.nextAction.authorizationEffect.tool,
+    "nelos_launch_authorize",
+  );
   assert.deepEqual(body.nextAction.verification, {
     planRunId: body.planRun.planRunId,
     waveIndex: body.planRun.waves[0].waveIndex,
     waveDigest: body.planRun.waves[0].waveDigest,
   });
+});
+
+test("nelos_launch_authorize produces the exact replay receipt", async () => {
+  const [, planned] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "nelos_plan_slices",
+        arguments: { plan: validPlan(), queenThreadId: "queen-1" },
+      },
+    },
+  ]);
+  const proposal = toolBody(planned).body.nextAction;
+  const request = proposal.authorizationEffect.arguments.request;
+  const [, authorized] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "nelos_launch_authorize",
+        arguments: {
+          request,
+          capabilities: {
+            source: "native-host-tool-registry",
+            launchers: [{
+              launcher: "spawn-subagent",
+              memberKinds: ["joined-subagent"],
+              workspaceModes: ["shared-read-only"],
+              routes: [{
+                model: proposal.members[0].nativeTask.model,
+                reasoningEfforts: [
+                  proposal.members[0].nativeTask.thinking,
+                ],
+              }],
+            }],
+          },
+          userIntentConfirmed: true,
+        },
+      },
+    },
+  ]);
+  const { isError, body } = toolBody(authorized);
+  assert.equal(isError, false);
+  assert.equal(body.command, "launch authorize");
+  assert.equal(body.receipt.type, "native-launch-authorization");
+  assert.equal(body.receipt.actionId, proposal.actionId);
+  assert.equal(body.receipt.members[0].launcherAvailable, true);
+  assert.equal(body.receipt.members[0].creationAuthorized, true);
+  assert.deepEqual(
+    protocolCompatibilityEnvelopeV1("nelos_launch_authorize", body).value,
+    body,
+  );
 });
 
 test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff", async () => {

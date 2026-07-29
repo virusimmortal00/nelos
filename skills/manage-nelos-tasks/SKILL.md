@@ -46,8 +46,8 @@ After the fast path or validated bootstrap, execute only the returned
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
-- `authorization-required`: use only the exact receipt returned by the named
-  native host surface. Never author, alter, or infer its evidence; absent one, stop.
+- `authorization-required`: run its `authorizationEffect` with native tool-registry
+  data and confirmed user intent. Replay its exact receipt; never author one.
 - `execution-unavailable`: stop; never substitute a launcher or execute locally.
 - `launch-wave`: its `executionGate` is authoritative. Dispatch only listed
   members with exact fields. Never omit, substitute, or inherit a decided `nativeTask`.
