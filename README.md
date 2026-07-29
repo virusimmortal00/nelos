@@ -29,10 +29,14 @@ Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
 a task-management skill, an MCP orchestration server, and a dedicated official
 Codex app-server child process for native task control.
 
-**A little Nelos vocabulary:** A **web** is one coordinated group of tasks. Its
-**queen** plans and accepts the work; durable **spinoffs** execute focused
-slices. Every web gets a short ID (like `B1`) that keeps the whole family
-recognizable in Codex.
+**A little Nelos vocabulary:**
+
+| Marker | Term | What it means |
+| :---: | --- | --- |
+| 👑 + 🕷️ | **Web** | One coordinated group of Codex tasks working toward a shared objective. |
+| 👑 | **Queen** | The coordinating task that plans, launches, and accepts the work. |
+| 🕷️ | **Spinoff** | A durable, focused Codex task that executes one slice of the work. |
+| `B1` | **Web ID** | A short shared ID in every task title that keeps the web recognizable. |
 
 <p align="center">
   <img
