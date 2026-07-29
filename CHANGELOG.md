@@ -56,8 +56,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Isolated `codex-cli` `0.144.5` and `0.144.6` release checks generated
   identical schemas for every App Server method Nelos consumes and exercised
   initialization, Unix-socket transport, task creation, two same-task turns,
-  readback, archival, and cleanup. Codex Desktop `0.144.6` remains covered by
-  the recorded plugin/MCP dogfood smoke.
+  readback, archival, and cleanup. This CLI revalidation is additional to the
+  recorded Codex Desktop `0.144.6` plugin/MCP dogfood smoke.
 
 ### Migrations
 

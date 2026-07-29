@@ -415,9 +415,10 @@ The accepted
 defines four separate profiles rather than one blanket compatibility claim:
 
 - the strict MCP bridge has minimum Codex version `0.144.5`; one combined
-  reduced fixture records `0.144.5`/`0.144.6` shapes, this revision directly
-  re-probed `0.144.6`, and newer stable versions are provisionally allowed
-  behind the same response validators;
+  reduced fixture records `0.144.5`/Desktop `0.144.6` shapes, and the `0.4.0`
+  release additionally revalidated the exact CLI npm distributions for both
+  versions; newer stable versions are provisionally allowed behind the same
+  response validators;
 - the broader source CLI remains conditional explicit-development behavior
   until its methods, fields, and shared client receive the same attestation;
 - under-development plugin methods are a best-effort installer optimization
