@@ -62,6 +62,24 @@ plan, then routes every execution slice independently. Straightforward work can
 use faster, cheaper models at lower reasoning levels; difficult work still gets
 more — reducing time and credit use without weakening the decomposition.
 
+#### Example: mixed intelligence, on purpose
+
+Suppose the original task starts on **Terra / max**. The fixed Sol / medium
+planner returns an execution plan with one joined subagent and two durable
+spinoffs. Nelos does not copy one setting to every worker:
+
+| Task | Kind | Model / reasoning | Example state |
+| --- | --- | --- | --- |
+| 👑 `B1 · Ship a task-history view` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
+| `Plan and classify the work` | Dedicated planning subagent | **Sol / medium** | Complete — plan accepted |
+| `Inventory the existing contracts` | Joined execution subagent | **Terra / low** | Running in Wave 1 |
+| 🕷️ `B1 · Implement the history pipeline` | Durable spinoff | **Sol / high** | Running in Wave 1 |
+| 🕷️ `B1 · Update docs and examples` | Durable spinoff | **Luna / low** | Waiting for Wave 1 acceptance |
+
+One objective now uses five different model/reasoning combinations. Nelos puts
+deeper intelligence where judgment matters, uses faster profiles for bounded or
+repeatable work, and verifies every launched route before accepting its result.
+
 <p align="center">
   <img
     src="docs/assets/showcase/web-roles-and-ids.png"
