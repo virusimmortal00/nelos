@@ -124,11 +124,14 @@ npm run demo:acceptance-gates
 npm run verify:golden-loop
 ```
 
-The model-catalog freshness check compares the reviewed intelligence profile
-catalog (`src/intelligence-profile-catalog.mjs`) against the current public
-Models and Subagents guidance. It is read-only: it never edits the catalog,
-never queries a host account or app server, and any drift it finds requires a
-separate, deliberate code change to resolve:
+The model-catalog check keeps its local provenance and review-date invariants
+in the offline gate. Its public-guidance lane uses only the official URLs and
+bounded artifacts declared in
+`src/upstream-documentation-contracts.mjs`. Collection is advisory and
+read-only: it never edits the catalog, fixtures, supported versions, code, or
+documentation. Network, timeout, redirect-policy, parsing, and missing-section
+failures are reported as unavailable infrastructure and never as compatibility
+or guidance-drift evidence:
 
 ```bash
 npm run check:model-catalog

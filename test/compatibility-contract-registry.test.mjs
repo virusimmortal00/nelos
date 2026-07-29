@@ -8,6 +8,7 @@ import {
   validateCompatibilityRegistryV1,
   validateCompatibilityReportV1,
 } from "../src/compatibility-contract-registry.mjs";
+import { adaptUpstreamDocumentationObservationV1 } from "../src/upstream-documentation-evidence.mjs";
 
 function clone(value = COMPATIBILITY_CONTRACT_REGISTRY_V1) {
   return structuredClone(value);
@@ -235,6 +236,37 @@ test("unavailable and infrastructure failures cannot count as compatibility evid
       /true only for passed evidence/u,
     );
   }
+});
+
+test("upstream-documentation adapter metadata validates as unavailable infrastructure", () => {
+  const adapted = adaptUpstreamDocumentationObservationV1({
+    requestedUrl: "https://learn.chatgpt.com/docs/app-server",
+    selected: { kind: "artifact", name: "app-server-document" },
+    digest: null,
+    observedAt: "2026-07-29T12:00:00.000Z",
+    status: "unavailable",
+    evidenceKind: "upstream-docs",
+    failureKind: "timeout",
+    detail: "timed out",
+  }, { checkId: "upstream.app-server-docs" });
+  const report = {
+    schemaVersion: 1,
+    registryVersion: "1.0.0",
+    overallStatus: "unverified",
+    capabilities: [{
+      capabilityId: "app-server.protocol-shapes",
+      status: "unverified",
+      evidence: [adapted],
+    }],
+  };
+  assert.equal(
+    validateCompatibilityReportV1(
+      COMPATIBILITY_CONTRACT_REGISTRY_V1,
+      report,
+      { selectedCapabilityIds: ["app-server.protocol-shapes"] },
+    ),
+    report,
+  );
 });
 
 test("report rejects invalid evidence mapping, source, and optimistic status", () => {

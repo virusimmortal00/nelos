@@ -5,10 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import { INTELLIGENCE_PROFILE_CATALOG } from "../src/intelligence-profile-catalog.mjs";
 import { checkModelCatalogFreshness } from "../src/model-catalog-freshness.mjs";
-
-const MODELS_GUIDANCE_URL = "https://learn.chatgpt.com/docs/models";
-const SUBAGENTS_GUIDANCE_URL =
-  "https://learn.chatgpt.com/docs/agent-configuration/subagents";
+import { MODEL_CATALOG_DOCUMENTATION_CONTRACTS_V1 } from "../src/upstream-documentation-contracts.mjs";
+import {
+  collectUpstreamDocumentationContractsV1,
+  createUpstreamDocumentationReportV1,
+} from "../src/upstream-documentation-evidence.mjs";
 
 function usage() {
   return `Usage: node scripts/check-model-catalog.mjs [options]
@@ -27,21 +28,29 @@ Options:
 `;
 }
 
-async function fetchGuidanceText(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`fetching ${url} failed: HTTP ${response.status}`);
-  }
-  return response.text();
-}
-
-export async function collectGuidance({ offline = false } = {}) {
+export async function collectGuidance({
+  offline = false,
+  fetchImpl = globalThis.fetch,
+  now = () => new Date().toISOString(),
+} = {}) {
   if (offline) return {};
-  const [modelsGuidanceText, subagentsGuidanceText] = await Promise.all([
-    fetchGuidanceText(MODELS_GUIDANCE_URL),
-    fetchGuidanceText(SUBAGENTS_GUIDANCE_URL),
-  ]);
-  return { modelsGuidanceText, subagentsGuidanceText };
+  const observations = await collectUpstreamDocumentationContractsV1(
+    MODEL_CATALOG_DOCUMENTATION_CONTRACTS_V1,
+    { fetchImpl, now },
+  );
+  const byId = new Map(observations.map((item) => [item.contractId, item]));
+  const models = byId.get("model-catalog.models-guidance");
+  const subagents = byId.get("model-catalog.subagents-guidance");
+  return {
+    ...(models?.status === "available"
+      ? { modelsGuidanceText: models.selectedText }
+      : {}),
+    ...(subagents?.status === "available"
+      ? { subagentsGuidanceText: subagents.selectedText }
+      : {}),
+    observedAt: observations[0]?.observedAt ?? now(),
+    upstreamDocumentation: createUpstreamDocumentationReportV1(observations),
+  };
 }
 
 async function main() {
@@ -52,12 +61,19 @@ async function main() {
   }
   const offline = args.includes("--offline");
   const guidance = await collectGuidance({ offline });
-  guidance.observedAt = new Date().toISOString();
+  const observedAt = new Date().toISOString();
   const report = checkModelCatalogFreshness({
     catalog: INTELLIGENCE_PROFILE_CATALOG,
     guidance,
-    now: new Date().toISOString(),
+    now: observedAt,
   });
+  if (guidance.upstreamDocumentation?.status === "unavailable") {
+    report.ok = false;
+    report.freshness = "unavailable-infrastructure";
+    report.recommendation =
+      "Upstream documentation collection was unavailable. Retry the advisory collector; do not treat this infrastructure outcome as model-catalog drift or compatibility evidence.";
+  }
+  report.upstreamDocumentation = guidance.upstreamDocumentation ?? null;
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;
 }

@@ -535,6 +535,61 @@ function evidenceCounts(outcome) {
   return outcome === "passed";
 }
 
+function validateUpstreamDocumentationReportMetadata(value, label, evidence) {
+  assertClosedObject(value, label, [
+    "requestedUrl",
+    "selected",
+    "digest",
+    "observedAt",
+    "status",
+    "evidenceKind",
+    "failureKind",
+  ]);
+  assertUrl(value.requestedUrl, `${label}.requestedUrl`);
+  if (value.requestedUrl !== evidence.source) {
+    fail(`${label}.requestedUrl must match the evidence source`);
+  }
+  assertClosedObject(value.selected, `${label}.selected`, ["kind", "name"]);
+  if (!["artifact", "section"].includes(value.selected.kind)) {
+    fail(`${label}.selected.kind is invalid`);
+  }
+  assertString(value.selected.name, `${label}.selected.name`, { maximum: 200 });
+  if (
+    value.digest !== null &&
+    (typeof value.digest !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/u.test(value.digest))
+  ) {
+    fail(`${label}.digest must be null or a SHA-256 digest`);
+  }
+  assertString(value.observedAt, `${label}.observedAt`, { maximum: 100 });
+  if (!Number.isFinite(Date.parse(value.observedAt))) {
+    fail(`${label}.observedAt must be an observation time`);
+  }
+  if (!["available", "unavailable"].includes(value.status)) {
+    fail(`${label}.status is invalid`);
+  }
+  if (value.evidenceKind !== "upstream-docs") {
+    fail(`${label}.evidenceKind must be upstream-docs`);
+  }
+  if (
+    value.failureKind !== null &&
+    !["network", "parsing", "missing-section", "redirect-policy", "timeout"]
+      .includes(value.failureKind)
+  ) {
+    fail(`${label}.failureKind is invalid`);
+  }
+  if (
+    (value.status === "available" &&
+      (value.digest === null || value.failureKind !== null || evidence.outcome !== "passed")) ||
+    (value.status === "unavailable" &&
+      (value.digest !== null ||
+        value.failureKind === null ||
+        !["unavailable", "infrastructure-failure"].includes(evidence.outcome)))
+  ) {
+    fail(`${label} does not agree with the evidence outcome`);
+  }
+}
+
 export function validateCompatibilityReportV1(
   registry,
   report,
@@ -608,6 +663,7 @@ export function validateCompatibilityReportV1(
         "countsForCompatibility",
         "source",
         "summary",
+        "upstreamDocumentation",
       ]);
       if (!checkIds.has(evidence.checkId)) {
         fail(`${evidenceLabel}.checkId is not mapped to ${result.capabilityId}`);
@@ -639,6 +695,16 @@ export function validateCompatibilityReportV1(
       assertString(evidence.summary, `${evidenceLabel}.summary`, {
         maximum: 2_000,
       });
+      if (evidence.upstreamDocumentation !== undefined) {
+        if (evidence.kind !== "upstream-docs") {
+          fail(`${evidenceLabel}.upstreamDocumentation is only valid for upstream-docs`);
+        }
+        validateUpstreamDocumentationReportMetadata(
+          evidence.upstreamDocumentation,
+          `${evidenceLabel}.upstreamDocumentation`,
+          evidence,
+        );
+      }
       failed ||= evidence.outcome === "failed";
       nonEvidence ||= [
         "unavailable",
