@@ -197,6 +197,10 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
   );
   assert.match(workflow, /grep -Eq '\^# pass 1\$'/u);
   assert.match(workflow, /grep -Eq '\^# fail 0\$'/u);
+  assert.match(
+    workflow,
+    /\^ok \[0-9\]\+ - a clean isolated home bootstraps source and marketplace idempotently\$/u,
+  );
   assert.match(workflow, /sha256sum --check SHA256SUMS/u);
   assert.match(workflow, /gh release create[\s\S]*--draft[\s\S]*--verify-tag/u);
   assert.doesNotMatch(workflow, /gh release create[\s\S]*--latest/u);
