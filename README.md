@@ -34,6 +34,15 @@ Codex app-server child process for native task control.
 slices. Every web gets a short ID (like `B1`) that keeps the whole family
 recognizable in Codex.
 
+<p align="center">
+  <img
+    src="docs/assets/showcase/web-roles-and-ids.png"
+    alt="Codex task list showing four spider-marked B1 spinoffs and their crown-marked B1 queen"
+    width="880">
+</p>
+
+<p align="center"><em>One B1 web: four visible, steerable spinoffs coordinated by one queen.</em></p>
+
 Together, those three layers turn work into a web of parallel, dependency-aware
 Codex tasks, with capabilities you don't get from Codex alone, its native
 subagents, or hand-run parallel chats:
@@ -55,21 +64,6 @@ subagents, or hand-run parallel chats:
   surface, and exposes no prompts or transcripts.
 
 ## Nelos in action
-
-### The whole web stays visible
-
-Every task in a web shares one compact ID, so related work is easy to spot in the
-Codex sidebar. The crown marks the queen; spiders mark its durable spinoffs.
-Each one remains an ordinary task you can open, inspect, or steer directly.
-
-<p align="center">
-  <img
-    src="docs/assets/showcase/web-roles-and-ids.png"
-    alt="Codex task list showing four spider-marked B1 spinoffs and their crown-marked B1 queen"
-    width="880">
-</p>
-
-<p align="center"><em>One B1 web: four focused spinoffs coordinated by one queen.</em></p>
 
 ### Dependencies wait for accepted work
 
