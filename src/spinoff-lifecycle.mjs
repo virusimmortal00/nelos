@@ -460,6 +460,14 @@ export class SpinoffLifecycleAdapterV1 {
     this.#now = now;
   }
 
+  #rememberPolicy(policy) {
+    return this.#configuration.set({
+      key: "spinoffs.cleanup_policy",
+      value: policy,
+      userIntentConfirmed: true,
+    });
+  }
+
   async complete(value) {
     const completion = validateSpinoffCompletionV1(value);
     const workUnit = await this.#executionStore.read(completion.workUnitId);
@@ -680,7 +688,10 @@ export class SpinoffLifecycleAdapterV1 {
         summary: candidate.decision.result.summary,
       },
     }));
-    const resolvedPolicy = await withQueenSpinoffLock(
+    const {
+      resolvedPolicy,
+      records: snapshotRecords,
+    } = await withQueenSpinoffLock(
       identity.queenThreadId,
       async () => {
         const records = await Promise.all(
@@ -722,6 +733,7 @@ export class SpinoffLifecycleAdapterV1 {
               ? terminalPolicies.values().next().value
               : requestedPolicy
           );
+        const settledRecords = [...records];
         for (
           let index = 0;
           index < candidateBlueprints.length;
@@ -737,12 +749,12 @@ export class SpinoffLifecycleAdapterV1 {
           }
           if (!record) {
             const initial = initialRecord(completion, this.#now());
-            await this.#store.write({
+            settledRecords[index] = await this.#store.write({
               ...initial,
               cleanupPolicy: snapshot,
             }, { expectedRevision: 0 });
           } else if (record.cleanupPolicy === null) {
-            await this.#store.write({
+            settledRecords[index] = await this.#store.write({
               ...record,
               revision: record.revision + 1,
               cleanupPolicy: snapshot,
@@ -752,16 +764,17 @@ export class SpinoffLifecycleAdapterV1 {
             throw new Error("cleanup policy snapshot is conflicting");
           }
         }
-        return snapshot;
+        return {
+          resolvedPolicy: snapshot,
+          records: settledRecords,
+        };
       },
     );
-    const allCandidates = await Promise.all(
-      candidateBlueprints.map(async (candidate) => ({
+    const allCandidates = candidateBlueprints.map(
+      (candidate, index) => ({
         ...candidate,
-        record: await this.#store.read(
-          spinoffWakeIdV1(candidate.completion),
-        ),
-      })),
+        record: snapshotRecords[index],
+      }),
     );
     const candidates = allCandidates.filter(
       ({ record }) =>
@@ -778,11 +791,7 @@ export class SpinoffLifecycleAdapterV1 {
       !archiveInFlight
     ) {
       if (rememberPolicy) {
-        await this.#configuration.set({
-          key: "spinoffs.cleanup_policy",
-          value: policy,
-          userIntentConfirmed: true,
-        });
+        await this.#rememberPolicy(policy);
       }
       return {
         schemaVersion: 1,
@@ -816,11 +825,7 @@ export class SpinoffLifecycleAdapterV1 {
       throw new Error("cleanup confirmation contains an ineligible spin-off");
     }
     if (rememberPolicy) {
-      await this.#configuration.set({
-        key: "spinoffs.cleanup_policy",
-        value: policy,
-        userIntentConfirmed: true,
-      });
+      await this.#rememberPolicy(policy);
     }
     const selected = reconciliationCandidates.filter(
       ({ threadId }) => confirmed.has(threadId),
@@ -930,6 +935,9 @@ export class SpinoffLifecycleAdapterV1 {
             });
             return;
           }
+          if (receiptByThreadId.has(candidate.threadId)) {
+            throw new Error("native archive receipt has no pending effect");
+          }
           if (resolvedPolicy === "keep") {
             record = await this.#store.write({
               ...record,
@@ -944,9 +952,6 @@ export class SpinoffLifecycleAdapterV1 {
               replayed: false,
             });
             return;
-          }
-          if (receiptByThreadId.has(candidate.threadId)) {
-            throw new Error("native archive receipt has no pending effect");
           }
           record = await this.#store.write({
             ...record,

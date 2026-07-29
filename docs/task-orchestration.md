@@ -260,7 +260,8 @@ durable execution and acceptance records:
 
 - `auto` is the built-in default and returns native archive effects for all
   eligible candidates;
-- `ask` returns names and task IDs without mutation;
+- `ask` returns names and task IDs and archives nothing, while recording the
+  cleanup policy snapshot on candidate lifecycle records;
 - `keep` records the decision without archiving; and
 - `rememberPolicy: true` persists an explicit choice to the machine-local TOML
   config only when `userIntentConfirmed: true` records an explicit user request.

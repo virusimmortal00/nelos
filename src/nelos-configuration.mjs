@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { constants as fileSystemConstants } from "node:fs";
 import * as defaultFileSystem from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import {
   taskStateDirectory,
@@ -266,7 +267,7 @@ export class NelosConfigStoreV1 {
     fileSystem = defaultFileSystem,
     makeTemporaryId = randomUUID,
   } = {}) {
-    this.#path = path;
+    this.#path = normalize(path);
     this.#fileSystem = fileSystem;
     this.#makeTemporaryId = makeTemporaryId;
   }
@@ -276,21 +277,29 @@ export class NelosConfigStoreV1 {
   }
 
   async read() {
+    let handle = null;
     try {
-      const metadata = await this.#fileSystem.lstat(this.#path);
-      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      handle = await this.#fileSystem.open(
+        this.#path,
+        fileSystemConstants.O_RDONLY |
+          (fileSystemConstants.O_NOFOLLOW ?? 0),
+      );
+      const metadata = await handle.stat();
+      if (!metadata.isFile()) {
         throw new Error("configuration path is not a regular file");
       }
       if (metadata.size > MAX_CONFIGURATION_BYTES) {
         throw new Error("configuration exceeds 64 KiB");
       }
-      const source = await this.#fileSystem.readFile(this.#path, "utf8");
+      const source = await handle.readFile("utf8");
       return { exists: true, document: parseNelosConfig(source) };
     } catch (error) {
       if (error?.code === "ENOENT") return { exists: false, document: null };
       throw new Error(
         `invalid Nelos configuration at ${this.#path}: ${error.message}`,
       );
+    } finally {
+      await handle?.close().catch(() => {});
     }
   }
 

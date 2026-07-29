@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 
 import {
   processMayOwnLease,
@@ -243,7 +243,10 @@ export function withNelosConfigurationLock(
   ) {
     throw new Error("Nelos configuration lock requires a bounded absolute path");
   }
-  const lockId = createHash("sha256").update(configPath, "utf8").digest("hex");
+  const canonicalPath = normalize(configPath);
+  const lockId = createHash("sha256")
+    .update(canonicalPath, "utf8")
+    .digest("hex");
   return withOwnedStateLock(`configuration-${lockId}`, callback, timeoutMs);
 }
 

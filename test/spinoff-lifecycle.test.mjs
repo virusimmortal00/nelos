@@ -422,6 +422,31 @@ test("cleanup rejects ineligible confirmations and receipts", async (t) => {
   );
 });
 
+test("keep rejects an archive receipt without changing terminal state", async (t) => {
+  const { adapter, store } = await fixture(t);
+  const result = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "keep",
+    archiveReceipts: [{
+      schemaVersion: 1,
+      actionId: "fabricated-archive",
+      type: "native-archive",
+      threadId: "member-thread",
+      archived: true,
+    }],
+  });
+  assert.equal(result.state, "attention");
+  assert.deepEqual(result.results, [{
+    threadId: "member-thread",
+    state: "attention",
+    reason: "cleanup-candidate-failed",
+  }]);
+  const record = await store.read(spinoffWakeIdV1(completion()));
+  assert.equal(record.cleanupPolicy, "keep");
+  assert.equal(record.cleanupState, "pending");
+});
+
 test("cleanup waits for every required current spin-off acceptance", async (t) => {
   const first = workUnit();
   const second = workUnit({

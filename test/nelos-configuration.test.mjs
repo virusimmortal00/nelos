@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -277,7 +278,7 @@ test("reset retires a legacy preference without first migrating it", async (t) =
 });
 
 test("malformed and unsafe configuration paths fail with actionable context", async (t) => {
-  const { configPath, configuration } = await fixture(t);
+  const { root, configPath, configuration } = await fixture(t);
   await configuration.set({
     key: NELOS_CLEANUP_POLICY_KEY,
     value: "auto",
@@ -287,6 +288,15 @@ test("malformed and unsafe configuration paths fail with actionable context", as
   await assert.rejects(
     configuration.get(),
     /invalid Nelos configuration.*unsupported spinoffs key/u,
+  );
+
+  const target = join(root, "redirected.toml");
+  await writeFile(target, "schema_version = 1\n", { mode: 0o600 });
+  await rm(configPath);
+  await symlink(target, configPath);
+  await assert.rejects(
+    configuration.get(),
+    /invalid Nelos configuration/u,
   );
 });
 
@@ -318,7 +328,7 @@ test("an invalid legacy preference fails closed instead of enabling auto", async
   );
 });
 
-test("configuration writers serialize across independent instances", async (t) => {
+test("configuration writers serialize across equivalent path aliases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "nelos-configuration-lock-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const configPath = join(root, "config.toml");
@@ -339,9 +349,9 @@ test("configuration writers serialize across independent instances", async (t) =
       }
     },
   };
-  const createConfiguration = (temporaryId) => new NelosConfigurationV1({
+  const createConfiguration = (temporaryId, path) => new NelosConfigurationV1({
     store: new NelosConfigStoreV1({
-      path: configPath,
+      path,
       fileSystem,
       makeTemporaryId: () => temporaryId,
     }),
@@ -349,12 +359,12 @@ test("configuration writers serialize across independent instances", async (t) =
     fileSystem,
   });
   await Promise.all([
-    createConfiguration("one").set({
+    createConfiguration("one", configPath).set({
       key: NELOS_CLEANUP_POLICY_KEY,
       value: "ask",
       userIntentConfirmed: true,
     }),
-    createConfiguration("two").set({
+    createConfiguration("two", `${root}/./config.toml`).set({
       key: NELOS_CLEANUP_POLICY_KEY,
       value: "keep",
       userIntentConfirmed: true,
