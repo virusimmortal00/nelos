@@ -64,19 +64,21 @@ more — reducing time and credit use without weakening the decomposition.
 
 #### Example: mixed intelligence, on purpose
 
-Suppose the original task starts on **Terra / max**. The fixed Sol / medium
-planner returns an execution plan with one joined subagent and two durable
-spinoffs. Nelos does not copy one setting to every worker:
+Suppose `Add Codex functionality checker` starts on **Terra / max**. The fixed
+Sol / medium planner returns an execution plan with one joined subagent and four
+durable spinoffs. Nelos does not copy one setting to every worker:
 
 | Task | Kind | Model / reasoning | Example state |
 | --- | --- | --- | --- |
-| 👑 `B1 · Ship a task-history view` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
+| 👑 `B1 · Add Codex functionality checker` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
 | `Plan and classify the work` | Dedicated planning subagent | **Sol / medium** | Complete — plan accepted |
-| `Inventory the existing contracts` | Joined execution subagent | **Terra / low** | Running in Wave 1 |
-| 🕷️ `B1 · Implement the history pipeline` | Durable spinoff | **Sol / high** | Running in Wave 1 |
-| 🕷️ `B1 · Update docs and examples` | Durable spinoff | **Luna / low** | Waiting for Wave 1 acceptance |
+| `Inspect the existing plugin surface` | Joined subagent — not shown in the sidebar | **Terra / low** | Running in Wave 1 |
+| 🕷️ `B1 · Collect exact open source evidence` | Durable spinoff | **Luna / low** | Running in Wave 1 |
+| 🕷️ `B1 · Collect bounded documentation evidence` | Durable spinoff | **Terra / medium** | Running in Wave 1 |
+| 🕷️ `B1 · Build the offline deterministic gate` | Durable spinoff | **Sol / high** | Running in Wave 1 |
+| 🕷️ `B1 · Define compatibility contracts` | Durable spinoff | **Terra / high** | Running in Wave 1 |
 
-One objective now uses five different model/reasoning combinations. Nelos puts
+One objective now uses seven different model/reasoning combinations. Nelos puts
 deeper intelligence where judgment matters, uses faster profiles for bounded or
 repeatable work, and verifies every launched route before accepting its result.
 
@@ -87,7 +89,7 @@ repeatable work, and verifies every launched route before accepting its result.
     width="880">
 </p>
 
-<p align="center"><em>One B1 web: four visible, steerable spinoffs coordinated by one queen.</em></p>
+<p align="center"><em>The same B1 web: four durable spinoffs are visible and steerable; its joined subagent stays attached to the queen.</em></p>
 
 Together, those three layers turn work into a web of parallel, dependency-aware
 Codex tasks, with capabilities you don't get from Codex alone, its native
