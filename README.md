@@ -8,7 +8,7 @@
 <p align="center">
   <a href="#nelos-in-action">See it work</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#whats-in-the-box">What's in the box</a> ·
+  <a href="#native-codex-through-a-narrow-bridge">App Server</a> ·
   <a href="docs/webs.md">Docs</a>
 </p>
 
@@ -148,34 +148,42 @@ required status.
 
 ## What's in the box
 
-Nelos is one Codex plugin with two parts:
+Nelos is one Codex plugin with two cooperating parts:
 
-- **An MCP server with a scoped Codex app-server bridge.**
-  `nelos_plan_lifecycle` durably coordinates an exact Sol planning pass through
-  typed, replay-safe receipts; `nelos_plan_slices` then plans dependency-safe
-  waves and returns any required queen title effect before launch. Durable
-  spinoff titles are read, set, and verified after native creation and binding.
-  A repeated call verifies the compact role-first grammar:
-  queens begin `👑 WEB_ID ·`, while durable spin-offs begin `🕷️ WEB_ID ·`.
-  Thread inspection,
-  inventory, bounded waiting, and health tools expose no prompts or transcripts.
-  Batch launch verification gates every wave on lifecycle-appropriate identity,
-  topology, and route evidence: joined subagents use their collaboration
-  `agentPath`, while durable spinoffs use their task `threadId` and native
-  title. Typed exceptions can trigger one bounded Sol
-  replan without relaunching completed slices. Finishing spinoffs durably hand
-  off through receipt-bound host wake effects from `nelos_spinoff_complete`;
-  accepted members follow an explicit `ask`, `auto`, or `keep` cleanup policy
-  through receipt-bound native archive effects. Intelligence routing,
-  verification, and native subagent identity resolution remain read-only;
-  callback orchestration tools journal native effects. The bridge starts one
-  `codex app-server --stdio` child lazily and exposes no prompts or transcripts.
-- **A skill** — `manage-nelos-tasks`, the playbook that bootstraps planning
-  independently of the starting model and executes each tool's next action.
+- **An MCP orchestration server** — plans dependency-safe waves, routes and
+  verifies every launch, persists replay-safe receipts, advances accepted work,
+  and coordinates completion and cleanup.
+- **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
+  the MCP server's machine-generated next actions independently of whichever
+  model starts as queen.
 
 Spinoffs remain ordinary top-level Codex tasks—visible and steerable in the
 desktop sidebar while Nelos coordinates. Nelos plans and coordinates; you still
 own Git branches, merges, and final review.
+
+## Native Codex, through a narrow bridge
+
+Nelos does not reimplement Codex tasks or create a separate task universe.
+When an MCP operation needs native task access, the bundled server lazily starts
+one official `codex app-server --stdio` child and keeps that connection for the
+life of the MCP process.
+
+That deliberately narrow bridge lets Nelos:
+
+- inspect bounded task identity, status, and direct-parent topology;
+- synchronize and verify queen and spinoff titles;
+- resume, start, or steer the queen when a spinoff reports back; and
+- carry out explicit archive effects under the web's cleanup policy.
+
+Native Codex remains authoritative for tasks, turns, approvals, permissions,
+and archive state. Nelos owns the web: work units, dependencies, attempts,
+receipts, acceptance decisions, and cleanup policy. Every consumed app-server
+response is version- and shape-checked; mismatches fail closed.
+
+The bridge is not a general-purpose app-server proxy. Normal inspection requests
+no turns and returns no prompts, messages, reasoning, previews, transcripts, or
+raw errors. It exposes only the small control surface required to keep native
+Codex tasks visible, coordinated, and able to report home.
 
 ## Learn more
 
