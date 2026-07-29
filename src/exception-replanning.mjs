@@ -35,6 +35,7 @@ const INPUT_FIELDS = new Set([
   "generation",
   "bootstrapId",
   "receipt",
+  "launchAuthorization",
 ]);
 const TRIGGER_FIELDS = new Set([
   "type",
@@ -412,6 +413,8 @@ export const EXCEPTION_REPLANNING_INPUT_SCHEMA = Object.freeze({
       pattern: "^plan:[a-f0-9]{24}$",
     },
     receipt: PLANNING_LIFECYCLE_INPUT_SCHEMA.properties.receipt,
+    launchAuthorization:
+      PLANNING_LIFECYCLE_INPUT_SCHEMA.properties.launchAuthorization,
   },
   required: [
     "schemaVersion",

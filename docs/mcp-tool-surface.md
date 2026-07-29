@@ -24,8 +24,11 @@ long-lived
   task and caller-stable idempotency key, accepts exact native launch/result
   receipts, resolves the joined planner by agent path, verifies parent topology
   and Sol/medium terminal result-turn metadata, and returns one replay-safe
-  next action. The resolved internal thread ID is verification evidence, not a
-  durable-task control handle.
+  next action. Completed planning first returns a wave-bound
+  `authorization-required` proposal; only an exact native-host capability and
+  task-creation authorization receipt for every member can produce
+  `launch-wave`. The resolved internal thread ID is verification evidence, not
+  a durable-task control handle.
   Checkpoints persist request/response digests, identities, phases, and receipt
   digests, never raw planner responses;
 - `nelos_plan_replan` — reuses the lifecycle only for typed failure, blocking,
@@ -40,8 +43,13 @@ long-lived
   `👑 WEB_ID · base title`, and verifies the persisted title. Durable spin-offs
   use `🕷️ WEB_ID · base title`. When synchronization is needed it returns a host-owned native title
   effect; a repeated call verifies the persisted title before returning a
-  launch action. Legacy outer-crown forms are normalized. A subagent-only plan
+  launch-authorization proposal. Legacy outer-crown forms are normalized. A subagent-only plan
   does not start the bridge;
+- `nelos_launch_authorize` — consumes the proposal's exact
+  `native-authorize-launch` request, bounded capabilities copied from the
+  current native host tool registry, and explicit user intent. It
+  deterministically produces the receipt that must be replayed through the
+  planning tool and never launches work itself;
 - `nelos_launch_verify_batch` — performs one all-or-nothing read-only gate for
   1–16 launched wave members. It binds receipts to a persisted plan-run,
   wave index, digest, and authoritative member contract; resolves subagents

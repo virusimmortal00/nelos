@@ -11,6 +11,15 @@ import {
   withNextAction,
 } from "../src/next-action.mjs";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
+
+function authorizedWithNextAction(input) {
+  const proposal = withNextAction(input).nextAction;
+  return withNextAction({
+    ...input,
+    launchAuthorization: authorizeLaunchProposal(proposal),
+  });
+}
 
 function slice(overrides = {}) {
   return {
@@ -78,7 +87,7 @@ test("slice planning returns an executable current-wave launch action", () => {
     queenThreadId: "queen-1",
     sourceId: "next-action-test",
   });
-  const output = withNextAction({
+  const output = authorizedWithNextAction({
     command: "plan slices",
     plan,
     planRun,
@@ -142,6 +151,7 @@ test("slice planning returns an executable current-wave launch action", () => {
       waveIndex: 1,
       waveDigest: planRun.waves[0].waveDigest,
     },
+    executionGate: output.nextAction.executionGate,
     settleBeforeWaveIndex: 2,
     remainingWaveCount: 1,
   });
@@ -172,7 +182,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
       queenTitle: "👑 A1 · Queen",
     },
   });
-  const { members } = withNextAction({
+  const { members } = authorizedWithNextAction({
     command: "plan slices",
     plan,
     planRun,
@@ -252,7 +262,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
   );
   assert.equal(members[1].orchestration.arguments.receipt, null);
 
-  const cleanupDisabledMember = withNextAction({
+  const cleanupDisabledMember = authorizedWithNextAction({
     command: "plan slices",
     plan,
     planRun,
@@ -291,7 +301,7 @@ test("a generated durable orchestration action is directly consumable", async ()
         queenTitle: "👑 A1 · Queen",
       },
     });
-    const action = withNextAction({
+    const action = authorizedWithNextAction({
       command: "plan slices",
       plan,
       planRun,
@@ -328,13 +338,13 @@ test("generation-one exception replans give reused joined slices fresh task iden
     parentPlanRun: basePlanRun,
   });
 
-  const baseAction = withNextAction({
+  const baseAction = authorizedWithNextAction({
     command: "plan slices",
     plan: basePlan,
     planRun: basePlanRun,
   }).nextAction;
   const baseMember = baseAction.members[0];
-  const replanAction = withNextAction({
+  const replanAction = authorizedWithNextAction({
     command: "plan slices",
     plan: replanned,
     planRun: replanRun,

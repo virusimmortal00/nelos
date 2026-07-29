@@ -25,6 +25,7 @@ import {
   derivePlanWaveActionV1,
 } from "../src/next-action.mjs";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 test("protocol contracts are available through public package subpaths", async () => {
   const contract = await import("nelos/protocol-contract");
@@ -47,6 +48,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "native-wait-subagent",
     "native-read-subagent-result",
     "launch-wave",
+    "authorization-required",
+    "execution-unavailable",
     "native-wait-wave",
     "native-wait",
     "native-read",
@@ -72,10 +75,12 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "native-reconcile-send-message",
     "native-archive",
     "native-reconcile-archive",
+    "native-authorize-launch",
   ]);
   assert.deepEqual(discriminatorValues(PROTOCOL_RECEIPT_SCHEMA_V1, "type"), [
     "native-planner-created",
     "native-planner-result",
+    "native-launch-authorization",
     "native-create",
     "native-title-observed",
     "native-wait",
@@ -399,6 +404,36 @@ const verificationOutput = {
   },
 };
 
+const authorizationOutput = {
+  command: "launch authorize",
+  receipt: {
+    schemaVersion: 1,
+    type: "native-launch-authorization",
+    source: "native-host",
+    actionId: "launch-authorization-1",
+    planRunId: `run:${"a".repeat(40)}`,
+    waveIndex: 1,
+    waveDigest: "b".repeat(64),
+    members: [{
+      sliceId: "member",
+      lifecycle: "spinoff",
+      memberKind: "spinoff",
+      launcher: "create-thread",
+      workspaceMode: "isolated-write",
+      nativeTask: {
+        model: "gpt-5.6-terra",
+        thinking: "medium",
+      },
+      launcherAvailable: true,
+      taskKindSupported: true,
+      workspaceModeSupported: true,
+      modelSupported: true,
+      reasoningSupported: true,
+      creationAuthorized: true,
+    }],
+  },
+};
+
 const createEffect = {
   schemaVersion: 1,
   actionId: "launch-1",
@@ -512,6 +547,7 @@ const cleanupOutput = {
 
 const RUNTIME_OUTPUTS = new Map([
   ["nelos_plan_lifecycle", launchPlannerOutput],
+  ["nelos_launch_authorize", authorizationOutput],
   ["nelos_launch_verify_batch", verificationOutput],
   ["nelos_orchestrate_create", createOutput],
   ["nelos_orchestrate_advance", advanceOutput],
@@ -520,7 +556,7 @@ const RUNTIME_OUTPUTS = new Map([
   ["nelos_spinoff_cleanup", cleanupOutput],
 ]);
 
-test("all seven real MCP output families pass producer-correlated envelopes", () => {
+test("all eight real MCP output families pass producer-correlated envelopes", () => {
   for (const [producer, output] of RUNTIME_OUTPUTS) {
     const envelope = protocolCompatibilityEnvelopeV1(producer, output);
     assert.equal(envelope.producer, producer);
@@ -757,7 +793,18 @@ test("compatibility and contract discriminators are correlated to value schemas"
       queenTitle: "👑 A1 · Queen",
     },
   });
-  const launchWave = derivePlanWaveActionV1(plan, planRun);
+  const proposal = derivePlanWaveActionV1(plan, planRun);
+  assert.deepEqual(
+    validateProtocolContractV1("action", proposal),
+    proposal,
+  );
+  const launchWave = derivePlanWaveActionV1(
+    plan,
+    planRun,
+    undefined,
+    true,
+    authorizeLaunchProposal(proposal),
+  );
   assert.deepEqual(
     validateProtocolContractV1("action", launchWave),
     launchWave,
