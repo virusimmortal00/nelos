@@ -9,6 +9,9 @@ import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { withObservationCheckpointLock } from "./task-state.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
 import { derivePlanWaveActionV1 } from "./next-action.mjs";
+import {
+  LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
+} from "./launch-execution-gate.mjs";
 
 export const MCP_OBSERVATION_SCHEMA_VERSION = 1;
 
@@ -109,6 +112,7 @@ async function terminalNextAction(
   queenThreadId,
   workUnits,
   planRunStore,
+  launchAuthorization,
 ) {
   if (
     join.boundary.type !== "continue" ||
@@ -153,6 +157,7 @@ async function terminalNextAction(
         activeRun,
         lastVerifiedWave + 1,
         activeRun.cleanupIntended,
+        launchAuthorization,
       );
     }
   }
@@ -186,7 +191,12 @@ export class McpJoinAdapterV1 {
     this.#planRunStore = planRunStore;
   }
 
-  async advance({ webId, queenThreadId, receipt = null } = {}) {
+  async advance({
+    webId,
+    queenThreadId,
+    receipt = null,
+    launchAuthorization = null,
+  } = {}) {
     if (typeof webId !== "string" || !webId || typeof queenThreadId !== "string" || !queenThreadId) {
       throw new Error("orchestration advance requires webId and queenThreadId");
     }
@@ -252,6 +262,7 @@ export class McpJoinAdapterV1 {
         queenThreadId,
         workUnits,
         this.#planRunStore,
+        launchAuthorization,
       );
       return {
         schemaVersion: MCP_OBSERVATION_SCHEMA_VERSION,
@@ -357,6 +368,7 @@ export const MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA = Object.freeze({
         },
       ],
     },
+    launchAuthorization: LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
   },
   required: ["webId", "queenThreadId", "receipt"],
   additionalProperties: false,

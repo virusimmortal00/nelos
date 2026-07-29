@@ -124,9 +124,14 @@ export async function executeNativeLaunchWaveV1(
     !action ||
     action.kind !== "launch-wave" ||
     !Array.isArray(action.members) ||
-    action.members.length === 0
+    action.members.length === 0 ||
+    action.executionGate?.schemaVersion !== 1 ||
+    typeof action.executionGate.actionId !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(action.executionGate.evidenceDigest ?? "")
   ) {
-    throw new Error("native launch adapter requires a non-empty launch-wave");
+    throw new Error(
+      "native launch adapter requires an execution-gated non-empty launch-wave",
+    );
   }
   for (const [name, callback] of Object.entries({
     authorizeLaunch,

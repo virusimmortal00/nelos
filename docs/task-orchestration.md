@@ -144,12 +144,18 @@ reuse of an `intentId` with different inputs.
 
 ## Launch Protocol
 
-1. **Prepare the intent before mutation.** Write `planned` with the desired
+1. **Authorize the exact wave before mutation.** Planning returns a bounded
+   `authorization-required` proposal. The native host must return one typed,
+   wave-bound receipt attesting availability, exact route support, and creation
+   authorization for every member. Missing, negative, partial, stale, or
+   mismatched evidence cannot produce `launch-wave`; planning a graph alone is
+   never permission to create user-visible tasks.
+2. **Prepare the intent before mutation.** Write `planned` with the desired
    title, target, route, queen, and work-unit provenance.
-2. **Claim creation once.** Move to `creating` under the existing queen/action
+3. **Claim creation once.** Move to `creating` under the existing queen/action
    lock, then dispatch the persisted launcher exactly once:
    `create-thread` for a spinoff or `spawn-subagent` for a joined subagent.
-3. **Record the native receipt before further effects.**
+4. **Record the native receipt before further effects.**
    - A spinoff's returned `threadId` moves launch directly to `bound`.
    - A joined subagent's returned canonical `agentPath` is its primary control
      identity. Its resolved internal thread ID is retained only as verification
@@ -160,7 +166,7 @@ reuse of an `intentId` with different inputs.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Persist one web identity, then settle queen and spinoff titles.** For a
+5. **Persist one web identity, then settle queen and spinoff titles.** For a
    durable plan, Nelos reuses the queen's existing legacy web record or marked
    title, or allocates through that compatibility registry once. The web ID,
    exact queen title, and every durable member's decorated title are persisted

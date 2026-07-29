@@ -19,6 +19,9 @@ import {
   PROTOCOL_CODE_REGISTRY_V1,
   validateProtocolContractV1,
 } from "./protocol-contract/index.mjs";
+import {
+  LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
+} from "./launch-execution-gate.mjs";
 import { MAX_PARALLEL_SLICES } from "./slice-planner.mjs";
 import {
   taskStateDirectory,
@@ -83,6 +86,7 @@ const REQUEST_FIELDS = new Set([
   "cleanupIntended",
   "bootstrapId",
   "receipt",
+  "launchAuthorization",
 ]);
 const LAUNCH_RECEIPT_FIELDS = new Set([
   "schemaVersion",
@@ -1203,6 +1207,7 @@ export const PLANNING_LIFECYCLE_INPUT_SCHEMA = Object.freeze({
       pattern: "^plan:[a-f0-9]{24}$",
     },
     receipt: RECEIPT_SCHEMA,
+    launchAuthorization: LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
   },
   required: [
     "schemaVersion",

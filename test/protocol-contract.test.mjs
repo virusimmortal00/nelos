@@ -25,6 +25,7 @@ import {
   derivePlanWaveActionV1,
 } from "../src/next-action.mjs";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 test("protocol contracts are available through public package subpaths", async () => {
   const contract = await import("nelos/protocol-contract");
@@ -47,6 +48,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "native-wait-subagent",
     "native-read-subagent-result",
     "launch-wave",
+    "authorization-required",
+    "execution-unavailable",
     "native-wait-wave",
     "native-wait",
     "native-read",
@@ -76,6 +79,7 @@ test("definitive unions use the repository's emitted discriminators", () => {
   assert.deepEqual(discriminatorValues(PROTOCOL_RECEIPT_SCHEMA_V1, "type"), [
     "native-planner-created",
     "native-planner-result",
+    "native-launch-authorization",
     "native-create",
     "native-title-observed",
     "native-wait",
@@ -757,7 +761,18 @@ test("compatibility and contract discriminators are correlated to value schemas"
       queenTitle: "👑 A1 · Queen",
     },
   });
-  const launchWave = derivePlanWaveActionV1(plan, planRun);
+  const proposal = derivePlanWaveActionV1(plan, planRun);
+  assert.deepEqual(
+    validateProtocolContractV1("action", proposal),
+    proposal,
+  );
+  const launchWave = derivePlanWaveActionV1(
+    plan,
+    planRun,
+    undefined,
+    true,
+    authorizeLaunchProposal(proposal),
+  );
   assert.deepEqual(
     validateProtocolContractV1("action", launchWave),
     launchWave,

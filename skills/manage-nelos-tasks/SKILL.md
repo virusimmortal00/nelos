@@ -5,9 +5,9 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 
 # Manage Nelos Tasks
 
-Use this for coordinated work. Planning quality must not depend on the queen's model.
-One bounded Sol planner decomposes unstructured work. The queen identifies user-supplied
-plans and judges result acceptance. For settings, use `nelos_config_get`,
+Planning quality must not depend on the queen's model. One bounded Sol planner
+decomposes unstructured work. The queen identifies user-supplied plans and judges
+result acceptance. For settings, use `nelos_config_get`,
 `nelos_config_set`, or `nelos_config_reset`. Call set/reset only after an
 explicit user request with `userIntentConfirmed: true`; never use the CLI as fallback.
 Keep native kinds exact:
@@ -20,16 +20,16 @@ Keep native kinds exact:
 
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
 `objective`, and bounded `slices`, call `nelos_plan_slices` directly with the
-explicit current queen task ID. A queen-authored plan is not user-supplied and
+queen task ID. A queen-authored plan is not user-supplied and
 must not use this fast path.
 
-Otherwise call `nelos_plan_lifecycle` with schema version 1, the current queen
-task ID, a caller-stable idempotency key, the unstructured objective, optional
-bounded context/parallelism, and `receipt: null`. Durable spinoffs are
+Otherwise call `nelos_plan_lifecycle` with schema version 1, the queen task ID,
+a caller-stable idempotency key, the objective, optional bounded
+context/parallelism, `receipt: null`, and `launchAuthorization: null`. Durable spinoffs are
 cleanup-capable by default; pass `cleanupIntended: false` only when the user
 explicitly forbids terminal cleanup. Do not first author slices or
 classify them in the queen. Execute only its returned action and call the tool
-again with the unchanged request, returned `bootstrapId`, and exact typed
+again with the unchanged request, returned `bootstrapId`, and exact
 native receipt. Never substitute an agent path for a task ID.
 
 The coordinator verifies identity, parent, Sol/medium route, and result turn.
@@ -46,14 +46,14 @@ After the fast path or validated bootstrap, execute only the returned
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
-- `launch-wave`: create only listed current-wave members. Use exact lifecycle,
-  kind, launcher, title, route, identity, and prompt fields. `create-thread`
-  makes spinoffs; `spawn-subagent` uses a joined member's `agentTaskName`.
-  Joined subagents support only Sol or Terra; Luna is
-  valid only for durable spinoffs. Never omit, substitute, or inherit a decided `nativeTask`; missing
-  route/identity is `attention`. Never bind an agent name as a thread ID.
-  Follow `titlePolicy`; creation-time task titles are unsupported, so verify
-  after binding.
+- `authorization-required`: use only the exact receipt returned by the named
+  native host surface. Never author, alter, or infer its evidence; absent one, stop.
+- `execution-unavailable`: stop; never substitute a launcher or execute locally.
+- `launch-wave`: its `executionGate` is authoritative. Dispatch only listed
+  members with exact fields. Never omit, substitute, or inherit a decided `nativeTask`.
+  `create-thread` makes spinoffs; `spawn-subagent` uses
+  `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
+  valid only for durable spinoffs. Never bind an agent name as a thread ID.
   For spinoffs, call the exact `orchestration.tool` and arguments, execute its
   `native-create`, then submit the unchanged work unit and exact task-ID receipt.
   Follow title effects; never create from the member prompt or invent capabilities.

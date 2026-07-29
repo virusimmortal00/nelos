@@ -21,6 +21,27 @@ const fakeCodexPath = fileURLToPath(
   new URL("../test/support/fake-codex-stdio.mjs", import.meta.url),
 );
 
+function authorizeLaunchProposal(proposal) {
+  return {
+    schemaVersion: 1,
+    type: "native-launch-authorization",
+    source: "native-host",
+    actionId: proposal.actionId,
+    planRunId: proposal.verification.planRunId,
+    waveIndex: proposal.verification.waveIndex,
+    waveDigest: proposal.verification.waveDigest,
+    members: proposal.members.map((member) => ({
+      ...member,
+      launcherAvailable: true,
+      taskKindSupported: true,
+      workspaceModeSupported: true,
+      modelSupported: true,
+      reasoningSupported: true,
+      creationAuthorized: true,
+    })),
+  };
+}
+
 function thread(id, name, parentThreadId, status = "active") {
   return {
     id,
@@ -393,6 +414,11 @@ export async function runPlanningLifecycleScenario() {
         completedPlanningRequest,
       );
     }
+    assert.equal(planned.nextAction.kind, "authorization-required");
+    planned = await mcp.tool("nelos_plan_lifecycle", {
+      ...completedPlanningRequest,
+      launchAuthorization: authorizeLaunchProposal(planned.nextAction),
+    });
     assert.equal(planned.nextAction.kind, "launch-wave");
     assert.equal(planned.nextAction.members.length, 2);
     const stateAfterPlan = JSON.parse(await readFile(appStatePath, "utf8"));
@@ -557,7 +583,7 @@ export async function runPlanningLifecycleScenario() {
         slice(revisedFollowupSliceId, { dependsOn: [replacementSliceId] }),
       ],
     };
-    const replanned = await mcp.tool("nelos_plan_replan", {
+    const completedReplanRequest = {
       ...replanRequest,
       bootstrapId: replanBootstrapId,
       receipt: {
@@ -569,6 +595,15 @@ export async function runPlanningLifecycleScenario() {
         turnId: "replanner-turn",
         response: fencedPlan(replanBootstrapId, revisedPlan),
       },
+    };
+    let replanned = await mcp.tool(
+      "nelos_plan_replan",
+      completedReplanRequest,
+    );
+    assert.equal(replanned.nextAction.kind, "authorization-required");
+    replanned = await mcp.tool("nelos_plan_replan", {
+      ...completedReplanRequest,
+      launchAuthorization: authorizeLaunchProposal(replanned.nextAction),
     });
     assert.equal(replanned.nextAction.kind, "launch-wave");
     assert.deepEqual(

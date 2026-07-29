@@ -362,6 +362,24 @@ const SPINOFF_LAUNCH_MEMBER = closed({
 const LAUNCH_WAVE_MEMBER = {
   oneOf: [SUBAGENT_LAUNCH_MEMBER, SPINOFF_LAUNCH_MEMBER],
 };
+const LAUNCH_AUTHORIZATION_MEMBER = closed({
+  sliceId: SHORT_ID,
+  lifecycle: { enum: ["spinoff", "subagent"] },
+  memberKind: { enum: ["spinoff", "joined-subagent"] },
+  launcher: { enum: ["create-thread", "spawn-subagent"] },
+  workspaceMode: { enum: ["isolated-write", "shared-read-only"] },
+  nativeTask: NATIVE_TASK,
+});
+const LAUNCH_AUTHORIZATION_VERIFICATION = closed({
+  planRunId: PLAN_RUN_ID,
+  waveIndex: POSITIVE,
+  waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+});
+const LAUNCH_EXECUTION_GATE = closed({
+  schemaVersion: VERSION,
+  actionId: ID,
+  evidenceDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+});
 const RESULT_LIST = {
   type: "array",
   maxItems: 8,
@@ -456,13 +474,53 @@ const NEXT_ACTION_MEMBERS = [
       uniqueItemProperty: "sliceId",
       items: LAUNCH_WAVE_MEMBER,
     },
-    verification: closed({
-      planRunId: PLAN_RUN_ID,
-      waveIndex: POSITIVE,
-      waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
-    }),
+    verification: LAUNCH_AUTHORIZATION_VERIFICATION,
+    executionGate: LAUNCH_EXECUTION_GATE,
     settleBeforeWaveIndex: { type: "integer", minimum: 2 },
     remainingWaveCount: { type: "integer", minimum: 0, maximum: 1_000 },
+  }),
+  discriminated("kind", "authorization-required", {
+    reason: {
+      enum: [
+        "launch-authorization-evidence-required",
+        "task-creation-not-authorized",
+      ],
+    },
+    actionId: ID,
+    receiptType: { const: "native-launch-authorization" },
+    source: { const: "native-host" },
+    verification: LAUNCH_AUTHORIZATION_VERIFICATION,
+    members: {
+      type: "array",
+      minItems: 1,
+      maxItems: 16,
+      uniqueItemProperty: "sliceId",
+      items: LAUNCH_AUTHORIZATION_MEMBER,
+    },
+    sliceId: SHORT_ID,
+    launcher: { enum: ["create-thread", "spawn-subagent"] },
+  }, [
+    "reason",
+    "actionId",
+    "receiptType",
+    "source",
+    "verification",
+    "members",
+  ]),
+  discriminated("kind", "execution-unavailable", {
+    reason: { const: "launch-capability-unavailable" },
+    actionId: ID,
+    sliceId: SHORT_ID,
+    launcher: { enum: ["create-thread", "spawn-subagent"] },
+    capability: {
+      enum: [
+        "launcher",
+        "task-kind",
+        "workspace-mode",
+        "model",
+        "reasoning-route",
+      ],
+    },
   }),
   discriminated("kind", "native-wait-wave", {
     targets: { type: "array", minItems: 1, maxItems: 16, items: MEMBER_TARGET },
@@ -776,6 +834,33 @@ const RECEIPT_MEMBERS = [
     threadId: THREAD_ID,
     turnId: THREAD_ID,
     response: PLANNER_RESPONSE,
+  }),
+  discriminated("type", "native-launch-authorization", {
+    source: { const: "native-host" },
+    actionId: ID,
+    planRunId: PLAN_RUN_ID,
+    waveIndex: POSITIVE,
+    waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    members: {
+      type: "array",
+      minItems: 1,
+      maxItems: 16,
+      uniqueItemProperty: "sliceId",
+      items: closed({
+        sliceId: SHORT_ID,
+        lifecycle: { enum: ["spinoff", "subagent"] },
+        memberKind: { enum: ["spinoff", "joined-subagent"] },
+        launcher: { enum: ["create-thread", "spawn-subagent"] },
+        workspaceMode: { enum: ["isolated-write", "shared-read-only"] },
+        nativeTask: NATIVE_TASK,
+        launcherAvailable: { type: "boolean" },
+        taskKindSupported: { type: "boolean" },
+        workspaceModeSupported: { type: "boolean" },
+        modelSupported: { type: "boolean" },
+        reasoningSupported: { type: "boolean" },
+        creationAuthorized: { type: "boolean" },
+      }),
+    },
   }),
   discriminated("type", "native-create", {
     ...EFFECT_IDENTITY,

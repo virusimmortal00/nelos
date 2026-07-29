@@ -33,7 +33,7 @@ cost/intelligence heuristic, not a claim of mathematical optimality.
 
 The first lifecycle call accepts schema version 1, the queen task ID, a stable
 idempotency key, objective, optional bounded context, maximum parallelism, and
-`receipt: null`. The queen ID plus key deterministically identify one durable
+`receipt: null`, and `launchAuthorization: null`. The queen ID plus key deterministically identify one durable
 checkpoint, so an uncertain replay returns reconciliation rather than creating
 a second planner. Raw planner output is never persisted.
 
@@ -55,10 +55,25 @@ Each native action is returned with a stable action ID. The caller repeats the
 unchanged request and `bootstrapId` with the exact typed receipt. Identical
 receipts replay safely; conflicting, stale, future, or out-of-order receipts
 fail closed. The coordinator returns exactly one title, wait, read, attention,
-or launch action. Only a matching medium- or high-confidence exact result turn
-can produce `launch-wave`.
+or launch action. A matching planning result produces only a bounded
+`authorization-required` proposal for the first wave.
 
 ## Wave gate and exception replanning
+
+Every wave has a deterministic pre-launch execution gate. The proposal binds
+the plan-run ID, wave index, wave digest, and each member's exact lifecycle,
+task kind, launcher, workspace mode, model, and reasoning route. Only an exact
+`native-launch-authorization` receipt returned by the native host can attest
+launcher availability, route support, and task-creation authorization for all
+members. The skill must never author or reinterpret that receipt.
+
+Missing or denied authorization returns `authorization-required`. Missing
+launcher or route support returns `execution-unavailable`. Stale, altered, or
+partial receipts return `attention`; a mixed wave never becomes partially
+executable. An all-positive matching receipt produces the previous
+`launch-wave` plus its receipt digest in `executionGate`, so identical inputs
+and receipts replay byte-for-byte. Planning a potential graph therefore does
+not authorize user-visible task creation.
 
 After creating every current-wave member, call
 `nelos_launch_verify_batch` once with the launch action's `planRunId`,
