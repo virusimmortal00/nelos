@@ -131,7 +131,7 @@ function assertUrl(value, label, { repository = false } = {}) {
   ) {
     fail(`${label} must be a bounded absolute HTTPS URL`);
   }
-  if (repository && !/github\.com$/iu.test(url.hostname)) {
+  if (repository && !/^(?:www\.)?github\.com$/iu.test(url.hostname)) {
     fail(`${label} must identify an upstream source repository`);
   }
   return value;

@@ -139,6 +139,7 @@ test("exact annotated release tag yields bounded compatibility evidence", async 
   assert.match(result.limitations.join(" "), /corroborated/u);
 
   assert.equal(calls.some((args) => args[0] === "clone"), false);
+  assert.deepEqual(calls[0].slice(0, 2), ["ls-remote", "--end-of-options"]);
   const fetch = calls.find((args) => args.includes("fetch"));
   assert.ok(fetch.includes("--depth=1"));
   assert.ok(fetch.includes("--filter=blob:none"));
@@ -148,6 +149,26 @@ test("exact annotated release tag yields bounded compatibility evidence", async 
     .flat()
     .filter((arg) => typeof arg === "string" && arg.startsWith("FETCH_HEAD:"));
   assert.deepEqual([...new Set(accessed)], [`FETCH_HEAD:${PATH}`]);
+});
+
+test("Git option injection is rejected before invoking the command runner", async (t) => {
+  const data = await fixture(t);
+  let calls = 0;
+  const result = await collectUpstreamSourceEvidenceV1(
+    data.registry,
+    request({ kind: "supported-release", releaseId: "codex@0.144.5" }),
+    {
+      resolveRemote: () => "--upload-pack=malicious-helper",
+      runGit: async () => {
+        calls += 1;
+        throw new Error("must not execute");
+      },
+      now: () => OBSERVED_AT,
+    },
+  );
+  assert.equal(calls, 0);
+  assert.equal(result.outcome, "non-evidence");
+  assert.match(result.reason, /infrastructure failure/iu);
 });
 
 test("an exact declared commit can supply release evidence", async (t) => {

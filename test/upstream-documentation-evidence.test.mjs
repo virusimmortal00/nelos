@@ -8,6 +8,12 @@ import {
   createUpstreamDocumentationReportV1,
   validateUpstreamDocumentationContractV1,
 } from "../src/upstream-documentation-evidence.mjs";
+import {
+  APP_SERVER_DOCUMENTATION_CONTRACT_V1,
+} from "../src/upstream-documentation-contracts.mjs";
+import {
+  COMPATIBILITY_CONTRACT_REGISTRY_V1,
+} from "../src/compatibility-contract-registry.mjs";
 
 function contract(overrides = {}) {
   return {
@@ -37,6 +43,13 @@ function response(body, overrides = {}) {
 }
 
 const fixedNow = () => "2026-07-29T12:00:00.000Z";
+
+test("App Server documentation contract derives its URL from the registry", () => {
+  const check = COMPATIBILITY_CONTRACT_REGISTRY_V1.checks.find(
+    ({ id }) => id === "upstream.app-server-docs",
+  );
+  assert.equal(APP_SERVER_DOCUMENTATION_CONTRACT_V1.requestedUrl, check.source);
+});
 
 test("collector fetches the exact declared URL and records a bounded artifact digest", async () => {
   const requests = [];

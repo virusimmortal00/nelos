@@ -67,6 +67,18 @@ jobs:
           SEMANTIC_PROVIDER_CONFIG: ${{ inputs.semantic_provider_config }}
         shell: bash
         run: |
+          [[ -n "$SEMANTIC_INPUT" ]] || {
+            echo "semantic_input is required when run_semantic is true" >&2
+            exit 1
+          }
+          [[ -n "$SEMANTIC_PROVIDER" ]] || {
+            echo "semantic_provider is required when run_semantic is true" >&2
+            exit 1
+          }
+          [[ -n "$SEMANTIC_PROVIDER_CONFIG" ]] || {
+            echo "semantic_provider_config is required when run_semantic is true" >&2
+            exit 1
+          }
           npm run compatibility:semantic-advisory -- \
             --opt-in \
             --input "$SEMANTIC_INPUT" \

@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -25,6 +25,9 @@ import {
 import {
   collectUpstreamSourceEvidenceV1,
 } from "../src/upstream-source-collector.mjs";
+import {
+  APP_SERVER_DOCUMENTATION_CONTRACT_V1,
+} from "../src/upstream-documentation-contracts.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -59,6 +62,12 @@ function parseArgs(argv) {
   if (!options.lane || !options.out) {
     throw new Error("--lane and --out are required");
   }
+  if (
+    ["schema", "source-release"].includes(options.lane) &&
+    !options.releaseId
+  ) {
+    throw new Error(`--release-id is required for the ${options.lane} lane`);
+  }
   return options;
 }
 
@@ -89,22 +98,9 @@ function exactRelease(releaseId) {
 }
 
 async function collectDocumentation() {
-  const contract = {
-    schemaVersion: 1,
-    id: "upstream.app-server-docs",
-    evidenceKind: "upstream-docs",
-    official: true,
-    requestedUrl: "https://developers.openai.com/codex/app-server",
-    selection: {
-      kind: "artifact",
-      name: "current-app-server-documentation",
-      maxBytes: 1_000_000,
-      contentTypes: ["text/html", "text/markdown", "text/plain"],
-    },
-    timeoutMs: 10_000,
-    redirectPolicy: "reject",
-  };
-  const observation = await collectUpstreamDocumentationEvidenceV1(contract);
+  const observation = await collectUpstreamDocumentationEvidenceV1(
+    APP_SERVER_DOCUMENTATION_CONTRACT_V1,
+  );
   return createUpstreamDocumentationReportV1([observation]);
 }
 
@@ -141,10 +137,25 @@ async function collectSource(kind, releaseId) {
   };
 }
 
+async function resolveExecutable(command) {
+  if (isAbsolute(command)) return command;
+  if (/[\\/]/u.test(command)) return resolve(command);
+  const resolver = process.platform === "win32" ? "where.exe" : "which";
+  const { stdout } = await execFileAsync(resolver, [command], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  const executable = stdout.split(/\r?\n/u).find(Boolean);
+  if (!executable) throw new Error(`could not resolve executable ${command}`);
+  return executable;
+}
+
 async function collectSchema(codex, releaseId) {
   const release = exactRelease(releaseId);
   if (!codex) throw new Error("--codex is required for the schema lane");
-  const { stdout: versionOutput } = await execFileAsync(codex, ["--version"], {
+  const executable = await resolveExecutable(codex);
+  const { stdout: versionOutput } = await execFileAsync(executable, ["--version"], {
     cwd: root,
     encoding: "utf8",
     timeout: 10_000,
@@ -160,7 +171,7 @@ async function collectSchema(codex, releaseId) {
   const outputDirectory = await mkdtemp(join(tmpdir(), "nelos-schema-ci-"));
   try {
     await execFileAsync(
-      codex,
+      executable,
       [
         "app-server",
         "generate-json-schema",
@@ -190,7 +201,7 @@ async function collectSchema(codex, releaseId) {
       observedCodexIdentity: { version: observedVersion, commitSha: null },
       observedAt: new Date().toISOString(),
       provenance: {
-        executable: resolve(codex),
+        executable,
         args: [
           "app-server",
           "generate-json-schema",

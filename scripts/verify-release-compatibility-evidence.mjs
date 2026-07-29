@@ -26,6 +26,11 @@ export async function main(argv = process.argv.slice(2)) {
   const declared = release.upstreamSourceRefs.find(
     ({ repository }) => repository === "https://github.com/openai/codex",
   );
+  if (!declared) {
+    throw new Error(
+      `release evidence ref ${releaseId} has no OpenAI Codex upstream declaration`,
+    );
+  }
   const sourceReports = source.reports ?? [];
   const sourceMatches = source.releaseId === releaseId &&
     source.countsForCompatibility === true &&
@@ -34,10 +39,12 @@ export async function main(argv = process.argv.slice(2)) {
       report.outcome === "evidence" &&
       report.commitSha === declared.commitSha &&
       report.requestedRef === declared.requestedRef);
-  const schemaMatches = schema.outcome === "passed" &&
+  const schemaMatches = schema.evidenceKind === "generated-schema" &&
+    schema.outcome === "passed" &&
     schema.releaseId === releaseId &&
     schema.observedCodexIdentity?.version === release.version;
-  const runtimeMatches = runtime.outcome === "passed" &&
+  const runtimeMatches = runtime.evidenceKind === "runtime-transport" &&
+    runtime.outcome === "passed" &&
     runtime.expectedCodexIdentities?.length === 1 &&
     runtime.expectedCodexIdentities[0].version === release.version &&
     runtime.observedCodexIdentity?.version === release.version;

@@ -93,6 +93,11 @@ function errorReport(error, invoked = false) {
     countsForCompatibility: false,
     invoked,
     status: "infrastructure-failure",
+    observedAt: null,
+    deterministicStatus: null,
+    provider: null,
+    evidence: [],
+    findings: [],
     infrastructure: {
       code: error.code ?? "infrastructure-failure",
       summary: error.message,

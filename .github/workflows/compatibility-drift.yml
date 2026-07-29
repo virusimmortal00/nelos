@@ -16,6 +16,7 @@ jobs:
   public-upstream:
     name: Drift / bounded public documentation and source
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,6 +44,7 @@ jobs:
   exact-release-wire:
     name: Drift / exact Codex ${{ matrix.codex }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +65,7 @@ jobs:
           --prefix .ci/codex
           --no-save
           --package-lock=false
+          --ignore-scripts
           @openai/codex@${{ matrix.codex }}
       - name: Collect exact-ref public source
         continue-on-error: true

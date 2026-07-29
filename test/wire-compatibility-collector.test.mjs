@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -66,9 +68,7 @@ test("generated-schema command collection executes only declared argv", async ()
     now: clock,
     runCommand: async (executable, args, options) => {
       calls.push({ executable, args: [...args] });
-      const { execFile } = await import("node:child_process");
-      const { promisify } = await import("node:util");
-      return promisify(execFile)(executable, args, options);
+      return execFileAsync(executable, args, options);
     },
     declaration: {
       checkId: "schema.command",
@@ -162,6 +162,32 @@ test("runtime transport CLI emits the same normalized fake-executable report", a
     report.observations.map(({ operation }) => operation),
     ["initialize", "thread/list"],
   );
+});
+
+test("runtime transport reports early child stdin closure without an uncaught EPIPE", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "nelos-closing-codex-"));
+  const closingCodex = join(directory, "closing-codex.mjs");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(
+    closingCodex,
+    "#!/usr/bin/env node\nprocess.stdin.destroy();\nprocess.exit(0);\n",
+  );
+  await chmod(closingCodex, 0o755);
+
+  const report = await collectRuntimeTransportEvidenceV1({
+    now: clock,
+    timeoutMs: 500,
+    declaration: {
+      checkId: "runtime.closed-stdin",
+      executable: closingCodex,
+      transport: "stdio-jsonl",
+      expectedCodexIdentities: exactIdentity,
+      operations: [],
+    },
+  });
+  assert.equal(report.outcome, "infrastructure-failure");
+  assert.equal(report.failure.kind, "infrastructure");
+  assert.match(report.failure.message, /exited|EPIPE/iu);
 });
 
 test("identity mismatch, malformed output, and timeout remain non-evidence", async () => {

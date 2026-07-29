@@ -47,6 +47,7 @@ jobs:
           --prefix .ci/codex
           --no-save
           --package-lock=false
+          --ignore-scripts
           @openai/codex@${{ matrix.codex }}
       - name: Collect exact-ref public source evidence
         id: source

@@ -424,6 +424,7 @@ export async function runSemanticAdvisoryV1({
       now,
     });
   }
+  let invoked = false;
   try {
     validateProviderConfiguration(providerConfiguration);
     const evidence = validateSelectedEvidence(
@@ -432,6 +433,7 @@ export async function runSemanticAdvisoryV1({
       selectedEvidence,
     );
     const request = createProviderRequest(registry, evidence);
+    invoked = Boolean(provider && typeof provider.compare === "function");
     const response = await callProvider(provider, request, providerConfiguration);
     let findings;
     try {
@@ -472,10 +474,7 @@ export async function runSemanticAdvisoryV1({
       : new SemanticAdvisoryInfrastructureError(error.message, { cause: error });
     return infrastructureReport({
       deterministicStatus,
-      invoked: infrastructureError.code !== "missing-provider" &&
-        infrastructureError.code !== "invalid-input" &&
-        infrastructureError.code !== "evidence-policy" &&
-        infrastructureError.code !== "sensitive-content",
+      invoked,
       code: infrastructureError.code,
       summary: infrastructureError.message,
       now,

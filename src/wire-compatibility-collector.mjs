@@ -323,6 +323,7 @@ class StdioJsonlTransport {
   #buffer = "";
   #child;
   #closed = false;
+  #failure = null;
   #nextId = 1;
   #pending = new Map();
 
@@ -334,6 +335,7 @@ class StdioJsonlTransport {
     this.#child.stdout.setEncoding("utf8");
     this.#child.stdout.on("data", (chunk) => this.#consume(chunk));
     this.#child.once("error", (error) => this.#fail(error));
+    this.#child.stdin.on("error", (error) => this.#fail(error));
     this.#child.once("exit", (code, signal) => {
       if (!this.#closed) {
         this.#fail(new Error(
@@ -377,6 +379,7 @@ class StdioJsonlTransport {
   }
 
   #fail(error) {
+    this.#failure ??= error;
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);
@@ -385,6 +388,7 @@ class StdioJsonlTransport {
   }
 
   request(method, params) {
+    if (this.#failure) return Promise.reject(this.#failure);
     const id = this.#nextId++;
     return new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => {

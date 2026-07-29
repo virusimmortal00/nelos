@@ -282,6 +282,11 @@ test("semantic command does not load a provider without explicit opt-in", async 
       const report = JSON.parse(error.stdout);
       assert.equal(report.infrastructure.code, "explicit-opt-in-required");
       assert.equal(report.invoked, false);
+      assert.equal(report.observedAt, null);
+      assert.equal(report.deterministicStatus, null);
+      assert.equal(report.provider, null);
+      assert.deepEqual(report.evidence, []);
+      assert.deepEqual(report.findings, []);
       assert.equal(error.stderr, "");
       return true;
     },

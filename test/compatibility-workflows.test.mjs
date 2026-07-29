@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
+  chmod,
   mkdtemp,
   readFile,
   rm,
@@ -9,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import {
   resolveRequiredCompatibilityRange,
@@ -19,8 +22,12 @@ import {
 import {
   main as verifyReleaseEvidence,
 } from "../scripts/verify-release-compatibility-evidence.mjs";
+import {
+  main as collectCompatibilityEvidence,
+} from "../scripts/collect-compatibility-evidence.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const execFileAsync = promisify(execFile);
 
 async function text(path) {
   return readFile(new URL(path, import.meta.url), "utf8");
@@ -69,10 +76,15 @@ test("required PR job is token-free, offline, and isolated from advisory lanes",
     "NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs node scripts/run-required-compatibility.mjs",
   );
   assert.equal(packageJson.scripts.compatibility, "npm run compatibility:required");
-  const requiredJob = workflow.slice(
-    workflow.indexOf("  compatibility-required:"),
-    workflow.indexOf("\n  node:"),
+  const requiredJobStart = workflow.indexOf("  compatibility-required:");
+  const nodeJobStart = workflow.indexOf("\n  node:");
+  assert.ok(requiredJobStart >= 0, "compatibility-required job is missing");
+  assert.ok(nodeJobStart >= 0, "node job is missing");
+  assert.ok(
+    requiredJobStart < nodeJobStart,
+    "compatibility-required must precede the node job",
   );
+  const requiredJob = workflow.slice(requiredJobStart, nodeJobStart);
   for (const forbidden of [
     "OPENAI_API_KEY:",
     "semantic",
@@ -102,6 +114,8 @@ test("drift lanes are scheduled/manual, bounded, and preserve unavailable report
   assert.ok((workflow.match(/continue-on-error: true/gu) ?? []).length >= 5);
   assert.ok((workflow.match(/if: always\(\)/gu) ?? []).length >= 2);
   assert.doesNotMatch(workflow, /OPENAI_API_KEY/u);
+  assert.equal((workflow.match(/timeout-minutes: 15/gu) ?? []).length, 2);
+  assert.match(workflow, /npm install[\s\S]*--ignore-scripts[\s\S]*@openai\/codex/u);
 });
 
 test("release evidence binds exact source, schema, and runtime identities", async () => {
@@ -114,6 +128,7 @@ test("release evidence binds exact source, schema, and runtime identities", asyn
   assert.match(workflow, /verify-release-compatibility-evidence\.mjs/u);
   assert.match(workflow, /needs: \[verify, compatibility-exact\]/u);
   assert.match(workflow, /Upload exact release evidence[\s\S]*if: always\(\)/u);
+  assert.match(workflow, /npm install[\s\S]*--ignore-scripts[\s\S]*@openai\/codex/u);
 });
 
 test("live and semantic work is manual, optional, trusted, and advisory-only", async () => {
@@ -134,7 +149,34 @@ test("live and semantic work is manual, optional, trusted, and advisory-only", a
   );
   assert.match(advisory, /npm run verify:app-server:live/u);
   assert.match(advisory, /compatibility:semantic-advisory/u);
+  assert.match(advisory, /\[\[ -n "\$SEMANTIC_INPUT" \]\]/u);
+  assert.match(advisory, /\[\[ -n "\$SEMANTIC_PROVIDER" \]\]/u);
+  assert.match(advisory, /\[\[ -n "\$SEMANTIC_PROVIDER_CONFIG" \]\]/u);
   assert.doesNotMatch(advisory, /compatibility:required/u);
+});
+
+test("offline blocker closes direct socket, DNS promise, HTTP/2, and datagram paths", async () => {
+  const blocker = fileURLToPath(
+    new URL("../scripts/offline-network-blocker.cjs", import.meta.url),
+  );
+  for (const expression of [
+    "new (require('node:net').Socket)().connect(443, 'example.test')",
+    "require('node:dns').promises.lookup('example.test')",
+    "require('node:http2').connect('https://example.test')",
+    "require('node:dgram').createSocket('udp4')",
+  ]) {
+    await assert.rejects(
+      execFileAsync(
+        process.execPath,
+        ["--require", blocker, "--eval", expression],
+        { encoding: "utf8" },
+      ),
+      (error) => {
+        assert.match(error.stderr, /blocked a network operation/u);
+        return true;
+      },
+    );
+  }
 });
 
 test("compatibility workflows never edit checked-in claims or source", async () => {
@@ -171,7 +213,79 @@ test("runtime collector accepts one exact expected version", () => {
   );
 });
 
-test("release verifier rejects a mismatched exact ref", async (t) => {
+test("release-bound evidence lanes require an explicit release id", async () => {
+  for (const lane of ["schema", "source-release"]) {
+    await assert.rejects(
+      collectCompatibilityEvidence([
+        "--lane",
+        lane,
+        "--out",
+        "/tmp/unused-compatibility-evidence.json",
+      ]),
+      new RegExp(`--release-id is required for the ${lane} lane`, "u"),
+    );
+  }
+});
+
+test("schema evidence invokes and records the same PATH-resolved executable", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "nelos-schema-path-"));
+  const executable = join(directory, "fixture-codex");
+  const reportPath = join(directory, "schema.json");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(executable, `#!/usr/bin/env node
+const { mkdirSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args.length === 1 && args[0] === "--version") {
+  process.stdout.write("codex-cli 0.144.5\\n");
+  process.exit(0);
+}
+const output = args[args.indexOf("--out") + 1];
+mkdirSync(output, { recursive: true });
+writeFileSync(
+  require("node:path").join(output, "schema.json"),
+  JSON.stringify({ methods: ${JSON.stringify([
+    "thread/read",
+    "thread/name/set",
+    "thread/resume",
+    "thread/turns/list",
+    "turn/start",
+    "turn/steer",
+    "thread/archive",
+  ])} }),
+);
+`);
+  await chmod(executable, 0o755);
+
+  const collector = fileURLToPath(
+    new URL("../scripts/collect-compatibility-evidence.mjs", import.meta.url),
+  );
+  await execFileAsync(
+    process.execPath,
+    [
+      collector,
+      "--lane",
+      "schema",
+      "--release-id",
+      "codex@0.144.5",
+      "--codex",
+      "fixture-codex",
+      "--out",
+      reportPath,
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+      },
+    },
+  );
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
+  assert.equal(report.provenance.executable, executable);
+});
+
+test("release verifier accepts exact refs and rejects a mismatched commit", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "nelos-release-evidence-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const sourcePath = join(directory, "source.json");
@@ -188,11 +302,13 @@ test("release verifier rejects a mismatched exact ref", async (t) => {
     }],
   };
   const schema = {
+    evidenceKind: "generated-schema",
     releaseId: "codex@0.144.5",
     outcome: "passed",
     observedCodexIdentity: { version: "0.144.5" },
   };
   const runtime = {
+    evidenceKind: "runtime-transport",
     outcome: "passed",
     expectedCodexIdentities: [{ version: "0.144.5" }],
     observedCodexIdentity: { version: "0.144.5" },

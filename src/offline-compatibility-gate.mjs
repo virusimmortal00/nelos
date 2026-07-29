@@ -465,7 +465,8 @@ export async function runOfflineCompatibilityGate({
     registryVersion: registry.registryVersion,
     overallStatus: statuses.includes("incompatible")
       ? "incompatible"
-      : statuses.every((status) => status === "compatible")
+      : statuses.length > 0 &&
+          statuses.every((status) => status === "compatible")
         ? "compatible"
         : "unverified",
     capabilities: Object.freeze(capabilities),

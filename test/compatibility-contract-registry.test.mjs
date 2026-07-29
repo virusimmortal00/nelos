@@ -74,6 +74,14 @@ test("registry rejects malformed scopes and broad upstream source declarations",
   malformedUrl.capabilities[0].mappings.upstreamDocumentation = ["http://example.test/*"];
   assert.throws(() => validateCompatibilityRegistryV1(malformedUrl), /bounded absolute HTTPS URL/u);
 
+  const lookalikeRepository = clone();
+  lookalikeRepository.capabilities[0].mappings.upstreamSource[0].repository =
+    "https://evilgithub.com/openai/codex";
+  assert.throws(
+    () => validateCompatibilityRegistryV1(lookalikeRepository),
+    /upstream source repository/u,
+  );
+
   const broadSource = clone();
   broadSource.capabilities[0].mappings.upstreamSource[0].paths = ["codex-rs/**"];
   assert.throws(() => validateCompatibilityRegistryV1(broadSource), /too broad for upstream-source/u);

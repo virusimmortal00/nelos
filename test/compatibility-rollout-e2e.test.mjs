@@ -497,7 +497,7 @@ test("offline end-to-end rollout covers every evidence lane without mutating cla
     normalizedEvidence(
       checkById.get("source.exact"),
       "passed",
-      exactSource.reason,
+      exactSource.reason ?? "exact-ref source evidence collected",
     ),
     normalizedEvidence(
       checkById.get("schema.generated"),

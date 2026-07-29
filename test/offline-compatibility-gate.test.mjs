@@ -218,6 +218,22 @@ test("runner infrastructure failures are unavailable evidence and exit 2", async
   );
 });
 
+test("an empty capability selection is unverified", async () => {
+  const registry = testRegistry();
+  for (const capability of registry.capabilities) {
+    capability.globalInvariant = false;
+  }
+  const result = await runOfflineCompatibilityGate({
+    root: "/fixture",
+    registry,
+    changes: [],
+    checkRunners: passingRunners(),
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.overallStatus, "unverified");
+  assert.deepEqual(result.report.capabilities, []);
+});
+
 test("invalid generated reports fail closed as infrastructure errors", async () => {
   const runners = passingRunners();
   runners.set("check.global", async () => ({ invalid: "summary" }));
@@ -239,23 +255,25 @@ test("invalid generated reports fail closed as infrastructure errors", async () 
 test("CLI uses temporary registry fixtures and emits stable JSON", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "nelos-offline-gate-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const registry = testRegistry();
-  registry.checks = [registry.checks[2]];
-  registry.capabilities = [{
-    id: "global",
-    title: "Global",
-    dependsOn: [],
-    globalInvariant: true,
+  const registry = {
+    schemaVersion: 1,
+    registryVersion: "1.0.0",
     supportedCodexReleases: [],
-    mappings: mappings({ checks: ["check.global"] }),
-  }];
-  registry.checks[0] = {
-    id: "repo.registry-integrity",
-    evidenceKind: "deterministic-repo",
-    command: "validate fixture registry",
-    source: "test/registry.json",
+    checks: [{
+      id: "repo.registry-integrity",
+      evidenceKind: "deterministic-repo",
+      command: "validate fixture registry",
+      source: "test/registry.json",
+    }],
+    capabilities: [{
+      id: "global",
+      title: "Global",
+      dependsOn: [],
+      globalInvariant: true,
+      supportedCodexReleases: [],
+      mappings: mappings({ checks: ["repo.registry-integrity"] }),
+    }],
   };
-  registry.capabilities[0].mappings.checks = ["repo.registry-integrity"];
   const registryPath = join(root, "registry.json");
   await writeFile(registryPath, `${JSON.stringify(registry)}\n`);
 
