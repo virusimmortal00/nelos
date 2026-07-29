@@ -49,11 +49,16 @@ jobs:
           path: release-source
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: Restore annotated release tag
         working-directory: release-source
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: >-
-          git fetch --force
+          git
+          -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}"
+          fetch --force
           "https://github.com/${GITHUB_REPOSITORY}.git"
           "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
       - uses: actions/setup-node@v4
@@ -78,7 +83,37 @@ jobs:
               .isPrerelease == false and
               .publishedAt != null' \
             <<<"$release_json" >/dev/null
+      - name: Fetch current stable channel
+        id: current-stable
+        working-directory: release-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git \
+            -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            ls-remote \
+            --exit-code \
+            --heads \
+            origin \
+            "refs/heads/${STABLE_BRANCH}" >/dev/null 2>&1
+          then
+            git \
+              -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+              fetch \
+              origin \
+              "refs/heads/${STABLE_BRANCH}:refs/remotes/origin/${STABLE_BRANCH}"
+            current_version="$(
+              git show \
+                "refs/remotes/origin/${STABLE_BRANCH}:package.json" |
+                jq -er '.version'
+            )"
+            echo "version=${current_version}" >>"$GITHUB_OUTPUT"
+          fi
       - name: Validate release and marketplace contracts
+        env:
+          CURRENT_STABLE_VERSION: ${{ steps.current-stable.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -86,25 +121,31 @@ jobs:
             release-source/scripts/build-release-artifacts.mjs \
             --validate-only \
             --tag "$RELEASE_TAG"
+          promotion_arguments=(
+            --root release-source
+            --tag "$RELEASE_TAG"
+          )
+          if [[ -n "$CURRENT_STABLE_VERSION" ]]; then
+            promotion_arguments+=(
+              --current-version "$CURRENT_STABLE_VERSION"
+            )
+          fi
           env -u GITHUB_SHA node \
             automation/scripts/validate-marketplace-promotion.mjs \
-            --root release-source \
-            --tag "$RELEASE_TAG"
+            "${promotion_arguments[@]}"
       - name: Promote release commit
         working-directory: release-source
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           tag_commit="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
-          if git ls-remote \
-            --exit-code \
-            --heads \
-            origin \
-            "refs/heads/${STABLE_BRANCH}" >/dev/null 2>&1
+          if git show-ref \
+            --verify \
+            --quiet \
+            "refs/remotes/origin/${STABLE_BRANCH}"
           then
-            git fetch \
-              origin \
-              "refs/heads/${STABLE_BRANCH}:refs/remotes/origin/${STABLE_BRANCH}"
             if ! git merge-base \
               --is-ancestor \
               "refs/remotes/origin/${STABLE_BRANCH}" \
@@ -118,12 +159,16 @@ jobs:
           fi
 
           git update-ref refs/heads/marketplace-promotion "$tag_commit"
-          git push \
+          git \
+            -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            push \
             origin \
             "refs/heads/marketplace-promotion:refs/heads/${STABLE_BRANCH}"
 
           promoted_commit="$(
-            git ls-remote \
+            git \
+              -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+              ls-remote \
               --heads \
               origin \
               "refs/heads/${STABLE_BRANCH}" |

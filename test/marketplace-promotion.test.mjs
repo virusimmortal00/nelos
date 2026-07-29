@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  compareStableVersions,
   validateMarketplacePromotion,
 } from "../scripts/validate-marketplace-promotion.mjs";
 import {
@@ -71,6 +72,30 @@ test("stable promotion rejects prereleases, builds, and version drift", async ()
   );
 });
 
+test("stable promotion rejects semantic-version downgrades", async () => {
+  assert.equal(compareStableVersions("2.0.0", "1.999.999"), 1);
+  assert.equal(compareStableVersions("2.0.0", "2.0.0"), 0);
+  assert.equal(compareStableVersions("1.999.999", "2.0.0"), -1);
+  assert.equal(
+    compareStableVersions(
+      "999999999999999999999999.0.0",
+      "999999999999999999999998.999.999",
+    ),
+    1,
+  );
+
+  const downgrade = await repositoryFixture();
+  downgrade.currentStableVersion = "0.4.1";
+  assert.throws(
+    () => validateMarketplacePromotion(downgrade),
+    /older than current stable version/u,
+  );
+
+  const sameVersion = await repositoryFixture();
+  sameVersion.currentStableVersion = "0.4.0";
+  assert.doesNotThrow(() => validateMarketplacePromotion(sameVersion));
+});
+
 test("stable promotion rejects marketplace contract drift", async () => {
   const remoteSource = await repositoryFixture();
   remoteSource.marketplace.plugins[0].source = {
@@ -102,11 +127,21 @@ test("promotion workflow is published-release-only and fast-forward-only", async
   assert.match(workflow, /workflow_dispatch:[\s\S]*tag:/u);
   assert.match(workflow, /github\.workflow_sha/u);
   assert.match(workflow, /path: release-source/u);
+  assert.equal(
+    (workflow.match(/persist-credentials:\s*false/gu) ?? []).length,
+    2,
+  );
+  assert.doesNotMatch(workflow, /persist-credentials:\s*true/u);
   assert.match(workflow, /gh release view/u);
   assert.match(workflow, /\.isDraft == false/u);
   assert.match(workflow, /\.isPrerelease == false/u);
   assert.match(workflow, /build-release-artifacts\.mjs/u);
   assert.match(workflow, /validate-marketplace-promotion\.mjs/u);
+  assert.match(workflow, /--current-version "\$CURRENT_STABLE_VERSION"/u);
+  assert.match(
+    workflow,
+    /http\.extraheader=AUTHORIZATION: bearer \$\{GH_TOKEN\}/u,
+  );
   assert.match(workflow, /git merge-base[\s\S]*--is-ancestor/u);
   assert.match(
     workflow,

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const STABLE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
 function fail(message) {
   throw new Error(message);
@@ -22,8 +23,26 @@ function parseJson(text, label) {
   }
 }
 
+function stableVersionParts(version, label) {
+  if (typeof version !== "string" || !STABLE_VERSION.test(version)) {
+    fail(`${label} must be MAJOR.MINOR.PATCH: ${version}`);
+  }
+  return version.split(".").map((part) => BigInt(part));
+}
+
+export function compareStableVersions(left, right) {
+  const leftParts = stableVersionParts(left, "candidate stable version");
+  const rightParts = stableVersionParts(right, "current stable version");
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] < rightParts[index]) return -1;
+    if (leftParts[index] > rightParts[index]) return 1;
+  }
+  return 0;
+}
+
 export function validateMarketplacePromotion({
   tag,
+  currentStableVersion,
   packageMetadata,
   pluginMetadata,
   mcpMetadata,
@@ -48,6 +67,14 @@ export function validateMarketplacePromotion({
     if (candidate !== version) {
       fail(`${label} version ${candidate} does not match stable tag ${tag}`);
     }
+  }
+  if (
+    currentStableVersion !== undefined &&
+    compareStableVersions(version, currentStableVersion) < 0
+  ) {
+    fail(
+      `candidate stable version ${version} is older than current stable version ${currentStableVersion}`,
+    );
   }
 
   if (packageMetadata?.name !== "nelos" || pluginMetadata?.name !== "nelos") {
@@ -133,13 +160,18 @@ function parseArguments(argumentsList) {
   const options = { root: repositoryRoot };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
-    if (argument !== "--tag" && argument !== "--root") {
+    if (
+      argument !== "--tag" &&
+      argument !== "--root" &&
+      argument !== "--current-version"
+    ) {
       fail(`unknown argument: ${argument}`);
     }
     const value = argumentsList[index + 1];
     if (!value) fail(`${argument} requires a value`);
     if (argument === "--tag") options.tag = value;
-    else options.root = resolve(value);
+    else if (argument === "--root") options.root = resolve(value);
+    else options.currentStableVersion = value;
     index += 1;
   }
   if (!options.tag) fail("--tag is required");
@@ -149,6 +181,14 @@ function parseArguments(argumentsList) {
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const result = await readPromotionInputs(options.root, options.tag);
+  if (
+    options.currentStableVersion !== undefined &&
+    compareStableVersions(result.version, options.currentStableVersion) < 0
+  ) {
+    fail(
+      `candidate stable version ${result.version} is older than current stable version ${options.currentStableVersion}`,
+    );
+  }
   const sourceCommit = await validateSourceCheckout(options.root, options.tag);
   process.stdout.write(`${JSON.stringify({ ...result, sourceCommit })}\n`);
 }
