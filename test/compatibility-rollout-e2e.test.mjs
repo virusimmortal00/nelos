@@ -390,6 +390,12 @@ test("offline end-to-end rollout covers every evidence lane without mutating cla
   );
   assert.equal(documentationEvidence.outcome, "passed");
 
+  const runUpstreamGit = (args, options) =>
+    git(
+      args.map((argument) =>
+        argument === UPSTREAM_URL ? fixture.remote : argument),
+      options,
+    );
   const exactSource = await collectUpstreamSourceEvidenceV1(
     fixture.registry,
     {
@@ -401,7 +407,7 @@ test("offline end-to-end rollout covers every evidence lane without mutating cla
     },
     {
       now: () => new Date(OBSERVED_AT),
-      resolveRemote: () => fixture.remote,
+      runGit: runUpstreamGit,
     },
   );
   assert.equal(exactSource.outcome, "evidence");
@@ -418,7 +424,7 @@ test("offline end-to-end rollout covers every evidence lane without mutating cla
     },
     {
       now: () => new Date(OBSERVED_AT),
-      resolveRemote: () => fixture.remote,
+      runGit: runUpstreamGit,
     },
   );
   assert.equal(floatingSource.classification, "early-warning-advisory");
