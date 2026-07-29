@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -18,6 +24,10 @@ import {
   PlanRunStoreV1,
 } from "../src/plan-run-store.mjs";
 import { PlanningLifecycleProtocolError } from "../src/planning-lifecycle.mjs";
+import {
+  NelosConfigStoreV1,
+  NelosConfigurationV1,
+} from "../src/nelos-configuration.mjs";
 import { protocolCompatibilityEnvelopeV1 } from "../src/protocol-contract/index.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
 
@@ -192,6 +202,9 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
       "nelos_queen_decide",
+      "nelos_config_get",
+      "nelos_config_set",
+      "nelos_config_reset",
       "nelos_spinoff_complete",
       "nelos_spinoff_cleanup",
     ],
@@ -288,6 +301,32 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   const complete = tools.find(
     ({ name }) => name === "nelos_spinoff_complete",
   );
+  const configSet = tools.find(({ name }) => name === "nelos_config_set");
+  const configReset = tools.find(({ name }) => name === "nelos_config_reset");
+  const configGet = tools.find(({ name }) => name === "nelos_config_get");
+  for (const tool of [configGet, configSet]) {
+    assert.deepEqual(tool.annotations, {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  }
+  assert.deepEqual(configReset.annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  for (const tool of [configSet, configReset]) {
+    assert.equal(tool.inputSchema.additionalProperties, false);
+    assert.deepEqual(
+      tool.inputSchema.properties.key.enum,
+      ["spinoffs.cleanup_policy"],
+    );
+    assert.equal(tool.inputSchema.properties.userIntentConfirmed.const, true);
+    assert.ok(tool.inputSchema.required.includes("userIntentConfirmed"));
+  }
   assert.deepEqual(complete.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
@@ -314,6 +353,11 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     idempotentHint: true,
     openWorldHint: false,
   });
+  assert.equal(
+    cleanup.inputSchema.properties.userIntentConfirmed.const,
+    true,
+  );
+  assert.equal(cleanup.inputSchema.additionalProperties, false);
   assert.deepEqual(tools, listNelosMcpTools());
 
   const planner = tools.find(({ name }) => name === "nelos_plan_slices");
@@ -325,6 +369,152 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     "spinoff",
     "subagent",
   ]);
+});
+
+test("MCP configuration tools get, set, and reset the shared TOML state", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-mcp-config-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = join(root, "config.toml");
+  const configuration = new NelosConfigurationV1({
+    store: new NelosConfigStoreV1({ path: configPath }),
+    legacyPreferencePath: join(root, "legacy-preference.json"),
+  });
+  const key = "spinoffs.cleanup_policy";
+  const [, initial, set, current, reset, replay] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_config_get", arguments: {} },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_set",
+          arguments: {
+            key,
+            value: "ask",
+            userIntentConfirmed: true,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "nelos_config_get", arguments: {} },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_reset",
+          arguments: { key, userIntentConfirmed: true },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_reset",
+          arguments: { key, userIntentConfirmed: true },
+        },
+      },
+    ],
+    { configuration },
+  );
+  assert.deepEqual(toolBody(initial).body.setting, {
+    key,
+    value: "auto",
+    source: "default",
+  });
+  assert.deepEqual(toolBody(set).body.setting, {
+    key,
+    value: "ask",
+    source: "toml",
+  });
+  assert.deepEqual(toolBody(current).body.setting, toolBody(set).body.setting);
+  assert.deepEqual(toolBody(reset).body.setting, {
+    key,
+    value: "auto",
+    source: "default",
+  });
+  assert.deepEqual(toolBody(replay).body, toolBody(reset).body);
+  assert.doesNotMatch(await readFile(configPath, "utf8"), /cleanup_policy/u);
+});
+
+test("MCP configuration tools reject invalid inputs and malformed TOML", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-mcp-config-invalid-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = join(root, "config.toml");
+  const configuration = new NelosConfigurationV1({
+    store: new NelosConfigStoreV1({ path: configPath }),
+    legacyPreferencePath: join(root, "legacy-preference.json"),
+  });
+  const [, invalidValue, missingIntent] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_set",
+          arguments: {
+            key: "spinoffs.cleanup_policy",
+            value: "sometimes",
+            userIntentConfirmed: true,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_reset",
+          arguments: { key: "spinoffs.cleanup_policy" },
+        },
+      },
+    ],
+    { configuration },
+  );
+  assert.equal(toolBody(invalidValue).isError, true);
+  assert.match(toolBody(invalidValue).body.error, /auto, ask, or keep/u);
+  assert.equal(toolBody(missingIntent).isError, true);
+  assert.match(
+    toolBody(missingIntent).body.error,
+    /requires argument userIntentConfirmed/u,
+  );
+
+  await writeFile(
+    configPath,
+    "schema_version = 1\n[spinoffs]\nunsupported = true\n",
+    { mode: 0o600 },
+  );
+  const [, malformed] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "nelos_config_get", arguments: {} },
+      },
+    ],
+    { configuration },
+  );
+  assert.equal(toolBody(malformed).isError, true);
+  assert.match(
+    toolBody(malformed).body.error,
+    /invalid Nelos configuration.*unsupported spinoffs key/u,
+  );
 });
 
 test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {

@@ -258,10 +258,16 @@ current results are accepted, `nelos_orchestrate_advance` emits the exact
 `nelos_spinoff_cleanup` next action. That tool derives a candidate set from the
 durable execution and acceptance records:
 
-- `ask` is the default and returns names and task IDs without mutation;
-- `auto` returns native archive effects for all eligible candidates;
+- `auto` is the built-in default and returns native archive effects for all
+  eligible candidates;
+- `ask` returns names and task IDs without mutation;
 - `keep` records the decision without archiving; and
-- `rememberPolicy: true` persists the chosen default.
+- `rememberPolicy: true` persists an explicit choice to the machine-local TOML
+  config only when `userIntentConfirmed: true` records an explicit user request.
+
+The first eligible cleanup call snapshots the effective policy across the web.
+Changing the global default afterward affects future webs but does not change
+an in-flight confirmation, archive, or receipt reconciliation.
 
 If any required current spin-off lacks a successful current acceptance, cleanup
 returns `not-ready` with the exact pending work units and performs no mutation.

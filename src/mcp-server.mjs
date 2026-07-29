@@ -56,6 +56,11 @@ import {
   SpinoffLifecycleAdapterV1,
 } from "./spinoff-lifecycle.mjs";
 import {
+  NELOS_CLEANUP_POLICIES,
+  NELOS_CLEANUP_POLICY_KEY,
+  NelosConfigurationV1,
+} from "./nelos-configuration.mjs";
+import {
   MCP_PROTOCOL_TOOL_CONTRACTS_V1,
 } from "./protocol-contract/index.mjs";
 import {
@@ -99,6 +104,11 @@ const DESTRUCTIVE_STATEFUL_ANNOTATIONS = Object.freeze({
   destructiveHint: true,
   idempotentHint: true,
   openWorldHint: false,
+});
+
+const CONFIGURATION_KEY_SCHEMA = Object.freeze({
+  type: "string",
+  enum: [NELOS_CLEANUP_POLICY_KEY],
 });
 
 const DEFAULT_WEB_REGISTRY = Object.freeze({
@@ -458,7 +468,7 @@ const TOOLS = [
         cleanupIntended: {
           type: "boolean",
           description:
-            "Grant archive capability for terminal cleanup. Defaults to true; cleanup still asks before archiving unless a preference says otherwise.",
+            "Grant archive capability for terminal cleanup. Defaults to true; the configured cleanup policy decides whether eligible accepted spin-offs are archived.",
         },
       },
       required: ["plan", "queenThreadId"],
@@ -727,7 +737,7 @@ const TOOLS = [
     name: "nelos_intelligence_route",
     description:
       "Route a task shape to a reviewed model-and-reasoning profile, with " +
-      "optional explicit overrides. Equivalent to `nelos intelligence route`.",
+      "optional explicit overrides. Use this bundled tool in installed-plugin workflows.",
     inputSchema: {
       type: "object",
       properties: {
@@ -776,7 +786,7 @@ const TOOLS = [
     description:
       "Verify from bounded local turn-context metadata that a launched task " +
       "runs the exact expected model and reasoning effort. Fails closed on " +
-      "any mismatch. Equivalent to `nelos intelligence verify`.",
+      "any mismatch. Use this bundled tool in installed-plugin workflows.",
     inputSchema: {
       type: "object",
       properties: {
@@ -879,6 +889,75 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_config_get",
+    description:
+      "Read the installed plugin's effective Nelos configuration, including " +
+      "the resolved machine-local TOML path and whether the value comes from " +
+      "TOML or the built-in default. The first call can migrate an exact legacy " +
+      "preference into TOML; it never invokes the optional CLI.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(_args, { configuration }) {
+      return configuration.get();
+    },
+  },
+  {
+    name: "nelos_config_set",
+    description:
+      "Set one validated machine-local Nelos preference after an explicit user " +
+      "request and return the resulting effective configuration. Writes the " +
+      "resolved TOML file atomically and never invokes or installs the optional CLI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: CONFIGURATION_KEY_SCHEMA,
+        value: {
+          type: "string",
+          enum: [...NELOS_CLEANUP_POLICIES],
+        },
+        userIntentConfirmed: {
+          const: true,
+          description:
+            "Confirm that the user explicitly requested this global preference change",
+        },
+      },
+      required: ["key", "value", "userIntentConfirmed"],
+      additionalProperties: false,
+    },
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { configuration }) {
+      return configuration.set(args);
+    },
+  },
+  {
+    name: "nelos_config_reset",
+    description:
+      "Reset one machine-local Nelos preference to its built-in default after " +
+      "an explicit user request. Retires any legacy preference idempotently and " +
+      "never invokes or installs the optional CLI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: CONFIGURATION_KEY_SCHEMA,
+        userIntentConfirmed: {
+          const: true,
+          description:
+            "Confirm that the user explicitly requested this global preference change",
+        },
+      },
+      required: ["key", "userIntentConfirmed"],
+      additionalProperties: false,
+    },
+    annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
+    async run(args, { configuration }) {
+      return configuration.reset(args);
+    },
+  },
+  {
     name: "nelos_spinoff_complete",
     description:
       "Persist one bound spin-off completion and return one host-owned native " +
@@ -894,8 +973,10 @@ const TOOLS = [
   {
     name: "nelos_spinoff_cleanup",
     description:
-      "Derive accepted spin-offs eligible for cleanup, ask with an exact named " +
-      "candidate list by default, or apply a remembered ask/auto/keep policy. " +
+      "Derive accepted spin-offs eligible for cleanup and apply one per-web " +
+      "auto/ask/keep policy snapshot; the built-in default is auto. Ask returns " +
+      "an exact named candidate list. Remembering a policy globally requires " +
+      "an explicit policy and userIntentConfirmed true. " +
       "Confirmed archives are returned as host-owned effects and become durable " +
       "only after exact native receipts.",
     inputSchema: SPINOFF_CLEANUP_INPUT_SCHEMA,
@@ -957,7 +1038,8 @@ export function startNelosMcpServer({
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
   queenDecisionAdapter = new McpQueenDecisionAdapterV1(),
-  lifecycleAdapter = new SpinoffLifecycleAdapterV1(),
+  configuration = new NelosConfigurationV1(),
+  lifecycleAdapter = new SpinoffLifecycleAdapterV1({ configuration }),
   appServerBridge = new CodexAppServerBridgeV1(),
   planRunStore = new PlanRunStoreV1(),
   webRegistry = DEFAULT_WEB_REGISTRY,
@@ -992,6 +1074,7 @@ export function startNelosMcpServer({
         joinAdapter,
         queenDecisionAdapter,
         lifecycleAdapter,
+        configuration,
       });
     } catch (error) {
       const body = { error: error.message };
