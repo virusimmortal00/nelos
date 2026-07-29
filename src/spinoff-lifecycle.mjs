@@ -712,11 +712,6 @@ export class SpinoffLifecycleAdapterV1 {
         if (activePolicies.size > 1) {
           throw new Error("cleanup policy snapshots conflict within the web");
         }
-        const hasActiveCandidate = records.some(
-          (record) =>
-            record === null ||
-            !["archived", "kept"].includes(record.cleanupState),
-        );
         const terminalPolicies = new Set(
           records
             .filter((record) =>
@@ -729,7 +724,7 @@ export class SpinoffLifecycleAdapterV1 {
         const snapshot =
           activePolicies.values().next().value ??
           (
-            !hasActiveCandidate && terminalPolicies.size === 1
+            terminalPolicies.size === 1
               ? terminalPolicies.values().next().value
               : requestedPolicy
           );

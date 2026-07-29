@@ -18,6 +18,7 @@ import {
   NELOS_CLEANUP_POLICY_KEY,
   NelosConfigStoreV1,
   NelosConfigurationV1,
+  legacyCleanupPreferencePath,
   parseNelosConfig,
   resolveNelosConfigPath,
 } from "../src/nelos-configuration.mjs";
@@ -108,6 +109,23 @@ test("configuration path resolution follows explicit, XDG, then home precedence"
     }),
     /XDG_CONFIG_HOME must be an absolute path/u,
   );
+});
+
+test("legacy preference migration rejects a relative state home", () => {
+  const previousStateHome = process.env.XDG_STATE_HOME;
+  try {
+    process.env.XDG_STATE_HOME = "repository-relative-state";
+    assert.throws(
+      () => legacyCleanupPreferencePath(),
+      /absolute XDG_STATE_HOME/u,
+    );
+  } finally {
+    if (previousStateHome === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = previousStateHome;
+    }
+  }
 });
 
 test("the bounded TOML parser accepts the supported schema and rejects drift", () => {

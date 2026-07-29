@@ -56,7 +56,13 @@ export function resolveNelosConfigPath({
 }
 
 export function legacyCleanupPreferencePath() {
-  return join(taskStateDirectory(), "spinoff-lifecycle", "preference.json");
+  const stateDirectory = taskStateDirectory();
+  if (!isAbsolute(stateDirectory)) {
+    throw new Error(
+      "legacy Nelos preferences require an absolute XDG_STATE_HOME",
+    );
+  }
+  return join(stateDirectory, "spinoff-lifecycle", "preference.json");
 }
 
 function commentIndex(line, lineNumber) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -330,6 +331,54 @@ test("ask reconciliation never expands a partial confirmation", async (t) => {
   assert.equal(remaining.state, "confirmation-required");
   assert.deepEqual(
     remaining.candidates.map(({ threadId }) => threadId),
+    ["member-thread-b"],
+  );
+});
+
+test("legacy partial ask retains its terminal policy for missing candidates", async (t) => {
+  const first = workUnit();
+  const second = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: {
+      state: "bound",
+      memberThreadId: "member-thread-b",
+    },
+  });
+  const { adapter, directory } = await fixture(t, {
+    units: [first, second],
+    decisions: [acceptance(first), acceptance(second)],
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    policy: "ask",
+    confirmedThreadIds: ["member-thread"],
+  });
+  await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+
+  const missingWakeId = spinoffWakeIdV1(completion({
+    workUnitId: "member-b",
+    memberThreadId: "member-thread-b",
+  }));
+  const missingRecord = join(
+    directory,
+    `${createHash("sha256").update(missingWakeId).digest("hex")}.json`,
+  );
+  await rm(missingRecord);
+
+  const replay = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+  });
+  assert.equal(replay.policy, "ask");
+  assert.equal(replay.state, "confirmation-required");
+  assert.deepEqual(
+    replay.candidates.map(({ threadId }) => threadId),
     ["member-thread-b"],
   );
 });
