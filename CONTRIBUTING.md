@@ -32,6 +32,16 @@ Do not run the live app-server verifier unless you intend to create billed model
 turns. Keep changes scoped, update tests or documentation when behavior changes,
 and describe the validation you ran in the pull request.
 
+Compatibility contributors must also follow the ownership, evidence, and
+migration rules in
+[`docs/compatibility-architecture.md`](docs/compatibility-architecture.md).
+Pull requests run only the offline deterministic boundary. Scheduled drift,
+release evidence, trusted-live probes, and semantic review are separate
+execution boundaries; none may silently edit claims, fixtures, supported
+versions, source, or documentation. Include the selected capability report and
+any exact-ref, schema, runtime, or advisory artifacts relevant to the claim in
+the pull request or release review.
+
 ## Issues, support, and security
 
 Use a bug report when you can provide a bounded, reproducible defect in this

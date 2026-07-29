@@ -73,6 +73,14 @@ A Codex version is marked as tested only after maintainers:
    and response-schema guards; and
 4. perform the applicable fresh-task plugin/MCP smoke check on that exact host.
 
+The registry ownership, evidence hierarchy, fail-closed selection rules, and
+safe add/rename/deprecate/delete procedures are defined in
+[Compatibility Architecture and Maintenance](compatibility-architecture.md).
+Scheduled floating-main and uncorroborated source drift are early-warning only,
+and public source cannot establish Desktop, cloud, entitlement, rollout, or
+closed-host behavior. Collectors produce review artifacts; they never update
+claims, fixtures, or supported-version lists.
+
 The bridge enforces the oldest protocol version it can safely use, currently
 Codex `0.144.5`, rather than treating the tested-version list as an exhaustive
 allowlist. A stable Codex version at or above that minimum may proceed when it
@@ -135,6 +143,12 @@ For every public release, maintainers:
 5. create the next annotated `v<VERSION>` tag only on that fully verified
    commit; and
 6. publish only artifacts produced from that immutable tag.
+
+The compatibility portion of that review retains the required offline report,
+exact release-ref observation, generated-schema report, exact runtime-transport
+report, and verified release evidence bundle. Trusted-live and semantic runs
+remain explicit, protected, optional lanes, and their artifacts cannot replace
+or override the deterministic release result.
 
 A failed or incomplete gate produces no release tag. Public tags are immutable:
 they are never moved to another commit, deleted and recreated, or added later

@@ -979,6 +979,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         test: Object.freeze([
           "test/check-model-catalog.test.mjs",
           "test/compatibility-contract-registry.test.mjs",
+          "test/compatibility-rollout-e2e.test.mjs",
           "test/compatibility-workflows.test.mjs",
           "test/next-action.test.mjs",
           "test/offline-compatibility-gate.test.mjs",
@@ -991,6 +992,8 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         ]),
         documentation: Object.freeze([
           "CONTRIBUTING.md",
+          "docs/compatibility-architecture.md",
+          "docs/release-policy.md",
           "docs/task-orchestration.md",
           "docs/app-server-compatibility-contract.md",
         ]),
