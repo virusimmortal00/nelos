@@ -1,8 +1,7 @@
-<h1 align="center">Nelos</h1>
+<h1 align="center">Nelos 👑🕷️</h1>
 
 <p align="center">
-  <strong>Turn one big Codex task into a web of safe, parallel work —<br>
-  with the right model and reasoning routed, and verified, for every slice.</strong>
+  <strong>Turn one Codex task into safe, verified parallel work.</strong>
 </p>
 
 <p align="center">
