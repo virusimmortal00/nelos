@@ -78,6 +78,31 @@ running the bridge's batching, polling, timeout, reconnect, and
 no-mutation-replay tests. An untested newer stable version may run, but strict
 response validation and single-attempt mutation semantics remain mandatory.
 
+### Compatibility CI lanes
+
+Reproduce the required pull-request gate with:
+
+```bash
+npm run compatibility:required
+```
+
+This is the same command and defaults used by the required
+`Compatibility / required offline deterministic` job. It resolves a real Git
+merge base, removes `OPENAI_API_KEY`, and inherits the repository network
+blocker in child Node processes. Set `COMPATIBILITY_BASE_REF` only when the
+comparison target is not `origin/main`; GitHub pull requests use
+`GITHUB_BASE_REF`.
+
+The scheduled/manual drift workflow separately collects bounded official
+documentation, floating-main early warnings, exact release-tag source hashes,
+generated schemas, and read-only stdio transport evidence. Infrastructure
+failures remain non-evidence and its reports are uploaded with `if: always()`.
+The release workflow requires source, schema, and runtime reports to resolve to
+one declared Codex release ID, version, tag, and commit. The manual trusted
+advisory workflow contains the live and semantic lanes. None of these
+workflows edits fixtures, supported-version declarations, compatibility claims,
+source, or documentation.
+
 ## Verifiers
 
 The planning lifecycle verifier runs the real `nelos-mcp` process against a
@@ -90,13 +115,19 @@ boundaries:
 npm run verify:planning-lifecycle
 ```
 
-The default standalone-server verifier starts its own temporary Unix socket,
-initializes through Nelos, exercises `thread/list`, and removes its
-process and temporary state. It does not start a task or make a model call:
+The default App Server verifier starts the exact selected Codex executable over
+stdio, verifies that its version is in the checked-in supported-version list,
+performs one bounded read-only `thread/list`, and prints a normalized evidence
+report with provenance, digest, and observation time. It does not start a task
+or make a model call:
 
 ```bash
 npm run verify:app-server
 ```
+
+The older disposable Unix-socket development smoke remains available as
+`npm run verify:app-server:socket`. Neither verifier updates generated fixtures
+or the supported-version list.
 
 The live verifier is deliberately opt-in. It creates one uniquely named,
 read-only task, waits for a model response, starts a second turn on the same
@@ -124,11 +155,14 @@ npm run demo:acceptance-gates
 npm run verify:golden-loop
 ```
 
-The model-catalog freshness check compares the reviewed intelligence profile
-catalog (`src/intelligence-profile-catalog.mjs`) against the current public
-Models and Subagents guidance. It is read-only: it never edits the catalog,
-never queries a host account or app server, and any drift it finds requires a
-separate, deliberate code change to resolve:
+The model-catalog check keeps its local provenance and review-date invariants
+in the offline gate. Its public-guidance lane uses only the official URLs and
+bounded artifacts declared in
+`src/upstream-documentation-contracts.mjs`. Collection is advisory and
+read-only: it never edits the catalog, fixtures, supported versions, code, or
+documentation. Network, timeout, redirect-policy, parsing, and missing-section
+failures are reported as unavailable infrastructure and never as compatibility
+or guidance-drift evidence:
 
 ```bash
 npm run check:model-catalog

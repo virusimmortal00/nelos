@@ -1,0 +1,86 @@
+name: Compatibility trusted advisory
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the optional live App Server smoke
+        required: true
+        default: false
+        type: boolean
+      run_semantic:
+        description: Run an optional trusted semantic provider
+        required: true
+        default: false
+        type: boolean
+      semantic_input:
+        description: Checked-in bounded advisory input path
+        required: false
+        type: string
+      semantic_provider:
+        description: Checked-in trusted provider module path
+        required: false
+        type: string
+      semantic_provider_config:
+        description: Checked-in provider configuration path
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-live-advisory:
+    name: Advisory / runtime live
+    if: inputs.run_live
+    runs-on: ubuntu-latest
+    environment: compatibility-advisory
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: npm run verify:app-server:live
+
+  semantic-advisory:
+    name: Advisory / semantic review
+    if: inputs.run_semantic
+    runs-on: ubuntu-latest
+    environment: compatibility-advisory
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - name: Run explicitly opted-in advisory provider
+        env:
+          SEMANTIC_INPUT: ${{ inputs.semantic_input }}
+          SEMANTIC_PROVIDER: ${{ inputs.semantic_provider }}
+          SEMANTIC_PROVIDER_CONFIG: ${{ inputs.semantic_provider_config }}
+        shell: bash
+        run: |
+          [[ -n "$SEMANTIC_INPUT" ]] || {
+            echo "semantic_input is required when run_semantic is true" >&2
+            exit 1
+          }
+          [[ -n "$SEMANTIC_PROVIDER" ]] || {
+            echo "semantic_provider is required when run_semantic is true" >&2
+            exit 1
+          }
+          [[ -n "$SEMANTIC_PROVIDER_CONFIG" ]] || {
+            echo "semantic_provider_config is required when run_semantic is true" >&2
+            exit 1
+          }
+          npm run compatibility:semantic-advisory -- \
+            --opt-in \
+            --input "$SEMANTIC_INPUT" \
+            --provider "$SEMANTIC_PROVIDER" \
+            --provider-config "$SEMANTIC_PROVIDER_CONFIG"

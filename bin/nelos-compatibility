@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  OFFLINE_COMPATIBILITY_DEFAULTS,
+  OfflineCompatibilityGateError,
+  runOfflineCompatibilityGate,
+} from "../src/offline-compatibility-gate.mjs";
+
+function usage() {
+  return `Usage: nelos-compatibility [options]
+
+Run the low-level offline deterministic compatibility gate.
+Use \`npm run compatibility:required\` to reproduce required pull-request CI,
+including its merge-base resolution, credential isolation, and network block.
+With no path options, this low-level CLI compares HEAD^...HEAD.
+
+Options:
+  --file PATH       Evaluate an explicit changed path; repeat as needed
+  --base REV        Git diff base (default: ${OFFLINE_COMPATIBILITY_DEFAULTS.base})
+  --head REV        Git diff head (default: ${OFFLINE_COMPATIBILITY_DEFAULTS.head})
+  --root PATH       Repository root (default: current directory)
+  --registry PATH   Read a version-1 registry from a checked-in JSON fixture
+  -h, --help        Show this help
+`;
+}
+
+function takeValue(argv, index, option) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("-")) {
+    throw new OfflineCompatibilityGateError(`${option} requires a value`, {
+      code: "invalid-arguments",
+    });
+  }
+  return value;
+}
+
+export function parseOfflineCompatibilityArgs(argv) {
+  const options = {
+    base: OFFLINE_COMPATIBILITY_DEFAULTS.base,
+    baseWasSet: false,
+    files: [],
+    head: OFFLINE_COMPATIBILITY_DEFAULTS.head,
+    headWasSet: false,
+    help: false,
+    registryPath: null,
+    root: process.cwd(),
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "-h" || argument === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (argument === "--file") {
+      options.files.push(takeValue(argv, index, argument));
+      index += 1;
+      continue;
+    }
+    if (argument === "--base") {
+      options.base = takeValue(argv, index, argument);
+      options.baseWasSet = true;
+      index += 1;
+      continue;
+    }
+    if (argument === "--head") {
+      options.head = takeValue(argv, index, argument);
+      options.headWasSet = true;
+      index += 1;
+      continue;
+    }
+    if (argument === "--root") {
+      options.root = resolve(takeValue(argv, index, argument));
+      index += 1;
+      continue;
+    }
+    if (argument === "--registry") {
+      options.registryPath = resolve(takeValue(argv, index, argument));
+      index += 1;
+      continue;
+    }
+    throw new OfflineCompatibilityGateError(`unknown option: ${argument}`, {
+      code: "invalid-arguments",
+    });
+  }
+  if (options.files.length > 0 && (options.baseWasSet || options.headWasSet)) {
+    throw new OfflineCompatibilityGateError(
+      "--file cannot be combined with --base or --head",
+      { code: "invalid-arguments" },
+    );
+  }
+  return options;
+}
+
+async function loadRegistry(path) {
+  if (!path) return undefined;
+  let contents;
+  try {
+    contents = await readFile(path, "utf8");
+  } catch (error) {
+    throw new OfflineCompatibilityGateError(
+      `registry could not be read: ${error.message}`,
+      { code: "malformed-registry", cause: error },
+    );
+  }
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    throw new OfflineCompatibilityGateError(
+      "registry is not valid JSON",
+      { code: "malformed-registry", cause: error },
+    );
+  }
+}
+
+function errorDocument(error) {
+  return {
+    schemaVersion: 1,
+    status: "infrastructure-error",
+    error: {
+      code: error instanceof OfflineCompatibilityGateError
+        ? error.code
+        : "infrastructure-error",
+      summary: error.message,
+    },
+  };
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  try {
+    const options = parseOfflineCompatibilityArgs(argv);
+    if (options.help) {
+      process.stdout.write(usage());
+      return 0;
+    }
+    const registry = await loadRegistry(options.registryPath);
+    const result = await runOfflineCompatibilityGate({
+      root: options.root,
+      ...(registry ? { registry } : {}),
+      ...(options.files.length > 0 ? { files: options.files } : {}),
+      base: options.base,
+      head: options.head,
+    });
+    process.stdout.write(`${JSON.stringify(result.report, null, 2)}\n`);
+    if (!result.selection.ok) {
+      process.stderr.write(
+        `nelos-compatibility: unmapped compatibility-sensitive paths: ${result.selection.unmappedSensitivePaths.join(", ")}\n`,
+      );
+    }
+    return result.exitCode;
+  } catch (error) {
+    process.stdout.write(`${JSON.stringify(errorDocument(error), null, 2)}\n`);
+    process.stderr.write(`nelos-compatibility: ${error.message}\n`);
+    return 2;
+  }
+}
+
+const isMain = process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  process.exitCode = await main();
+}

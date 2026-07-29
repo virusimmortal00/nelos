@@ -240,6 +240,72 @@ Official documentation is a moving current reference rather than versioned
 `0.144.x` documentation. Generated schemas and bounded probes are decisive for
 the pinned compatibility claim.
 
+### Generated-schema and runtime collectors
+
+`collectGeneratedSchemaEvidenceV1` reads only the artifact path declared by
+the caller, or executes only a declared executable plus argument vector and a
+separately declared identity command. Its normalized report records the exact
+Codex version (and commit when supplied), artifact or command provenance,
+SHA-256 digest, and observation time. Malformed JSON, missing identity,
+identity mismatch, command failure, and timeout are non-evidence; a schema
+contract mismatch is the only collector result classified as incompatible.
+
+The required offline pull-request gate delegates its checked-in fixture check
+to this collector in artifact mode. It does not generate schemas, update the
+fixture, or change the supported-version list.
+
+Required pull-request CI invokes `npm run compatibility:required`. That command
+resolves the pull request's actual merge base, removes `OPENAI_API_KEY`, and
+loads the offline network blocker through `NODE_OPTIONS` so selected child
+tests inherit it. It is the only compatibility status intended for branch
+protection.
+
+`collectRuntimeTransportEvidenceV1` starts the exact declared Codex executable
+over stdio JSONL, initializes once, requires an exact declared supported
+version, and performs only the declared bounded read operations. The collector
+does not probe or infer Desktop, cloud, entitlement, rollout, or closed-host
+behavior.
+
+`collectRuntimeLiveEvidenceV1` is a separate entry point and returns
+unavailable without opening a transport unless `enabled: true` is supplied.
+Even when enabled, it accepts only explicitly declared read-only operations.
+It is not registered in the offline gate or any required pull-request script.
+The older `verify:app-server:live` lifecycle smoke remains an explicitly
+requested developer check; it is not compatibility evidence and does not
+update fixtures or version policy.
+
+`concludeWireCompatibilityV1` makes generated-schema and exact runtime results
+decisive. Public implementation-source observations are preserved as
+`advisory-only` and cannot independently produce a compatible or incompatible
+conclusion.
+
+### Bounded public-source observations
+
+The registry also pins the official
+[`openai/codex`](https://github.com/openai/codex) release tags and peeled commit
+SHAs used for source comparison. `collectUpstreamSourceEvidenceV1` accepts only
+a repository, release, and exact paths or generated artifacts already declared
+for the selected capability. It resolves the tag or commit, verifies the
+declared SHA, performs a depth-one blob-filtered fetch, and hashes only the
+selected files. Missing, moved, non-file, unresolved, mismatched, or
+infrastructure-failed inputs produce non-evidence.
+
+The separately declared `refs/heads/main` route is always labeled
+`early-warning-advisory`; it cannot satisfy release or blocking compatibility
+evidence. Public source cannot establish Desktop, cloud, entitlement, rollout,
+or closed-host behavior. Source-only drift remains advisory until corroborated
+by official documentation, generated schemas, or exact runtime evidence.
+
+Scheduled/manual drift reports preserve documentation, floating-main,
+exact-release source, generated-schema, and transport outcomes even when
+infrastructure is unavailable. Release verification is stricter: a bundle is
+accepted only when the open-source tag resolves to the registry's exact commit
+and both schema and runtime identities equal that same supported release
+version. Unresolved or mismatched refs are non-evidence. Live-runtime and
+semantic jobs are manual, optional, advisory-only, and have distinct job names;
+they cannot satisfy or override the required deterministic status. No evidence
+workflow automatically changes compatibility claims or checked-in artifacts.
+
 ## Hardening work derived from this contract
 
 The next implementation slice should make the current distinctions executable

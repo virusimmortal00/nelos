@@ -1,0 +1,100 @@
+name: Compatibility drift advisory
+
+on:
+  schedule:
+    - cron: "23 7 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-drift
+  cancel-in-progress: false
+
+jobs:
+  public-upstream:
+    name: Drift / bounded public documentation and source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: mkdir -p compatibility-reports
+      - name: Collect bounded official documentation
+        continue-on-error: true
+        run: npm run compatibility:drift:docs
+      - name: Collect floating-main early warning
+        continue-on-error: true
+        run: npm run compatibility:drift:source
+      - name: Upload public drift reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-public-drift
+          path: compatibility-reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  exact-release-wire:
+    name: Drift / exact Codex ${{ matrix.codex }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        codex: ["0.144.5", "0.144.6"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: mkdir -p compatibility-reports .ci/codex
+      - name: Install exact public Codex package
+        continue-on-error: true
+        run: >-
+          npm install
+          --prefix .ci/codex
+          --no-save
+          --package-lock=false
+          --ignore-scripts
+          @openai/codex@${{ matrix.codex }}
+      - name: Collect exact-ref public source
+        continue-on-error: true
+        run: >-
+          node scripts/collect-compatibility-evidence.mjs
+          --lane source-release
+          --release-id codex@${{ matrix.codex }}
+          --out compatibility-reports/source-${{ matrix.codex }}.json
+      - name: Collect exact generated schema
+        continue-on-error: true
+        run: >-
+          node scripts/collect-compatibility-evidence.mjs
+          --lane schema
+          --release-id codex@${{ matrix.codex }}
+          --codex .ci/codex/node_modules/.bin/codex
+          --out compatibility-reports/schema-${{ matrix.codex }}.json
+      - name: Collect exact runtime transport
+        continue-on-error: true
+        shell: bash
+        run: |
+          node scripts/collect-runtime-transport.mjs \
+            --codex .ci/codex/node_modules/.bin/codex \
+            --expected-version "${{ matrix.codex }}" \
+            > "compatibility-reports/runtime-${{ matrix.codex }}.json"
+      - name: Upload exact release drift reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-exact-${{ matrix.codex }}
+          path: compatibility-reports/
+          if-no-files-found: warn
+          retention-days: 14
