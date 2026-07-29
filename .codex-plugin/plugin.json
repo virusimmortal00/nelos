@@ -3,8 +3,8 @@
   "version": "0.4.0",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
-    "name": "Nelos Maintainers",
-    "url": "https://github.com/virusimmortal00"
+    "name": "Bobby Sayers",
+    "url": "https://github.com/virusimmortal00/nelos"
   },
   "homepage": "https://github.com/virusimmortal00/nelos",
   "repository": "https://github.com/virusimmortal00/nelos",
@@ -20,21 +20,21 @@
     "displayName": "Nelos",
     "shortDescription": "Turn complex work into safe parallel Codex tasks",
     "longDescription": "Plan, route, and coordinate dependency-aware task webs with explicit lifecycle evidence.",
-    "developerName": "Nelos Maintainers",
+    "developerName": "Bobby Sayers",
     "category": "Developer Tools",
     "capabilities": [
       "Read",
       "Write"
     ],
+    "websiteURL": "https://github.com/virusimmortal00/nelos",
     "brandColor": "#111111",
     "composerIcon": "./assets/nelos-spider-icon.png",
     "logo": "./assets/nelos-spider-icon.png",
     "logoDark": "./assets/nelos-spider-icon-dark.png",
     "defaultPrompt": [
-      "Use Nelos to plan this feature into safe parallel slices.",
-      "Bootstrap unstructured planning with the exact bounded Sol planner.",
-      "Create durable spinoffs only where they need independent lifecycle.",
-      "Show me the native evidence and topology for this task web."
+      "Use Nelos to ship team roles across the API, UI, migration, tests, and docs. Plan safe waves and verify every result.",
+      "Use Nelos to diagnose flaky end-to-end tests. Investigate in parallel, reconcile evidence, and ship a verified fix.",
+      "Use Nelos to modernize our billing module safely. Map dependencies, parallelize independent changes, and verify the migration."
     ]
   }
 }
