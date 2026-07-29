@@ -42,9 +42,12 @@ Codex app-server child process for native task control.
 
 1. **Start exactly as you always have.** Open a normal Codex task and describe
    the work.
-2. **Nelos plans the work when decomposition would help.** Its bounded planning
-   system turns the objective into dependency-aware slices and proposes the
-   right execution shape for each one.
+2. **A dedicated planner decomposes it.** When a web would help, Nelos launches
+   one fresh, bounded, read-only **Sol / medium** planning subagent. That route
+   is fixed and verified regardless of the model or reasoning level selected
+   in the original task, so planning never silently inherits a cheaper starting
+   configuration. A task started on Luna or Terra still gets Sol for
+   decomposition.
 3. **Your original task becomes the queen.** It stays right where it is as the
    coordinator. When the plan uses durable spinoffs, its title receives the 👑
    marker and a web ID; each spinoff receives 🕷️ and that same ID.
@@ -53,6 +56,11 @@ Codex app-server child process for native task control.
    work that should remain independently visible and steerable, or a mix of
    both. Subagents report directly within the queen task; spinoffs live in the
    sidebar and report home through Nelos.
+
+**The efficiency play:** Nelos spends consistent high intelligence once on the
+plan, then routes every execution slice independently. Straightforward work can
+use faster, cheaper models at lower reasoning levels; difficult work still gets
+more — reducing time and credit use without weakening the decomposition.
 
 <p align="center">
   <img
