@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  compatibility-required:
+    name: Compatibility / required offline deterministic
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      GITHUB_BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Run token-free offline compatibility gate
+        shell: bash
+        run: env -u OPENAI_API_KEY npm run compatibility:required
+
   node:
     name: Node 20 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -28,6 +50,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - if: github.event_name == 'pull_request'
-        run: npm run compatibility
       - run: npm test

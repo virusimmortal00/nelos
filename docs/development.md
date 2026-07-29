@@ -78,6 +78,31 @@ running the bridge's batching, polling, timeout, reconnect, and
 no-mutation-replay tests. An untested newer stable version may run, but strict
 response validation and single-attempt mutation semantics remain mandatory.
 
+### Compatibility CI lanes
+
+Reproduce the required pull-request gate with:
+
+```bash
+npm run compatibility:required
+```
+
+This is the same command and defaults used by the required
+`Compatibility / required offline deterministic` job. It resolves a real Git
+merge base, removes `OPENAI_API_KEY`, and inherits the repository network
+blocker in child Node processes. Set `COMPATIBILITY_BASE_REF` only when the
+comparison target is not `origin/main`; GitHub pull requests use
+`GITHUB_BASE_REF`.
+
+The scheduled/manual drift workflow separately collects bounded official
+documentation, floating-main early warnings, exact release-tag source hashes,
+generated schemas, and read-only stdio transport evidence. Infrastructure
+failures remain non-evidence and its reports are uploaded with `if: always()`.
+The release workflow requires source, schema, and runtime reports to resolve to
+one declared Codex release ID, version, tag, and commit. The manual trusted
+advisory workflow contains the live and semantic lanes. None of these
+workflows edits fixtures, supported-version declarations, compatibility claims,
+source, or documentation.
+
 ## Verifiers
 
 The planning lifecycle verifier runs the real `nelos-mcp` process against a

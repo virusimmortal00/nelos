@@ -207,7 +207,7 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
   assert.doesNotMatch(workflow, /cache:\s*npm/u);
   assert.equal(
     (workflow.match(/persist-credentials:\s*false/gu) ?? []).length,
-    2,
+    3,
   );
 });
 

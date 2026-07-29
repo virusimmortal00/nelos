@@ -22,6 +22,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  compatibility-exact:
+    name: Release compatibility / Codex ${{ matrix.codex }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        codex: ["0.144.5", "0.144.6"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: mkdir -p compatibility-reports .ci/codex
+      - name: Install exact public Codex package
+        run: >-
+          npm install
+          --prefix .ci/codex
+          --no-save
+          --package-lock=false
+          @openai/codex@${{ matrix.codex }}
+      - name: Collect exact-ref public source evidence
+        id: source
+        continue-on-error: true
+        run: >-
+          node scripts/collect-compatibility-evidence.mjs
+          --lane source-release
+          --release-id codex@${{ matrix.codex }}
+          --out compatibility-reports/source.json
+      - name: Collect exact generated-schema evidence
+        id: schema
+        continue-on-error: true
+        run: >-
+          node scripts/collect-compatibility-evidence.mjs
+          --lane schema
+          --release-id codex@${{ matrix.codex }}
+          --codex .ci/codex/node_modules/.bin/codex
+          --out compatibility-reports/schema.json
+      - name: Collect exact runtime-transport evidence
+        id: runtime
+        continue-on-error: true
+        shell: bash
+        run: |
+          node scripts/collect-runtime-transport.mjs \
+            --codex .ci/codex/node_modules/.bin/codex \
+            --expected-version "${{ matrix.codex }}" \
+            > compatibility-reports/runtime.json
+      - name: Bind all evidence to the exact supported Codex release
+        if: always()
+        run: >-
+          node scripts/verify-release-compatibility-evidence.mjs
+          --release-id codex@${{ matrix.codex }}
+          --source compatibility-reports/source.json
+          --schema compatibility-reports/schema.json
+          --runtime compatibility-reports/runtime.json
+          --out compatibility-reports/release-bundle.json
+      - name: Upload exact release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-compatibility-${{ matrix.codex }}
+          path: compatibility-reports/
+          if-no-files-found: warn
+          retention-days: 14
+
   verify:
     name: Release gate / Node 20 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -83,7 +153,7 @@ jobs:
 
   artifacts:
     name: Build reproducible release artifacts
-    needs: verify
+    needs: [verify, compatibility-exact]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

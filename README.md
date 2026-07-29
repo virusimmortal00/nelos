@@ -83,6 +83,20 @@ bridge continues to validate every app-server response and reports a focused
 compatibility error if an operation's actual contract has changed. Prerelease
 and custom build version identities are not treated as stable releases.
 
+Pull requests use one required, token-free deterministic compatibility gate.
+Run the identical command locally:
+
+```bash
+npm run compatibility:required
+```
+
+It compares the current `HEAD` with the merge base of
+`COMPATIBILITY_BASE_REF`, `GITHUB_BASE_REF`, or `origin/main` (in that order),
+removes `OPENAI_API_KEY`, and blocks network access for the gate and every
+child test process. Scheduled drift, exact-release evidence, live runtime
+smokes, and semantic advice run in separate workflows and cannot replace this
+required status.
+
 ## What's in the box
 
 Nelos is one Codex plugin with two parts:

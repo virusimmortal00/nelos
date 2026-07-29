@@ -254,6 +254,12 @@ The required offline pull-request gate delegates its checked-in fixture check
 to this collector in artifact mode. It does not generate schemas, update the
 fixture, or change the supported-version list.
 
+Required pull-request CI invokes `npm run compatibility:required`. That command
+resolves the pull request's actual merge base, removes `OPENAI_API_KEY`, and
+loads the offline network blocker through `NODE_OPTIONS` so selected child
+tests inherit it. It is the only compatibility status intended for branch
+protection.
+
 `collectRuntimeTransportEvidenceV1` starts the exact declared Codex executable
 over stdio JSONL, initializes once, requires an exact declared supported
 version, and performs only the declared bounded read operations. The collector
@@ -289,6 +295,16 @@ The separately declared `refs/heads/main` route is always labeled
 evidence. Public source cannot establish Desktop, cloud, entitlement, rollout,
 or closed-host behavior. Source-only drift remains advisory until corroborated
 by official documentation, generated schemas, or exact runtime evidence.
+
+Scheduled/manual drift reports preserve documentation, floating-main,
+exact-release source, generated-schema, and transport outcomes even when
+infrastructure is unavailable. Release verification is stricter: a bundle is
+accepted only when the open-source tag resolves to the registry's exact commit
+and both schema and runtime identities equal that same supported release
+version. Unresolved or mismatched refs are non-evidence. Live-runtime and
+semantic jobs are manual, optional, advisory-only, and have distinct job names;
+they cannot satisfy or override the required deterministic status. No evidence
+workflow automatically changes compatibility claims or checked-in artifacts.
 
 ## Hardening work derived from this contract
 

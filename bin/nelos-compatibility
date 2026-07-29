@@ -13,8 +13,10 @@ import {
 function usage() {
   return `Usage: nelos-compatibility [options]
 
-Run the same offline deterministic compatibility gate used by pull-request CI.
-With no path options, the gate compares HEAD^...HEAD.
+Run the low-level offline deterministic compatibility gate.
+Use \`npm run compatibility:required\` to reproduce required pull-request CI,
+including its merge-base resolution, credential isolation, and network block.
+With no path options, this low-level CLI compares HEAD^...HEAD.
 
 Options:
   --file PATH       Evaluate an explicit changed path; repeat as needed

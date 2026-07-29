@@ -22,6 +22,7 @@ function takeValue(argv, index, option) {
 export function parseRuntimeTransportArgs(argv) {
   const options = {
     codexCommand: "codex",
+    expectedVersion: null,
     help: false,
     timeoutMs: 10_000,
   };
@@ -29,6 +30,13 @@ export function parseRuntimeTransportArgs(argv) {
     const argument = argv[index];
     if (argument === "--codex") {
       options.codexCommand = takeValue(argv, index, argument);
+      index += 1;
+    } else if (argument === "--expected-version") {
+      const value = takeValue(argv, index, argument);
+      if (!/^\d+\.\d+\.\d+$/u.test(value)) {
+        throw new Error("--expected-version must be an exact stable version");
+      }
+      options.expectedVersion = value;
       index += 1;
     } else if (argument === "--timeout-ms") {
       const value = Number(takeValue(argv, index, argument));
@@ -54,6 +62,7 @@ Only initialize and one bounded read-only thread/list request are performed.
 
 Options:
   --codex PATH       Exact Codex executable (default: codex)
+  --expected-version Exact required Codex version (default: registry versions)
   --timeout-ms N     Per-operation timeout, at most 60000 (default: 10000)
   -h, --help         Show this help
 `;
@@ -71,8 +80,9 @@ export async function runRuntimeTransportCollector(argv = process.argv.slice(2))
       checkId: "runtime.stdio-transport",
       executable: options.codexCommand,
       transport: "stdio-jsonl",
-      expectedCodexIdentities:
-        COMPATIBILITY_CONTRACT_REGISTRY_V1.supportedCodexReleases
+      expectedCodexIdentities: options.expectedVersion
+        ? [{ version: options.expectedVersion, commitSha: null }]
+        : COMPATIBILITY_CONTRACT_REGISTRY_V1.supportedCodexReleases
           .map(({ version }) => ({ version, commitSha: null })),
       operations: [{
         method: "thread/list",
