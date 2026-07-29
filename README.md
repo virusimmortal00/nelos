@@ -118,9 +118,14 @@ own Git branches, merges, and final review.
 
 - [Model & reasoning routing](docs/routing.md) — how each slice is sized, and verified
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
+- [App Server compatibility contract](docs/app-server-compatibility-contract.md) —
+  minimum and tested-version policy, fallbacks, and hardening gates
 - [Webs and terminology](docs/webs.md) — the queen / spinoff / web model
 - [Slice planning](docs/slice-planning.md) — a full worked example
 - [Worktree coordination](docs/worktree-coordination.md) — one writer per branch
+- [Codex capability leverage audit](docs/codex-capability-audit.md) — the ordered,
+  evidence-backed review of native Codex features Nelos should adopt, pilot,
+  defer, or reject
 - [Installation and trust](docs/installation.md) · [Development](docs/development.md)
 - [Release and compatibility policy](docs/release-policy.md) · [Changelog](CHANGELOG.md)
 
