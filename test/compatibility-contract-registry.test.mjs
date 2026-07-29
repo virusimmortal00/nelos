@@ -175,6 +175,18 @@ test("compatibility-sensitive unmapped files fail closed actionably", () => {
   ]);
 });
 
+test("documentation assets are outside the compatibility-sensitive selector", () => {
+  const selection = selectImpactedCompatibilityContractsV1(
+    COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    [{ status: "added", path: "docs/assets/showcase/example.png" }],
+  );
+  assert.equal(selection.ok, true);
+  assert.deepEqual(selection.unmappedSensitivePaths, []);
+  assert.deepEqual(selection.selectedCapabilityIds, [
+    "nelos.lifecycle-invariants",
+  ]);
+});
+
 test("report validation derives compatible status from complete passed evidence", () => {
   const report = {
     schemaVersion: 1,
