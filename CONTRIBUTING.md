@@ -14,6 +14,17 @@ npm test
 npm run check
 ```
 
+Run the pull-request compatibility gate locally with the same command CI uses:
+
+```bash
+npm run compatibility
+```
+
+It evaluates `HEAD^...HEAD` by default. Pass `--base REV --head REV` for a
+wider comparison, or repeat `--file PATH` for explicit paths. The gate is
+offline: it does not launch Codex, perform live mutations, make model calls, or
+consume API credentials.
+
 For changes that affect routing, lifecycle behavior, the app-server bridge, or
 distribution behavior, follow the relevant guidance in
 [`docs/development.md`](docs/development.md) and run the applicable verifier.

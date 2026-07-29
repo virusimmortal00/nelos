@@ -640,6 +640,36 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
   ]),
   checks: Object.freeze([
     Object.freeze({
+      id: "repo.registry-integrity",
+      evidenceKind: "deterministic-repo",
+      command: "validate the checked-in compatibility registry",
+      source: "src/compatibility-contract-registry.mjs",
+    }),
+    Object.freeze({
+      id: "repo.checked-in-claims",
+      evidenceKind: "deterministic-repo",
+      command: "validate checked-in compatibility claims and fixtures",
+      source: "docs/app-server-compatibility-contract.md",
+    }),
+    Object.freeze({
+      id: "repo.supported-version-consistency",
+      evidenceKind: "deterministic-repo",
+      command: "validate supported Codex versions across registry, bridge, fixture, and documentation",
+      source: "src/mcp-app-server-bridge.mjs",
+    }),
+    Object.freeze({
+      id: "repo.model-catalog-invariants",
+      evidenceKind: "deterministic-repo",
+      command: "node --test test/model-catalog-freshness.test.mjs test/check-model-catalog.test.mjs",
+      source: "test/model-catalog-freshness.test.mjs",
+    }),
+    Object.freeze({
+      id: "repo.app-server-invariants",
+      evidenceKind: "deterministic-repo",
+      command: "node --test test/mcp-app-server-bridge.test.mjs",
+      source: "test/mcp-app-server-bridge.test.mjs",
+    }),
+    Object.freeze({
       id: "repo.protocol-contracts",
       evidenceKind: "deterministic-repo",
       command: "node --test test/protocol-contract.test.mjs",
@@ -779,20 +809,29 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
         owned: Object.freeze([
+          "bin/nelos-compatibility",
           "src/next-action.mjs",
+          "src/offline-compatibility-gate.mjs",
           "src/spinoff-lifecycle.mjs",
           "src/queen-acceptance.mjs",
+          "scripts/offline-network-blocker.cjs",
         ]),
         shared: Object.freeze([
+          "distribution-provenance.json",
+          "package-lock.json",
+          "package.json",
+          "src/compatibility-contract-registry.mjs",
           "src/task-state.mjs",
           "src/work-result.mjs",
         ]),
         test: Object.freeze([
           "test/next-action.test.mjs",
+          "test/offline-compatibility-gate.test.mjs",
           "test/spinoff-lifecycle.test.mjs",
           "test/queen-acceptance.test.mjs",
         ]),
         documentation: Object.freeze([
+          "CONTRIBUTING.md",
           "docs/task-orchestration.md",
           "docs/app-server-compatibility-contract.md",
         ]),
@@ -801,6 +840,11 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         generatedSchema: Object.freeze([]),
         runtime: Object.freeze([]),
         checks: Object.freeze([
+          "repo.registry-integrity",
+          "repo.checked-in-claims",
+          "repo.supported-version-consistency",
+          "repo.model-catalog-invariants",
+          "repo.app-server-invariants",
           "repo.protocol-contracts",
           "advisory.compatibility-review",
         ]),
