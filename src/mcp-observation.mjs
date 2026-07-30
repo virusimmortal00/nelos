@@ -77,7 +77,7 @@ function synthesize(current, workUnits, webId, queenThreadId) {
   };
 }
 
-function applyAcceptances(checkpoint, decisions) {
+function applyDecisions(checkpoint, decisions) {
   let changed = false;
   const members = checkpoint.members.map((member) => {
     const accepted = decisions.find(
@@ -90,9 +90,31 @@ function applyAcceptances(checkpoint, decisions) {
         member.result.state === "current" &&
         decision.sourceTurnId === member.result.sourceTurnId,
     );
-    if (!accepted || member.coordination.state === "accepted") return member;
-    changed = true;
-    return { ...member, coordination: { state: "accepted" } };
+    if (accepted && member.coordination.state !== "accepted") {
+      changed = true;
+      return { ...member, coordination: { state: "accepted" } };
+    }
+    const rejected = decisions.find(
+      (decision) =>
+        decision.decision === "rejected" &&
+        decision.workUnitId === member.workUnitId &&
+        decision.specRevision === member.specRevision &&
+        decision.attempt === member.attempt &&
+        decision.memberThreadId === member.memberThreadId &&
+        member.result.state === "current" &&
+        decision.sourceTurnId === member.result.sourceTurnId,
+    );
+    if (
+      rejected &&
+      member.coordination.state !== "correction-pending"
+    ) {
+      changed = true;
+      return {
+        ...member,
+        coordination: { state: "correction-pending" },
+      };
+    }
+    return member;
   });
   return changed ? { ...checkpoint, members } : checkpoint;
 }
@@ -202,8 +224,8 @@ export class McpJoinAdapterV1 {
     }
     const normalizedReceipt = receipt === null ? null : validateObservationReceiptV1(receipt);
     return withObservationCheckpointLock(webId, queenThreadId, async () => {
-      const scan = await this.#executionStore.scan();
-      const workUnits = scan.workUnits.filter(
+      let scan = await this.#executionStore.scan();
+      let workUnits = scan.workUnits.filter(
         (workUnit) =>
           workUnit.webId === webId && workUnit.queenThreadId === queenThreadId,
       );
@@ -226,11 +248,81 @@ export class McpJoinAdapterV1 {
       const hasUnboundRequired = workUnits.some(
         (workUnit) => workUnit.required && workUnit.binding.state !== "bound",
       );
-      let checkpoint = synthesize(stored, workUnits, webId, queenThreadId);
       const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
-      checkpoint = applyAcceptances(checkpoint, decisions);
-      if (normalizedReceipt !== null) {
+      let checkpoint;
+      if (
+        normalizedReceipt?.type === "native-follow-up-delivered"
+      ) {
+        if (!stored) {
+          throw new Error("native follow-up receipt requires a persisted correction state");
+        }
+        checkpoint = applyDecisions(stored, decisions);
         checkpoint = applyObservationReceiptV1(checkpoint, normalizedReceipt).checkpoint;
+        const workUnit = workUnits.find(
+          ({ workUnitId }) => workUnitId === normalizedReceipt.workUnitId,
+        );
+        if (!workUnit) {
+          throw new Error("native follow-up receipt references an unknown work unit");
+        }
+        if (workUnit.attempt === normalizedReceipt.attempt) {
+          await this.#executionStore.advanceAttempt({
+            workUnitId: normalizedReceipt.workUnitId,
+            specRevision: normalizedReceipt.specRevision,
+            attempt: normalizedReceipt.attempt,
+          });
+        } else if (workUnit.attempt !== normalizedReceipt.nextAttempt) {
+          throw new Error("native follow-up receipt conflicts with the durable attempt");
+        }
+        scan = await this.#executionStore.scan();
+        workUnits = scan.workUnits.filter(
+          (candidate) =>
+            candidate.webId === webId &&
+            candidate.queenThreadId === queenThreadId,
+        );
+        checkpoint = synthesize(
+          checkpoint,
+          workUnits,
+          webId,
+          queenThreadId,
+        );
+      } else if (
+        normalizedReceipt?.type === "orchestration-member-repaired"
+      ) {
+        if (!stored) {
+          throw new Error("member repair receipt requires a persisted repair state");
+        }
+        checkpoint = applyDecisions(stored, decisions);
+        checkpoint = applyObservationReceiptV1(
+          checkpoint,
+          normalizedReceipt,
+        ).checkpoint;
+        await this.#executionStore.detachImpossibleRequiredMember({
+          workUnitId: normalizedReceipt.workUnitId,
+          specRevision: normalizedReceipt.specRevision,
+          attempt: normalizedReceipt.attempt,
+          memberThreadId: normalizedReceipt.memberThreadId,
+        });
+        scan = await this.#executionStore.scan();
+        workUnits = scan.workUnits.filter(
+          (candidate) =>
+            candidate.webId === webId &&
+            candidate.queenThreadId === queenThreadId,
+        );
+        checkpoint = synthesize(
+          checkpoint,
+          workUnits,
+          webId,
+          queenThreadId,
+        );
+      } else {
+        checkpoint = synthesize(stored, workUnits, webId, queenThreadId);
+        checkpoint = applyDecisions(checkpoint, decisions);
+        if (normalizedReceipt !== null) {
+          checkpoint = applyObservationReceiptV1(
+            checkpoint,
+            normalizedReceipt,
+          ).checkpoint;
+        }
       }
 
       const changed = stored === null || !sameState(stored, checkpoint);
@@ -363,6 +455,37 @@ export const MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA = Object.freeze({
           required: [
             "schemaVersion", "type", "actionId", ...IDENTITY_REQUIRED,
             "requestedTurnId", "sourceTurnId", "resultEnvelope",
+          ],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: {
+            schemaVersion: { const: 1 },
+            type: { const: "native-follow-up-delivered" },
+            actionId: { type: "string" },
+            ...IDENTITY_PROPERTIES,
+            rejectedSourceTurnId: { type: "string" },
+            nextAttempt: { type: "integer", minimum: 2 },
+          },
+          required: [
+            "schemaVersion", "type", "actionId", ...IDENTITY_REQUIRED,
+            "rejectedSourceTurnId", "nextAttempt",
+          ],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: {
+            schemaVersion: { const: 1 },
+            type: { const: "orchestration-member-repaired" },
+            actionId: { type: "string" },
+            ...IDENTITY_PROPERTIES,
+            resolution: { const: "detach" },
+          },
+          required: [
+            "schemaVersion", "type", "actionId", ...IDENTITY_REQUIRED,
+            "resolution",
           ],
           additionalProperties: false,
         },

@@ -87,6 +87,10 @@ test("work-unit validation rejects incompatible, ambiguous, and unbounded record
     [specInput({ attempt: 0 }), /attempt must be a positive integer/],
     [specInput({ capabilities: ["observe", "observe"] }), /must not contain duplicates/],
     [specInput({ capabilities: ["observe", "launch"] }), /unsupported work-unit capability/],
+    [
+      specInput({ capabilities: ["observe"] }),
+      /required result-bearing work units must include read-result/,
+    ],
     [specInput({ dependencies: ["work-unit"] }), /must not depend on itself/],
     [specInput({ unexpected: true }), /contains unknown field: unexpected/],
     [

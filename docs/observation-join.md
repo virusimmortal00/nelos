@@ -48,13 +48,15 @@ Each bound member has four orthogonal state groups:
 | Title | `pending`, `verified`, `attention` |
 | Execution | `unknown`, `waiting`, `running`, `terminal`, `attention` |
 | Result | `absent`, `current`, `stale`, `malformed` |
-| Coordination | `unjoined`, `waiting`, `collected`, `accepted`, `detached` |
+| Coordination | `unjoined`, `waiting`, `collected`, `correction-pending`, `accepted`, `detached` |
 
-Required planned members receive `observe` and `read-result` so their final
-envelope can become acceptance evidence. Lower-level contracts may deliberately
-be observe-only; when such a member reaches a terminal turn, Nelos emits no
-result-read effect and returns `attention` rather than fabricating a result or
-claiming acceptance. `archive` is granted to durable spinoffs by default so the
+Required result-bearing members must receive `observe` and `read-result`; new
+registrations that omit `read-result` fail before persistence. Optional
+observe-only members are non-result-bearing and cannot block collection. A
+legacy required observe-only member returns a diagnostic naming the member and
+missing capability plus an idempotent `orchestration-repair-member` detach
+action. Its exact consumed repair receipt is retained in the checkpoint audit
+history. `archive` is granted to durable spinoffs by default so the
 terminal cleanup policy can be honored; explicit `cleanupIntended: false`
 removes it. The built-in policy automatically archives only after exact-current
 acceptance; users can configure `ask` or `keep`. Joined subagents can never
@@ -98,6 +100,13 @@ carry the exact action ID.
   binding identity, and bounded result envelope. A result is `current` only
   when its source turn, revision, and attempt match current state. Corrective
   turns invalidate earlier result provenance.
+- `native-follow-up-delivered` consumes the exact typed correction action for
+  a rejected source turn and advances the same bound task to the next attempt.
+  The next wait and result-read action IDs include that new attempt and exact
+  later native turn.
+- `orchestration-member-repaired` detaches only the exact legacy required
+  member identified by the repair effect. It cannot replace or discard an
+  accepted result.
 
 ## Pure join reducer
 
@@ -108,8 +117,10 @@ dependency. In deterministic member order it emits:
    execution;
 2. at most one batched wait for required, nonterminal, unaccepted members;
 3. current-turn result reads for terminal members without a current result;
-4. `decide` only after every required member has a current successful result;
-5. `continue` only after exact queen acceptance.
+4. same-task follow-up effects for rejected results in `correction-pending`;
+5. audited detach repair effects for impossible legacy members;
+6. `decide` only after every required member has a current successful result;
+7. `continue` only after exact queen acceptance.
 
 Detached members do not block the join. The `continue` boundary includes
 `automaticWake: false`: it instructs the active parent callback and does not

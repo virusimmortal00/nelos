@@ -415,7 +415,7 @@ export function validateWorkUnitSpecV1(value) {
  */
 export function createWorkUnitSpecV1(value) {
   assertPlainObject(value, "work-unit spec input", CREATE_FIELDS);
-  return validateWorkUnitSpecV1({
+  const record = validateWorkUnitSpecV1({
     ...value,
     schemaVersion:
       value.schemaVersion === undefined
@@ -429,6 +429,16 @@ export function createWorkUnitSpecV1(value) {
     },
     replacementHistory: [],
   });
+  assertCreatableWorkUnit(record);
+  return record;
+}
+
+function assertCreatableWorkUnit(record) {
+  if (record.required && !record.capabilities.includes("read-result")) {
+    throw new Error(
+      "required result-bearing work units must include read-result capability",
+    );
+  }
 }
 
 /**
@@ -708,6 +718,7 @@ export class ExecutionStoreV1 {
 
   async create(value) {
     const record = validateWorkUnitSpecV1(value);
+    assertCreatableWorkUnit(record);
     if (
       record.binding.state !== "unbound" ||
       record.binding.generation !== 1 ||
@@ -851,6 +862,39 @@ export class ExecutionStoreV1 {
         );
       }
       return this.#write({ ...current, attempt: current.attempt + 1 });
+    });
+  }
+
+  async detachImpossibleRequiredMember(value) {
+    assertMutationInput(value, [
+      "workUnitId",
+      "specRevision",
+      "attempt",
+      "memberThreadId",
+    ]);
+    const workUnitId = assertWorkUnitId(value.workUnitId);
+    const memberThreadId = assertThreadId(value.memberThreadId);
+    return this.#mutate(workUnitId, async () => {
+      const current = await this.#required(workUnitId);
+      assertMatchingRevision(current, value.specRevision);
+      assertMatchingAttempt(current, value.attempt);
+      if (
+        current.binding.state !== "bound" ||
+        current.binding.memberThreadId !== memberThreadId
+      ) {
+        throw new ExecutionStoreRecordError(
+          "transition_conflict",
+          "member repair requires the matching bound task",
+        );
+      }
+      if (!current.required) return current;
+      if (current.capabilities.includes("read-result")) {
+        throw new ExecutionStoreRecordError(
+          "transition_conflict",
+          "only a required member missing read-result may be detached by repair",
+        );
+      }
+      return this.#write({ ...current, required: false });
     });
   }
 
