@@ -910,7 +910,8 @@ const TOOLS = [
     name: "nelos_orchestrate_advance",
     description:
       "Advance the durable callback-only title/wait/result join checkpoint. " +
-      "Returns typed host-owned effects and, after all required results are " +
+      "Also consumes typed correction-follow-up and legacy-member repair receipts. " +
+      "Returns typed effects and, after all required results are " +
       "accepted, gates the next wave or returns an exact cleanup action. Never starts or " +
       "discovers an app server.",
     inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,

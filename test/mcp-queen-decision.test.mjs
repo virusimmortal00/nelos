@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,9 @@ import test from "node:test";
 import {
   ExecutionStoreV1,
   createWorkUnitSpecV1,
+  executionRecordFileNameV1,
+  serializeWorkUnitSpecV1,
+  validateWorkUnitSpecV1,
 } from "../src/execution-store.mjs";
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
 import { McpQueenDecisionAdapterV1 } from "../src/mcp-queen-decision.mjs";
@@ -17,15 +20,15 @@ import {
   SpinoffLifecycleStoreV1,
 } from "../src/spinoff-lifecycle.mjs";
 
-function workUnit() {
-  return createWorkUnitSpecV1({
+function workUnit(overrides = {}) {
+  const base = {
     webId: "A1",
     queenThreadId: "queen",
     workUnitId: "alpha",
     specRevision: 1,
     attempt: 1,
     memberKind: "spinoff",
-    capabilities: ["observe", "read-result", "archive"],
+    capabilities: ["observe", "read-result", "follow-up", "archive"],
     title: "Alpha",
     objectiveSummary: "Produce a bounded result.",
     deliverable: "A current result envelope.",
@@ -37,15 +40,20 @@ function workUnit() {
       onBlocked: "queen-review",
       onFailure: "queen-review",
     },
+  };
+  return createWorkUnitSpecV1({
+    ...base,
+    ...overrides,
+    policy: { ...base.policy, ...overrides.policy },
   });
 }
 
-function resultEnvelope(outcome = "succeeded") {
+function resultEnvelope(outcome = "succeeded", attempt = 1) {
   return {
     schemaVersion: 1,
     workUnitId: "alpha",
     specRevision: 1,
-    attempt: 1,
+    attempt,
     outcome,
     summary: `${outcome} result`,
     artifacts: [],
@@ -55,7 +63,11 @@ function resultEnvelope(outcome = "succeeded") {
   };
 }
 
-async function fixture(t, outcome = "succeeded") {
+async function fixture(
+  t,
+  outcome = "succeeded",
+  { legacyObserver = false, workUnitOverrides = {} } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "nelos-mcp-decision-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const executionStore = new ExecutionStoreV1({
@@ -71,7 +83,7 @@ async function fixture(t, outcome = "succeeded") {
     directory: join(root, "lifecycle"),
     preferencePath: join(root, "cleanup-preference.json"),
   });
-  await executionStore.create(workUnit());
+  await executionStore.create(workUnit(workUnitOverrides));
   await executionStore.markLaunchPending({
     workUnitId: "alpha",
     specRevision: 1,
@@ -83,6 +95,38 @@ async function fixture(t, outcome = "succeeded") {
     launchActionId: "launch-alpha",
     memberThreadId: "thread-alpha",
   });
+  if (legacyObserver) {
+    // Simulate a record persisted before create-time result-capability guards.
+    const observer = validateWorkUnitSpecV1({
+      ...workUnit(),
+      workUnitId: "observer",
+      capabilities: ["observe"],
+      title: "Legacy observer",
+      binding: {
+        state: "unbound",
+        memberThreadId: null,
+        launchActionId: null,
+        generation: 1,
+      },
+      replacementHistory: [],
+    });
+    await mkdir(executionStore.directory, { recursive: true });
+    await writeFile(
+      join(executionStore.directory, executionRecordFileNameV1(observer.workUnitId)),
+      serializeWorkUnitSpecV1(observer),
+    );
+    await executionStore.markLaunchPending({
+      workUnitId: "observer",
+      specRevision: 1,
+      launchActionId: "launch-observer",
+    });
+    await executionStore.bind({
+      workUnitId: "observer",
+      specRevision: 1,
+      launchActionId: "launch-observer",
+      memberThreadId: "thread-observer",
+    });
+  }
 
   const joinAdapter = new McpJoinAdapterV1({
     executionStore,
@@ -320,8 +364,8 @@ test("stale, mismatched, failed, and cross-queen acceptance fails closed", async
   }
 });
 
-test("a current rejected decision persists but never changes cleanup eligibility", async (t) => {
-  const current = await fixture(t);
+test("rejection survives restart, repairs a legacy observer, and accepts a corrected turn", async (t) => {
+  const current = await fixture(t, "succeeded", { legacyObserver: true });
   const rejected = await new McpQueenDecisionAdapterV1(
     current.adapterOptions,
   ).decide(input(current.receipt, "rejected"), {
@@ -332,13 +376,203 @@ test("a current rejected decision persists but never changes cleanup eligibility
   const observed = await current.joinAdapter.advance(
     rejected.nextAction.arguments,
   );
-  assert.equal(observed.checkpoint.members[0].coordination.state, "collected");
-  assert.equal(observed.join.boundary.type, "decide");
+  assert.equal(
+    observed.checkpoint.members.find(
+      ({ workUnitId }) => workUnitId === "alpha",
+    ).coordination.state,
+    "correction-pending",
+  );
+  assert.deepEqual(observed.join.boundary.members, [{
+    workUnitId: "observer",
+    problem: "required-result-member-missing-read-result",
+    missingCapabilities: ["read-result"],
+    supportedActions: ["detach"],
+  }]);
+
+  const repair = observed.join.effects.find(
+    ({ type }) => type === "orchestration-repair-member",
+  );
+  const repaired = await current.joinAdapter.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "orchestration-member-repaired",
+      actionId: repair.actionId,
+      workUnitId: repair.workUnitId,
+      specRevision: repair.specRevision,
+      attempt: repair.attempt,
+      bindingGeneration: repair.bindingGeneration,
+      memberThreadId: repair.memberThreadId,
+      resolution: "detach",
+    },
+  });
+  assert.equal(
+    repaired.checkpoint.members.find(
+      ({ workUnitId }) => workUnitId === "observer",
+    ).coordination.state,
+    "detached",
+  );
+  const followUp = repaired.join.effects.find(
+    ({ type }) => type === "native-follow-up",
+  );
+  assert.equal(followUp.nextAttempt, 2);
+
+  const restartedJoin = new McpJoinAdapterV1({
+    executionStore: current.executionStore,
+    checkpointStore: current.checkpointStore,
+    acceptanceStore: current.acceptanceStore,
+    planRunStore: {
+      async listForWeb() {
+        return [];
+      },
+    },
+  });
+  const followUpReceipt = {
+    schemaVersion: 1,
+    type: "native-follow-up-delivered",
+    actionId: followUp.actionId,
+    workUnitId: followUp.workUnitId,
+    specRevision: followUp.specRevision,
+    attempt: followUp.attempt,
+    bindingGeneration: followUp.bindingGeneration,
+    memberThreadId: followUp.memberThreadId,
+    rejectedSourceTurnId: followUp.rejectedSourceTurnId,
+    nextAttempt: followUp.nextAttempt,
+  };
+  await assert.rejects(
+    restartedJoin.advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: {
+        ...followUpReceipt,
+        rejectedSourceTurnId: "different-rejected-turn",
+      },
+    }),
+    /does not match the rejected result/,
+  );
+  const correctionWaiting = await restartedJoin.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: followUpReceipt,
+  });
+  assert.equal((await current.executionStore.read("alpha")).attempt, 2);
+  assert.deepEqual(
+    await restartedJoin.advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: followUpReceipt,
+    }),
+    correctionWaiting,
+  );
+  const wait = correctionWaiting.join.effects.find(
+    ({ type }) => type === "native-wait",
+  );
+  const correctionTerminal = await restartedJoin.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: wait.actionId,
+      webId: "A1",
+      queenThreadId: "queen",
+      status: "event",
+      targets: wait.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-alpha-2",
+        lifecycle: "completed",
+        latestTurnId: "turn-alpha-2",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const read = correctionTerminal.join.effects.find(
+    ({ type }) => type === "native-read-result",
+  );
+  const correctedReceipt = {
+    schemaVersion: 1,
+    type: "native-result-read",
+    actionId: read.actionId,
+    workUnitId: "alpha",
+    specRevision: 1,
+    attempt: 2,
+    bindingGeneration: 1,
+    memberThreadId: "thread-alpha",
+    requestedTurnId: "turn-alpha-2",
+    sourceTurnId: "turn-alpha-2",
+    resultEnvelope: resultEnvelope("succeeded", 2),
+  };
+  const corrected = await restartedJoin.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: correctedReceipt,
+  });
+  assert.equal(corrected.join.boundary.type, "decide");
+
+  const accepted = await new McpQueenDecisionAdapterV1(
+    current.adapterOptions,
+  ).decide(input(correctedReceipt, "accepted"), {
+    appServerBridge: {
+      async latestTurn() {
+        return { turnId: "turn-alpha-2", status: "completed" };
+      },
+    },
+  });
+  assert.equal(accepted.decision.attempt, 2);
+  assert.equal(accepted.decision.sourceTurnId, "turn-alpha-2");
+  const continued = await restartedJoin.advance(
+    accepted.nextAction.arguments,
+  );
+  assert.deepEqual(continued.join.boundary, {
+    type: "continue",
+    reason: "all-required-results-accepted",
+    automaticWake: false,
+  });
+
   const cleanup = await current.lifecycle.cleanup({
     webId: "A1",
     queenThreadId: "queen",
     policy: "auto",
   });
-  assert.equal(cleanup.state, "not-ready");
-  assert.equal(cleanup.effects, undefined);
+  assert.equal(cleanup.state, "effects-required");
+  assert.deepEqual(
+    cleanup.effects.map(({ threadId }) => threadId),
+    ["thread-alpha"],
+  );
+});
+
+test("uncorrectable rejections surface attention without a follow-up effect", async (t) => {
+  const scenarios = [
+    {
+      capabilities: ["observe", "read-result", "archive"],
+    },
+    {
+      policy: { maxAttempts: 1 },
+    },
+  ];
+  for (const workUnitOverrides of scenarios) {
+    const current = await fixture(t, "succeeded", { workUnitOverrides });
+    const rejected = await new McpQueenDecisionAdapterV1(
+      current.adapterOptions,
+    ).decide(input(current.receipt, "rejected"), {
+      appServerBridge: currentBridge,
+    });
+    const observed = await current.joinAdapter.advance(
+      rejected.nextAction.arguments,
+    );
+    assert.equal(observed.checkpoint.members[0].coordination.state, "collected");
+    assert.equal(
+      observed.checkpoint.members[0].execution.attentionRequired,
+      true,
+    );
+    assert.equal(
+      observed.join.effects.some(({ type }) => type === "native-follow-up"),
+      false,
+    );
+    assert.deepEqual(observed.join.boundary, {
+      type: "attention",
+      reason: "member-evidence-requires-review",
+    });
+  }
 });

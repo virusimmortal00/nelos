@@ -795,6 +795,30 @@ const EFFECT_MEMBERS = [
     ...OBSERVATION_IDENTITY,
     requestedTurnId: ID,
   }),
+  discriminated("type", "native-follow-up", {
+    ...OBSERVATION_IDENTITY,
+    rejectedSourceTurnId: ID,
+    nextAttempt: { type: "integer", minimum: 2 },
+    prompt: TEXT,
+  }),
+  discriminated("type", "orchestration-repair-member", {
+    ...OBSERVATION_IDENTITY,
+    problem: { const: "required-result-member-missing-read-result" },
+    missingCapabilities: {
+      type: "array",
+      minItems: 1,
+      maxItems: 1,
+      uniqueItems: true,
+      items: { const: "read-result" },
+    },
+    supportedResolutions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 1,
+      uniqueItems: true,
+      items: { const: "detach" },
+    },
+  }),
   discriminated("type", "native-send-message", {
     actionId: ID,
     threadId: ID,
@@ -927,6 +951,15 @@ RECEIPT_MEMBERS.push(
     requestedTurnId: ID,
     sourceTurnId: ID,
     resultEnvelope: PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1,
+  }),
+  discriminated("type", "native-follow-up-delivered", {
+    ...OBSERVATION_IDENTITY,
+    rejectedSourceTurnId: ID,
+    nextAttempt: { type: "integer", minimum: 2 },
+  }),
+  discriminated("type", "orchestration-member-repaired", {
+    ...OBSERVATION_IDENTITY,
+    resolution: { const: "detach" },
   }),
   closed({ threadId: ID }),
   discriminated("type", "native-archive", {
@@ -1398,6 +1431,8 @@ function validateExecutable(value) {
     "native-set-title",
     "native-wait",
     "native-read-result",
+    "native-follow-up",
+    "orchestration-repair-member",
     "native-send-message",
     "native-archive",
   ].includes(effect.type)) {
@@ -1449,6 +1484,8 @@ function assertReceiptIdentity(executable, receipt) {
     "native-set-title": "native-title-observed",
     "native-wait": "native-wait",
     "native-read-result": "native-result-read",
+    "native-follow-up": "native-follow-up-delivered",
+    "orchestration-repair-member": "orchestration-member-repaired",
     "native-send-message": undefined,
     "native-archive": "native-archive",
   }[action.kind ?? action.type];
@@ -1469,6 +1506,17 @@ function assertReceiptIdentity(executable, receipt) {
           action[field],
         ),
       ))
+  ) return "receipt.conflicting";
+  if (
+    action.type === "native-follow-up" &&
+    (
+      receipt.rejectedSourceTurnId !== action.rejectedSourceTurnId ||
+      receipt.nextAttempt !== action.nextAttempt
+    )
+  ) return "receipt.conflicting";
+  if (
+    action.type === "orchestration-repair-member" &&
+    receipt.resolution !== "detach"
   ) return "receipt.conflicting";
   if (
     ["native-read-title", "native-set-title"].includes(action.type) &&

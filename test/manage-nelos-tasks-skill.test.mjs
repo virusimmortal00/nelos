@@ -63,6 +63,9 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /`ask` prompts\s+once with exact names\/IDs/);
   assert.match(skill, /only for an explicit always choice/);
   assert.match(skill, /`userIntentConfirmed: true`/);
+  assert.match(skill, /`orchestration-repair-member`/);
+  assert.match(skill, /`orchestration-member-repaired` receipt/);
+  assert.match(skill, /adding only `resolution: "detach"`/);
   assert.match(skill, /Call set\/reset only after an\s+explicit user request/i);
   assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);

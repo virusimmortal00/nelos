@@ -6,15 +6,15 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 # Manage Nelos Tasks
 
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes unstructured work. The queen identifies user-supplied plans and judges
-result acceptance. For settings, use `nelos_config_get`,
-`nelos_config_set`, or `nelos_config_reset`. Call set/reset only after an
-explicit user request with `userIntentConfirmed: true`; never use the CLI as fallback.
+decomposes work; the queen identifies user plans and judges results. Configure
+with `nelos_config_get`, `nelos_config_set`, or `nelos_config_reset`. Call set/reset only after an
+explicit user request with `userIntentConfirmed: true`;
+never use the CLI as fallback.
 Keep native kinds exact:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
   internal thread ID is verification evidence only. Never call it a spinoff.
-- A `spinoff` is a durable independent Codex task controlled by `threadId`.
+- A `spinoff` is a durable Codex task with `threadId`.
 
 ## Choose the Planning Path
 
@@ -23,21 +23,19 @@ Only if the user explicitly supplied a complete plan with `schemaVersion`,
 queen task ID. A queen-authored plan is not user-supplied and
 must not use this fast path.
 
-Otherwise call `nelos_plan_lifecycle` with schema version 1, the queen task ID,
-a caller-stable idempotency key, the objective, optional bounded
-context/parallelism, `receipt: null`, and `launchAuthorization: null`. Durable spinoffs are
-cleanup-capable by default; pass `cleanupIntended: false` only when the user
-explicitly forbids terminal cleanup. Do not first author slices or
-classify them in the queen. Execute only its returned action and call the tool
-again with the unchanged request, returned `bootstrapId`, and exact
-native receipt. Never substitute an agent path for a task ID.
+Otherwise call `nelos_plan_lifecycle` with schema version 1, queen task ID,
+caller-stable idempotency key, objective, optional bounded context/parallelism,
+`receipt: null`, and `launchAuthorization: null`. Spinoffs are cleanup-capable;
+use `cleanupIntended: false` only when explicitly requested. Do not first author slices or
+classify them in the queen. Execute only its returned action, then
+call again with the unchanged request, returned `bootstrapId`, and exact native
+receipt. Never substitute an agent path for a task ID.
 
-The coordinator verifies identity, parent, Sol/medium route, and result turn.
-Follow its actions until a wave; invalid or unverifiable evidence stops.
+The coordinator verifies identity, route, and result; invalid evidence stops.
 
 ## Follow the One Desktop Path
 
-After the fast path or validated bootstrap, execute only the returned
+After the fast path or bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
 - `native-set-title`: use only for the queen or a durable spinoff with its exact
@@ -92,6 +90,8 @@ After the fast path or validated bootstrap, execute only the returned
   once with exact names/IDs, and `keep` preserves them. Set `rememberPolicy:
   true` with `userIntentConfirmed: true` only for an explicit always choice;
   submit exact receipts until `complete`.
+- `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
+  adding only `resolution: "detach"`; never detach locally.
 - `attention`: stop and supply the missing launch inputs or resolve the named
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.

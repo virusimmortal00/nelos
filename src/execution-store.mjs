@@ -415,7 +415,7 @@ export function validateWorkUnitSpecV1(value) {
  */
 export function createWorkUnitSpecV1(value) {
   assertPlainObject(value, "work-unit spec input", CREATE_FIELDS);
-  return validateWorkUnitSpecV1({
+  const record = validateWorkUnitSpecV1({
     ...value,
     schemaVersion:
       value.schemaVersion === undefined
@@ -429,6 +429,16 @@ export function createWorkUnitSpecV1(value) {
     },
     replacementHistory: [],
   });
+  assertCreatableWorkUnit(record);
+  return record;
+}
+
+function assertCreatableWorkUnit(record) {
+  if (record.required && !record.capabilities.includes("read-result")) {
+    throw new Error(
+      "required result-bearing work units must include read-result capability",
+    );
+  }
 }
 
 /**
@@ -465,7 +475,7 @@ export class ExecutionStoreRecordError extends Error {
   }
 }
 
-function recordFileName(workUnitId) {
+export function executionRecordFileNameV1(workUnitId) {
   return `${encodeURIComponent(assertWorkUnitId(workUnitId))}.json`;
 }
 
@@ -533,7 +543,7 @@ export class ExecutionStoreV1 {
   }
 
   #pathFor(workUnitId) {
-    return join(this.#directory, recordFileName(workUnitId));
+    return join(this.#directory, executionRecordFileNameV1(workUnitId));
   }
 
   async #loadPath(path, expectedWorkUnitId) {
@@ -541,14 +551,14 @@ export class ExecutionStoreV1 {
     if (!metadata.isFile() || metadata.size > MAX_RECORD_BYTES) {
       throw new ExecutionStoreRecordError(
         metadata.size > MAX_RECORD_BYTES ? "oversized_record" : "invalid_record",
-        `execution record ${recordFileName(expectedWorkUnitId)} is malformed`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} is malformed`,
       );
     }
     const source = await this.#fileSystem.readFile(path, "utf8");
     if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {
       throw new ExecutionStoreRecordError(
         "oversized_record",
-        `execution record ${recordFileName(expectedWorkUnitId)} is malformed`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} is malformed`,
       );
     }
     let parsed;
@@ -557,14 +567,14 @@ export class ExecutionStoreV1 {
     } catch (error) {
       throw new ExecutionStoreRecordError(
         "invalid_json",
-        `execution record ${recordFileName(expectedWorkUnitId)} is malformed`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} is malformed`,
         { cause: error },
       );
     }
     if (parsed?.schemaVersion !== WORK_UNIT_SPEC_SCHEMA_VERSION) {
       throw new ExecutionStoreRecordError(
         "unsupported_schema_version",
-        `execution record ${recordFileName(expectedWorkUnitId)} has an unsupported schema version`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} has an unsupported schema version`,
       );
     }
     let record;
@@ -573,14 +583,14 @@ export class ExecutionStoreV1 {
     } catch (error) {
       throw new ExecutionStoreRecordError(
         "invalid_record",
-        `execution record ${recordFileName(expectedWorkUnitId)} is malformed`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} is malformed`,
         { cause: error },
       );
     }
     if (record.workUnitId !== expectedWorkUnitId) {
       throw new ExecutionStoreRecordError(
         "identity_mismatch",
-        `execution record ${recordFileName(expectedWorkUnitId)} has a mismatched work-unit ID`,
+        `execution record ${executionRecordFileNameV1(expectedWorkUnitId)} has a mismatched work-unit ID`,
       );
     }
     return record;
@@ -642,7 +652,7 @@ export class ExecutionStoreV1 {
       if (error instanceof ExecutionStoreRecordError) throw error;
       throw new ExecutionStoreRecordError(
         "unreadable_record",
-        `failed to read execution record ${recordFileName(workUnitId)}`,
+        `failed to read execution record ${executionRecordFileNameV1(workUnitId)}`,
         { cause: error },
       );
     }
@@ -676,7 +686,7 @@ export class ExecutionStoreV1 {
       try {
         expectedWorkUnitId = decodeURIComponent(encodedWorkUnitId);
         assertWorkUnitId(expectedWorkUnitId);
-        if (recordFileName(expectedWorkUnitId) !== entry.name) {
+        if (executionRecordFileNameV1(expectedWorkUnitId) !== entry.name) {
           throw new Error("non-canonical record name");
         }
         workUnits.push(
@@ -708,6 +718,7 @@ export class ExecutionStoreV1 {
 
   async create(value) {
     const record = validateWorkUnitSpecV1(value);
+    assertCreatableWorkUnit(record);
     if (
       record.binding.state !== "unbound" ||
       record.binding.generation !== 1 ||
@@ -730,6 +741,7 @@ export class ExecutionStoreV1 {
 
   async revise(value, { expectedSpecRevision } = {}) {
     const next = validateWorkUnitSpecV1(value);
+    assertCreatableWorkUnit(next);
     return this.#mutate(next.workUnitId, async () => {
       const current = await this.#required(next.workUnitId);
       assertMatchingRevision(current, expectedSpecRevision);
@@ -851,6 +863,39 @@ export class ExecutionStoreV1 {
         );
       }
       return this.#write({ ...current, attempt: current.attempt + 1 });
+    });
+  }
+
+  async detachImpossibleRequiredMember(value) {
+    assertMutationInput(value, [
+      "workUnitId",
+      "specRevision",
+      "attempt",
+      "memberThreadId",
+    ]);
+    const workUnitId = assertWorkUnitId(value.workUnitId);
+    const memberThreadId = assertThreadId(value.memberThreadId);
+    return this.#mutate(workUnitId, async () => {
+      const current = await this.#required(workUnitId);
+      assertMatchingRevision(current, value.specRevision);
+      assertMatchingAttempt(current, value.attempt);
+      if (
+        current.binding.state !== "bound" ||
+        current.binding.memberThreadId !== memberThreadId
+      ) {
+        throw new ExecutionStoreRecordError(
+          "transition_conflict",
+          "member repair requires the matching bound task",
+        );
+      }
+      if (!current.required) return current;
+      if (current.capabilities.includes("read-result")) {
+        throw new ExecutionStoreRecordError(
+          "transition_conflict",
+          "only a required member missing read-result may be detached by repair",
+        );
+      }
+      return this.#write({ ...current, required: false });
     });
   }
 

@@ -328,9 +328,45 @@ test("terminal members without read-result capability require attention", () => 
     false,
   );
   assert.deepEqual(reduced.boundary, {
-    type: "attention",
-    reason: "member-evidence-requires-review",
+    type: "action",
+    reason: "legacy-members-require-repair",
+    members: [{
+      workUnitId: "alpha",
+      problem: "required-result-member-missing-read-result",
+      missingCapabilities: ["read-result"],
+      supportedActions: ["detach"],
+    }],
   });
+  const repair = reduced.effects.find(
+    ({ type }) => type === "orchestration-repair-member",
+  );
+  assert.deepEqual(repair.supportedResolutions, ["detach"]);
+  const repaired = applyObservationReceiptV1(terminal, {
+    schemaVersion: 1,
+    type: "orchestration-member-repaired",
+    actionId: repair.actionId,
+    workUnitId: repair.workUnitId,
+    specRevision: repair.specRevision,
+    attempt: repair.attempt,
+    bindingGeneration: repair.bindingGeneration,
+    memberThreadId: repair.memberThreadId,
+    resolution: "detach",
+  });
+  assert.equal(repaired.checkpoint.members[0].coordination.state, "detached");
+  assert.equal(
+    applyObservationReceiptV1(repaired.checkpoint, {
+      schemaVersion: 1,
+      type: "orchestration-member-repaired",
+      actionId: repair.actionId,
+      workUnitId: repair.workUnitId,
+      specRevision: repair.specRevision,
+      attempt: repair.attempt,
+      bindingGeneration: repair.bindingGeneration,
+      memberThreadId: repair.memberThreadId,
+      resolution: "detach",
+    }).replayed,
+    true,
+  );
 });
 
 test("receipt replay history retains a bounded newest-first window", () => {

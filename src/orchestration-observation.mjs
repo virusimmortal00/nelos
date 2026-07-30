@@ -169,10 +169,70 @@ export function validateNativeResultReadReceiptV1(value) {
   };
 }
 
+export function validateNativeFollowUpDeliveredReceiptV1(value) {
+  const receipt = exact(value, [
+    "schemaVersion", "type", "actionId", "workUnitId", "specRevision",
+    "attempt", "bindingGeneration", "memberThreadId", "rejectedSourceTurnId",
+    "nextAttempt",
+  ], "native follow-up receipt");
+  if (
+    receipt.schemaVersion !== 1 ||
+    receipt.type !== "native-follow-up-delivered"
+  ) {
+    throw new Error("native follow-up receipt type or schemaVersion is invalid");
+  }
+  const identity = commonIdentity(receipt, "native follow-up receipt");
+  const nextAttempt = positive(
+    receipt.nextAttempt,
+    "native follow-up receipt nextAttempt",
+  );
+  if (nextAttempt !== identity.attempt + 1) {
+    throw new Error("native follow-up receipt nextAttempt is not contiguous");
+  }
+  return {
+    schemaVersion: 1,
+    type: "native-follow-up-delivered",
+    actionId: id(receipt.actionId, "native follow-up receipt actionId"),
+    ...identity,
+    rejectedSourceTurnId: id(
+      receipt.rejectedSourceTurnId,
+      "native follow-up receipt rejectedSourceTurnId",
+    ),
+    nextAttempt,
+  };
+}
+
+export function validateMemberRepairReceiptV1(value) {
+  const receipt = exact(value, [
+    "schemaVersion", "type", "actionId", "workUnitId", "specRevision",
+    "attempt", "bindingGeneration", "memberThreadId", "resolution",
+  ], "member repair receipt");
+  if (
+    receipt.schemaVersion !== 1 ||
+    receipt.type !== "orchestration-member-repaired" ||
+    receipt.resolution !== "detach"
+  ) {
+    throw new Error("member repair receipt type, schemaVersion, or resolution is invalid");
+  }
+  return {
+    schemaVersion: 1,
+    type: "orchestration-member-repaired",
+    actionId: id(receipt.actionId, "member repair receipt actionId"),
+    ...commonIdentity(receipt, "member repair receipt"),
+    resolution: "detach",
+  };
+}
+
 export function validateObservationReceiptV1(value) {
   if (value?.type === "native-title-observed") return validateNativeTitleObservedReceiptV1(value);
   if (value?.type === "native-wait") return validateNativeWaitReceiptV1(value);
   if (value?.type === "native-result-read") return validateNativeResultReadReceiptV1(value);
+  if (value?.type === "native-follow-up-delivered") {
+    return validateNativeFollowUpDeliveredReceiptV1(value);
+  }
+  if (value?.type === "orchestration-member-repaired") {
+    return validateMemberRepairReceiptV1(value);
+  }
   throw new Error("observation receipt type is unsupported");
 }
 
@@ -247,6 +307,49 @@ function readEffect(member) {
   };
 }
 
+function correctionPrompt(member) {
+  return [
+    "Correct the result rejected by the queen in this same task.",
+    `Preserve workUnitId ${member.workUnitId} and specRevision ${member.specRevision};`,
+    `return attempt ${member.attempt + 1}.`,
+    "Finish with exactly one valid final nelos-result block and no trailing prose.",
+  ].join(" ");
+}
+
+function followUpEffect(member) {
+  return {
+    schemaVersion: 1,
+    type: "native-follow-up",
+    actionId:
+      `observation-v1/correction/${identityToken(member)}` +
+      `/${encodeURIComponent(member.result.sourceTurnId)}`,
+    workUnitId: member.workUnitId,
+    specRevision: member.specRevision,
+    attempt: member.attempt,
+    bindingGeneration: member.bindingGeneration,
+    memberThreadId: member.memberThreadId,
+    rejectedSourceTurnId: member.result.sourceTurnId,
+    nextAttempt: member.attempt + 1,
+    prompt: correctionPrompt(member),
+  };
+}
+
+function repairEffect(member) {
+  return {
+    schemaVersion: 1,
+    type: "orchestration-repair-member",
+    actionId: `observation-v1/repair/${identityToken(member)}/detach`,
+    workUnitId: member.workUnitId,
+    specRevision: member.specRevision,
+    attempt: member.attempt,
+    bindingGeneration: member.bindingGeneration,
+    memberThreadId: member.memberThreadId,
+    problem: "required-result-member-missing-read-result",
+    missingCapabilities: ["read-result"],
+    supportedResolutions: ["detach"],
+  };
+}
+
 /** Pure projection: no I/O, time, process, transport, or app-server behavior. */
 export function reduceObservationJoinV1(value) {
   const checkpoint = validateOrchestrationCheckpointV1(value);
@@ -259,7 +362,7 @@ export function reduceObservationJoinV1(value) {
   const waitMembers = activeRequired.filter(
     (member) =>
       !["terminal", "attention"].includes(member.execution.state) &&
-      member.coordination.state !== "accepted",
+      !["accepted", "correction-pending"].includes(member.coordination.state),
   );
   const resultEffects = activeRequired
     .filter(
@@ -267,13 +370,28 @@ export function reduceObservationJoinV1(value) {
         member.execution.state === "terminal" &&
         member.execution.latestTurnId !== null &&
         member.capabilities.includes("read-result") &&
+        member.coordination.state !== "correction-pending" &&
         member.result.state !== "current",
     )
     .map(readEffect);
+  const correctionMembers = activeRequired.filter(
+    (member) =>
+      member.coordination.state === "correction-pending" &&
+      member.result.state === "current" &&
+      member.result.sourceTurnId !== null &&
+      member.capabilities.includes("follow-up"),
+  );
+  const impossibleMembers = activeRequired.filter(
+    (member) =>
+      member.execution.state === "terminal" &&
+      !member.capabilities.includes("read-result"),
+  );
   const effects = [
     ...titleEffects,
     ...(waitMembers.length > 0 ? [waitEffect(checkpoint, waitMembers)] : []),
     ...resultEffects,
+    ...correctionMembers.map(followUpEffect),
+    ...impossibleMembers.map(repairEffect),
   ];
 
   const hasAttention = activeRequired.some(
@@ -281,17 +399,32 @@ export function reduceObservationJoinV1(value) {
       member.title.state === "attention" ||
       member.execution.state === "attention" ||
       member.execution.attentionRequired ||
-      (member.execution.state === "terminal" &&
-        !member.capabilities.includes("read-result")) ||
       ["stale", "malformed"].includes(member.result.state) ||
-      (member.result.state === "current" && member.result.envelope.outcome !== "succeeded"),
+      (member.result.state === "current" &&
+        member.result.envelope.outcome !== "succeeded"),
   );
   const allCurrentSucceeded = activeRequired.every(
     (member) => member.result.state === "current" && member.result.envelope.outcome === "succeeded",
   );
   const allAccepted = activeRequired.every((member) => member.coordination.state === "accepted");
-  const boundary = hasAttention
-    ? { type: "attention", reason: "member-evidence-requires-review" }
+  const boundary = impossibleMembers.length > 0
+    ? {
+        type: "action",
+        reason: "legacy-members-require-repair",
+        members: impossibleMembers.map((member) => ({
+          workUnitId: member.workUnitId,
+          problem: "required-result-member-missing-read-result",
+          missingCapabilities: ["read-result"],
+          supportedActions: ["detach"],
+        })),
+      }
+    : hasAttention
+      ? { type: "attention", reason: "member-evidence-requires-review" }
+      : correctionMembers.length > 0
+        ? {
+            type: "action",
+            reason: "rejected-results-require-correction",
+          }
     : allAccepted
       ? {
           type: "continue",
@@ -411,7 +544,7 @@ export function applyObservationReceiptV1(value, rawReceipt) {
         member.coordination.state = "waiting";
       }
     }
-  } else {
+  } else if (receipt.type === "native-result-read") {
     const member = matchingMember({ ...checkpoint, members }, receipt);
     if (
       receipt.requestedTurnId !== member.execution.latestTurnId ||
@@ -447,6 +580,33 @@ export function applyObservationReceiptV1(value, rawReceipt) {
       };
       member.coordination.state = current ? "collected" : "waiting";
     }
+  } else if (receipt.type === "native-follow-up-delivered") {
+    const member = matchingMember({ ...checkpoint, members }, receipt);
+    if (
+      member.coordination.state !== "correction-pending" ||
+      member.result.state !== "current" ||
+      member.result.sourceTurnId !== receipt.rejectedSourceTurnId ||
+      receipt.nextAttempt !== member.attempt + 1
+    ) {
+      throw new Error("native follow-up receipt does not match the rejected result");
+    }
+    member.attempt = receipt.nextAttempt;
+    member.execution.state = "waiting";
+    member.execution.attentionRequired = false;
+    member.result = {
+      state: "absent",
+      sourceTurnId: null,
+      envelope: null,
+      errorCode: null,
+    };
+    member.coordination.state = "waiting";
+  } else if (receipt.type === "orchestration-member-repaired") {
+    const member = matchingMember({ ...checkpoint, members }, receipt);
+    member.required = false;
+    member.coordination.state = "detached";
+    member.execution.attentionRequired = false;
+  } else {
+    throw new Error(`observation receipt type ${receipt.type} is unhandled`);
   }
 
   return {

@@ -71,6 +71,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "native-set-title",
     "native-wait",
     "native-read-result",
+    "native-follow-up",
+    "orchestration-repair-member",
     "native-send-message",
     "native-reconcile-send-message",
     "native-archive",
@@ -85,6 +87,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "native-title-observed",
     "native-wait",
     "native-result-read",
+    "native-follow-up-delivered",
+    "orchestration-member-repaired",
     "native-archive",
   ]);
   assert.equal(

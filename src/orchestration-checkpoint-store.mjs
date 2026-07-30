@@ -12,7 +12,14 @@ const WORK_UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const TITLE_STATES = new Set(["pending", "verified", "attention"]);
 const EXECUTION_STATES = new Set(["unknown", "waiting", "running", "terminal", "attention"]);
 const RESULT_STATES = new Set(["absent", "current", "stale", "malformed"]);
-const COORDINATION_STATES = new Set(["unjoined", "waiting", "collected", "accepted", "detached"]);
+const COORDINATION_STATES = new Set([
+  "unjoined",
+  "waiting",
+  "collected",
+  "correction-pending",
+  "accepted",
+  "detached",
+]);
 const CAPABILITIES = new Set(["observe", "read-result", "follow-up", "archive"]);
 
 function fail(message) {

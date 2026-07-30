@@ -281,7 +281,19 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     openWorldHint: false,
   });
   assert.equal(advance.inputSchema.additionalProperties, false);
-  assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 4);
+  assert.equal(advance.inputSchema.properties.receipt.anyOf.length, 6);
+  assert.deepEqual(
+    advance.inputSchema.properties.receipt.anyOf
+      .map((schema) => schema.properties?.type?.const)
+      .filter(Boolean),
+    [
+      "native-title-observed",
+      "native-wait",
+      "native-result-read",
+      "native-follow-up-delivered",
+      "orchestration-member-repaired",
+    ],
+  );
   const queenDecision = tools.find(
     ({ name }) => name === "nelos_queen_decide",
   );

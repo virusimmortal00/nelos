@@ -102,7 +102,8 @@ long-lived
   emits an idempotent title-sync effect; and
 - `nelos_orchestrate_advance` — a callback-only observation and join adapter.
   It writes a separate private web checkpoint, validates exact title, wait,
-  and result receipts, and returns typed host-owned effects. See
+  result, correction-follow-up, and legacy-member repair receipts, and returns
+  typed effects. See
   [Durable Host Observation and Parent Join](observation-join.md);
 - `nelos_queen_decide` — records one accepted or rejected queen decision only
   for an exact `native-result-read` receipt already consumed by the persisted
@@ -389,6 +390,25 @@ policy for that web when cleanup begins; the built-in default is `auto`, and
 future webs. Missing,
 rejected, stale, mismatched, failed, blocked, or cross-queen evidence remains
 cleanup `not-ready` and yields no archive effect.
+
+A rejected exact-current decision changes the member to
+`correction-pending`. The next advance returns one turn-bound
+`native-follow-up` effect for the same task and the next attempt. After the host
+delivers it, submit the exact `native-follow-up-delivered` receipt to advance;
+Nelos durably increments the attempt before emitting a new wait/read sequence.
+The corrected turn therefore receives a fresh `native-result-read` action ID
+and can be accepted normally after restart. Reading the Codex task directly
+still does not create acceptable queen-decision provenance. If follow-up is
+unavailable or the attempt budget is exhausted, rejection instead surfaces
+attention and does not advertise an unusable correction effect.
+
+New required result-bearing registrations without `read-result` are rejected.
+For a legacy persisted required observe-only member, advance returns the member
+ID, missing capability, supported `detach` action, and an exact
+`orchestration-repair-member` action boundary. The shipped task-management
+skill submits its exact idempotent receipt, which reclassifies the
+execution as non-required and records the repair without changing accepted
+results.
 
 ## User-visible install contract
 

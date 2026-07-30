@@ -113,7 +113,7 @@ One record owns a stable `intentId` and these independent state groups:
 | Launch | `planned`, `creating`, `provisioning`, `bound`, `attention` | Durable Nelos receipt plus native creation result |
 | Title | `pending`, `applying`, `verified`, `attention` | Native title write and subsequent native observation |
 | Execution | `unknown`, `queued`, `running`, `terminal`, `attention` | Native wait/read result |
-| Coordination | `unjoined`, `waiting`, `collected`, `accepted`, `detached` | Queen decision and result provenance |
+| Coordination | `unjoined`, `waiting`, `collected`, `correction-pending`, `accepted`, `detached` | Queen decision and result provenance |
 
 The launch intent should persist at least:
 
@@ -312,7 +312,8 @@ Until then, the title receipt and queen join loop are the compatibility layer.
 | Wait times out | Persist progress/cursors and wait again or yield an explicit resumable checkpoint. |
 | Queen process/turn stops | Resume from receipts; do not recreate members. |
 | Member result is stale | Reject for acceptance and wait/read the current turn. |
-| Member needs correction | Follow up in the same task and rejoin it. |
+| Member needs correction | If follow-up capability and attempt budget remain, persist `correction-pending`, consume the typed same-task follow-up receipt, advance the attempt, and rejoin the later turn; otherwise surface attention without an unusable follow-up. |
+| Legacy required member lacks `read-result` | Return the exact member/capability diagnostic and an audited idempotent detach repair action. |
 
 ## Implementation Slices
 
