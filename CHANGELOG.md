@@ -22,6 +22,12 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Cleanup now snapshots its effective policy for the whole web when terminal
   cleanup begins, so later global changes affect future webs without changing
   an archive or confirmation sequence already underway.
+- Added a deterministic execution gate for planned waves. Nelos now emits
+  `launch-wave` only after the native host authorizes every exact launcher,
+  task kind, workspace mode, model, reasoning route, and task creation.
+- Authorization proposals now include a typed host effect backed by the
+  `nelos_launch_authorize` receipt producer, preventing installed Desktop flows
+  from stopping without a way to complete the authorized replay.
 
 ### Compatibility requirements
 
@@ -37,6 +43,10 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   legacy state fails closed.
 - Reset removes both the TOML override and any legacy preference, restoring the
   built-in `auto` default.
+- Planning callers should start with `launchAuthorization: null`, then replay
+  the unchanged request with the exact `native-launch-authorization` receipt
+  returned by the host. Missing or partial evidence no longer permits fallback
+  execution.
 
 ### Security fixes
 

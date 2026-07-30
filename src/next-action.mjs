@@ -8,6 +8,7 @@ import {
 import {
   normalizeLaunchMemberV1,
 } from "./launch-contract.mjs";
+import { gateLaunchWaveActionV1 } from "./launch-execution-gate.mjs";
 import { workUnitDefinitionV1 } from "./execution-store.mjs";
 import { workUnitFromLaunchMemberV1 } from "./plan-orchestration-bridge.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
@@ -195,6 +196,7 @@ export function derivePlanWaveActionV1(
   planRun = null,
   waveIndex = plan?.waves?.[0]?.index,
   cleanupIntended = true,
+  launchAuthorization = null,
 ) {
   const currentWave = plan?.waves?.find(
     ({ index }) => index === waveIndex,
@@ -229,7 +231,7 @@ export function derivePlanWaveActionV1(
   ) {
     throw new Error("launch wave conflicts with its persisted member contract");
   }
-  return action("launch-wave", {
+  const proposed = action("launch-wave", {
     waveIndex: currentWave.index,
     members: currentWave.slices.map((slice) => ({
       ...launchMember(
@@ -258,6 +260,7 @@ export function derivePlanWaveActionV1(
       ({ index }) => index > currentWave.index,
     ).length,
   });
+  return gateLaunchWaveActionV1(proposed, launchAuthorization);
 }
 
 function webCollectionAction(output) {
@@ -398,6 +401,7 @@ export function deriveNextAction(output) {
         output.planRun,
         output.plan.waves[0]?.index,
         output.cleanupIntended ?? true,
+        output.launchAuthorization ?? null,
       );
     case "web begin":
     case "web join":

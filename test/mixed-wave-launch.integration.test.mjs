@@ -7,6 +7,7 @@ import { withNextAction } from "../src/next-action.mjs";
 import { workUnitFromLaunchMemberV1 } from "../src/plan-orchestration-bridge.mjs";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 test("the mixed launch adapter and planner bridge are public package subpaths", async () => {
   const [adapter, bridge] = await Promise.all([
@@ -57,7 +58,12 @@ function mixedLaunchAction() {
       queenTitle: "👑 A1 · Mixed wave",
     },
   });
-  return withNextAction({ command: "plan slices", plan, planRun }).nextAction;
+  const input = { command: "plan slices", plan, planRun };
+  const proposal = withNextAction(input).nextAction;
+  return withNextAction({
+    ...input,
+    launchAuthorization: authorizeLaunchProposal(proposal),
+  }).nextAction;
 }
 
 test("a mixed wave dispatches both native launchers concurrently and verifies routes", async () => {

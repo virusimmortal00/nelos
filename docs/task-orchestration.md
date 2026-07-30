@@ -144,12 +144,19 @@ reuse of an `intentId` with different inputs.
 
 ## Launch Protocol
 
-1. **Prepare the intent before mutation.** Write `planned` with the desired
+1. **Authorize the exact wave before mutation.** Planning returns a bounded
+   `authorization-required` proposal with a `native-authorize-launch` effect.
+   Execute its named `nelos_launch_authorize` producer using bounded current
+   native tool-registry capabilities and confirmed user intent, then replay its
+   typed wave-bound receipt. Missing, negative, partial, stale, or mismatched
+   evidence cannot produce `launch-wave`; planning a graph alone is never
+   permission to create user-visible tasks.
+2. **Prepare the intent before mutation.** Write `planned` with the desired
    title, target, route, queen, and work-unit provenance.
-2. **Claim creation once.** Move to `creating` under the existing queen/action
+3. **Claim creation once.** Move to `creating` under the existing queen/action
    lock, then dispatch the persisted launcher exactly once:
    `create-thread` for a spinoff or `spawn-subagent` for a joined subagent.
-3. **Record the native receipt before further effects.**
+4. **Record the native receipt before further effects.**
    - A spinoff's returned `threadId` moves launch directly to `bound`.
    - A joined subagent's returned canonical `agentPath` is its primary control
      identity. Its resolved internal thread ID is retained only as verification
@@ -160,7 +167,7 @@ reuse of an `intentId` with different inputs.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-4. **Persist one web identity, then settle queen and spinoff titles.** For a
+5. **Persist one web identity, then settle queen and spinoff titles.** For a
    durable plan, Nelos reuses the queen's existing legacy web record or marked
    title, or allocates through that compatibility registry once. The web ID,
    exact queen title, and every durable member's decorated title are persisted
@@ -178,7 +185,7 @@ reuse of an `intentId` with different inputs.
    returns one deterministic post-bind `native-set-title`/verify action and
    gates the wave until exact equality is observed. Joined subagents have no
    native title-control contract; their title check is `not-applicable`.
-5. **Join required work.** Once every required current-wave member is bound,
+6. **Join required work.** Once every required current-wave member is bound,
    enter the queen join loop. Detached members are recorded but excluded.
 
 The standalone app-server adapter can continue its stronger sequence of

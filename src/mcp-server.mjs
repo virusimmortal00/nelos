@@ -64,6 +64,11 @@ import {
   MCP_PROTOCOL_TOOL_CONTRACTS_V1,
 } from "./protocol-contract/index.mjs";
 import {
+  createLaunchAuthorizationReceiptV1,
+  LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
+  LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
+} from "./launch-execution-gate.mjs";
+import {
   listWebRecords,
   readWebRecord,
   withWebRegistryLock,
@@ -128,6 +133,7 @@ async function plannedSlicesOutput(
     parentPlanRun = null,
     webRegistry,
     cleanupIntended = true,
+    launchAuthorization = null,
   },
 ) {
   let sourceId =
@@ -263,15 +269,14 @@ async function plannedSlicesOutput(
       cleanupIntended,
     }),
   );
-  const output = {
-    ...withNextAction({
-      command: "plan slices",
-      plan,
-      planRun,
-      cleanupIntended,
-      ...additionalFields,
-    }),
-  };
+  const { launchAuthorization: _authorization, ...output } = withNextAction({
+    command: "plan slices",
+    plan,
+    planRun,
+    cleanupIntended,
+    launchAuthorization,
+    ...additionalFields,
+  });
   if (plan.summary.spinoffs === 0) return output;
 
   const requestedTitle = planRun.webIdentity.queenTitle;
@@ -312,10 +317,20 @@ const TOOLS = [
       "strict result contract. Call it again with the exact planner response to " +
       "validate and route the plan; callers with an existing structured plan " +
       "should use nelos_plan_slices directly.",
-    inputSchema: PLANNING_BOOTSTRAP_INPUT_SCHEMA,
+    inputSchema: {
+      ...PLANNING_BOOTSTRAP_INPUT_SCHEMA,
+      properties: {
+        ...PLANNING_BOOTSTRAP_INPUT_SCHEMA.properties,
+        launchAuthorization: LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
+      },
+    },
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { appServerBridge, planRunStore, webRegistry }) {
-      const { queenThreadId, ...bootstrapArgs } = args;
+      const {
+        queenThreadId,
+        launchAuthorization = null,
+        ...bootstrapArgs
+      } = args;
       if (args.response !== undefined) {
         if (typeof queenThreadId !== "string" || !queenThreadId.trim()) {
           throw new Error(
@@ -340,7 +355,12 @@ const TOOLS = [
               classificationEvidence: finalized.classificationEvidence,
             },
           },
-          { queenThreadId, planRunStore, webRegistry },
+          {
+            queenThreadId,
+            planRunStore,
+            webRegistry,
+            launchAuthorization,
+          },
         );
       }
       return withNextAction({
@@ -355,7 +375,8 @@ const TOOLS = [
       "Durably coordinate the exact Sol/medium planning lifecycle through " +
       "typed native launch and result receipts. Uses a caller-stable " +
       "idempotency key, verifies joined-subagent identity, topology, route, " +
-      "and terminal result turn, and returns exactly one replay-safe next action.",
+      "and terminal result turn, then requires exact native-host launch " +
+      "authorization before returning an executable wave.",
     inputSchema: PLANNING_LIFECYCLE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, {
@@ -381,6 +402,7 @@ const TOOLS = [
           planRunStore,
           webRegistry,
           cleanupIntended: args.cleanupIntended ?? true,
+          launchAuthorization: args.launchAuthorization ?? null,
         },
       );
     },
@@ -436,6 +458,7 @@ const TOOLS = [
           parentPlanRun,
           webRegistry,
           cleanupIntended: parentPlanRun.cleanupIntended,
+          launchAuthorization: args.launchAuthorization ?? null,
         },
       );
     },
@@ -445,7 +468,8 @@ const TOOLS = [
     description:
       "Validate a structured slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
-      "machine-generated nextAction. Plans containing spinoffs first " +
+      "machine-generated nextAction. Every wave requires exact native-host " +
+      "capability and creation authorization. Plans containing spinoffs first " +
       "synchronize and verify the current queen title through Codex.",
     inputSchema: {
       type: "object",
@@ -470,6 +494,7 @@ const TOOLS = [
           description:
             "Grant archive capability for terminal cleanup. Defaults to true; the configured cleanup policy decides whether eligible accepted spin-offs are archived.",
         },
+        launchAuthorization: LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
       },
       required: ["plan", "queenThreadId"],
       additionalProperties: false,
@@ -486,8 +511,26 @@ const TOOLS = [
           planRunStore,
           webRegistry,
           cleanupIntended: args.cleanupIntended ?? true,
+          launchAuthorization: args.launchAuthorization ?? null,
         },
       );
+    },
+  },
+  {
+    name: "nelos_launch_authorize",
+    description:
+      "Produce one exact native-launch-authorization receipt from the " +
+      "machine-generated authorization request, bounded capabilities copied " +
+      "from the current native host tool registry, and explicit user intent. " +
+      "The caller must replay the receipt through the planning lifecycle; " +
+      "this tool never launches work.",
+    inputSchema: LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
+    annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
+    async run(args) {
+      return {
+        command: "launch authorize",
+        receipt: createLaunchAuthorizationReceiptV1(args),
+      };
     },
   },
   {
@@ -868,7 +911,7 @@ const TOOLS = [
     description:
       "Advance the durable callback-only title/wait/result join checkpoint. " +
       "Returns typed host-owned effects and, after all required results are " +
-      "accepted, an exact nelos_spinoff_cleanup next action. Never starts or " +
+      "accepted, gates the next wave or returns an exact cleanup action. Never starts or " +
       "discovers an app server.",
     inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,

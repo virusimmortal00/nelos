@@ -15,6 +15,7 @@ import {
   PlanRunStoreV1,
 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 function workUnit(overrides = {}) {
   return createWorkUnitSpecV1({
@@ -483,9 +484,16 @@ test("acceptance launches the next persisted dependency wave before cleanup", as
     receipt: null,
   });
   assert.equal(advanced.join.boundary.type, "continue");
-  assert.equal(advanced.nextAction.kind, "launch-wave");
-  assert.equal(advanced.nextAction.waveIndex, 2);
-  assert.equal(advanced.nextAction.members[0].sliceId, "beta");
+  assert.equal(advanced.nextAction.kind, "authorization-required");
+  const authorized = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+    launchAuthorization: authorizeLaunchProposal(advanced.nextAction),
+  });
+  assert.equal(authorized.nextAction.kind, "launch-wave");
+  assert.equal(authorized.nextAction.waveIndex, 2);
+  assert.equal(authorized.nextAction.members[0].sliceId, "beta");
 
   await current.planRunStore.markWaveVerified({
     planRunId: run.planRunId,

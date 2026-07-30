@@ -11,8 +11,10 @@ export const PROTOCOL_MIGRATION_MAP_V1 = Object.freeze([
   },
   {
     skillClause: "launch-wave",
-    enforcingContract: "action:launch-wave + effect:native-create",
-    compatibilityAdapter: "next-action.mjs + mcp-orchestration.mjs",
+    enforcingContract:
+      "actions:authorization-required,execution-unavailable,launch-wave + effect:native-authorize-launch + receipt:native-launch-authorization + effect:native-create",
+    compatibilityAdapter:
+      "launch-execution-gate.mjs + next-action.mjs + mcp-server.mjs + mcp-orchestration.mjs",
   },
   {
     skillClause: "native-wait-wave / native-wait / native-read",
