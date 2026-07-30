@@ -77,37 +77,60 @@ function synthesize(current, workUnits, webId, queenThreadId) {
   };
 }
 
-function applyDecisions(checkpoint, decisions) {
+function matchesDecision(decision, member, kind) {
+  return (
+    decision.decision === kind &&
+    decision.workUnitId === member.workUnitId &&
+    decision.specRevision === member.specRevision &&
+    decision.attempt === member.attempt &&
+    decision.memberThreadId === member.memberThreadId &&
+    member.result.state === "current" &&
+    decision.sourceTurnId === member.result.sourceTurnId
+  );
+}
+
+function applyDecisions(checkpoint, decisions, workUnits) {
+  const workUnitsById = new Map(
+    workUnits.map((workUnit) => [workUnit.workUnitId, workUnit]),
+  );
   let changed = false;
   const members = checkpoint.members.map((member) => {
     const accepted = decisions.find(
-      (decision) =>
-        decision.decision === "accepted" &&
-        decision.workUnitId === member.workUnitId &&
-        decision.specRevision === member.specRevision &&
-        decision.attempt === member.attempt &&
-        decision.memberThreadId === member.memberThreadId &&
-        member.result.state === "current" &&
-        decision.sourceTurnId === member.result.sourceTurnId,
+      (decision) => matchesDecision(decision, member, "accepted"),
     );
     if (accepted && member.coordination.state !== "accepted") {
       changed = true;
       return { ...member, coordination: { state: "accepted" } };
     }
     const rejected = decisions.find(
-      (decision) =>
-        decision.decision === "rejected" &&
-        decision.workUnitId === member.workUnitId &&
-        decision.specRevision === member.specRevision &&
-        decision.attempt === member.attempt &&
-        decision.memberThreadId === member.memberThreadId &&
-        member.result.state === "current" &&
-        decision.sourceTurnId === member.result.sourceTurnId,
+      (decision) => matchesDecision(decision, member, "rejected"),
     );
-    if (
-      rejected &&
-      member.coordination.state !== "correction-pending"
-    ) {
+    if (rejected) {
+      const workUnit = workUnitsById.get(member.workUnitId);
+      const correctionAvailable =
+        member.capabilities.includes("follow-up") &&
+        workUnit !== undefined &&
+        workUnit.attempt < workUnit.policy.maxAttempts;
+      if (!correctionAvailable) {
+        if (
+          member.execution.attentionRequired &&
+          member.coordination.state === "collected"
+        ) {
+          return member;
+        }
+        changed = true;
+        return {
+          ...member,
+          execution: {
+            ...member.execution,
+            attentionRequired: true,
+          },
+          coordination: { state: "collected" },
+        };
+      }
+      if (member.coordination.state === "correction-pending") {
+        return member;
+      }
       changed = true;
       return {
         ...member,
@@ -249,6 +272,15 @@ export class McpJoinAdapterV1 {
         (workUnit) => workUnit.required && workUnit.binding.state !== "bound",
       );
       const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
+      const refreshAndSynthesize = async (base) => {
+        scan = await this.#executionStore.scan();
+        workUnits = scan.workUnits.filter(
+          (candidate) =>
+            candidate.webId === webId &&
+            candidate.queenThreadId === queenThreadId,
+        );
+        return synthesize(base, workUnits, webId, queenThreadId);
+      };
       let checkpoint;
       if (
         normalizedReceipt?.type === "native-follow-up-delivered"
@@ -256,7 +288,7 @@ export class McpJoinAdapterV1 {
         if (!stored) {
           throw new Error("native follow-up receipt requires a persisted correction state");
         }
-        checkpoint = applyDecisions(stored, decisions);
+        checkpoint = applyDecisions(stored, decisions, workUnits);
         checkpoint = applyObservationReceiptV1(checkpoint, normalizedReceipt).checkpoint;
         const workUnit = workUnits.find(
           ({ workUnitId }) => workUnitId === normalizedReceipt.workUnitId,
@@ -273,25 +305,14 @@ export class McpJoinAdapterV1 {
         } else if (workUnit.attempt !== normalizedReceipt.nextAttempt) {
           throw new Error("native follow-up receipt conflicts with the durable attempt");
         }
-        scan = await this.#executionStore.scan();
-        workUnits = scan.workUnits.filter(
-          (candidate) =>
-            candidate.webId === webId &&
-            candidate.queenThreadId === queenThreadId,
-        );
-        checkpoint = synthesize(
-          checkpoint,
-          workUnits,
-          webId,
-          queenThreadId,
-        );
+        checkpoint = await refreshAndSynthesize(checkpoint);
       } else if (
         normalizedReceipt?.type === "orchestration-member-repaired"
       ) {
         if (!stored) {
           throw new Error("member repair receipt requires a persisted repair state");
         }
-        checkpoint = applyDecisions(stored, decisions);
+        checkpoint = applyDecisions(stored, decisions, workUnits);
         checkpoint = applyObservationReceiptV1(
           checkpoint,
           normalizedReceipt,
@@ -302,21 +323,10 @@ export class McpJoinAdapterV1 {
           attempt: normalizedReceipt.attempt,
           memberThreadId: normalizedReceipt.memberThreadId,
         });
-        scan = await this.#executionStore.scan();
-        workUnits = scan.workUnits.filter(
-          (candidate) =>
-            candidate.webId === webId &&
-            candidate.queenThreadId === queenThreadId,
-        );
-        checkpoint = synthesize(
-          checkpoint,
-          workUnits,
-          webId,
-          queenThreadId,
-        );
+        checkpoint = await refreshAndSynthesize(checkpoint);
       } else {
         checkpoint = synthesize(stored, workUnits, webId, queenThreadId);
-        checkpoint = applyDecisions(checkpoint, decisions);
+        checkpoint = applyDecisions(checkpoint, decisions, workUnits);
         if (normalizedReceipt !== null) {
           checkpoint = applyObservationReceiptV1(
             checkpoint,

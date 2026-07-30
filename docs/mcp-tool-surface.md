@@ -398,12 +398,15 @@ delivers it, submit the exact `native-follow-up-delivered` receipt to advance;
 Nelos durably increments the attempt before emitting a new wait/read sequence.
 The corrected turn therefore receives a fresh `native-result-read` action ID
 and can be accepted normally after restart. Reading the Codex task directly
-still does not create acceptable queen-decision provenance.
+still does not create acceptable queen-decision provenance. If follow-up is
+unavailable or the attempt budget is exhausted, rejection instead surfaces
+attention and does not advertise an unusable correction effect.
 
 New required result-bearing registrations without `read-result` are rejected.
 For a legacy persisted required observe-only member, advance returns the member
 ID, missing capability, supported `detach` action, and an exact
-`orchestration-repair-member` effect. Its idempotent receipt reclassifies the
+`orchestration-repair-member` action boundary. The shipped task-management
+skill submits its exact idempotent receipt, which reclassifies the
 execution as non-required and records the repair without changing accepted
 results.
 

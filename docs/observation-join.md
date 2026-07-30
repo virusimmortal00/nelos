@@ -55,7 +55,8 @@ registrations that omit `read-result` fail before persistence. Optional
 observe-only members are non-result-bearing and cannot block collection. A
 legacy required observe-only member returns a diagnostic naming the member and
 missing capability plus an idempotent `orchestration-repair-member` detach
-action. Its exact consumed repair receipt is retained in the checkpoint audit
+action boundary. The shipped task-management skill submits its exact detach
+receipt before continuing. Its consumed repair receipt is retained in the checkpoint audit
 history. `archive` is granted to durable spinoffs by default so the
 terminal cleanup policy can be honored; explicit `cleanupIntended: false`
 removes it. The built-in policy automatically archives only after exact-current
@@ -103,7 +104,8 @@ carry the exact action ID.
 - `native-follow-up-delivered` consumes the exact typed correction action for
   a rejected source turn and advances the same bound task to the next attempt.
   The next wait and result-read action IDs include that new attempt and exact
-  later native turn.
+  later native turn. A rejection without follow-up capability or remaining
+  attempt budget surfaces attention without emitting an unusable correction.
 - `orchestration-member-repaired` detaches only the exact legacy required
   member identified by the repair effect. It cannot replace or discard an
   accepted result.

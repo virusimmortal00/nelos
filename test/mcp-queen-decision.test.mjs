@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   ExecutionStoreV1,
   createWorkUnitSpecV1,
+  executionRecordFileNameV1,
   serializeWorkUnitSpecV1,
   validateWorkUnitSpecV1,
 } from "../src/execution-store.mjs";
@@ -19,8 +20,8 @@ import {
   SpinoffLifecycleStoreV1,
 } from "../src/spinoff-lifecycle.mjs";
 
-function workUnit() {
-  return createWorkUnitSpecV1({
+function workUnit(overrides = {}) {
+  const base = {
     webId: "A1",
     queenThreadId: "queen",
     workUnitId: "alpha",
@@ -39,6 +40,11 @@ function workUnit() {
       onBlocked: "queen-review",
       onFailure: "queen-review",
     },
+  };
+  return createWorkUnitSpecV1({
+    ...base,
+    ...overrides,
+    policy: { ...base.policy, ...overrides.policy },
   });
 }
 
@@ -60,7 +66,7 @@ function resultEnvelope(outcome = "succeeded", attempt = 1) {
 async function fixture(
   t,
   outcome = "succeeded",
-  { legacyObserver = false } = {},
+  { legacyObserver = false, workUnitOverrides = {} } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "nelos-mcp-decision-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -77,7 +83,7 @@ async function fixture(
     directory: join(root, "lifecycle"),
     preferencePath: join(root, "cleanup-preference.json"),
   });
-  await executionStore.create(workUnit());
+  await executionStore.create(workUnit(workUnitOverrides));
   await executionStore.markLaunchPending({
     workUnitId: "alpha",
     specRevision: 1,
@@ -90,6 +96,7 @@ async function fixture(
     memberThreadId: "thread-alpha",
   });
   if (legacyObserver) {
+    // Simulate a record persisted before create-time result-capability guards.
     const observer = validateWorkUnitSpecV1({
       ...workUnit(),
       workUnitId: "observer",
@@ -105,7 +112,7 @@ async function fixture(
     });
     await mkdir(executionStore.directory, { recursive: true });
     await writeFile(
-      join(executionStore.directory, "observer.json"),
+      join(executionStore.directory, executionRecordFileNameV1(observer.workUnitId)),
       serializeWorkUnitSpecV1(observer),
     );
     await executionStore.markLaunchPending({
@@ -433,6 +440,17 @@ test("rejection survives restart, repairs a legacy observer, and accepts a corre
     rejectedSourceTurnId: followUp.rejectedSourceTurnId,
     nextAttempt: followUp.nextAttempt,
   };
+  await assert.rejects(
+    restartedJoin.advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: {
+        ...followUpReceipt,
+        rejectedSourceTurnId: "different-rejected-turn",
+      },
+    }),
+    /does not match the rejected result/,
+  );
   const correctionWaiting = await restartedJoin.advance({
     webId: "A1",
     queenThreadId: "queen",
@@ -522,4 +540,39 @@ test("rejection survives restart, repairs a legacy observer, and accepts a corre
     cleanup.effects.map(({ threadId }) => threadId),
     ["thread-alpha"],
   );
+});
+
+test("uncorrectable rejections surface attention without a follow-up effect", async (t) => {
+  const scenarios = [
+    {
+      capabilities: ["observe", "read-result", "archive"],
+    },
+    {
+      policy: { maxAttempts: 1 },
+    },
+  ];
+  for (const workUnitOverrides of scenarios) {
+    const current = await fixture(t, "succeeded", { workUnitOverrides });
+    const rejected = await new McpQueenDecisionAdapterV1(
+      current.adapterOptions,
+    ).decide(input(current.receipt, "rejected"), {
+      appServerBridge: currentBridge,
+    });
+    const observed = await current.joinAdapter.advance(
+      rejected.nextAction.arguments,
+    );
+    assert.equal(observed.checkpoint.members[0].coordination.state, "collected");
+    assert.equal(
+      observed.checkpoint.members[0].execution.attentionRequired,
+      true,
+    );
+    assert.equal(
+      observed.join.effects.some(({ type }) => type === "native-follow-up"),
+      false,
+    );
+    assert.deepEqual(observed.join.boundary, {
+      type: "attention",
+      reason: "member-evidence-requires-review",
+    });
+  }
 });

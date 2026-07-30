@@ -409,8 +409,8 @@ export function reduceObservationJoinV1(value) {
   const allAccepted = activeRequired.every((member) => member.coordination.state === "accepted");
   const boundary = impossibleMembers.length > 0
     ? {
-        type: "attention",
-        reason: "member-evidence-requires-review",
+        type: "action",
+        reason: "legacy-members-require-repair",
         members: impossibleMembers.map((member) => ({
           workUnitId: member.workUnitId,
           problem: "required-result-member-missing-read-result",
@@ -600,11 +600,13 @@ export function applyObservationReceiptV1(value, rawReceipt) {
       errorCode: null,
     };
     member.coordination.state = "waiting";
-  } else {
+  } else if (receipt.type === "orchestration-member-repaired") {
     const member = matchingMember({ ...checkpoint, members }, receipt);
     member.required = false;
     member.coordination.state = "detached";
     member.execution.attentionRequired = false;
+  } else {
+    throw new Error(`observation receipt type ${receipt.type} is unhandled`);
   }
 
   return {

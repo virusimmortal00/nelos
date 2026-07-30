@@ -328,8 +328,8 @@ test("terminal members without read-result capability require attention", () => 
     false,
   );
   assert.deepEqual(reduced.boundary, {
-    type: "attention",
-    reason: "member-evidence-requires-review",
+    type: "action",
+    reason: "legacy-members-require-repair",
     members: [{
       workUnitId: "alpha",
       problem: "required-result-member-missing-read-result",

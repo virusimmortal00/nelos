@@ -411,6 +411,18 @@ test("spec revisions are contiguous and cannot rewrite runtime identity", async 
   );
   await assert.rejects(
     store.revise(
+      {
+        ...revised,
+        specRevision: 3,
+        capabilities: ["observe"],
+        required: true,
+      },
+      { expectedSpecRevision: 2 },
+    ),
+    /required result-bearing work units must include read-result/,
+  );
+  await assert.rejects(
+    store.revise(
       { ...revised, specRevision: 3, title: "Stale writer" },
       { expectedSpecRevision: 1 },
     ),
