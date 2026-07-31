@@ -243,6 +243,8 @@ test("an explicit ask policy confirms before returning archive effects", async (
       workUnitId: "member-a",
       threadId: "member-thread",
       title: "Member A",
+      model: "host-default",
+      reasoning: "host-default",
     }],
   });
 
@@ -487,7 +489,11 @@ test("keep rejects an archive receipt without changing terminal state", async (t
   });
   assert.equal(result.state, "attention");
   assert.deepEqual(result.results, [{
+    workUnitId: "member-a",
     threadId: "member-thread",
+    title: "Member A",
+    model: "host-default",
+    reasoning: "host-default",
     state: "attention",
     reason: "cleanup-candidate-failed",
   }]);

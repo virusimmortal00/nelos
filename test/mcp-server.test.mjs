@@ -18,6 +18,10 @@ import {
   startNelosMcpServer,
 } from "../src/mcp-server.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
+import {
+  EXECUTION_MAP_RESOURCE_MIME_TYPE,
+  EXECUTION_MAP_RESOURCE_URI,
+} from "../src/execution-map.mjs";
 import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
 import {
   createPlanRunV1,
@@ -28,7 +32,10 @@ import {
   NelosConfigStoreV1,
   NelosConfigurationV1,
 } from "../src/nelos-configuration.mjs";
-import { protocolCompatibilityEnvelopeV1 } from "../src/protocol-contract/index.mjs";
+import {
+  MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1,
+  protocolCompatibilityEnvelopeV1,
+} from "../src/protocol-contract/index.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
 
 const INITIALIZE = {
@@ -171,7 +178,10 @@ test("initialize returns the tools capability and server identity", async () => 
   const [response] = await roundTrip([INITIALIZE]);
   assert.equal(response.id, 1);
   assert.equal(response.result.protocolVersion, "2025-06-18");
-  assert.deepEqual(response.result.capabilities, { tools: { listChanged: false } });
+  assert.deepEqual(response.result.capabilities, {
+    tools: { listChanged: false },
+    resources: { listChanged: false, subscribe: false },
+  });
   assert.deepEqual(response.result.serverInfo, {
     name: "nelos",
     version: "0.0.0-test",
@@ -193,6 +203,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_plan_slices",
       "nelos_launch_authorize",
       "nelos_launch_verify_batch",
+      "nelos_execution_map_refresh",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
       "nelos_thread_wait",
@@ -213,6 +224,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   for (const tool of tools.filter(({ name }) =>
     [
       "nelos_launch_verify_batch",
+      "nelos_execution_map_refresh",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
       "nelos_thread_wait",
@@ -388,6 +400,47 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   assert.deepEqual(tools, listNelosMcpTools());
 
   const planner = tools.find(({ name }) => name === "nelos_plan_slices");
+  for (const visualTool of tools.filter(({ name }) =>
+    [
+      "nelos_plan_bootstrap",
+      "nelos_plan_lifecycle",
+      "nelos_plan_replan",
+      "nelos_plan_slices",
+      "nelos_orchestrate_create",
+      "nelos_spinoff_cleanup",
+    ].includes(name),
+  )) {
+    assert.equal(
+      visualTool._meta.ui.resourceUri,
+      EXECUTION_MAP_RESOURCE_URI,
+    );
+    assert.equal(
+      visualTool._meta["openai/outputTemplate"],
+      EXECUTION_MAP_RESOURCE_URI,
+    );
+    assert.equal(visualTool.outputSchema.additionalProperties, false);
+    assert.equal(
+      visualTool.outputSchema.properties.view.const,
+      "execution-map",
+    );
+  }
+  for (const name of Object.keys(MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1)) {
+    assert.ok(
+      tools.find((tool) => tool.name === name)?.outputSchema,
+      `${name} must advertise its structured output schema`,
+    );
+  }
+  const lifecycle = tools.find(
+    ({ name }) => name === "nelos_plan_lifecycle",
+  );
+  assert.ok(
+    lifecycle.outputSchema.properties.protocol.properties.result.properties
+      .nextAction.oneOf.length > 10,
+  );
+  const advanceOutput = tools.find(
+    ({ name }) => name === "nelos_orchestrate_advance",
+  ).outputSchema;
+  assert.ok(advanceOutput.properties.nextAction.oneOf.length > 10);
   const plan = planner.inputSchema.properties.plan;
   assert.equal(plan.properties.schemaVersion.const, 1);
   assert.deepEqual(plan.required, ["schemaVersion", "objective", "slices"]);
@@ -572,6 +625,26 @@ test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {
     body.nextAction.member,
     body.bootstrap.planner,
   );
+  assert.deepEqual(response.result.structuredContent.summary, {
+    total: 1,
+    spinoffs: 0,
+    subagents: 1,
+    created: 0,
+  });
+  assert.equal(response.result.structuredContent.phase, "planning");
+  assert.equal(
+    response.result.structuredContent.members[0].model,
+    "gpt-5.6-sol",
+  );
+  assert.equal(
+    response.result.structuredContent.members[0].reasoning,
+    "medium",
+  );
+  assert.deepEqual(response.result.structuredContent.protocol, {
+    schemaVersion: 1,
+    tool: "nelos_plan_bootstrap",
+    result: body,
+  });
 });
 
 test("nelos_plan_bootstrap validates the planner response before launching slices", async () => {
@@ -733,6 +806,14 @@ test("nelos_plan_lifecycle forwards exact receipts and gates a planned launch wa
   assert.equal(body.command, "plan slices");
   assert.equal(body.lifecycle.phase, "completed");
   assert.equal(body.nextAction.kind, "authorization-required");
+  assert.equal(
+    response.result.structuredContent.protocol.result.nextAction.kind,
+    "authorization-required",
+  );
+  assert.deepEqual(
+    response.result.structuredContent.protocol.result,
+    body,
+  );
   assert.deepEqual(
     protocolCompatibilityEnvelopeV1("nelos_plan_lifecycle", body).value,
     body,
@@ -1376,7 +1457,16 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
             schemaVersion: 1,
             policy: "ask",
             state: "complete",
-            candidates: [],
+            results: [{
+              workUnitId: "member-a",
+              threadId: "member",
+              title: "Member A",
+              model: "gpt-5.6-sol",
+              reasoning: "medium",
+              state: "archived",
+              replayed: false,
+            }],
+            effects: [],
           };
         },
       },
@@ -1391,6 +1481,20 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
   const cleaned = toolBody(cleanupResponse).body;
   assert.equal(completed.record.wakeState, "delivering");
   assert.equal(cleaned.state, "complete");
+  assert.deepEqual(completeResponse.result.structuredContent, completed);
+  assert.equal(cleanupResponse.result.structuredContent.phase, "archived");
+  assert.equal(
+    cleanupResponse.result.structuredContent.summary.archived,
+    1,
+  );
+  assert.equal(
+    cleanupResponse.result.structuredContent.members[0].status,
+    "archived",
+  );
+  assert.deepEqual(
+    cleanupResponse.result.structuredContent.protocol.result,
+    cleaned,
+  );
   assert.deepEqual(
     protocolCompatibilityEnvelopeV1(
       "nelos_spinoff_complete",
@@ -1472,6 +1576,9 @@ test("stdio orchestration creates once, then requires reconciliation before any 
   assert.equal(initial.isError, false);
   assert.equal(initial.body.binding.state, "launch-pending");
   assert.equal(initial.body.effects.length, 1);
+  assert.equal(first.result.structuredContent.phase, "launch-pending");
+  assert.equal(first.result.structuredContent.summary.created, 0);
+  assert.equal(first.result.structuredContent.members[0].task, "Member A");
   assert.deepEqual(
     protocolCompatibilityEnvelopeV1(
       "nelos_orchestrate_create",
@@ -1637,6 +1744,12 @@ test("stdio orchestration validates a host callback before binding and replays i
       requestedTitle: "Member A",
     },
   ]);
+  assert.equal(bound.result.structuredContent.phase, "created");
+  assert.equal(bound.result.structuredContent.summary.created, 1);
+  assert.equal(
+    bound.result.structuredContent.members[0].threadId,
+    "thread-created-1",
+  );
   assert.deepEqual(toolBody(replay).body, binding.body);
 });
 
@@ -1757,6 +1870,14 @@ test("nelos_plan_slices routes a valid plan into an authorization proposal", asy
   assert.ok(Array.isArray(body.plan.waves));
   assert.equal(body.plan.waves.length, 1);
   assert.equal(body.nextAction.kind, "authorization-required");
+  assert.equal(
+    response.result.structuredContent.phase,
+    "authorization-required",
+  );
+  assert.equal(
+    response.result.structuredContent.members[0].status,
+    "authorization-required",
+  );
   assert.equal(body.nextAction.members[0].sliceId, "explore");
   assert.equal(body.nextAction.members[0].launcher, "spawn-subagent");
   assert.equal(
@@ -2140,6 +2261,57 @@ test("nelos_thread_inspect returns only bridge-bounded metadata", async () => {
   assert.equal(isError, false);
   assert.deepEqual(body, { command: "thread inspect", thread: inspection });
   assert.deepEqual(calls, [{ threadId: "thread-1" }]);
+});
+
+test("nelos_execution_map_refresh projects current native turn status", async () => {
+  const calls = [];
+  const args = {
+    task: "Refresh the worker",
+    members: [{
+      id: "worker-a",
+      task: "Inspect the widget",
+      lifecycle: "subagent",
+      model: "gpt-5.6-terra",
+      reasoning: "low",
+      threadId: "thread-a",
+      turnId: "turn-a",
+    }],
+  };
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_execution_map_refresh",
+          arguments: args,
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async latestTurn(value) {
+          calls.push(value);
+          return { turnId: "turn-a", status: "completed" };
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(calls, [{ threadId: "thread-a" }]);
+  assert.equal(body.members[0].status, "complete");
+  assert.equal(response.result.structuredContent.phase, "complete");
+  assert.equal(
+    response.result.structuredContent.members[0].status,
+    "complete",
+  );
+  assert.equal(
+    response.result.structuredContent.protocol.result.command,
+    "execution map refresh",
+  );
 });
 
 test("nelos_thread_inventory forwards bounded IDs and topology policy", async () => {
@@ -2673,7 +2845,38 @@ test("nelos_intelligence_verify fails closed on any mismatch", async () => {
   });
 });
 
-test("unknown tools, unknown methods, and notifications behave per JSON-RPC", async () => {
+test("MCP Apps resources expose the self-contained execution map", async () => {
+  const [, listed, read, templates] = await roundTrip([
+    INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "resources/list" },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "resources/read",
+      params: { uri: EXECUTION_MAP_RESOURCE_URI },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "resources/templates/list",
+    },
+  ]);
+  assert.deepEqual(
+    listed.result.resources.map(({ uri, mimeType }) => ({ uri, mimeType })),
+    [{
+      uri: EXECUTION_MAP_RESOURCE_URI,
+      mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE,
+    }],
+  );
+  assert.equal(
+    read.result.contents[0].mimeType,
+    EXECUTION_MAP_RESOURCE_MIME_TYPE,
+  );
+  assert.match(read.result.contents[0].text, /Nelos execution map/u);
+  assert.deepEqual(templates.result.resourceTemplates, []);
+});
+
+test("unknown tools, unknown resources, unknown methods, and notifications behave per JSON-RPC", async () => {
   const responses = await roundTrip([
     INITIALIZE,
     { jsonrpc: "2.0", method: "notifications/initialized" },
@@ -2683,13 +2886,20 @@ test("unknown tools, unknown methods, and notifications behave per JSON-RPC", as
       method: "tools/call",
       params: { name: "no_such_tool", arguments: {} },
     },
-    { jsonrpc: "2.0", id: 3, method: "resources/list" },
-    { jsonrpc: "2.0", id: 4, method: "ping" },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "resources/read",
+      params: { uri: "ui://nelos/unknown.html" },
+    },
+    { jsonrpc: "2.0", id: 4, method: "prompts/list" },
+    { jsonrpc: "2.0", id: 5, method: "ping" },
   ]);
-  assert.equal(responses.length, 4); // the notification earns no response
+  assert.equal(responses.length, 5); // the notification earns no response
   assert.equal(responses[1].error.code, -32602);
-  assert.equal(responses[2].error.code, -32601);
-  assert.deepEqual(responses[3].result, {});
+  assert.equal(responses[2].error.code, -32602);
+  assert.equal(responses[3].error.code, -32601);
+  assert.deepEqual(responses[4].result, {});
 });
 
 test("rejected and missing tool arguments are tool errors", async () => {

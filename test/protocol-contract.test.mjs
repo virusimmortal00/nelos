@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   MCP_PROTOCOL_TOOL_CONTRACTS_V1,
+  MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1,
   PROTOCOL_ACTION_SCHEMA_V1,
   PROTOCOL_CODE_REGISTRY_V1,
   PROTOCOL_COMPATIBILITY_ENVELOPE_SCHEMA_V1,
@@ -562,6 +563,13 @@ const RUNTIME_OUTPUTS = new Map([
 
 test("all eight real MCP output families pass producer-correlated envelopes", () => {
   for (const [producer, output] of RUNTIME_OUTPUTS) {
+    assert.deepEqual(
+      validateProtocolContractV1(
+        MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[producer],
+        output,
+      ),
+      output,
+    );
     const envelope = protocolCompatibilityEnvelopeV1(producer, output);
     assert.equal(envelope.producer, producer);
     assert.deepEqual(envelope.value, output);

@@ -1171,6 +1171,15 @@ const COMPATIBILITY_MEMBERS = [
   }, ["schemaVersion", "policy", "state"]),
 ];
 
+export const MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1 = Object.freeze(
+  Object.fromEntries(
+    COMPATIBILITY_MEMBERS.map(({ properties }) => [
+      properties.producer.const,
+      properties.value,
+    ]),
+  ),
+);
+
 export const PROTOCOL_COMPATIBILITY_ENVELOPE_SCHEMA_V1 = {
   oneOf: COMPATIBILITY_MEMBERS,
 };

@@ -180,6 +180,60 @@ npm run verify:app-server
 npm run verify:golden-loop
 ```
 
+The execution-map MCP App also has an official MCP Inspector verification
+lane. It uses pinned `@modelcontextprotocol/inspector@2.0.0` CLI probes to
+negotiate capabilities, inspect every tool-to-app binding, list and read the UI
+resource, run one representative planning call, and confirm that invalid input
+produces the Inspector's stable `tool_is_error` result:
+
+```bash
+npm run verify:mcp-app
+```
+
+For interactive resource, schema, call-result, and widget inspection:
+
+```bash
+npm run inspect:mcp
+```
+
+The rendered component has a second lane built on the official MCP Apps
+`basic-host`. Nelos starts a Streamable HTTP fixture server with the official
+MCP SDK, checks out the host at a reviewed commit, builds it in a temporary
+cache, and connects the host and its separate sandbox to nine deterministic
+execution-map states:
+
+```bash
+# Build and reach the host, sandbox, and fixture MCP endpoints.
+npm run verify:mcp-app:host
+
+# Keep the host running and print direct links for every fixture.
+npm run dev:mcp-app-ui
+
+# Run the Inspector and reference-host lanes together.
+npm run verify:mcp-app:all
+```
+
+The host is pinned to
+`modelcontextprotocol/ext-apps@92f46a574568a3ddac7600343b7d3c4c4ed7b588`.
+Its checkout and dependencies live under the operating-system temporary
+directory rather than the repository. Delete that cache, or set
+`NELOS_MCP_APP_HOST_CACHE_DIR`, when deliberately changing the reviewed
+upstream commit.
+
+The automated host check proves that the production resource can be discovered
+and that the official host, sandbox, and MCP server can start together. Use the
+printed fixture links in a connected browser for screenshot and interaction
+review. A final smoke test in Codex or another real MCP Apps-compatible host is
+still required because a reference host cannot reproduce every product-host
+behavior.
+
+The Inspector commands require Node.js 22.19 or newer because that is the
+Inspector's runtime floor; Nelos itself remains compatible with Node.js 20.
+The first `npx` run requires network access to fetch the pinned Inspector. The
+Inspector and reference-host lanes complement the offline required
+compatibility gate and are not invoked by `npm test` or
+`npm run compatibility:required`.
+
 `npm test` canonicalizes its fixture-only temporary root before test discovery,
 so the bare command is safe on both macOS and Linux. Tests still construct
 explicit symlinked ancestry when verifying production path-safety rejection.
