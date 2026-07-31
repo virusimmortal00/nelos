@@ -9,7 +9,7 @@ integration is not implemented.
 `nelos_plan_bootstrap`, `nelos_plan_lifecycle`, `nelos_plan_replan`,
 `nelos_plan_slices`, `nelos_orchestrate_create`,
 `nelos_execution_map_refresh`, and `nelos_spinoff_cleanup` advertise the
-versioned `ui://nelos/execution-map-v7.html` MCP Apps resource. Successful calls preserve
+versioned `ui://nelos/execution-map-v8.html` MCP Apps resource. Successful calls preserve
 their existing complete text/JSON result and additionally return
 `structuredContent` containing a compact visual projection plus a versioned
 `protocol.result` copy of the complete tool result. The latter keeps

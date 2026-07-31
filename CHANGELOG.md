@@ -5,6 +5,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.5.0] - 2026-07-31
+
 ### User-facing changes
 
 - Bumped the distributable plugin to `0.5.0` and added deterministic cache

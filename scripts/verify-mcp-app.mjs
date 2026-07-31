@@ -6,19 +6,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PROTOCOL_ACTION_SCHEMA_V1 } from "../src/protocol-contract/index.mjs";
+import {
+  EXECUTION_MAP_RESOURCE_MIME_TYPE,
+  EXECUTION_MAP_RESOURCE_URI,
+  EXECUTION_MAP_TOOL_NAMES,
+} from "../src/execution-map.mjs";
 
 const INSPECTOR_PACKAGE = "@modelcontextprotocol/inspector@2.0.0";
-const EXECUTION_MAP_URI = "ui://nelos/execution-map-v7.html";
-const EXECUTION_MAP_MIME_TYPE = "text/html;profile=mcp-app";
-const EXECUTION_MAP_TOOLS = new Set([
-  "nelos_plan_bootstrap",
-  "nelos_plan_lifecycle",
-  "nelos_plan_replan",
-  "nelos_plan_slices",
-  "nelos_orchestrate_create",
-  "nelos_spinoff_cleanup",
-  "nelos_execution_map_refresh",
-]);
 const PROTOCOL_TOOLS = new Set([
   "nelos_plan_lifecycle",
   "nelos_launch_authorize",
@@ -117,19 +111,19 @@ function verifyAppBindings() {
     .map((line) => parseJson(line, "app-info record"));
   const byTool = new Map(records.map((record) => [record.toolName, record]));
 
-  for (const toolName of EXECUTION_MAP_TOOLS) {
+  for (const toolName of EXECUTION_MAP_TOOL_NAMES) {
     const record = byTool.get(toolName);
     assert.ok(record, `Inspector omitted app-info for ${toolName}`);
     assert.equal(record.hasApp, true, `${toolName} did not advertise an app`);
-    assert.equal(record.resourceUri, EXECUTION_MAP_URI);
-    assert.equal(record.resourceMimeType, EXECUTION_MAP_MIME_TYPE);
+    assert.equal(record.resourceUri, EXECUTION_MAP_RESOURCE_URI);
+    assert.equal(record.resourceMimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
     assert.equal(record.prefersBorder, true);
     assert.deepEqual(record.csp, {
       connectDomains: [],
       resourceDomains: [],
     });
   }
-  console.log(`✓ ${EXECUTION_MAP_TOOLS.size} tool-to-app bindings resolved`);
+  console.log(`✓ ${EXECUTION_MAP_TOOL_NAMES.size} tool-to-app bindings resolved`);
 }
 
 function verifyOutputSchemas() {
@@ -157,7 +151,7 @@ function verifyOutputSchemas() {
   );
   assert.equal(
     byName.get("nelos_orchestrate_advance")?.outputSchema?.properties
-      ?.nextAction?.oneOf?.length,
+      ?.protocol?.properties?.result?.properties?.nextAction?.oneOf?.length,
     expectedActionMembers,
   );
 
@@ -185,28 +179,30 @@ function verifyResource() {
     "resources/list result",
   );
   const resource = listed.result?.resources?.find(
-    ({ uri }) => uri === EXECUTION_MAP_URI,
+    ({ uri }) => uri === EXECUTION_MAP_RESOURCE_URI,
   );
   assert.ok(resource, "execution-map resource was not listed");
-  assert.equal(resource.mimeType, EXECUTION_MAP_MIME_TYPE);
+  assert.equal(resource.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
 
   const read = parseJson(
     runInspector([
       "--method",
       "resources/read",
       "--uri",
-      EXECUTION_MAP_URI,
+      EXECUTION_MAP_RESOURCE_URI,
       "--format",
       "json",
     ]).stdout,
     "resources/read result",
   );
   const content = read.result?.contents?.[0];
-  assert.equal(content?.uri, EXECUTION_MAP_URI);
-  assert.equal(content?.mimeType, EXECUTION_MAP_MIME_TYPE);
+  assert.equal(content?.uri, EXECUTION_MAP_RESOURCE_URI);
+  assert.equal(content?.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
   assert.match(content?.text ?? "", /ui\/initialize/u);
   assert.match(content?.text ?? "", /ui\/notifications\/tool-result/u);
   assert.match(content?.text ?? "", /window\.openai\?\.toolOutput/u);
+  assert.match(content?.text ?? "", /openai:set_globals/u);
+  assert.match(content?.text ?? "", /Waiting for task state/u);
   assert.match(content?.text ?? "", /--archived/u);
   assert.match(content?.text ?? "", /className = "member-heading"/u);
   assert.match(content?.text ?? "", /"Sub-agent"/u);
@@ -235,7 +231,7 @@ function verifyRepresentativeCall() {
     "json",
   ]);
   const envelope = parseJson(stdout, "tools/call result");
-  assert.equal(envelope.appInfo?.resourceUri, EXECUTION_MAP_URI);
+  assert.equal(envelope.appInfo?.resourceUri, EXECUTION_MAP_RESOURCE_URI);
   assert.equal(envelope.result?.isError, false);
   assert.equal(envelope.result?.structuredContent?.view, "execution-map");
   assert.equal(envelope.result?.structuredContent?.phase, "planning");

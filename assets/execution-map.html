@@ -303,6 +303,10 @@
         }
       };
 
+      const renderToolResult = (value) => {
+        render(value?.structuredContent ?? value);
+      };
+
       const notify = (method, params) => {
         window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
       };
@@ -330,13 +334,25 @@
           }
 
           if (message.method === "ui/notifications/tool-result") {
-            render(message.params?.structuredContent);
+            renderToolResult(message.params);
           }
         },
         { passive: true },
       );
 
-      render(window.openai?.toolOutput);
+      window.addEventListener(
+        "openai:set_globals",
+        (event) => {
+          renderToolResult(event.detail?.globals?.toolOutput);
+        },
+        { passive: true },
+      );
+
+      const waiting = document.createElement("li");
+      waiting.className = "empty";
+      waiting.textContent = "Waiting for task state…";
+      membersElement.append(waiting);
+      renderToolResult(window.openai?.toolOutput);
 
       try {
         await request("ui/initialize", {
