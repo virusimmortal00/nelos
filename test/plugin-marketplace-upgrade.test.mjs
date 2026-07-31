@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { verifyPluginMarketplaceUpgrade } from "../scripts/verify-plugin-marketplace-upgrade.mjs";
 
-test("real Codex marketplace refresh loads 0.5.0 skills and MCP in a fresh process", async () => {
+const codexAvailable = spawnSync("codex", ["--version"], {
+  stdio: "ignore",
+}).status === 0;
+
+test("real Codex marketplace refresh loads 0.5.0 skills and MCP in a fresh process", {
+  skip: codexAvailable ? false : "requires the Codex CLI",
+}, async () => {
   const result = await verifyPluginMarketplaceUpgrade();
   assert.equal(result.verified, true);
   assert.equal(result.legacyVersion, "0.4.0");
