@@ -3,6 +3,7 @@ import {
   verifyRuntimeIntelligenceV1,
 } from "./runtime-intelligence-verification.mjs";
 import { planRunLaunchActionIdV1 } from "./plan-run-store.mjs";
+import { nativeTitleMatchesRequested } from "./task-web.mjs";
 
 /**
  * The receipt verifier is deliberately a read-only acceptance gate.  A
@@ -516,7 +517,7 @@ export async function verifyLaunchBatchV1(value, {
         // Joined subagents are controlled by canonical agent path. Current
         // Codex hosts expose no native title mutation contract for them.
         result.checks.title = "not-applicable";
-      } else if (thread.title === member.expected.title) {
+      } else if (nativeTitleMatchesRequested(member.expected.title, thread.title)) {
         result.checks.title = "verified";
       } else {
         result.checks.title = "failed";

@@ -56,24 +56,44 @@ function sameBinding(member, workUnit) {
   );
 }
 
-function synthesize(current, workUnits, webId, queenThreadId) {
+function sameWaveScope(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function synthesize(current, workUnits, webId, queenThreadId, waveScope = null) {
+  const priorScopeMatches = sameWaveScope(current?.waveScope ?? null, waveScope);
   const prior = new Map((current?.members ?? []).map((member) => [member.workUnitId, member]));
   return {
     schemaVersion: 1,
     webId,
     queenThreadId,
     checkpointRevision: current?.checkpointRevision ?? 0,
-    waitGeneration: current?.waitGeneration ?? 0,
+    waveScope,
+    waitGeneration: priorScopeMatches ? (current?.waitGeneration ?? 0) : 0,
     members: workUnits
       .filter((workUnit) => workUnit.binding.state === "bound")
       .map((workUnit) => {
-        const existing = prior.get(workUnit.workUnitId);
+        const existing = priorScopeMatches ? prior.get(workUnit.workUnitId) : null;
         return existing && sameBinding(existing, workUnit)
           ? existing
           : initialMember(workUnit);
       })
       .sort((left, right) => left.workUnitId.localeCompare(right.workUnitId)),
-    consumedReceipts: current?.consumedReceipts ?? [],
+    consumedReceipts: priorScopeMatches ? (current?.consumedReceipts ?? []) : [],
+  };
+}
+
+async function currentWaveScope(planRunStore, webId, queenThreadId) {
+  const runs = await planRunStore.listForWeb({ webId, queenThreadId });
+  const run = runs.find(({ verifiedWaveIndexes }) => verifiedWaveIndexes.length > 0) ?? null;
+  if (!run) return { scope: null, memberIds: null, run: null };
+  const waveIndex = run.verifiedWaveIndexes.at(-1);
+  const wave = run.waves.find((candidate) => candidate.waveIndex === waveIndex);
+  if (!wave) throw new Error("verified observation wave contract is unavailable");
+  return {
+    scope: { planRunId: run.planRunId, waveIndex, waveDigest: wave.waveDigest },
+    memberIds: new Set(wave.members.map(({ sliceId }) => sliceId)),
+    run,
   };
 }
 
@@ -187,6 +207,25 @@ async function terminalNextAction(
   if (activeRun) {
     const lastVerifiedWave =
       activeRun.verifiedWaveIndexes.at(-1) ?? 0;
+    const verifiedWave = activeRun.waves.find(
+      ({ waveIndex }) => waveIndex === lastVerifiedWave,
+    );
+    if (
+      verifiedWave?.members.some(({ lifecycle }) => lifecycle === "spinoff")
+    ) {
+      return {
+        schemaVersion: 1,
+        kind: "cleanup-spinoffs",
+        tool: "nelos_spinoff_cleanup",
+        arguments: {
+          webId,
+          queenThreadId,
+          planRunId: activeRun.planRunId,
+          waveIndex: verifiedWave.waveIndex,
+          waveDigest: verifiedWave.waveDigest,
+        },
+      };
+    }
     if (lastVerifiedWave < activeRun.waves.length) {
       if (!activeRun.plan) {
         return {
@@ -247,18 +286,30 @@ export class McpJoinAdapterV1 {
     }
     const normalizedReceipt = receipt === null ? null : validateObservationReceiptV1(receipt);
     return withObservationCheckpointLock(webId, queenThreadId, async () => {
+      const activeWave = await currentWaveScope(
+        this.#planRunStore,
+        webId,
+        queenThreadId,
+      );
       let scan = await this.#executionStore.scan();
       let workUnits = scan.workUnits.filter(
         (workUnit) =>
-          workUnit.webId === webId && workUnit.queenThreadId === queenThreadId,
+          workUnit.webId === webId &&
+          workUnit.queenThreadId === queenThreadId &&
+          (activeWave.memberIds === null || activeWave.memberIds.has(workUnit.workUnitId)),
       );
       if (workUnits.length === 0) {
         throw new Error("orchestration advance found no execution work units");
       }
       const stored = await this.#checkpointStore.read(webId, queenThreadId);
+      const storedMatchesActiveWave = sameWaveScope(
+        stored?.waveScope ?? null,
+        activeWave.scope,
+      );
       const scopedWorkUnitIds = new Set([
         ...workUnits.map(({ workUnitId }) => workUnitId),
-        ...(stored?.members ?? []).map(({ workUnitId }) => workUnitId),
+        ...(storedMatchesActiveWave ? (stored?.members ?? []) : [])
+          .map(({ workUnitId }) => workUnitId),
       ]);
       if (
         scan.malformedRecords.some(
@@ -277,9 +328,10 @@ export class McpJoinAdapterV1 {
         workUnits = scan.workUnits.filter(
           (candidate) =>
             candidate.webId === webId &&
-            candidate.queenThreadId === queenThreadId,
+            candidate.queenThreadId === queenThreadId &&
+            (activeWave.memberIds === null || activeWave.memberIds.has(candidate.workUnitId)),
         );
-        return synthesize(base, workUnits, webId, queenThreadId);
+        return synthesize(base, workUnits, webId, queenThreadId, activeWave.scope);
       };
       let checkpoint;
       if (
@@ -325,7 +377,7 @@ export class McpJoinAdapterV1 {
         });
         checkpoint = await refreshAndSynthesize(checkpoint);
       } else {
-        checkpoint = synthesize(stored, workUnits, webId, queenThreadId);
+        checkpoint = synthesize(stored, workUnits, webId, queenThreadId, activeWave.scope);
         checkpoint = applyDecisions(checkpoint, decisions, workUnits);
         if (normalizedReceipt !== null) {
           checkpoint = applyObservationReceiptV1(

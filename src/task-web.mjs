@@ -21,6 +21,34 @@ const MEMBER_PATTERN = new RegExp(
 );
 
 export const QUEEN_TITLE_PREFIX = `${QUEEN_MARKER} ·`;
+export const CODEX_NATIVE_TITLE_MAX_UTF16_LENGTH = 60;
+const CODEX_NATIVE_TITLE_ELLIPSIS = "…";
+
+/**
+ * Codex stores overlength task titles as a 60-code-unit display title whose
+ * final code unit is an ellipsis. Treat only that exact host normalization as
+ * equivalent; arbitrary prefixes and other title changes remain mismatches.
+ */
+export function nativeTitleMatchesRequested(requestedTitle, observedTitle) {
+  if (
+    typeof requestedTitle !== "string" ||
+    typeof observedTitle !== "string"
+  ) {
+    return false;
+  }
+  if (observedTitle === requestedTitle) return true;
+  if (requestedTitle.length <= CODEX_NATIVE_TITLE_MAX_UTF16_LENGTH) {
+    return false;
+  }
+  let prefix = requestedTitle.slice(
+    0,
+    CODEX_NATIVE_TITLE_MAX_UTF16_LENGTH - CODEX_NATIVE_TITLE_ELLIPSIS.length,
+  );
+  // Do not manufacture an invalid UTF-16 title if the limit intersects a
+  // surrogate pair. A host-produced normalized title must preserve the pair.
+  if (/\p{Surrogate}$/u.test(prefix)) prefix = prefix.slice(0, -1);
+  return observedTitle === `${prefix}${CODEX_NATIVE_TITLE_ELLIPSIS}`;
+}
 
 export function assertWebId(webId) {
   const normalized = String(webId || "").trim().toUpperCase();

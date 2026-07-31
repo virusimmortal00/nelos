@@ -58,6 +58,15 @@ const THREAD_STATUS_TYPES = new Set(
   SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
 );
 const ACTIVE_FLAG_TYPES = new Set(SUPPORTED_CODEX_APP_SERVER_ACTIVE_FLAGS);
+const COLLAB_AGENT_STATUSES = new Set([
+  "pendingInit",
+  "running",
+  "interrupted",
+  "completed",
+  "errored",
+  "shutdown",
+  "notFound",
+]);
 
 class AppServerBridgeError extends Error {
   constructor(message, { code, retriable = false } = {}) {
@@ -1114,6 +1123,78 @@ export class CodexAppServerBridgeV1 {
     return {
       turnId: threadId(turn.id),
       status: turn.status,
+    };
+  }
+
+  async collaborationAgentStatus({
+    parentThreadId: requestedParentThreadId,
+    agentThreadId: requestedAgentThreadId,
+  } = {}) {
+    const parentThreadId = threadId(requestedParentThreadId);
+    const agentThreadId = threadId(requestedAgentThreadId);
+    const result = await this.#readRequest("thread/turns/list", {
+      threadId: parentThreadId,
+      limit: 20,
+      sortDirection: "desc",
+      itemsView: "full",
+    });
+    if (
+      !Array.isArray(result?.data) ||
+      result.data.length > 20 ||
+      !(
+        result.nextCursor === null ||
+        (typeof result.nextCursor === "string" &&
+          result.nextCursor.length > 0 &&
+          result.nextCursor.length <= MAX_IDENTIFIER_CHARACTERS)
+      )
+    ) {
+      throw bridgeError(
+        "Codex app-server returned an incompatible collaboration turn page",
+        "invalid-response",
+      );
+    }
+    for (const turn of result.data) {
+      if (typeof turn?.id !== "string" || !Array.isArray(turn.items)) {
+        throw bridgeError(
+          "Codex app-server returned an incompatible collaboration turn",
+          "invalid-response",
+        );
+      }
+      for (const item of [...turn.items].reverse()) {
+        if (
+          item?.type !== "collabAgentToolCall" ||
+          item.senderThreadId !== parentThreadId ||
+          !Array.isArray(item.receiverThreadIds) ||
+          !item.receiverThreadIds.includes(agentThreadId) ||
+          !item.agentsStates ||
+          typeof item.agentsStates !== "object" ||
+          Array.isArray(item.agentsStates) ||
+          !Object.hasOwn(item.agentsStates, agentThreadId)
+        ) {
+          continue;
+        }
+        const status = item.agentsStates[agentThreadId]?.status;
+        if (!COLLAB_AGENT_STATUSES.has(status)) {
+          throw bridgeError(
+            "Codex app-server returned an incompatible collaboration agent status",
+            "invalid-response",
+          );
+        }
+        return {
+          status,
+          parentTurnId: threadId(turn.id),
+          toolCallId: boundedText(
+            item.id,
+            "collaboration tool call ID",
+            MAX_IDENTIFIER_CHARACTERS,
+          ),
+        };
+      }
+    }
+    return {
+      status: "unavailable",
+      parentTurnId: null,
+      toolCallId: null,
     };
   }
 

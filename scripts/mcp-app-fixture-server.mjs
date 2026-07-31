@@ -26,12 +26,14 @@ const STATUS_VALUES = [
   "planned",
   "authorization-required",
   "launch-pending",
+  "unknown",
   "running",
   "created",
   "archiving",
   "archived",
   "kept",
   "complete",
+  "accepted",
   "attention",
 ];
 
@@ -56,6 +58,10 @@ const EXECUTION_MAP_FIXTURE_SCHEMA = z.object({
     subagents: z.number().int().nonnegative(),
     created: z.number().int().nonnegative(),
     archived: z.number().int().nonnegative().optional(),
+    running: z.number().int().nonnegative(),
+    attention: z.number().int().nonnegative(),
+    complete: z.number().int().nonnegative(),
+    accepted: z.number().int().nonnegative(),
   }),
   members: z.array(MEMBER_SCHEMA),
 });
@@ -103,6 +109,10 @@ function fixture({
         subagents: members.filter(({ lifecycle }) => lifecycle === "subagent")
           .length,
         created: members.filter(({ status }) => status === "created").length,
+        running: members.filter(({ status }) => status === "running").length,
+        attention: members.filter(({ status }) => status === "attention").length,
+        complete: members.filter(({ status }) => status === "complete").length,
+        accepted: members.filter(({ status }) => status === "accepted").length,
         archived: members.filter(({ status }) => status === "archived").length,
       },
       members,
@@ -161,6 +171,21 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
     ],
   }),
   fixture({
+    key: "unknown_subagent",
+    title: "Sub-agent awaiting current execution evidence",
+    phase: "unknown",
+    members: [
+      member({
+        id: "ui-unknown",
+        task: "Await authoritative current-turn evidence",
+        model: "gpt-5.6-terra",
+        reasoning: "low",
+        status: "unknown",
+        threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
+      }),
+    ],
+  }),
+  fixture({
     key: "running_subagent",
     title: "Running sub-agent",
     phase: "running",
@@ -186,6 +211,21 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         model: "gpt-5.6-terra",
         reasoning: "low",
         status: "complete",
+        threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
+      }),
+    ],
+  }),
+  fixture({
+    key: "accepted_subagent",
+    title: "Accepted sub-agent result",
+    phase: "accepted",
+    members: [
+      member({
+        id: "ui-accepted",
+        task: "Review the completed result",
+        model: "gpt-5.6-terra",
+        reasoning: "low",
+        status: "accepted",
         threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
       }),
     ],

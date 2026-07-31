@@ -77,7 +77,11 @@ async function createDistributionFixture(overrides = {}) {
     "0.1.0+fixture",
   );
   const expected = JSON.parse(await readFile(expectedPath, "utf8"));
-  const stale = { ...expected, revision: `${expected.revision}-stale` };
+  const stale = {
+    ...expected,
+    revision: `${expected.revision}-stale`,
+    cacheIdentity: `${expected.sourceRepository}#nelos@${expected.revision}-stale`,
+  };
   const records = {
     cli: expected,
     skill: expected,

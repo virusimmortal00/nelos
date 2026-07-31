@@ -157,6 +157,32 @@ test("batch verification uses agent path for subagents and native title for spin
   assert.equal(LAUNCH_BATCH_VERIFICATION_OUTPUT_SCHEMA.properties.allVerified.type, "boolean");
 });
 
+test("batch verification accepts only the exact Codex overlength-title normalization", async () => {
+  const requestedTitle =
+    "🕷️ B6 · Prevent stale plugin installs and preserve provenance";
+  assert.equal([...requestedTitle].length, 61);
+  assert.equal(requestedTitle.length, 62);
+  const normalizedTitle = `${requestedTitle.slice(0, 59)}…`;
+  assert.equal(normalizedTitle.length, 60);
+
+  const value = receipt({ members: [receipt().members[1]] });
+  const expected = waveContract([{ ...waveContract().members[1], title: requestedTitle }]);
+  const verify = (title) => verifyLaunchBatchV1(value, {
+    waveContract: expected,
+    appServerBridge: {
+      async inspectMany() {
+        return inventory([{ ...threads()[1], title }]);
+      },
+    },
+    async verifyRuntimeIntelligence() { return { verified: true }; },
+  });
+
+  assert.equal((await verify(normalizedTitle)).allVerified, true);
+  const mismatch = await verify(`${requestedTitle.slice(0, 58)}x…`);
+  assert.equal(mismatch.allVerified, false);
+  assert.equal(mismatch.members[0].attentionReason, "title-mismatch");
+});
+
 test("batch verification fails closed for an incorrect subagent parent, a conflicting spinoff parent, and a settled-title mismatch", async () => {
   const verifierCalls = [];
   const value = receipt();

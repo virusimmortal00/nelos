@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   listNelosMcpTools,
+  MCP_MAX_MESSAGE_BYTES,
   startNelosMcpServer,
 } from "../src/mcp-server.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
@@ -166,6 +167,31 @@ async function roundTrip(messages, options = {}) {
     .map((line) => JSON.parse(line));
 }
 
+async function rawRoundTrip(chunks, options = {}) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const outputChunks = [];
+  output.on("data", (chunk) => outputChunks.push(chunk));
+  const exited = new Promise((resolve) => {
+    startNelosMcpServer({
+      input,
+      output,
+      serverVersion: "0.0.0-test",
+      onExit: (code) => resolve(code),
+      ...options,
+    });
+  });
+  for (const chunk of chunks) input.write(chunk);
+  input.end();
+  const exitCode = await exited;
+  const responses = Buffer.concat(outputChunks)
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+  return { exitCode, responses };
+}
+
 function toolBody(response) {
   assert.equal(response.error, undefined);
   return {
@@ -186,6 +212,101 @@ test("initialize returns the tools capability and server identity", async () => 
     name: "nelos",
     version: "0.0.0-test",
   });
+});
+
+test("initialize negotiates only supported protocol revisions", async () => {
+  for (const [requested, expected] of [
+    ["2025-11-25", "2025-11-25"],
+    ["2025-06-18", "2025-06-18"],
+    ["2099-01-01", "2025-11-25"],
+  ]) {
+    const [response] = await roundTrip([{
+      ...INITIALIZE,
+      params: { ...INITIALIZE.params, protocolVersion: requested },
+    }]);
+    assert.equal(response.result.protocolVersion, expected);
+  }
+});
+
+test("initialize validates its contract and normal requests require initialization", async () => {
+  const invalid = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2025-11-25", capabilities: {} },
+  };
+  const { exitCode, responses } = await rawRoundTrip([
+    `${JSON.stringify({ ...invalid, id: undefined })}\n`,
+    `${JSON.stringify(invalid)}\n`,
+    `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`,
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(responses.map(({ error }) => error.code), [-32602, -32002]);
+});
+
+test("stdio separates fragmented and coalesced UTF-8 frames", async () => {
+  const initialize = JSON.stringify({
+    ...INITIALIZE,
+    params: {
+      ...INITIALIZE.params,
+      protocolVersion: "2025-11-25",
+      clientInfo: { name: "tést", version: "0" },
+    },
+  });
+  const wire = Buffer.from(
+    `${initialize}\n${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n` +
+      `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`,
+    "utf8",
+  );
+  const splitAt = wire.indexOf(Buffer.from("é")) + 1;
+  const { exitCode, responses } = await rawRoundTrip([
+    wire.subarray(0, splitAt),
+    wire.subarray(splitAt),
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(responses.map(({ id }) => id), [1, 2]);
+  assert.equal(responses[0].result.protocolVersion, "2025-11-25");
+  assert.deepEqual(responses[1].result, {});
+});
+
+test("malformed, oversized, and interrupted frames fail deterministically and recover", async () => {
+  const initialize = `${JSON.stringify(INITIALIZE)}\n`;
+  const ping = `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`;
+  const oversizedPrefix = "x".repeat(MCP_MAX_MESSAGE_BYTES + 1);
+  const oversizedTail = "y".repeat(MCP_MAX_MESSAGE_BYTES + 1);
+  const { exitCode, responses } = await rawRoundTrip([
+    initialize,
+    "{bad json}\n",
+    Buffer.from([0xff, 0x0a]),
+    ping,
+    oversizedPrefix,
+    oversizedTail,
+    `\n${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" })}\n`,
+    '{"jsonrpc":"2.0","id":4,"method":"ping"',
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(
+    responses.map((response) => response.id ?? response.error.code),
+    [1, -32700, -32700, 2, -32600, 3, -32700],
+  );
+  assert.equal(responses[2].error.message, "invalid UTF-8 in stdio frame");
+  assert.match(responses[4].error.message, /exceeds/u);
+  assert.equal(responses[6].error.message, "incomplete stdio frame");
+});
+
+test("stdio enforces the limit per message rather than per input chunk", async () => {
+  const padding = "x".repeat(Math.floor(MCP_MAX_MESSAGE_BYTES * 0.55));
+  const notifications = [1, 2].map((sequence) => JSON.stringify({
+    jsonrpc: "2.0",
+    method: `notifications/test_${sequence}`,
+    params: { padding },
+  }));
+  const { exitCode, responses } = await rawRoundTrip([
+    `${JSON.stringify(INITIALIZE)}\n${notifications.join("\n")}\n` +
+      `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`,
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(responses.map(({ id }) => id), [1, 2]);
 });
 
 test("tools/list honestly annotates planning, app-server, and orchestration effects", async () => {
@@ -442,7 +563,10 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   const advanceOutput = tools.find(
     ({ name }) => name === "nelos_orchestrate_advance",
   ).outputSchema;
-  assert.ok(advanceOutput.properties.nextAction.oneOf.length > 10);
+  assert.ok(
+    advanceOutput.properties.protocol.properties.result.properties
+      .nextAction.oneOf.length > 10,
+  );
   const plan = planner.inputSchema.properties.plan;
   assert.equal(plan.properties.schemaVersion.const, 1);
   assert.deepEqual(plan.required, ["schemaVersion", "objective", "slices"]);
@@ -632,6 +756,11 @@ test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {
     spinoffs: 0,
     subagents: 1,
     created: 0,
+    running: 0,
+    attention: 0,
+    complete: 0,
+    accepted: 0,
+    archived: 0,
   });
   assert.equal(response.result.structuredContent.phase, "planning");
   assert.equal(
@@ -1483,7 +1612,15 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
   const cleaned = toolBody(cleanupResponse).body;
   assert.equal(completed.record.wakeState, "delivering");
   assert.equal(cleaned.state, "complete");
-  assert.deepEqual(completeResponse.result.structuredContent, completed);
+  assert.equal(completeResponse.result.structuredContent.phase, "complete");
+  assert.equal(
+    completeResponse.result.structuredContent.members[0].status,
+    "complete",
+  );
+  assert.deepEqual(
+    completeResponse.result.structuredContent.protocol.result,
+    completed,
+  );
   assert.equal(cleanupResponse.result.structuredContent.phase, "archived");
   assert.equal(
     cleanupResponse.result.structuredContent.summary.archived,
@@ -2112,7 +2249,7 @@ test("replayed durable planning reuses one identity and one queen-title effect",
   );
   const firstBody = toolBody(first).body;
   const replayBody = toolBody(replay).body;
-  assert.equal(writes, 1);
+  assert.equal(writes, 2);
   assert.equal(firstBody.planRun.webIdentity.webId, "A1");
   assert.equal(replayBody.planRun.webIdentity.webId, "A1");
   assert.deepEqual(replayBody.nextAction, firstBody.nextAction);
@@ -2344,6 +2481,91 @@ test("nelos_execution_map_refresh rejects invalid members before reads", async (
   assert.equal(isError, true);
   assert.match(body.error, /members must contain 1 to 16 items/u);
   assert.equal(reads, 0);
+});
+
+test("post-negotiation execution maps retain a web across restart and stale updates", async () => {
+  const records = new Map();
+  const webRegistry = {
+    async withLock(callback) { return callback(); },
+    async read(threadId) { return structuredClone(records.get(threadId) ?? null); },
+    async list() { return structuredClone([...records.values()]); },
+    async write(record) { records.set(record.threadId, structuredClone(record)); },
+  };
+  const orchestrationAdapter = {
+    async orchestrate({ workUnit }) {
+      return {
+        binding: {
+          state: "bound",
+          memberThreadId: `thread-${workUnit.workUnitId}`,
+        },
+      };
+    },
+  };
+  const create = (id, workUnitId) => orchestrationCall(
+    id,
+    workUnitInput({ webId: "B6", workUnitId, title: `Member ${workUnitId}` }),
+    {},
+  );
+  const [, alpha, beta, gamma] = await roundTrip(
+    [INITIALIZE, create(2, "alpha"), create(3, "beta"), create(4, "gamma")],
+    { webRegistry, orchestrationAdapter },
+  );
+  assert.equal(alpha.result.structuredContent.summary.total, 1);
+  assert.equal(beta.result.structuredContent.summary.total, 2);
+  assert.equal(gamma.result.structuredContent.summary.total, 3);
+
+  const refreshMember = (id) => ({
+    id,
+    task: `Member ${id}`,
+    lifecycle: "spinoff",
+    model: "gpt-5.6-sol",
+    reasoning: "medium",
+    threadId: `thread-${id}`,
+    turnId: `turn-${id}`,
+  });
+  const [, refreshed] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_execution_map_refresh",
+          arguments: {
+            task: "B6 execution",
+            members: ["alpha", "beta", "gamma"].map(refreshMember),
+          },
+        },
+      },
+    ],
+    {
+      webRegistry,
+      appServerBridge: {
+        async latestTurn({ threadId }) {
+          const id = threadId.slice("thread-".length);
+          return { turnId: `turn-${id}`, status: "inProgress" };
+        },
+        async close() {},
+      },
+    },
+  );
+  assert.equal(refreshed.result.structuredContent.summary.total, 3);
+  assert.equal(refreshed.result.structuredContent.summary.running, 3);
+  assert.deepEqual(
+    refreshed.result.structuredContent.members.map(({ status }) => status),
+    ["running", "running", "running"],
+  );
+
+  const [, stale] = await roundTrip(
+    [INITIALIZE, create(2, "alpha")],
+    { webRegistry, orchestrationAdapter },
+  );
+  assert.equal(stale.result.structuredContent.summary.total, 3);
+  assert.equal(
+    stale.result.structuredContent.members.find(({ id }) => id === "alpha").status,
+    "running",
+  );
 });
 
 test("nelos_thread_inventory forwards bounded IDs and topology policy", async () => {
@@ -2606,9 +2828,10 @@ test("a failed non-wait response does not poison later requests or waits", async
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line));
-  assert.deepEqual(responses.map(({ id }) => id), [1, 3, 4]);
-  assert.deepEqual(responses[1].result, {});
-  assert.equal(toolBody(responses[2]).body.wait.status, "timeout");
+  assert.deepEqual(responses.map(({ id }) => id), [1, 2, 3, 4]);
+  assert.equal(responses[1].error.code, -32603);
+  assert.deepEqual(responses[2].result, {});
+  assert.equal(toolBody(responses[3]).body.wait.status, "timeout");
   assert.equal(waitCalls, 1);
 });
 
@@ -3033,7 +3256,7 @@ test("bin/nelos-mcp serves the same surface over real stdio", async () => {
   const lines = [];
   let buffered = "";
   child.stdout.setEncoding("utf8");
-  const gotTwo = new Promise((resolve) => {
+  const gotFour = new Promise((resolve) => {
     child.stdout.on("data", (chunk) => {
       buffered += chunk;
       let index;
@@ -3041,17 +3264,29 @@ test("bin/nelos-mcp serves the same surface over real stdio", async () => {
         lines.push(JSON.parse(buffered.slice(0, index)));
         buffered = buffered.slice(index + 1);
       }
-      if (lines.length >= 2) resolve();
+      if (lines.length >= 4) resolve();
     });
   });
-  child.stdin.write(`${JSON.stringify(INITIALIZE)}\n`);
-  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`);
-  await gotTwo;
+  const initialize = JSON.stringify({
+    ...INITIALIZE,
+    params: { ...INITIALIZE.params, protocolVersion: "2025-11-25" },
+  });
+  const splitAt = Math.floor(initialize.length / 2);
+  child.stdin.write(initialize.slice(0, splitAt));
+  child.stdin.write(
+    initialize.slice(splitAt) +
+      `\n{bad json}\n${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n` +
+      `${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" })}\n`,
+  );
+  await gotFour;
   child.stdin.end();
   await new Promise((resolve) => child.on("exit", resolve));
   assert.equal(lines[0].result.serverInfo.name, "nelos");
+  assert.equal(lines[0].result.protocolVersion, "2025-11-25");
+  assert.equal(lines[1].error.code, -32700);
+  assert.deepEqual(lines[2].result, {});
   assert.deepEqual(
-    lines[1].result.tools.map((tool) => tool.name),
+    lines[3].result.tools.map((tool) => tool.name),
     listNelosMcpTools().map((tool) => tool.name),
   );
 });

@@ -5,6 +5,7 @@ import {
   validateOrchestrationCheckpointV1,
 } from "./orchestration-checkpoint-store.mjs";
 import { validateResultEnvelopeV1 } from "./work-result.mjs";
+import { nativeTitleMatchesRequested } from "./task-web.mjs";
 
 export const OBSERVATION_RECEIPT_SCHEMA_VERSION = 1;
 export const OBSERVATION_JOIN_SCHEMA_VERSION = 1;
@@ -488,7 +489,10 @@ export function applyObservationReceiptV1(value, rawReceipt) {
       throw new Error("native title receipt requestedTitle conflicts with the checkpoint");
     }
     member.title.observedTitle = receipt.observedTitle;
-    if (receipt.observedTitle === receipt.requestedTitle) {
+    if (nativeTitleMatchesRequested(
+      receipt.requestedTitle,
+      receipt.observedTitle,
+    )) {
       member.title.state = "verified";
     } else if (member.title.retryOrdinal < MAX_TITLE_RETRIES) {
       member.title.retryOrdinal += 1;

@@ -75,6 +75,7 @@ function checkpoint(members = [member()], overrides = {}) {
     webId: "A1",
     queenThreadId: "queen",
     checkpointRevision: 1,
+    waveScope: null,
     waitGeneration: 0,
     members,
     consumedReceipts: [],
@@ -218,6 +219,30 @@ test("title observations are strict, retry-bounded, idempotent, and orthogonal",
   assert.throws(
     () => applyObservationReceiptV1(applied.checkpoint, titleReceipt(effect, "conflict")),
     /conflicts with a consumed actionId/,
+  );
+});
+
+test("a 61-character requested title accepts the exact Codex normalized title", () => {
+  const requestedTitle =
+    "🕷️ B6 · Prevent stale plugin installs and preserve provenance";
+  assert.equal([...requestedTitle].length, 61);
+  assert.equal(requestedTitle.length, 62);
+  const first = checkpoint([member({ title: { requestedTitle } })]);
+  const effect = reduceObservationJoinV1(first).effects[0];
+  const observedTitle = `${requestedTitle.slice(0, 59)}…`;
+  const applied = applyObservationReceiptV1(
+    first,
+    titleReceipt(effect, observedTitle),
+  ).checkpoint;
+
+  assert.equal(observedTitle.length, 60);
+  assert.equal(applied.members[0].title.state, "verified");
+  assert.equal(applied.members[0].title.retryOrdinal, 0);
+  assert.equal(
+    reduceObservationJoinV1(applied).effects.some(
+      ({ type }) => type === "native-set-title",
+    ),
+    false,
   );
 });
 

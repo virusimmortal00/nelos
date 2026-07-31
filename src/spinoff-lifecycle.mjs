@@ -9,6 +9,8 @@ import {
 } from "./nelos-configuration.mjs";
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { taskStateDirectory, withQueenSpinoffLock } from "./task-state.mjs";
+import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { derivePlanWaveActionV1 } from "./next-action.mjs";
 
 export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
 export const SPINOFF_CLEANUP_POLICIES = NELOS_CLEANUP_POLICIES;
@@ -76,6 +78,9 @@ export const SPINOFF_CLEANUP_INPUT_SCHEMA = Object.freeze({
   properties: {
     webId: { type: "string", minLength: 1, maxLength: 64 },
     queenThreadId: { type: "string", minLength: 1, maxLength: 512 },
+    planRunId: { type: "string", pattern: "^run:[a-f0-9]{40}$" },
+    waveIndex: { type: "integer", minimum: 1 },
+    waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
     policy: { type: "string", enum: SPINOFF_CLEANUP_POLICIES },
     rememberPolicy: { type: "boolean" },
     userIntentConfirmed: { type: "boolean", const: true },
@@ -195,6 +200,11 @@ function archiveActionId(identity) {
   return `${spinoffWakeIdV1(identity)}/native-archive`;
 }
 
+function scopedArchiveActionId(identity, waveScope) {
+  if (waveScope === null) return archiveActionId(identity);
+  return `${archiveActionId(identity)}/${waveScope.planRunId}/wave-${waveScope.waveIndex}/${waveScope.waveDigest}`;
+}
+
 function validateWakeReceipt(value, identity) {
   if (value === null) return null;
   exact(value, WAKE_RECEIPT_FIELDS, "native send-message host result");
@@ -223,49 +233,71 @@ function validateArchiveReceipt(value) {
 }
 
 function validateRecord(value) {
-  exact(value, [
+  const normalized = value.cleanupActionId === undefined
+    ? {
+        ...value,
+        cleanupActionId: ["archiving", "archived"].includes(value.cleanupState)
+          ? archiveActionId(value)
+          : null,
+      }
+    : value;
+  exact(normalized, [
     "schemaVersion", "revision", "wakeId", "clientUserMessageId", "webId",
     "queenThreadId", "workUnitId", "specRevision", "attempt", "memberThreadId",
     "outcome", "summary", "wakeState", "wakeReason", "queenTurnId",
-    "cleanupState", "cleanupPolicy", "createdAt", "updatedAt",
+    "cleanupState", "cleanupPolicy", "cleanupActionId", "createdAt", "updatedAt",
   ], "spinoff lifecycle record");
-  if (value.schemaVersion !== SPINOFF_LIFECYCLE_SCHEMA_VERSION) {
+  if (normalized.schemaVersion !== SPINOFF_LIFECYCLE_SCHEMA_VERSION) {
     throw new Error("spinoff lifecycle schemaVersion is unsupported");
   }
-  const identity = lifecycleIdentity(value);
+  const identity = lifecycleIdentity(normalized);
   const wakeId = spinoffWakeIdV1(identity);
-  if (value.wakeId !== wakeId || value.clientUserMessageId !== wakeId) {
+  if (normalized.wakeId !== wakeId || normalized.clientUserMessageId !== wakeId) {
     throw new Error("spinoff lifecycle wake identity is invalid");
   }
-  if (!OUTCOMES.has(value.outcome) || !WAKE_STATES.has(value.wakeState)) {
+  if (!OUTCOMES.has(normalized.outcome) || !WAKE_STATES.has(normalized.wakeState)) {
     throw new Error("spinoff lifecycle wake state is invalid");
   }
-  if (!CLEANUP_STATES.has(value.cleanupState)) {
+  if (!CLEANUP_STATES.has(normalized.cleanupState)) {
     throw new Error("spinoff lifecycle cleanup state is invalid");
   }
   if (
-    value.cleanupPolicy !== null &&
-    !SPINOFF_CLEANUP_POLICIES.includes(value.cleanupPolicy)
+    normalized.cleanupPolicy !== null &&
+    !SPINOFF_CLEANUP_POLICIES.includes(normalized.cleanupPolicy)
   ) {
     throw new Error("spinoff lifecycle cleanup policy is invalid");
   }
+  const cleanupActionId = normalized.cleanupActionId === null
+    ? null
+    : id(normalized.cleanupActionId, "cleanupActionId");
+  if (
+    ["archiving", "archived"].includes(normalized.cleanupState) !==
+    (cleanupActionId !== null)
+  ) {
+    throw new Error("spinoff lifecycle cleanup action identity is invalid");
+  }
   return {
     schemaVersion: SPINOFF_LIFECYCLE_SCHEMA_VERSION,
-    revision: positive(value.revision, "revision"),
+    revision: positive(normalized.revision, "revision"),
     wakeId,
     clientUserMessageId: wakeId,
     ...identity,
-    outcome: value.outcome,
-    summary: text(value.summary, "summary", MAX_SUMMARY_CHARACTERS),
-    wakeState: value.wakeState,
+    outcome: normalized.outcome,
+    summary: text(normalized.summary, "summary", MAX_SUMMARY_CHARACTERS),
+    wakeState: normalized.wakeState,
     wakeReason:
-      value.wakeReason === null ? null : text(value.wakeReason, "wakeReason", 128),
+      normalized.wakeReason === null
+        ? null
+        : text(normalized.wakeReason, "wakeReason", 128),
     queenTurnId:
-      value.queenTurnId === null ? null : id(value.queenTurnId, "queenTurnId"),
-    cleanupState: value.cleanupState,
-    cleanupPolicy: value.cleanupPolicy,
-    createdAt: timestamp(value.createdAt, "createdAt"),
-    updatedAt: timestamp(value.updatedAt, "updatedAt"),
+      normalized.queenTurnId === null
+        ? null
+        : id(normalized.queenTurnId, "queenTurnId"),
+    cleanupState: normalized.cleanupState,
+    cleanupPolicy: normalized.cleanupPolicy,
+    cleanupActionId,
+    createdAt: timestamp(normalized.createdAt, "createdAt"),
+    updatedAt: timestamp(normalized.updatedAt, "updatedAt"),
   };
 }
 
@@ -288,6 +320,7 @@ function initialRecord(completion, now) {
     queenTurnId: null,
     cleanupState: "pending",
     cleanupPolicy: null,
+    cleanupActionId: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -444,6 +477,7 @@ export class SpinoffLifecycleAdapterV1 {
   #acceptanceStore;
   #store;
   #configuration;
+  #planRunStore;
   #now;
 
   constructor({
@@ -451,12 +485,14 @@ export class SpinoffLifecycleAdapterV1 {
     acceptanceStore = new QueenAcceptanceStoreV1(),
     store = new SpinoffLifecycleStoreV1(),
     configuration = new NelosConfigurationV1(),
+    planRunStore = new PlanRunStoreV1(),
     now = () => new Date().toISOString(),
   } = {}) {
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#store = store;
     this.#configuration = configuration;
+    this.#planRunStore = planRunStore;
     this.#now = now;
   }
 
@@ -557,6 +593,9 @@ export class SpinoffLifecycleAdapterV1 {
   async cleanup({
     webId,
     queenThreadId,
+    planRunId = null,
+    waveIndex = null,
+    waveDigest = null,
     policy = null,
     rememberPolicy = false,
     userIntentConfirmed = false,
@@ -567,6 +606,35 @@ export class SpinoffLifecycleAdapterV1 {
       webId: id(webId, "webId"),
       queenThreadId: id(queenThreadId, "queenThreadId"),
     };
+    const suppliedWaveFields = [planRunId, waveIndex, waveDigest]
+      .filter((value) => value !== null).length;
+    if (suppliedWaveFields !== 0 && suppliedWaveFields !== 3) {
+      throw new Error("cleanup wave scope must be complete");
+    }
+    let waveScope = null;
+    let waveMemberIds = null;
+    let scopedPlanRun = null;
+    if (suppliedWaveFields === 3) {
+      const required = await this.#planRunStore.requireWave({
+        planRunId,
+        queenThreadId: identity.queenThreadId,
+        waveIndex,
+        waveDigest,
+      });
+      if (
+        required.record.webIdentity?.webId !== identity.webId ||
+        !required.record.verifiedWaveIndexes.includes(waveIndex)
+      ) {
+        throw new Error("cleanup wave scope is stale or unverified");
+      }
+      waveScope = { planRunId, waveIndex, waveDigest };
+      waveMemberIds = new Set(
+        required.wave.members
+          .filter(({ lifecycle }) => lifecycle === "spinoff")
+          .map(({ sliceId }) => sliceId),
+      );
+      scopedPlanRun = required.record;
+    }
     if (typeof rememberPolicy !== "boolean") {
       throw new Error("rememberPolicy must be a boolean");
     }
@@ -621,6 +689,7 @@ export class SpinoffLifecycleAdapterV1 {
       (workUnit) =>
         workUnit.webId === identity.webId &&
         workUnit.queenThreadId === identity.queenThreadId &&
+        (waveMemberIds === null || waveMemberIds.has(workUnit.workUnitId)) &&
         workUnit.memberKind === "spinoff" &&
         workUnit.required,
     );
@@ -662,6 +731,7 @@ export class SpinoffLifecycleAdapterV1 {
         return (
           workUnit.webId === identity.webId &&
           workUnit.queenThreadId === identity.queenThreadId &&
+          (waveMemberIds === null || waveMemberIds.has(workUnit.workUnitId)) &&
           workUnit.memberKind === "spinoff" &&
           workUnit.required &&
           workUnit.capabilities.includes("archive") &&
@@ -786,7 +856,8 @@ export class SpinoffLifecycleAdapterV1 {
       resolvedPolicy === "ask" &&
       confirmedThreadIds === undefined &&
       receiptByThreadId.size === 0 &&
-      !archiveInFlight
+      !archiveInFlight &&
+      candidates.length > 0
     ) {
       if (rememberPolicy) {
         await this.#rememberPolicy(policy);
@@ -794,7 +865,7 @@ export class SpinoffLifecycleAdapterV1 {
       return {
         schemaVersion: 1,
         policy: resolvedPolicy,
-        state: candidates.length > 0 ? "confirmation-required" : "complete",
+        state: "confirmation-required",
         candidates: candidates.map(({ workUnit, threadId, title }) => ({
           workUnitId: workUnit.workUnitId,
           threadId,
@@ -876,7 +947,7 @@ export class SpinoffLifecycleAdapterV1 {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (
               receipt &&
-              receipt.actionId !== archiveActionId(completion)
+              receipt.actionId !== record.cleanupActionId
             ) {
               throw new Error("native archive receipt is stale or conflicting");
             }
@@ -906,7 +977,7 @@ export class SpinoffLifecycleAdapterV1 {
           if (record.cleanupState === "archiving") {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (receipt) {
-              if (receipt.actionId !== archiveActionId(completion)) {
+              if (receipt.actionId !== record.cleanupActionId) {
                 throw new Error("native archive receipt is stale or conflicting");
               }
               record = await this.#store.write({
@@ -922,9 +993,9 @@ export class SpinoffLifecycleAdapterV1 {
             }
             effects.push({
               schemaVersion: 1,
-              actionId: `${archiveActionId(completion)}/reconcile`,
+              actionId: `${record.cleanupActionId}/reconcile`,
               type: "native-reconcile-archive",
-              originalActionId: archiveActionId(completion),
+              originalActionId: record.cleanupActionId,
               threadId: candidate.threadId,
               policy: {
                 onFound: "return-native-archive-receipt",
@@ -953,16 +1024,18 @@ export class SpinoffLifecycleAdapterV1 {
             }));
             return;
           }
+          const cleanupActionId = scopedArchiveActionId(completion, waveScope);
           record = await this.#store.write({
             ...record,
             revision: record.revision + 1,
             cleanupState: "archiving",
             cleanupPolicy: resolvedPolicy,
+            cleanupActionId,
             updatedAt: this.#now(),
           }, { expectedRevision: record.revision });
           effects.push({
             schemaVersion: 1,
-            actionId: archiveActionId(completion),
+            actionId: cleanupActionId,
             type: "native-archive",
             threadId: candidate.threadId,
             archived: true,
@@ -981,16 +1054,45 @@ export class SpinoffLifecycleAdapterV1 {
         }));
       }
     }
+    const state = effects.length > 0
+      ? "effects-required"
+      : results.some(({ state }) => state === "attention")
+      ? "attention"
+      : "complete";
+    let nextAction = null;
+    if (
+      state === "complete" &&
+      scopedPlanRun !== null &&
+      waveScope.waveIndex < scopedPlanRun.waves.length
+    ) {
+      try {
+        if (!scopedPlanRun.plan) {
+          throw new Error("remaining plan wave contract is unavailable");
+        }
+        nextAction = derivePlanWaveActionV1(
+          scopedPlanRun.plan,
+          scopedPlanRun,
+          waveScope.waveIndex + 1,
+          scopedPlanRun.cleanupIntended,
+          null,
+        );
+      } catch {
+        nextAction = {
+          schemaVersion: 1,
+          kind: "attention",
+          reason: "remaining-plan-wave-contract-is-unavailable",
+          planRunId: scopedPlanRun.planRunId,
+          nextWaveIndex: waveScope.waveIndex + 1,
+        };
+      }
+    }
     return {
       schemaVersion: 1,
       policy: resolvedPolicy,
-      state: effects.length > 0
-        ? "effects-required"
-        : results.some(({ state }) => state === "attention")
-        ? "attention"
-        : "complete",
+      state,
       results,
       effects,
+      ...(nextAction === null ? {} : { nextAction }),
     };
   }
 }

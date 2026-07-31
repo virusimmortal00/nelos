@@ -36,7 +36,12 @@ function coherentFixture(version = "1.2.3+codex.20260728120000") {
     mcpMetadata: {
       nelos: { env: { NELOS_PLUGIN_VERSION: version } },
     },
-    provenance: { revision: version, integrity: "sha256:fixture" },
+    provenance: {
+      revision: version,
+      integrity: "sha256:fixture",
+      sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+      cacheIdentity: `https://github.com/virusimmortal00/nelos.git#nelos@${version}`,
+    },
     lockMetadata: {
       version,
       packages: {

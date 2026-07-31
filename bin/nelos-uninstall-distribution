@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+
+import { resolve } from "node:path";
+import { uninstallDistribution } from "../src/distribution-uninstall.mjs";
+
+const options = {};
+const values = new Map([
+  ["--home", ["home", true]],
+  ["--codex-home", ["codexHome", true]],
+  ["--install-root", ["installRoot", true]],
+  ["--bin-dir", ["binDir", true]],
+  ["--plugin", ["pluginSelector", false]],
+  ["--plugin-source", ["pluginSource", true]],
+  ["--marketplace", ["marketplacePath", true]],
+  ["--codex", ["codexCommand", true]],
+]);
+for (let index = 2; index < process.argv.length; index += 1) {
+  const argument = process.argv[index];
+  if (argument === "--allow-missing-plugin") {
+    options.allowMissingPlugin = true;
+    continue;
+  }
+  const entry = values.get(argument);
+  const value = process.argv[index + 1];
+  if (!entry || !value) throw new Error(`unknown or incomplete option: ${argument}`);
+  const [key, isPath] = entry;
+  options[key] = isPath ? resolve(value) : value;
+  index += 1;
+}
+
+uninstallDistribution(options)
+  .then((result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`))
+  .catch((error) => {
+    process.stderr.write(`nelos-uninstall-distribution: ${error.message}\n`);
+    process.exitCode = 1;
+  });

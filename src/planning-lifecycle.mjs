@@ -53,7 +53,7 @@ export class PlanningLifecycleProtocolError extends Error {
 }
 
 const MAX_RECORD_BYTES = 64 * 1024;
-const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 1;
+const MAX_INTERRUPTED_TURN_RECONCILIATIONS = 3;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const BOOTSTRAP_ID = /^plan:[a-f0-9]{24}$/u;
 const AGENT_PATH =
@@ -75,6 +75,16 @@ const SUCCESSFUL_TURN_STATUSES = new Set([
   "completed",
   "complete",
   "succeeded",
+]);
+const NONTERMINAL_COLLABORATION_STATUSES = new Set([
+  "pendingInit",
+  "running",
+]);
+const SUCCESSFUL_COLLABORATION_STATUSES = new Set(["completed"]);
+const FAILED_COLLABORATION_STATUSES = new Set([
+  "interrupted",
+  "errored",
+  "shutdown",
 ]);
 const REQUEST_FIELDS = new Set([
   "schemaVersion",
@@ -571,7 +581,7 @@ function statusAction(
   record,
   thread,
   latestTurn,
-  { reconciledInterruptedTurn = false } = {},
+  { collaboration = null, reconciledInterruptedTurn = false } = {},
 ) {
   if (thread.status === "systemError") {
     return {
@@ -581,9 +591,51 @@ function statusAction(
       threadId: thread.threadId,
     };
   }
+  const collaborationStatus = collaboration?.status ?? "unavailable";
+  const collaborationNonterminal =
+    NONTERMINAL_COLLABORATION_STATUSES.has(collaborationStatus);
+  const collaborationSuccessful =
+    SUCCESSFUL_COLLABORATION_STATUSES.has(collaborationStatus);
+  const collaborationFailed =
+    FAILED_COLLABORATION_STATUSES.has(collaborationStatus);
+  const interruptedConflict = interruptedTurnStatus(latestTurn?.status);
+
+  if (collaborationFailed) {
+    return {
+      schemaVersion: 1,
+      kind: "attention",
+      reason: "planner-turn-failed",
+      threadId: thread.threadId,
+      turnId: latestTurn?.turnId ?? null,
+    };
+  }
+  if (collaborationStatus === "notFound") {
+    return {
+      schemaVersion: 1,
+      kind: "attention",
+      reason: "planner-lost",
+      threadId: thread.threadId,
+      turnId: latestTurn?.turnId ?? null,
+      retryable: false,
+    };
+  }
+  if (
+    terminalTurnStatus(latestTurn?.status) &&
+    !successfulTurnStatus(latestTurn.status) &&
+    !interruptedConflict
+  ) {
+    return {
+      schemaVersion: 1,
+      kind: "attention",
+      reason: "planner-turn-failed",
+      threadId: thread.threadId,
+      turnId: latestTurn.turnId,
+    };
+  }
   if (
     latestTurn === null ||
     !terminalTurnStatus(latestTurn.status) ||
+    collaborationNonterminal ||
     reconciledInterruptedTurn
   ) {
     return {
@@ -594,22 +646,23 @@ function statusAction(
       threadId: thread.threadId,
       turnId: latestTurn?.turnId ?? null,
       after: "repeat-planner-launch-receipt",
-      ...(reconciledInterruptedTurn
+      ...(interruptedConflict
         ? {
             reconciliation: {
               reason: "planner-turn-observation-conflict",
               retryable: true,
               appServerTurnStatus: "interrupted",
-              nativeCollaborationStatus: "unavailable",
-              observation: record.interruptedTurnReconciliations,
-              maximumObservations:
+              nativeCollaborationStatus: collaborationStatus,
+              unavailableObservations:
+                record.interruptedTurnReconciliations,
+              maximumUnavailableObservations:
                 MAX_INTERRUPTED_TURN_RECONCILIATIONS,
             },
           }
         : {}),
     };
   }
-  if (!successfulTurnStatus(latestTurn.status)) {
+  if (!successfulTurnStatus(latestTurn.status) && !collaborationSuccessful) {
     return {
       schemaVersion: 1,
       kind: "attention",
@@ -701,12 +754,29 @@ export class PlanningLifecycleCoordinatorV1 {
         thread,
       };
     }
-    return { route, thread, latestTurn };
+    let collaboration = {
+      status: "unavailable",
+      parentTurnId: null,
+      toolCallId: null,
+    };
+    if (typeof appServerBridge.collaborationAgentStatus === "function") {
+      try {
+        collaboration = await appServerBridge.collaborationAgentStatus({
+          parentThreadId: request.queenThreadId,
+          agentThreadId: identity.threadId,
+        });
+      } catch {
+        // Collaboration evidence is reconciled through the persisted bounded
+        // policy below. An unavailable read is not itself planner failure.
+      }
+    }
+    return { route, thread, latestTurn, collaboration };
   }
 
-  async #reconcileInterruptedTurn(record, latestTurn) {
+  async #reconcileInterruptedTurn(record, latestTurn, collaboration) {
     if (
       !interruptedTurnStatus(latestTurn?.status) ||
+      collaboration?.status !== "unavailable" ||
       record.interruptedTurnReconciliations >=
         MAX_INTERRUPTED_TURN_RECONCILIATIONS
     ) {
@@ -877,7 +947,7 @@ export class PlanningLifecycleCoordinatorV1 {
             },
           );
         }
-        const { route, thread, latestTurn } = inspected;
+        const { route, thread, latestTurn, collaboration } = inspected;
         if (record.phase !== "verified") {
           record = await this.#store.write(
             {
@@ -892,12 +962,36 @@ export class PlanningLifecycleCoordinatorV1 {
         const reconciliation = await this.#reconcileInterruptedTurn(
           record,
           latestTurn,
+          collaboration,
         );
         record = reconciliation.record;
+        if (
+          interruptedTurnStatus(latestTurn?.status) &&
+          collaboration.status === "unavailable" &&
+          !reconciliation.reconciled
+        ) {
+          return lifecycleOutput(
+            record,
+            bootstrap,
+            attentionAction("planner-lost", {
+              retryable: false,
+              threadId: thread.threadId,
+              turnId: latestTurn.turnId,
+            }),
+            {
+              identity: publicPlannerIdentity(identity),
+              route,
+              thread,
+              latestTurn,
+              collaboration,
+            },
+          );
+        }
         return lifecycleOutput(
           record,
           bootstrap,
           statusAction(record, thread, latestTurn, {
+            collaboration,
             reconciledInterruptedTurn: reconciliation.reconciled,
           }),
           {
@@ -905,6 +999,7 @@ export class PlanningLifecycleCoordinatorV1 {
             route,
             thread,
             latestTurn,
+            collaboration,
           },
         );
       }
@@ -985,7 +1080,7 @@ export class PlanningLifecycleCoordinatorV1 {
           },
         );
       }
-      const { thread, latestTurn } = inspected;
+      const { thread, latestTurn, collaboration } = inspected;
       if (thread.parentThreadId !== request.queenThreadId) {
         return lifecycleOutput(
           record,
@@ -999,16 +1094,18 @@ export class PlanningLifecycleCoordinatorV1 {
       if (
         thread.status === "systemError" ||
         latestTurn === null ||
-        !terminalTurnStatus(latestTurn.status)
+        !terminalTurnStatus(latestTurn.status) ||
+        NONTERMINAL_COLLABORATION_STATUSES.has(collaboration.status)
       ) {
         return lifecycleOutput(
           record,
           bootstrap,
-          statusAction(record, thread, latestTurn),
+          statusAction(record, thread, latestTurn, { collaboration }),
           {
             identity: publicPlannerIdentity(record.identity),
             thread,
             latestTurn,
+            collaboration,
           },
         );
       }
@@ -1025,6 +1122,7 @@ export class PlanningLifecycleCoordinatorV1 {
       const reconciliation = await this.#reconcileInterruptedTurn(
         record,
         latestTurn,
+        collaboration,
       );
       record = reconciliation.record;
       if (reconciliation.reconciled) {
@@ -1032,16 +1130,30 @@ export class PlanningLifecycleCoordinatorV1 {
           record,
           bootstrap,
           statusAction(record, thread, latestTurn, {
+            collaboration,
             reconciledInterruptedTurn: true,
           }),
           {
             identity: publicPlannerIdentity(record.identity),
             thread,
             latestTurn,
+            collaboration,
           },
         );
       }
-      if (!successfulTurnStatus(latestTurn.status)) {
+      if (
+        FAILED_COLLABORATION_STATUSES.has(collaboration.status) ||
+        collaboration.status === "notFound" ||
+        (
+          terminalTurnStatus(latestTurn.status) &&
+          !successfulTurnStatus(latestTurn.status) &&
+          !interruptedTurnStatus(latestTurn.status)
+        ) ||
+        (
+          !successfulTurnStatus(latestTurn.status) &&
+          !SUCCESSFUL_COLLABORATION_STATUSES.has(collaboration.status)
+        )
+      ) {
         return lifecycleOutput(
           record,
           bootstrap,

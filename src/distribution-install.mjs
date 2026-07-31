@@ -36,6 +36,7 @@ import {
   INSTALL_STATE_FILENAME,
   MANAGED_CLI_BINS,
   PLUGIN_NAME,
+  SOURCE_REPOSITORY,
   PROVENANCE_FILENAME,
   REQUIRED_CLI_COMMANDS,
   compareProvenance,
@@ -48,6 +49,7 @@ import {
   safeCommandPath,
   sameStringSet,
   validateProvenance,
+  pluginCacheIdentity,
 } from "./distribution-provenance.mjs";
 import { openAppServerClient } from "./app-server-client.mjs";
 import { resolveControlEndpoint } from "./control-endpoint.mjs";
@@ -131,7 +133,7 @@ async function sha256File(path) {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
-async function writeJsonAtomically(
+export async function writeJsonAtomically(
   path,
   value,
   mode = 0o600,
@@ -535,7 +537,7 @@ async function readInitializingLockOwner(lockPath) {
   }
 }
 
-async function acquireInstallLock(
+export async function acquireInstallLock(
   lockRoot,
   {
     lockDirectory = LOCK_DIRECTORY,
@@ -727,6 +729,122 @@ async function verifyPackedPluginStructure(
   return provenance;
 }
 
+async function resolveCandidateSourceRevision(
+  packageRoot,
+  baseProvenance,
+  env,
+  integrity,
+) {
+  let gitRevision = null;
+  try {
+    const [result, status, topLevel, canonicalPackageRoot] = await Promise.all([
+      runChecked(
+        "git",
+        ["-C", packageRoot, "rev-parse", "--verify", "HEAD"],
+        { env },
+      ),
+      runChecked(
+        "git",
+        ["-C", packageRoot, "status", "--porcelain", "--", ...DISTRIBUTION_ENTRIES],
+        { env },
+      ),
+      runChecked(
+        "git",
+        ["-C", packageRoot, "rev-parse", "--show-toplevel"],
+        { env },
+      ),
+      realpath(packageRoot),
+    ]);
+    const canonicalTopLevel = await realpath(topLevel.stdout.trim());
+    if (canonicalTopLevel !== canonicalPackageRoot) {
+      if (/^[a-f0-9]{40}$/.test(baseProvenance.sourceRevision ?? "")) {
+        return {
+          revision: baseProvenance.sourceRevision,
+          type: baseProvenance.sourceRevisionType ?? "git",
+        };
+      }
+      return {
+        revision: integrity.slice("sha256:".length, "sha256:".length + 40),
+        type: "distribution-sha256",
+      };
+    }
+    const revision = result.stdout.trim();
+    if (!/^[a-f0-9]{40}$/.test(revision)) {
+      throw new Error("Git returned a non-immutable source revision");
+    }
+    if (status.stdout.trim() !== "") {
+      return {
+        revision: integrity.slice("sha256:".length, "sha256:".length + 40),
+        type: "distribution-sha256",
+      };
+    }
+    gitRevision = revision;
+  } catch (error) {
+    const revision = baseProvenance.sourceRevision ?? env.GITHUB_SHA;
+    if (/^[a-f0-9]{40}$/.test(revision ?? "")) {
+      return { revision, type: baseProvenance.sourceRevisionType ?? "git" };
+    }
+    return {
+      revision: integrity.slice("sha256:".length, "sha256:".length + 40),
+      type: "distribution-sha256",
+    };
+  }
+  if (baseProvenance.sourceRevision &&
+      baseProvenance.sourceRevision !== gitRevision) {
+    throw new Error(
+      `bundled provenance source revision is stale: expected ${baseProvenance.sourceRevision} actual ${gitRevision}`,
+    );
+  }
+  return { revision: gitRevision, type: "git" };
+}
+
+async function cleanupLegacyPluginCaches({
+  cacheRoot,
+  managedPluginCacheRoot,
+  installedPath,
+  report,
+}) {
+  const installed = resolve(installedPath);
+  const rootInfo = await pathInfo(managedPluginCacheRoot);
+  if (rootInfo) {
+    await ensureCanonicalDirectory(
+      managedPluginCacheRoot,
+      "managed plugin cache root",
+      { create: false },
+    );
+    for (const entry of await readdir(managedPluginCacheRoot, {
+      withFileTypes: true,
+    })) {
+      const candidate = join(managedPluginCacheRoot, entry.name);
+      const installedRelative = relative(resolve(candidate), installed);
+      if (
+        installedRelative === "" ||
+        (!installedRelative.startsWith("..") && !isAbsolute(installedRelative))
+      ) {
+        continue;
+      }
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        report(`skipped unsafe legacy plugin cache entry ${candidate}`);
+        continue;
+      }
+      await rm(candidate, { recursive: true, force: true });
+      report(`removed stale Nelos plugin cache ${candidate}`);
+    }
+  }
+  const legacyRoot = join(cacheRoot, PLUGIN_NAME);
+  const legacyInfo = await pathInfo(legacyRoot);
+  if (legacyInfo) {
+    if (!legacyInfo.isDirectory() || legacyInfo.isSymbolicLink()) {
+      throw new Error(`refusing unsafe legacy plugin cache root: ${legacyRoot}`);
+    }
+    await ensureCanonicalDirectory(legacyRoot, "legacy plugin cache root", {
+      create: false,
+    });
+    await rm(legacyRoot, { recursive: true });
+    report(`removed legacy Nelos plugin cache root ${legacyRoot}`);
+  }
+}
+
 export async function stageDistribution({ packageRoot, installRoot, env }) {
   const baseProvenance = await readRequiredProvenance(
     join(packageRoot, PROVENANCE_FILENAME),
@@ -739,6 +857,12 @@ export async function stageDistribution({ packageRoot, installRoot, env }) {
     await copyDistribution(packageRoot, stagePath);
     await verifyExecutableBins(stagePath);
     const integrity = await computeDistributionIntegrity(stagePath);
+    const source = await resolveCandidateSourceRevision(
+      packageRoot,
+      baseProvenance,
+      env,
+      integrity,
+    );
     const skillIntegrity = await computeFileIntegrity(
       join(stagePath, "skills", SKILL_NAME, "SKILL.md"),
     );
@@ -770,6 +894,13 @@ export async function stageDistribution({ packageRoot, installRoot, env }) {
     const provenance = validateProvenance(
       {
         ...baseProvenance,
+        sourceRepository: SOURCE_REPOSITORY,
+        sourceRevision: source.revision,
+        sourceRevisionType: source.type,
+        cacheIdentity: pluginCacheIdentity({
+          sourceRepository: SOURCE_REPOSITORY,
+          version: baseProvenance.revision,
+        }),
         integrity,
         skillIntegrity,
         requiredCliCommands: REQUIRED_CLI_COMMANDS,
@@ -784,7 +915,7 @@ export async function stageDistribution({ packageRoot, installRoot, env }) {
       verifiedIntegrity: integrity,
     });
 
-    const releaseName = `${sanitizeReleaseSegment(provenance.revision)}-${integrity.slice(7, 19)}`;
+    const releaseName = `${sanitizeReleaseSegment(provenance.revision)}-${source.revision.slice(0, 12)}-${integrity.slice(7, 19)}`;
     const releasePath = join(releasesRoot, releaseName);
     if (await pathExists(releasePath)) {
       const installed = await readRequiredProvenance(
@@ -809,7 +940,7 @@ export async function stageDistribution({ packageRoot, installRoot, env }) {
   }
 }
 
-async function resolveCodexCommand(explicitPath, pathValue) {
+export async function resolveCodexCommand(explicitPath, pathValue) {
   if (explicitPath) {
     const resolved = await realpath(resolve(explicitPath));
     return resolved;
@@ -2863,6 +2994,18 @@ export async function installDistribution(options = {}) {
           `installation is committed, but the live-activation result could not be recorded: ${error.message}`,
         );
       }
+      try {
+        await cleanupLegacyPluginCaches({
+          cacheRoot,
+          managedPluginCacheRoot,
+          installedPath: pluginInstall.installedPath,
+          report,
+        });
+      } catch (error) {
+        report(
+          `installation is committed, but stale plugin cache cleanup did not complete: ${error.message}`,
+        );
+      }
       report(`installed ${staged.provenance.revision} (${staged.provenance.integrity})`);
       return {
         ...state,
@@ -2916,6 +3059,7 @@ export const distributionInstallInternals = {
   LEGACY_SKILL_HASHES,
   acquireInstallLock,
   activatePluginSource,
+  cleanupLegacyPluginCaches,
   discoverPlugin,
   ensurePersonalMarketplace,
   activateMarketplaceBootstrap,

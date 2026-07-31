@@ -120,7 +120,11 @@ test("the bootstrap locates the versioned cache and serves the tools", async () 
           jsonrpc: "2.0",
           id: 1,
           method: "initialize",
-          params: { protocolVersion: "2025-06-18" },
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "bootstrap-test", version: "0" },
+          },
         },
         { jsonrpc: "2.0", id: 2, method: "tools/list" },
       ],

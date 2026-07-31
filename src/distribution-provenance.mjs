@@ -20,6 +20,7 @@ import {
 export const PROVENANCE_FILENAME = "distribution-provenance.json";
 export const DISTRIBUTION_NAME = "nelos";
 export const PLUGIN_NAME = "nelos";
+export const SOURCE_REPOSITORY = "https://github.com/virusimmortal00/nelos.git";
 export const INSTALL_STATE_FILENAME = "install-state.json";
 export const REQUIRED_CLI_COMMANDS = [
   "doctor",
@@ -43,6 +44,7 @@ export const MANAGED_CLI_BINS = Object.freeze({
   "nelos-title": "bin/nelos-title",
   "nelos-install-skill": "bin/nelos-install-skill",
   "nelos-install-distribution": "bin/nelos-install-distribution",
+  "nelos-uninstall-distribution": "bin/nelos-uninstall-distribution",
   "nelos-verify-distribution": "bin/nelos-verify-distribution",
 });
 export const MANAGED_CLI_COMMANDS = Object.freeze(Object.keys(MANAGED_CLI_BINS));
@@ -79,6 +81,17 @@ export function validateProvenance(value, source) {
     value?.distribution !== DISTRIBUTION_NAME ||
     typeof value?.revision !== "string" ||
     value.revision.length === 0 ||
+    (value.sourceRepository !== undefined &&
+      value.sourceRepository !== SOURCE_REPOSITORY) ||
+    (value.sourceRevision !== undefined &&
+      !/^[a-f0-9]{40}$/.test(value.sourceRevision)) ||
+    (value.sourceRevisionType !== undefined &&
+      !["git", "distribution-sha256"].includes(value.sourceRevisionType)) ||
+    (value.cacheIdentity !== undefined &&
+      value.cacheIdentity !== pluginCacheIdentity({
+        sourceRepository: value.sourceRepository,
+        version: value.revision,
+      })) ||
     (value.integrity !== undefined &&
       !/^sha256:[a-f0-9]{64}$/.test(value.integrity)) ||
     (value.skillIntegrity !== undefined &&
@@ -94,6 +107,17 @@ export function validateProvenance(value, source) {
     throw new Error(`invalid provenance record from ${source}`);
   }
   return value;
+}
+
+export function pluginCacheIdentity({
+  sourceRepository = SOURCE_REPOSITORY,
+  version,
+} = {}) {
+  if (sourceRepository !== SOURCE_REPOSITORY ||
+      typeof version !== "string" || version.length === 0) {
+    throw new Error("cache identity requires the canonical source repository and release version");
+  }
+  return `${sourceRepository}#${PLUGIN_NAME}@${version}`;
 }
 
 export async function readProvenance(path) {
@@ -321,6 +345,14 @@ export function compareProvenance(surface, expected, inspection, path) {
       (expected.integrity === undefined || installed?.integrity === expected.integrity) &&
       (expected.skillIntegrity === undefined ||
         installed?.skillIntegrity === expected.skillIntegrity) &&
+      (expected.sourceRepository === undefined ||
+        installed?.sourceRepository === expected.sourceRepository) &&
+      (expected.sourceRevision === undefined ||
+        installed?.sourceRevision === expected.sourceRevision) &&
+      (expected.sourceRevisionType === undefined ||
+        installed?.sourceRevisionType === expected.sourceRevisionType) &&
+      (expected.cacheIdentity === undefined ||
+        installed?.cacheIdentity === expected.cacheIdentity) &&
       (expected.requiredCliCommands === undefined ||
         sameStringSet(
           installed?.requiredCliCommands,

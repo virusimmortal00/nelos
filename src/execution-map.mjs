@@ -7,7 +7,7 @@ import {
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v7.html";
+  "ui://nelos/execution-map-v8.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
 
@@ -17,6 +17,10 @@ export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
   "nelos_plan_replan",
   "nelos_plan_slices",
   "nelos_orchestrate_create",
+  "nelos_orchestrate_advance",
+  "nelos_launch_verify_batch",
+  "nelos_queen_decide",
+  "nelos_spinoff_complete",
   "nelos_spinoff_cleanup",
   "nelos_execution_map_refresh",
 ]));
@@ -35,12 +39,14 @@ const MEMBER_SCHEMA = Object.freeze({
         "planned",
         "authorization-required",
         "launch-pending",
+        "unknown",
         "running",
         "created",
         "archiving",
         "archived",
         "kept",
         "complete",
+        "accepted",
         "attention",
       ],
     },
@@ -173,12 +179,14 @@ const EXECUTION_MAP_PROPERTIES = Object.freeze({
       "planned",
       "authorization-required",
       "launch-pending",
+      "unknown",
       "running",
       "created",
       "archiving",
       "archived",
       "kept",
       "complete",
+      "accepted",
       "attention",
     ],
   },
@@ -191,6 +199,10 @@ const EXECUTION_MAP_PROPERTIES = Object.freeze({
       subagents: { type: "integer", minimum: 0 },
       created: { type: "integer", minimum: 0 },
       archived: { type: "integer", minimum: 0 },
+      running: { type: "integer", minimum: 0 },
+      attention: { type: "integer", minimum: 0 },
+      complete: { type: "integer", minimum: 0 },
+      accepted: { type: "integer", minimum: 0 },
     },
     required: ["total", "spinoffs", "subagents", "created"],
     additionalProperties: false,
@@ -369,6 +381,11 @@ function summary(members) {
     spinoffs: members.filter(({ lifecycle }) => lifecycle === "spinoff").length,
     subagents: members.filter(({ lifecycle }) => lifecycle === "subagent").length,
     created: members.filter(({ status }) => status === "created").length,
+    running: members.filter(({ status }) => status === "running").length,
+    attention: members.filter(({ status }) => status === "attention").length,
+    complete: members.filter(({ status }) => status === "complete").length,
+    accepted: members.filter(({ status }) => status === "accepted").length,
+    archived: members.filter(({ status }) => status === "archived").length,
   };
 }
 
@@ -557,19 +574,241 @@ function cleanupMap(result, args) {
   };
 }
 
+function verificationMap(result) {
+  const verification = result?.verification;
+  if (!verification || !Array.isArray(verification.members)) return null;
+  const members = verification.members.map((member) => ({
+    id: member.sliceId,
+    task: member.sliceId,
+    lifecycle: member.lifecycle,
+    model: "host-default",
+    reasoning: "host-default",
+    status: member.verified ? "created" : "attention",
+    threadId: text(member.threadId, null),
+  }));
+  return executionMap({
+    phase: verification.allVerified ? "created" : "attention",
+    task: "Execute the planned task web",
+    members,
+  });
+}
+
+function checkpointStatus(member) {
+  if (member?.coordination?.state === "accepted") return "accepted";
+  if (
+    member?.title?.state === "attention" ||
+    member?.execution?.state === "attention" ||
+    member?.execution?.attentionRequired === true ||
+    ["stale", "malformed"].includes(member?.result?.state)
+  ) return "attention";
+  if (
+    member?.execution?.state === "terminal" ||
+    member?.result?.state === "current"
+  ) return "complete";
+  if (member?.execution?.state === "running") return "running";
+  return "unknown";
+}
+
+function checkpointMap(result) {
+  if (!Array.isArray(result?.checkpoint?.members)) return null;
+  const members = result.checkpoint.members.map((member) => ({
+    id: member.workUnitId,
+    task: text(member?.title?.requestedTitle, member.workUnitId),
+    lifecycle: "spinoff",
+    model: "host-default",
+    reasoning: "host-default",
+    status: checkpointStatus(member),
+    threadId: text(member.memberThreadId, null),
+  }));
+  return executionMap({
+    phase: aggregatePhase(members),
+    task: "Execute the planned task web",
+    members,
+  });
+}
+
+function decisionMap(result) {
+  const decision = result?.decision;
+  if (!decision?.workUnitId) return null;
+  const accepted = decision.decision === "accepted";
+  return executionMap({
+    phase: accepted ? "accepted" : "attention",
+    task: "Review task-web results",
+    members: [{
+      id: decision.workUnitId,
+      task: decision.workUnitId,
+      lifecycle: "spinoff",
+      model: "host-default",
+      reasoning: "host-default",
+      status: accepted ? "accepted" : "attention",
+      threadId: text(decision.memberThreadId, null),
+    }],
+  });
+}
+
+function completionMap(args) {
+  if (!args?.workUnitId) return null;
+  const succeeded = args.outcome === "succeeded";
+  return executionMap({
+    phase: succeeded ? "complete" : "attention",
+    task: "Collect task-web results",
+    members: [{
+      id: args.workUnitId,
+      task: args.workUnitId,
+      lifecycle: "spinoff",
+      model: "host-default",
+      reasoning: "host-default",
+      status: succeeded ? "complete" : "attention",
+      threadId: text(args.memberThreadId, null),
+    }],
+  });
+}
+
+const STATUS_RANK = Object.freeze({
+  planning: 0,
+  planned: 1,
+  "authorization-required": 2,
+  "launch-pending": 3,
+  created: 4,
+  unknown: 5,
+  running: 6,
+  attention: 7,
+  complete: 8,
+  accepted: 9,
+  archiving: 10,
+  archived: 11,
+  kept: 11,
+});
+
+function aggregatePhase(members) {
+  if (members.length === 0) return "complete";
+  const statuses = members.map(({ status }) => status);
+  if (statuses.includes("archiving")) return "archiving";
+  if (statuses.every((status) => status === "archived")) return "archived";
+  if (statuses.every((status) => status === "kept")) return "kept";
+  if (statuses.every((status) => status === "accepted")) return "accepted";
+  if (statuses.includes("attention")) return "attention";
+  if (statuses.every((status) => ["complete", "accepted", "archived", "kept"].includes(status))) {
+    return "complete";
+  }
+  return statuses.reduce((phase, status) =>
+    (STATUS_RANK[status] ?? -1) > (STATUS_RANK[phase] ?? -1) ? status : phase,
+  statuses[0]);
+}
+
+function compareVersion(left, right) {
+  if (!left && !right) return 0;
+  if (!left) return 0;
+  if (!right) return 1;
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function memberVersions(toolName, args, result) {
+  const versions = {};
+  const workUnit = args?.workUnit;
+  if (workUnit?.workUnitId) {
+    versions[workUnit.workUnitId] = [
+      workUnit.specRevision ?? 0,
+      workUnit.attempt ?? 0,
+    ];
+  }
+  for (const member of result?.checkpoint?.members ?? []) {
+    versions[member.workUnitId] = [
+      member.specRevision,
+      member.attempt,
+    ];
+  }
+  const decision = result?.decision;
+  if (decision?.workUnitId) {
+    versions[decision.workUnitId] = [
+      decision.specRevision ?? 0,
+      decision.attempt ?? 0,
+    ];
+  }
+  if (toolName === "nelos_spinoff_complete" && args?.workUnitId) {
+    versions[args.workUnitId] = [
+      args.specRevision ?? 0,
+      args.attempt ?? 0,
+    ];
+  }
+  return versions;
+}
+
+function mergeMaps(
+  current,
+  incoming,
+  { currentVersions = {}, incomingVersions = {}, ignoredStatusIds = new Set() } = {},
+) {
+  if (!current) return { map: incoming, versions: incomingVersions };
+  const members = new Map(current.members.map((member) => [member.id, member]));
+  const versions = { ...currentVersions };
+  for (const candidate of incoming.members) {
+    const prior = members.get(candidate.id);
+    if (!prior) {
+      members.set(candidate.id, candidate);
+      if (incomingVersions[candidate.id]) {
+        versions[candidate.id] = incomingVersions[candidate.id];
+      }
+      continue;
+    }
+    const versionOrder = compareVersion(
+      incomingVersions[candidate.id],
+      currentVersions[candidate.id],
+    );
+    const status = ignoredStatusIds.has(candidate.id) || versionOrder < 0
+      ? prior.status
+      : versionOrder > 0
+      ? candidate.status
+      : (STATUS_RANK[candidate.status] ?? -1) >=
+        (STATUS_RANK[prior.status] ?? -1)
+      ? candidate.status
+      : prior.status;
+    members.set(candidate.id, {
+      ...prior,
+      task: candidate.task === candidate.id ? prior.task : candidate.task,
+      lifecycle: prior.lifecycle,
+      model: candidate.model === "host-default" ? prior.model : candidate.model,
+      reasoning: candidate.reasoning === "host-default"
+        ? prior.reasoning
+        : candidate.reasoning,
+      status,
+      threadId: candidate.threadId ?? prior.threadId,
+    });
+    if (versionOrder > 0) versions[candidate.id] = incomingVersions[candidate.id];
+  }
+  const mergedMembers = [...members.values()];
+  return {
+    map: executionMap({
+      phase: aggregatePhase(mergedMembers),
+      task: current.task || incoming.task,
+      members: mergedMembers,
+    }),
+    versions,
+  };
+}
+
+function observationMap(toolName, args, result) {
+  const planned = plannedMap(result, args);
+  if (planned) return planned;
+  if (toolName === "nelos_execution_map_refresh") return refreshedMap(result);
+  if (toolName === "nelos_orchestrate_create") return orchestrationMap(result, args);
+  if (toolName === "nelos_orchestrate_advance") return checkpointMap(result);
+  if (toolName === "nelos_launch_verify_batch") return verificationMap(result);
+  if (toolName === "nelos_queen_decide") return decisionMap(result);
+  if (toolName === "nelos_spinoff_complete") return completionMap(args);
+  if (toolName === "nelos_spinoff_cleanup") return cleanupMap(result, args);
+  return plannerMap(result, args, {
+    replan: toolName === "nelos_plan_replan",
+  });
+}
+
 export function executionMapForToolResultV1(toolName, args, result) {
   if (!EXECUTION_MAP_TOOL_NAMES.has(toolName)) return null;
-  const planned = plannedMap(result, args);
-  const map = planned ??
-    (toolName === "nelos_execution_map_refresh"
-      ? refreshedMap(result)
-      : toolName === "nelos_orchestrate_create"
-      ? orchestrationMap(result, args)
-      : toolName === "nelos_spinoff_cleanup"
-        ? cleanupMap(result, args)
-        : plannerMap(result, args, {
-            replan: toolName === "nelos_plan_replan",
-          }));
+  const map = observationMap(toolName, args, result);
   if (!map) return null;
   return {
     ...map,
@@ -579,6 +818,99 @@ export function executionMapForToolResultV1(toolName, args, result) {
       result: structuredClone(result),
     },
   };
+}
+
+async function projectionIdentity(toolName, args, result, webRegistry) {
+  const direct = args?.workUnit ?? args;
+  if (direct?.webId && direct?.queenThreadId) {
+    return { webId: direct.webId, queenThreadId: direct.queenThreadId };
+  }
+  const webIdentity = result?.planRun?.webIdentity;
+  if (webIdentity?.webId && webIdentity?.queenThreadId) return webIdentity;
+  const queenThreadId = args?.parentThreadId ?? args?.queenThreadId ?? null;
+  if (queenThreadId) {
+    const record = await webRegistry.read(queenThreadId);
+    const webId = record?.outboundWebId ?? record?.executionMapProjection?.webId;
+    if (webId) return { webId, queenThreadId };
+  }
+  if (toolName === "nelos_execution_map_refresh") {
+    const threadIds = new Set(
+      (args?.members ?? result?.members ?? []).map(({ threadId }) => threadId),
+    );
+    const matches = (await webRegistry.list()).filter((record) =>
+      record.executionMapProjection?.members?.some(({ threadId }) =>
+        threadId && threadIds.has(threadId))
+    );
+    if (matches.length === 1) {
+      return {
+        webId: matches[0].executionMapProjection.webId,
+        queenThreadId: matches[0].threadId,
+      };
+    }
+  }
+  return null;
+}
+
+export async function projectExecutionMapForToolResultV1(
+  toolName,
+  args,
+  result,
+  { webRegistry } = {},
+) {
+  const currentResponse = executionMapForToolResultV1(toolName, args, result);
+  if (!currentResponse || !webRegistry) return currentResponse;
+  const identity = await projectionIdentity(toolName, args, result, webRegistry);
+  if (!identity) return currentResponse;
+  return webRegistry.withLock(async () => {
+    const record = await webRegistry.read(identity.queenThreadId);
+    const { protocol: _priorProtocol, ...priorMap } =
+      record?.executionMapProjection ?? {};
+    const { protocol, ...incomingMap } = currentResponse;
+    const ignoredStatusIds = new Set(
+      toolName === "nelos_execution_map_refresh"
+        ? (result?.members ?? [])
+          .filter((member) =>
+            member.observedTurnId === null ||
+            member.observedTurnId !== member.turnId
+          )
+          .map(({ id }) => id)
+        : [],
+    );
+    const { map: merged, versions } = mergeMaps(
+      Array.isArray(priorMap.members) ? priorMap : null,
+      incomingMap,
+      {
+        currentVersions: record?.executionMapProjectionVersions ?? {},
+        incomingVersions: memberVersions(toolName, args, result),
+        ignoredStatusIds,
+      },
+    );
+    const persistedProjection = {
+      ...merged,
+      webId: identity.webId,
+      queenThreadId: identity.queenThreadId,
+    };
+    if (
+      !record ||
+      record.outboundWebId !== identity.webId ||
+      JSON.stringify(record.executionMapProjection) !==
+        JSON.stringify(persistedProjection) ||
+      JSON.stringify(record.executionMapProjectionVersions ?? {}) !==
+        JSON.stringify(versions)
+    ) {
+      await webRegistry.write({
+        ...(record ?? {
+          threadId: identity.queenThreadId,
+          createdAt: new Date().toISOString(),
+        }),
+        outboundWebId: identity.webId,
+        updatedAt: new Date().toISOString(),
+        executionMapProjection: persistedProjection,
+        executionMapProjectionVersions: versions,
+      });
+    }
+    return { ...merged, protocol };
+  });
 }
 
 export function executionMapToolMetadataV1(toolName) {

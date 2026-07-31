@@ -15,7 +15,6 @@ import {
   PlanRunStoreV1,
 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
-import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 function workUnit(overrides = {}) {
   return createWorkUnitSpecV1({
@@ -363,7 +362,7 @@ test("acceptance advances collection to continuation without claiming Desktop wa
   });
 });
 
-test("acceptance launches the next persisted dependency wave before cleanup", async (t) => {
+test("each accepted dependency wave is isolated and cleanup-scoped before the next wave", async (t) => {
   const current = await fixture(t);
   const planned = planWorkSlices({
     schemaVersion: 1,
@@ -484,16 +483,14 @@ test("acceptance launches the next persisted dependency wave before cleanup", as
     receipt: null,
   });
   assert.equal(advanced.join.boundary.type, "continue");
-  assert.equal(advanced.nextAction.kind, "authorization-required");
-  const authorized = await current.adapter().advance({
+  assert.equal(advanced.nextAction.kind, "cleanup-spinoffs");
+  assert.deepEqual(advanced.nextAction.arguments, {
     webId: "A1",
     queenThreadId: "queen",
-    receipt: null,
-    launchAuthorization: authorizeLaunchProposal(advanced.nextAction),
+    planRunId: run.planRunId,
+    waveIndex: 1,
+    waveDigest: run.waves[0].waveDigest,
   });
-  assert.equal(authorized.nextAction.kind, "launch-wave");
-  assert.equal(authorized.nextAction.waveIndex, 2);
-  assert.equal(authorized.nextAction.members[0].sliceId, "beta");
 
   await current.planRunStore.markWaveVerified({
     planRunId: run.planRunId,
@@ -515,6 +512,11 @@ test("acceptance launches the next persisted dependency wave before cleanup", as
     queenThreadId: "queen",
     receipt: null,
   });
+  assert.deepEqual(
+    betaWaiting.checkpoint.members.map(({ workUnitId }) => workUnitId),
+    ["beta"],
+  );
+  assert.deepEqual(betaWaiting.checkpoint.consumedReceipts, []);
   const betaWait = betaWaiting.join.effects.find(
     ({ type, targets }) =>
       type === "native-wait" &&
@@ -590,4 +592,53 @@ test("acceptance launches the next persisted dependency wave before cleanup", as
 test("observation adapter has no app-server or process-control dependency", async () => {
   const source = await readFile(new URL("../src/mcp-observation.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /app-server-client|control-endpoint|child_process|spawn\s*\(/u);
+});
+
+test("high-cardinality wave transitions bound observation state to the exact active wave", async (t) => {
+  const current = await fixture(t);
+  const firstIds = Array.from({ length: 40 }, (_, index) => `first-${index}`);
+  const secondIds = Array.from({ length: 40 }, (_, index) => `second-${index}`);
+  for (const workUnitId of [...firstIds, ...secondIds]) {
+    await bind(
+      current.executionStore,
+      workUnit({ workUnitId, title: `Member ${workUnitId}` }),
+      `thread-${workUnitId}`,
+    );
+  }
+  let activeWave = 1;
+  const wave = (waveIndex, ids) => ({
+    waveIndex,
+    waveDigest: String(waveIndex).repeat(64),
+    members: ids.map((sliceId) => ({ sliceId, lifecycle: "spinoff" })),
+  });
+  const run = {
+    planRunId: `run:${"a".repeat(40)}`,
+    verifiedWaveIndexes: [1],
+    waves: [wave(1, firstIds), wave(2, secondIds)],
+  };
+  const adapter = new McpJoinAdapterV1({
+    executionStore: current.executionStore,
+    checkpointStore: current.checkpointStore,
+    acceptanceStore: current.acceptanceStore,
+    planRunStore: {
+      async listForWeb() {
+        run.verifiedWaveIndexes = activeWave === 1 ? [1] : [1, 2];
+        return [run];
+      },
+    },
+  });
+  const first = await adapter.advance({ webId: "A1", queenThreadId: "queen" });
+  assert.deepEqual(
+    first.checkpoint.members.map(({ workUnitId }) => workUnitId),
+    [...firstIds].sort((left, right) => left.localeCompare(right)),
+  );
+  activeWave = 2;
+  const second = await adapter.advance({ webId: "A1", queenThreadId: "queen" });
+  assert.deepEqual(
+    second.checkpoint.members.map(({ workUnitId }) => workUnitId),
+    [...secondIds].sort((left, right) => left.localeCompare(right)),
+  );
+  assert.equal(second.checkpoint.members.length, 40);
+  assert.deepEqual(second.checkpoint.consumedReceipts, []);
+  assert.equal(second.checkpoint.waveScope.waveIndex, 2);
 });

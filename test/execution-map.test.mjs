@@ -6,6 +6,7 @@ import {
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
   executionMapForToolResultV1,
+  projectExecutionMapForToolResultV1,
   executionMapOutputSchemaForToolV1,
   executionMapToolMetadataV1,
   listExecutionMapResourcesV1,
@@ -54,6 +55,11 @@ test("planned task webs project exact task, route, lifecycle, and count data", (
     spinoffs: 1,
     subagents: 1,
     created: 0,
+    running: 0,
+    attention: 0,
+    complete: 0,
+    accepted: 0,
+    archived: 0,
   });
   assert.equal(view.phase, "planned");
   assert.equal(view.task, "Ship the execution map");
@@ -361,6 +367,138 @@ test("native turn refresh validates every member before app-server reads", async
     /members\[0\]\.lifecycle is invalid/u,
   );
   assert.equal(reads, 0);
+});
+
+function memoryWebRegistry() {
+  const records = new Map();
+  return {
+    async withLock(callback) { return callback(); },
+    async read(threadId) { return structuredClone(records.get(threadId) ?? null); },
+    async list() { return structuredClone([...records.values()]); },
+    async write(record) { records.set(record.threadId, structuredClone(record)); },
+  };
+}
+
+test("web-wide projection survives restart and rejects stale member regressions", async () => {
+  const webRegistry = memoryWebRegistry();
+  const workUnit = (workUnitId, title, attempt = 1) => ({
+    webId: "B6",
+    queenThreadId: "queen-b6",
+    workUnitId,
+    specRevision: 1,
+    attempt,
+    memberKind: "spinoff",
+    title,
+    objectiveSummary: title,
+  });
+  for (const [id, title, threadId] of [
+    ["alpha", "Alpha", "thread-alpha"],
+    ["beta", "Beta", "thread-beta"],
+    ["gamma", "Gamma", "thread-gamma"],
+  ]) {
+    const view = await projectExecutionMapForToolResultV1(
+      "nelos_orchestrate_create",
+      { workUnit: workUnit(id, title), receipt: {} },
+      { binding: { state: "bound", memberThreadId: threadId } },
+      { webRegistry },
+    );
+    assert.equal(view.members.length, ["alpha", "beta", "gamma"].indexOf(id) + 1);
+  }
+
+  const running = await projectExecutionMapForToolResultV1(
+    "nelos_execution_map_refresh",
+    {},
+    {
+      command: "execution map refresh",
+      task: "B6 execution",
+      members: [{
+        id: "alpha",
+        task: "Alpha",
+        lifecycle: "spinoff",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        threadId: "thread-alpha",
+        turnId: "turn-alpha",
+        status: "running",
+        observedTurnId: "turn-alpha",
+        observedTurnStatus: "inProgress",
+      }],
+    },
+    { webRegistry },
+  );
+  assert.equal(running.members.length, 3);
+  assert.equal(running.members.find(({ id }) => id === "alpha").status, "running");
+
+  const late = await projectExecutionMapForToolResultV1(
+    "nelos_execution_map_refresh",
+    {},
+    {
+      command: "execution map refresh",
+      task: "B6 execution",
+      members: [{
+        id: "alpha",
+        task: "Alpha",
+        lifecycle: "spinoff",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        threadId: "thread-alpha",
+        turnId: "turn-alpha",
+        status: "attention",
+        observedTurnId: "older-turn",
+        observedTurnStatus: "completed",
+      }],
+    },
+    { webRegistry },
+  );
+  assert.equal(late.members.find(({ id }) => id === "alpha").status, "running");
+
+  // A fresh projector instance reads the same persisted registry after restart.
+  const restarted = await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit: workUnit("beta", "Beta"), receipt: null },
+    { binding: { state: "launch-pending", memberThreadId: null } },
+    { webRegistry },
+  );
+  assert.equal(restarted.members.length, 3);
+  assert.equal(restarted.members.find(({ id }) => id === "alpha").status, "running");
+  assert.equal(restarted.members.find(({ id }) => id === "beta").status, "created");
+
+  const terminal = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_complete",
+    {
+      webId: "B6",
+      queenThreadId: "queen-b6",
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      memberThreadId: "thread-alpha",
+      outcome: "succeeded",
+    },
+    {},
+    { webRegistry },
+  );
+  assert.equal(terminal.members.find(({ id }) => id === "alpha").status, "complete");
+
+  const stale = await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit: workUnit("alpha", "Alpha"), receipt: {} },
+    { binding: { state: "bound", memberThreadId: "thread-alpha" } },
+    { webRegistry },
+  );
+  assert.equal(stale.members.find(({ id }) => id === "alpha").status, "complete");
+  assert.equal(stale.summary.total, 3);
+  assert.equal(stale.summary.complete, 1);
+
+  const correctedAttempt = await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit: workUnit("alpha", "Alpha correction", 2), receipt: {} },
+    { binding: { state: "bound", memberThreadId: "thread-alpha" } },
+    { webRegistry },
+  );
+  assert.equal(
+    correctedAttempt.members.find(({ id }) => id === "alpha").status,
+    "created",
+  );
 });
 
 test("the execution map is a self-contained MCP Apps resource", () => {

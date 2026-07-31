@@ -5,7 +5,20 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.5.0] - 2026-07-31
+
 ### User-facing changes
+
+- Bumped the distributable plugin to `0.5.0` and added deterministic cache
+  identity plus exact source-repository, source-revision, and payload-integrity
+  provenance to installed copies and release artifacts.
+- Added stale-payload validation, legacy-to-candidate upgrade coverage, and a
+  source-distribution uninstaller that removes every Nelos-owned historical
+  cache, skill, source, launcher, marketplace, and state location.
+- Added a real isolated Codex Git-marketplace upgrade gate that installs the
+  legacy payload, refreshes and installs `0.5.0`, restarts the app-server,
+  creates a fresh task, and verifies candidate skill, MCP, cache, and provenance
+  bytes while preserving unrelated data.
 
 - Added a published-release promotion workflow for the
   `marketplace/stable` Codex marketplace channel, with immutable-release
@@ -67,6 +80,11 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - `NELOS_CONFIG` and `XDG_CONFIG_HOME`, when set, must be absolute paths.
 
 ### Migrations
+
+- Upgrade existing `0.4.0` marketplace installs by refreshing the marketplace
+  and reinstalling `0.5.0`, then restart Codex and create a fresh task. Source
+  distribution users may rerun the unified installer; committed upgrades prune
+  stale Nelos cache versions without touching other plugins.
 
 - Existing exact-tag marketplace installs remain pinned. Users can opt into
   stable-channel upgrades by removing and re-adding `nelos-marketplace` with
