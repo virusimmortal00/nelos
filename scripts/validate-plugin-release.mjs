@@ -57,15 +57,24 @@ async function jsonAt(root, path) {
 
 export async function validatePluginRelease({ baseRef, root = repositoryRoot }) {
   if (!baseRef) throw new Error("--base-ref is required");
-  const [baseManifestText, candidateManifest, packageMetadata, mcp, provenance] =
+  const [
+    baseManifestText,
+    baseProvenanceText,
+    candidateManifest,
+    packageMetadata,
+    mcp,
+    provenance,
+  ] =
     await Promise.all([
       git(root, "show", `${baseRef}:.codex-plugin/plugin.json`),
+      git(root, "show", `${baseRef}:distribution-provenance.json`),
       jsonAt(root, ".codex-plugin/plugin.json"),
       jsonAt(root, "package.json"),
       jsonAt(root, ".mcp.json"),
       jsonAt(root, "distribution-provenance.json"),
     ]);
   const baseManifest = JSON.parse(baseManifestText);
+  const baseProvenance = JSON.parse(baseProvenanceText);
   const candidateVersion = candidateManifest.version;
   for (const [label, version] of [
     ["package.json", packageMetadata.version],
@@ -103,6 +112,9 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
     }),
     candidateCacheIdentity,
     payloadChanged,
+    sourceRevisionChanged:
+      baseProvenance.sourceRevision !== provenance.sourceRevision ||
+      baseProvenance.sourceRevisionType !== provenance.sourceRevisionType,
   });
 }
 

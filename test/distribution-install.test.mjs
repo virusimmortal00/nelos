@@ -2133,3 +2133,49 @@ test("staging rejects content drift from bundled provenance integrity", async ()
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("staging retains bundled provenance inside an unrelated Git checkout", async () => {
+  const root = await mkdtemp(join(tmpdir(), "codex-enclosing-repository-"));
+  const candidate = join(root, "node_modules", "nelos");
+  const sourceRevision = "a".repeat(40);
+  try {
+    await mkdir(candidate, { recursive: true });
+    for (const entry of DISTRIBUTION_ENTRIES) {
+      await cp(join(packageRoot, entry), join(candidate, entry), {
+        recursive: true,
+      });
+    }
+    const provenance = JSON.parse(
+      await readFile(join(packageRoot, "distribution-provenance.json"), "utf8"),
+    );
+    await writeFile(
+      join(candidate, "distribution-provenance.json"),
+      `${JSON.stringify({
+        ...provenance,
+        sourceRevision,
+        sourceRevisionType: "git",
+      }, null, 2)}\n`,
+    );
+    await writeFile(join(root, ".gitignore"), "node_modules/\n");
+    for (const args of [
+      ["init", "-b", "main"],
+      ["config", "user.name", "Consumer Test"],
+      ["config", "user.email", "consumer@example.invalid"],
+      ["add", ".gitignore"],
+      ["commit", "-m", "consumer repository"],
+    ]) {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    }
+
+    const staged = await stageDistribution({
+      packageRoot: candidate,
+      installRoot: join(root, "install"),
+      env: { ...process.env, GITHUB_SHA: "b".repeat(40) },
+    });
+    assert.equal(staged.provenance.sourceRevision, sourceRevision);
+    assert.equal(staged.provenance.sourceRevisionType, "git");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

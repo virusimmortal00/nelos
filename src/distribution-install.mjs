@@ -737,7 +737,7 @@ async function resolveCandidateSourceRevision(
 ) {
   let gitRevision = null;
   try {
-    const [result, status] = await Promise.all([
+    const [result, status, topLevel, canonicalPackageRoot] = await Promise.all([
       runChecked(
         "git",
         ["-C", packageRoot, "rev-parse", "--verify", "HEAD"],
@@ -748,7 +748,26 @@ async function resolveCandidateSourceRevision(
         ["-C", packageRoot, "status", "--porcelain", "--", ...DISTRIBUTION_ENTRIES],
         { env },
       ),
+      runChecked(
+        "git",
+        ["-C", packageRoot, "rev-parse", "--show-toplevel"],
+        { env },
+      ),
+      realpath(packageRoot),
     ]);
+    const canonicalTopLevel = await realpath(topLevel.stdout.trim());
+    if (canonicalTopLevel !== canonicalPackageRoot) {
+      if (/^[a-f0-9]{40}$/.test(baseProvenance.sourceRevision ?? "")) {
+        return {
+          revision: baseProvenance.sourceRevision,
+          type: baseProvenance.sourceRevisionType ?? "git",
+        };
+      }
+      return {
+        revision: integrity.slice("sha256:".length, "sha256:".length + 40),
+        type: "distribution-sha256",
+      };
+    }
     const revision = result.stdout.trim();
     if (!/^[a-f0-9]{40}$/.test(revision)) {
       throw new Error("Git returned a non-immutable source revision");
@@ -761,7 +780,7 @@ async function resolveCandidateSourceRevision(
     }
     gitRevision = revision;
   } catch (error) {
-    const revision = env.GITHUB_SHA ?? baseProvenance.sourceRevision;
+    const revision = baseProvenance.sourceRevision ?? env.GITHUB_SHA;
     if (/^[a-f0-9]{40}$/.test(revision ?? "")) {
       return { revision, type: baseProvenance.sourceRevisionType ?? "git" };
     }
