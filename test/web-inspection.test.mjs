@@ -4,8 +4,21 @@ import test from "node:test";
 import { createWorkUnitSpecV1 } from "../src/execution-store.mjs";
 import {
   NelosWebInspectorV1,
+  WEB_INSPECTION_MAX_EXECUTION_RECORDS,
   WEB_INSPECTION_MAX_MEMBERS,
 } from "../src/web-inspection.mjs";
+
+function webRegistry({ webId = "A1", queenThreadId = "queen-1" } = {}) {
+  return {
+    async read(requestedQueenThreadId) {
+      if (requestedQueenThreadId !== queenThreadId) return null;
+      return {
+        threadId: queenThreadId,
+        outboundWebId: webId,
+      };
+    },
+  };
+}
 
 function workUnit({
   workUnitId,
@@ -97,9 +110,11 @@ test("web inspection composes persisted and native state with bounded paging", a
     memberThreadId: "task-b",
   });
   const calls = [];
+  let scanOptions = null;
   const inspector = new NelosWebInspectorV1({
     executionStore: {
-      async scan() {
+      async scan(options) {
+        scanOptions = options;
         return {
           workUnits: [second, first],
           malformedRecords: [{ reason: "unreadable_record" }],
@@ -152,7 +167,13 @@ test("web inspection composes persisted and native state with bounded paging", a
             ],
             topology: {
               schemaVersion: 1,
-              nodes: [],
+              nodes: [
+                readyItem("queen-1", { title: "Queen" }).thread,
+                readyItem("task-a", {
+                  title: "Member A",
+                  parentThreadId: "queen-1",
+                }).thread,
+              ],
               edges: [
                 {
                   parentThreadId: "queen-1",
@@ -172,6 +193,7 @@ test("web inspection composes persisted and native state with bounded paging", a
           };
         },
       },
+      webRegistry: webRegistry(),
     },
   );
 
@@ -202,6 +224,28 @@ test("web inspection composes persisted and native state with bounded paging", a
   });
   assert.equal(inspection.members[0].native.status, "idle");
   assert.equal("cwd" in inspection.members[0].native, false);
+  assert.deepEqual(scanOptions, {
+    maximumRecords: WEB_INSPECTION_MAX_EXECUTION_RECORDS,
+  });
+  assert.deepEqual(inspection.topology.nodes, [
+    {
+      schemaVersion: 1,
+      threadId: "queen-1",
+      title: "Queen",
+      status: "idle",
+      parentThreadId: null,
+      updatedAt: 2,
+    },
+    {
+      schemaVersion: 1,
+      threadId: "task-a",
+      title: "Member A",
+      status: "idle",
+      parentThreadId: "queen-1",
+      updatedAt: 2,
+    },
+  ]);
+  assert.equal(JSON.stringify(inspection.topology).includes("/private"), false);
   assert.deepEqual(calls, [
     [
       "inspect",
@@ -271,6 +315,7 @@ test("web inspection distinguishes stale checkpoints and failed native reads", a
           return { schemaVersion: 1, state: "ready" };
         },
       },
+      webRegistry: webRegistry(),
     },
   );
 
@@ -315,6 +360,7 @@ test("web inspection validates identity and page bounds before reading state", a
       throw new Error("not reached");
     },
   };
+  const persistedWebRegistry = webRegistry();
 
   await assert.rejects(
     inspector.inspect(
@@ -323,7 +369,7 @@ test("web inspection validates identity and page bounds before reading state", a
         webId: "not-a-web",
         queenThreadId: "queen-1",
       },
-      { appServerBridge },
+      { appServerBridge, webRegistry: persistedWebRegistry },
     ),
     /web ID must look like/,
   );
@@ -335,9 +381,20 @@ test("web inspection validates identity and page bounds before reading state", a
         queenThreadId: "queen-1",
         limit: WEB_INSPECTION_MAX_MEMBERS + 1,
       },
-      { appServerBridge },
+      { appServerBridge, webRegistry: persistedWebRegistry },
     ),
     /limit must be between/,
+  );
+  await assert.rejects(
+    inspector.inspect(
+      {
+        schemaVersion: 1,
+        webId: "A2",
+        queenThreadId: "queen-1",
+      },
+      { appServerBridge, webRegistry: persistedWebRegistry },
+    ),
+    /identity is not persisted/,
   );
   assert.equal(scans, 0);
 });

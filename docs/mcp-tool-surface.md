@@ -75,8 +75,10 @@ long-lived
 - `nelos_web_inspect` — composes one read-only, paged view of a persisted web
   from current work-unit bindings, the exact orchestration checkpoint, bounded
   native task status, direct-parent topology, and content-free bridge health.
-  It inspects the queen plus at most 15 members per call and returns neither
-  prompts, turns, transcripts, result text, nor filesystem paths;
+  It verifies the persisted web/queen identity, caps the execution-state scan
+  at 256 directory records, inspects the queen plus at most 15 members per call,
+  and returns neither prompts, turns, transcripts, result text, nor filesystem
+  paths;
 - `nelos_thread_wait` — polls current state for 1–8 known tasks for at most 30
   seconds total. `timeoutMs` controls the change-poll window; an initial
   inspection may use up to five seconds of bounded I/O allowance, while the

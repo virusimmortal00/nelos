@@ -731,10 +731,13 @@ const TOOLS = [
       "paged native task status, topology, and content-free bridge health " +
       "without returning prompts, turns, transcripts, or result text.",
     inputSchema: WEB_INSPECTION_INPUT_SCHEMA,
-    async run(args, { appServerBridge, webInspector }) {
+    async run(args, { appServerBridge, webInspector, webRegistry }) {
       return {
         command: "web inspect",
-        inspection: await webInspector.inspect(args, { appServerBridge }),
+        inspection: await webInspector.inspect(args, {
+          appServerBridge,
+          webRegistry,
+        }),
       };
     },
   },

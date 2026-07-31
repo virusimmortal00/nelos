@@ -662,7 +662,16 @@ export class ExecutionStoreV1 {
    * Return healthy records and bounded diagnostics independently. File contents
    * and validation errors are deliberately excluded from diagnostics.
    */
-  async scan() {
+  async scan(options = {}) {
+    assertPlainObject(
+      options,
+      "execution-store scan options",
+      new Set(["maximumRecords"]),
+    );
+    const maximumRecords = options.maximumRecords ?? null;
+    if (maximumRecords !== null) {
+      assertPositiveInteger(maximumRecords, "maximumRecords");
+    }
     let entries;
     try {
       entries = await this.#fileSystem.readdir(this.#directory, {
@@ -673,6 +682,12 @@ export class ExecutionStoreV1 {
         return { workUnits: [], malformedRecords: [] };
       }
       throw error;
+    }
+    if (maximumRecords !== null && entries.length > maximumRecords) {
+      throw new ExecutionStoreRecordError(
+        "scan_limit_exceeded",
+        `execution store contains more than ${maximumRecords} records`,
+      );
     }
 
     const workUnits = [];

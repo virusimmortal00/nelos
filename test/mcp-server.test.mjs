@@ -2430,6 +2430,7 @@ test("nelos_web_inspect delegates the complete bounded workflow", async () => {
     ],
     {
       appServerBridge: { marker: "bridge" },
+      webRegistry: { marker: "registry" },
       webInspector: {
         async inspect(args, options) {
           calls.push([args, options]);
@@ -2452,7 +2453,10 @@ test("nelos_web_inspect delegates the complete bounded workflow", async () => {
         queenThreadId: "queen-1",
         probe: true,
       },
-      { appServerBridge: { marker: "bridge" } },
+      {
+        appServerBridge: { marker: "bridge" },
+        webRegistry: { marker: "registry" },
+      },
     ],
   ]);
 });

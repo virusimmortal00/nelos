@@ -4,6 +4,7 @@ import { assertWebId } from "./task-web.mjs";
 
 export const WEB_INSPECTION_SCHEMA_VERSION = 1;
 export const WEB_INSPECTION_MAX_MEMBERS = 15;
+export const WEB_INSPECTION_MAX_EXECUTION_RECORDS = 256;
 
 const INPUT_FIELDS = new Set([
   "schemaVersion",
@@ -141,6 +142,47 @@ function increment(counts, key) {
   counts[key] = (counts[key] ?? 0) + 1;
 }
 
+function compareWorkUnitIds(left, right) {
+  return left.workUnitId < right.workUnitId
+    ? -1
+    : left.workUnitId > right.workUnitId
+      ? 1
+      : 0;
+}
+
+function matchesPersistedWeb(record, request) {
+  if (record?.threadId !== request.queenThreadId) return false;
+  try {
+    return assertWebId(record.outboundWebId) === request.webId;
+  } catch {
+    return false;
+  }
+}
+
+function publicTopology(topology) {
+  return {
+    schemaVersion: topology.schemaVersion,
+    nodes: topology.nodes.map((thread) => ({
+      schemaVersion: thread.schemaVersion,
+      threadId: thread.threadId,
+      title: thread.title,
+      status: thread.status,
+      ...(thread.activeFlags
+        ? { activeFlags: [...thread.activeFlags] }
+        : {}),
+      parentThreadId: thread.parentThreadId,
+      updatedAt: thread.updatedAt,
+    })),
+    edges: topology.edges.map(({ parentThreadId, childThreadId }) => ({
+      parentThreadId,
+      childThreadId,
+    })),
+    externalParents: topology.externalParents.map(
+      ({ threadId, parentThreadId }) => ({ threadId, parentThreadId }),
+    ),
+  };
+}
+
 export class NelosWebInspectorV1 {
   #executionStore;
   #checkpointStore;
@@ -159,7 +201,7 @@ export class NelosWebInspectorV1 {
     this.#checkpointStore = checkpointStore;
   }
 
-  async inspect(input, { appServerBridge } = {}) {
+  async inspect(input, { appServerBridge, webRegistry } = {}) {
     if (
       typeof appServerBridge?.inspectMany !== "function" ||
       typeof appServerBridge?.health !== "function"
@@ -168,9 +210,18 @@ export class NelosWebInspectorV1 {
         "web inspector requires appServerBridge.inspectMany() and health()",
       );
     }
+    if (typeof webRegistry?.read !== "function") {
+      throw new Error("web inspector requires webRegistry.read()");
+    }
     const request = exactInput(input);
+    const persistedWeb = await webRegistry.read(request.queenThreadId);
+    if (!matchesPersistedWeb(persistedWeb, request)) {
+      throw new Error("web inspection identity is not persisted");
+    }
     const [executionScan, checkpoint] = await Promise.all([
-      this.#executionStore.scan(),
+      this.#executionStore.scan({
+        maximumRecords: WEB_INSPECTION_MAX_EXECUTION_RECORDS,
+      }),
       this.#checkpointStore.read(request.webId, request.queenThreadId),
     ]);
     const workUnits = executionScan.workUnits
@@ -179,9 +230,10 @@ export class NelosWebInspectorV1 {
           workUnit.webId === request.webId &&
           workUnit.queenThreadId === request.queenThreadId,
       )
-      .sort((left, right) =>
-        left.workUnitId.localeCompare(right.workUnitId),
-      );
+      .sort(compareWorkUnitIds);
+    const boundWorkUnits = workUnits.filter(
+      (workUnit) => workUnit.binding.state === "bound",
+    );
     const pageMembers = workUnits.slice(
       request.offset,
       request.offset + request.limit,
@@ -199,11 +251,13 @@ export class NelosWebInspectorV1 {
         (threadId) => threadId !== request.queenThreadId,
       ),
     ];
-    const inventory = await appServerBridge.inspectMany({
-      threadIds: inspectedThreadIds,
-      includeTopology: true,
-    });
-    const health = await appServerBridge.health({ probe: request.probe });
+    const [inventory, health] = await Promise.all([
+      appServerBridge.inspectMany({
+        threadIds: inspectedThreadIds,
+        includeTopology: true,
+      }),
+      appServerBridge.health({ probe: request.probe }),
+    ]);
     const inventoryByThreadId = new Map(
       inventory.items.map((item) => [item.threadId, item]),
     );
@@ -288,15 +342,11 @@ export class NelosWebInspectorV1 {
         persistedAttentionRequired,
         pageNativeFailures,
         duplicateBoundThreadIds:
-          workUnits.filter(
-            (workUnit) => workUnit.binding.state === "bound",
-          ).length -
+          boundWorkUnits.length -
           new Set(
-            workUnits
-              .filter(
-                (workUnit) => workUnit.binding.state === "bound",
-              )
-              .map((workUnit) => workUnit.binding.memberThreadId),
+            boundWorkUnits.map(
+              (workUnit) => workUnit.binding.memberThreadId,
+            ),
           ).size,
         malformedExecutionRecords:
           executionScan.malformedRecords.length,
@@ -312,7 +362,7 @@ export class NelosWebInspectorV1 {
         inventoryByThreadId.get(request.queenThreadId),
       ),
       members,
-      topology: inventory.topology,
+      topology: publicTopology(inventory.topology),
       health,
     };
   }
