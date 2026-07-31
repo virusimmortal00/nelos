@@ -172,6 +172,28 @@ test("enums, bounds, digests, versions, and immutable identities fail closed", a
   expectError(() => validateRuntimeLock(schema), "UNSUPPORTED_SCHEMA_VERSION", "/schemaVersion", 2);
 });
 
+test("exact runtime versions accept SemVer metadata and reject malformed nested identifiers", async () => {
+  const accepted = await fixture();
+  accepted.toolchain.nodeVersion = "22.17.0-rc.1+linux.1";
+  assert.equal(validateRuntimeLock(rebind(accepted)), accepted);
+
+  const leadingZero = await fixture();
+  leadingZero.toolchain.npmVersion = "010.9.2";
+  expectError(
+    () => validateRuntimeLock(leadingZero),
+    "INVALID_FORMAT",
+    "/toolchain/npmVersion",
+  );
+
+  const emptyBuildIdentifier = await fixture();
+  emptyBuildIdentifier.plugin.dependencies[0].version = "8.17.1+build..1";
+  expectError(
+    () => validateRuntimeLock(emptyBuildIdentifier),
+    "INVALID_FORMAT",
+    "/plugin/dependencies/0/version",
+  );
+});
+
 test("dependency and signature collections enforce canonical uniqueness", async () => {
   const dependency = await fixture();
   dependency.toolchain.dependencies.push(clone(dependency.toolchain.dependencies[0]));

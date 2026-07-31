@@ -8,6 +8,10 @@ import { canonicalDigest, deriveIdentity } from "./identity.mjs";
 import { createLifecycle } from "./lifecycle.mjs";
 import { reviseRecord, sealRecord, verifyRevision } from "./revision.mjs";
 import {
+  compareSemanticVersions,
+  isSemanticVersion,
+} from "./semantic-version.mjs";
+import {
   assertArray,
   assertClosedObject,
   assertDigest,
@@ -37,7 +41,6 @@ export const CORPUS_RELEASE_STATES = Object.freeze([
 ]);
 
 const CONTRACT_KIND = "CorpusRelease";
-const SEMVER_PATTERN = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+((?:[0-9A-Za-z-]+)(?:\.[0-9A-Za-z-]+)*))?$/u;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/u;
 const MEDIA_TYPE_PATTERN = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u;
 const SPDX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/u;
@@ -87,6 +90,13 @@ function id(value, path) {
   return string(value, path, { maxLength: 128, pattern: ID_PATTERN });
 }
 
+function semanticVersion(value, path) {
+  string(value, path, { maxLength: 128 });
+  if (!isSemanticVersion(value)) {
+    fail("invalid_format", "string does not match the required format", path);
+  }
+}
+
 function timestamp(value, path) {
   string(value, path, { minLength: 20, maxLength: 20, pattern: UTC_PATTERN });
   if (Number.isNaN(Date.parse(value))) fail("invalid_format", "timestamp must be a real UTC instant", path);
@@ -115,7 +125,7 @@ function validateParent(parent, path) {
     maxLength: 71,
     pattern: /^corpus:[0-9a-f]{64}$/u,
   });
-  string(parent.version, fieldPath(path, "version"), { maxLength: 128, pattern: SEMVER_PATTERN });
+  semanticVersion(parent.version, fieldPath(path, "version"));
   assertDigest(parent.digest, options(fieldPath(path, "digest")));
 }
 
@@ -253,7 +263,7 @@ function validateGraderBundles(bundles, path) {
     const itemPath = fieldPath(path, index);
     closed(bundle, ["graderBundleId", "version", "digest"], itemPath);
     id(bundle.graderBundleId, fieldPath(itemPath, "graderBundleId"));
-    string(bundle.version, fieldPath(itemPath, "version"), { maxLength: 128, pattern: SEMVER_PATTERN });
+    semanticVersion(bundle.version, fieldPath(itemPath, "version"));
     assertDigest(bundle.digest, options(fieldPath(itemPath, "digest")));
   });
   validateSortedUnique(bundles, (bundle) => bundle.graderBundleId, path);
@@ -302,7 +312,7 @@ function validateV1(release) {
   assertInteger(release.schemaVersion, { minimum: 1, maximum: 1, ...options("/schemaVersion") });
   string(release.releaseId, "/releaseId", { minLength: 71, maxLength: 71, pattern: /^corpus:[0-9a-f]{64}$/u });
   assertInteger(release.revision, { minimum: 1, maximum: 1000000, ...options("/revision") });
-  string(release.version, "/version", { maxLength: 128, pattern: SEMVER_PATTERN });
+  semanticVersion(release.version, "/version");
   validateParent(release.parent, "/parent");
   if (release.previousDigest !== null) assertDigest(release.previousDigest, options("/previousDigest"));
   validateChangelog(release.changelog, "/changelog");
@@ -389,36 +399,12 @@ export function createCorpusRelease(material) {
   return sealCorpusRelease(candidate);
 }
 
-function semverParts(version) {
-  const match = SEMVER_PATTERN.exec(version);
-  return { core: match.slice(1, 4).map(Number), prerelease: match[4]?.split(".") ?? [] };
-}
-
-function compareSemver(left, right) {
-  const a = semverParts(left);
-  const b = semverParts(right);
-  for (let index = 0; index < 3; index += 1) if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index];
-  if (a.prerelease.length === 0 || b.prerelease.length === 0) return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length === 0 ? 1 : -1;
-  const length = Math.max(a.prerelease.length, b.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    if (a.prerelease[index] === undefined) return -1;
-    if (b.prerelease[index] === undefined) return 1;
-    if (a.prerelease[index] === b.prerelease[index]) continue;
-    const aNumeric = /^[0-9]+$/u.test(a.prerelease[index]);
-    const bNumeric = /^[0-9]+$/u.test(b.prerelease[index]);
-    if (aNumeric && bNumeric) return Number(a.prerelease[index]) - Number(b.prerelease[index]);
-    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
-    return a.prerelease[index].localeCompare(b.prerelease[index], "en");
-  }
-  return 0;
-}
-
 export function reviseCorpusRelease(previous, changes) {
   sealCorpusRelease(previous);
   if (changes === null || typeof changes !== "object" || Array.isArray(changes)) fail("invalid_revision", "release changes must be an object", "");
   if (!Object.hasOwn(changes, "version")) fail("required_field", "a successor release requires a semantic version", "/version");
-  if (!SEMVER_PATTERN.test(changes.version)) fail("invalid_format", "semantic version is invalid", "/version");
-  if (compareSemver(changes.version, previous.version) <= 0) fail("invalid_revision", "successor semantic version must increase", "/version");
+  if (!isSemanticVersion(changes.version)) fail("invalid_format", "semantic version is invalid", "/version");
+  if (compareSemanticVersions(changes.version, previous.version) <= 0) fail("invalid_revision", "successor semantic version must increase", "/version");
   const update = {
     ...structuredClone(changes),
     parent: { releaseId: previous.releaseId, version: previous.version, digest: previous.digest },
@@ -445,7 +431,7 @@ export function verifyCorpusReleaseLineage(previous, next) {
   if (next.parent.releaseId !== previous.releaseId) fail("invalid_lineage", "parent release identity does not match predecessor", "/parent/releaseId");
   if (next.parent.version !== previous.version) fail("invalid_lineage", "parent version does not match predecessor", "/parent/version");
   if (next.parent.digest !== previous.digest) fail("invalid_lineage", "parent digest does not match predecessor", "/parent/digest");
-  if (compareSemver(next.version, previous.version) <= 0) fail("invalid_revision", "successor semantic version must increase", "/version");
+  if (compareSemanticVersions(next.version, previous.version) <= 0) fail("invalid_revision", "successor semantic version must increase", "/version");
   return next;
 }
 

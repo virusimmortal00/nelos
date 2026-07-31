@@ -213,6 +213,34 @@ test("canonical ordering and cross-reference rules fail at the first offending e
   expectContractError(() => validateCorpusRelease(initial), "INVALID_LINEAGE", "/tasks/0/assetDigests/0");
 });
 
+test("semantic versions fail at exact nested paths and build metadata cannot advance a release", async () => {
+  const initial = await fixture("golden-initial.json");
+
+  const topLevel = clone(initial);
+  topLevel.version = "01.0.0";
+  expectContractError(() => validateCorpusRelease(topLevel), "INVALID_FORMAT", "/version");
+
+  const successor = await fixture("golden-successor.json");
+  successor.parent.version = "1.0.0-";
+  expectContractError(() => validateCorpusRelease(successor), "INVALID_FORMAT", "/parent/version");
+
+  const grader = clone(initial);
+  grader.graderBundles[0].version = "1.0.0+build..1";
+  expectContractError(
+    () => validateCorpusRelease(grader),
+    "INVALID_FORMAT",
+    "/graderBundles/0/version",
+  );
+
+  expectContractError(
+    () => reviseCorpusRelease(sealCorpusRelease(initial), {
+      version: "1.0.0+different-build",
+    }),
+    "INVALID_REVISION",
+    "/version",
+  );
+});
+
 test("non-canonical JSON bytes are rejected before schema admission", async () => {
   const bytes = await readFile(new URL("invalid-noncanonical.json", fixtureRoot));
   expectContractError(() => parseCorpusRelease(bytes), "NON_CANONICAL_JSON", "");

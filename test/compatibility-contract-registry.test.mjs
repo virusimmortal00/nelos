@@ -153,6 +153,41 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     capabilityIds.includes("nelos.lifecycle-invariants")));
 });
 
+test("experimentation contracts have a bounded independent compatibility owner", () => {
+  const capability = COMPATIBILITY_CONTRACT_REGISTRY_V1.capabilities.find(
+    ({ id }) => id === "nelos.experimentation-contracts",
+  );
+  assert.ok(capability);
+  assert.deepEqual(capability.dependsOn, []);
+  assert.equal(capability.globalInvariant, false);
+  assert.deepEqual(capability.mappings.checks, ["repo.experimentation-contracts"]);
+
+  const paths = [
+    "src/experimentation-contract/semantic-version.mjs",
+    "test/fixtures/experimentation-contract/runtime-lock-v1.json",
+    ...capability.mappings.shared,
+    ...capability.mappings.test.filter((path) => !path.endsWith("/**")),
+    ...capability.mappings.documentation,
+  ];
+  const selection = selectImpactedCompatibilityContractsV1(
+    COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    paths.map((path) => ({ status: "modified", path })),
+  );
+  assert.equal(selection.ok, true);
+  assert.deepEqual(selection.unmappedSensitivePaths, []);
+  assert.deepEqual(selection.selectedCapabilityIds, [
+    "nelos.experimentation-contracts",
+    "nelos.lifecycle-invariants",
+  ]);
+  assert.ok(selection.pathSelections.every(({ capabilityIds }) =>
+    capabilityIds.includes("nelos.experimentation-contracts")));
+  assert.deepEqual(
+    selection.pathSelections.find(({ path }) => path === "package.json")
+      .capabilityIds,
+    ["nelos.experimentation-contracts", "nelos.lifecycle-invariants"],
+  );
+});
+
 test("global invariants are selected even when no paths change", () => {
   const selection = selectImpactedCompatibilityContractsV1(
     COMPATIBILITY_CONTRACT_REGISTRY_V1,

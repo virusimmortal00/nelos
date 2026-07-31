@@ -17,6 +17,7 @@ const execFileAsync = promisify(execFile);
 const cliPath = fileURLToPath(
   new URL("../bin/nelos-compatibility", import.meta.url),
 );
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function mappings({
   owned = [],
@@ -249,6 +250,30 @@ test("invalid generated reports fail closed as infrastructure errors", async () 
       assert.match(error.message, /generated compatibility report is invalid/u);
       return true;
     },
+  );
+});
+
+test("the default offline gate executes the experimentation contract evidence", async () => {
+  const result = await runOfflineCompatibilityGate({
+    root: repositoryRoot,
+    changes: [{
+      status: "added",
+      path: "src/experimentation-contract/semantic-version.mjs",
+    }],
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.selection.ok, true);
+  assert.deepEqual(result.selection.selectedCapabilityIds, [
+    "nelos.experimentation-contracts",
+    "nelos.lifecycle-invariants",
+  ]);
+  const experimentation = result.report.capabilities.find(
+    ({ capabilityId }) => capabilityId === "nelos.experimentation-contracts",
+  );
+  assert.equal(experimentation.status, "compatible");
+  assert.deepEqual(
+    experimentation.evidence.map(({ checkId, outcome }) => ({ checkId, outcome })),
+    [{ checkId: "repo.experimentation-contracts", outcome: "passed" }],
   );
 });
 

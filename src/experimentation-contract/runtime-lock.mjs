@@ -7,6 +7,7 @@ import { contractFailure } from "./errors.mjs";
 import { canonicalDigest, deriveIdentity } from "./identity.mjs";
 import { createLifecycle } from "./lifecycle.mjs";
 import { reviseRecord, sealRecord, verifyRevision } from "./revision.mjs";
+import { isSemanticVersion } from "./semantic-version.mjs";
 import {
   assertArray,
   assertClosedObject,
@@ -33,7 +34,6 @@ export const RUNTIME_LOCK_STATES_V1 = Object.freeze([
 export const RUNTIME_LOCK_LIFECYCLE_STATES_V1 = RUNTIME_LOCK_STATES_V1;
 
 const KIND = "RuntimeLock";
-const SEMVER = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const ID = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
 const PACKAGE = /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/u;
@@ -74,7 +74,10 @@ function string(value, path, settings = {}) {
 }
 
 function exactVersion(value, path) {
-  string(value, path, { maxLength: 128, pattern: SEMVER });
+  string(value, path, { maxLength: 128 });
+  if (!isSemanticVersion(value)) {
+    fail("invalid_format", "string does not match the required format", path);
+  }
 }
 
 function commit(value, path) {
