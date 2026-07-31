@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
 const OBSERVED_AT = new Date("2026-07-29T12:00:00.000Z");
 const REPOSITORY = "https://github.com/openai/codex";
 const PATH = "codex-rs/app-server-protocol/src/protocol/common.rs";
-const SECOND_PATH = "codex-rs/app-server-protocol/src/protocol/v2.rs";
+const SECOND_PATH = "codex-rs/app-server-protocol/src/protocol/v2/mod.rs";
 
 test("collector is available through its public package subpath", async () => {
   const publicContract = await import("nelos/upstream-source-collector");
@@ -43,6 +43,7 @@ async function fixture(t) {
   await mkdir(join(work, "codex-rs/app-server-protocol/src/protocol"), {
     recursive: true,
   });
+  await mkdir(dirname(join(work, SECOND_PATH)), { recursive: true });
   await mkdir(join(work, "private"), { recursive: true });
   await git(["init", "--quiet", "-b", "main", work]);
   await git(["-C", work, "config", "user.name", "Fixture"]);
