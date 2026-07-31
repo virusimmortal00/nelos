@@ -173,7 +173,10 @@ test("promotion workflow is published-release-only and fast-forward-only", async
     /refs\/heads\/marketplace-promotion:refs\/heads\/\$\{STABLE_BRANCH\}/u,
   );
   assert.match(workflow, /STABLE_BRANCH: marketplace\/stable/u);
-  assert.doesNotMatch(workflow, /git push[\s\S]*--force/u);
+  assert.match(
+    workflow,
+    /--force-with-lease="refs\/heads\/\$\{STABLE_BRANCH\}:\$\{current_stable_commit\}"/u,
+  );
 });
 
 test("promotion surfaces are mapped to the compatibility lifecycle", () => {

@@ -185,11 +185,27 @@ jobs:
           fi
 
           git update-ref refs/heads/marketplace-promotion "$promotion_commit"
+          push_arguments=(
+            origin
+            "refs/heads/marketplace-promotion:refs/heads/${STABLE_BRANCH}"
+          )
+          if git show-ref \
+            --verify \
+            --quiet \
+            "refs/remotes/origin/${STABLE_BRANCH}"
+          then
+            current_stable_commit="$(
+              git rev-parse "refs/remotes/origin/${STABLE_BRANCH}"
+            )"
+            push_arguments=(
+              --force-with-lease="refs/heads/${STABLE_BRANCH}:${current_stable_commit}"
+              "${push_arguments[@]}"
+            )
+          fi
           git \
             -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
             push \
-            origin \
-            "refs/heads/marketplace-promotion:refs/heads/${STABLE_BRANCH}"
+            "${push_arguments[@]}"
 
           promoted_commit="$(
             git \

@@ -584,6 +584,43 @@ test("uninstall refuses to race an active distribution install", async () => {
   }
 });
 
+test("bare uninstall honors persisted custom install locations", async () => {
+  const fixture = await createFixture();
+  const customBinDir = join(fixture.root, "custom-bin");
+  const customSource = join(fixture.root, "custom-source");
+  const customSelector = "nelos@custom-marketplace";
+  try {
+    await mkdir(customBinDir, { recursive: true });
+    await rename(fixture.pluginSource, customSource);
+    await installFixture(fixture, {
+      binDir: customBinDir,
+      pluginSource: customSource,
+      env: {
+        ...fixture.env,
+        FAKE_PLUGIN_SOURCE: customSource,
+        PATH: `${customBinDir}${delimiter}${fixture.env.PATH}`,
+      },
+    });
+    const statePath = join(fixture.installRoot, "install-state.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.plugin.selector = customSelector;
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const result = await uninstallDistribution({
+      home: fixture.home,
+      codexHome: fixture.codexHome,
+      installRoot: fixture.installRoot,
+      env: fixture.env,
+    });
+    assert.equal(result.selector, customSelector);
+    await assert.rejects(stat(customSource), /ENOENT/u);
+    for (const command of MANAGED_CLI_COMMANDS) {
+      await assert.rejects(lstat(join(customBinDir, command)), /ENOENT/u);
+    }
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("legacy cache cleanup preserves the live nested install and unsafe entries", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-cache-cleanup-"));
   const managedRoot = join(root, "marketplace", "nelos");

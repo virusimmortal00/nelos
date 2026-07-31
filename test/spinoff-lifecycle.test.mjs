@@ -665,6 +665,7 @@ test("mixed terminal legacy policies do not block cleanup replay", async (t) => 
     revision: legacy.revision + 1,
     cleanupState: "kept",
     cleanupPolicy: "keep",
+    cleanupActionId: null,
     updatedAt: "2026-07-24T13:00:00.000Z",
   }, { expectedRevision: legacy.revision });
 
@@ -758,6 +759,53 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
   });
   assert.deepEqual(later.effects.map(({ threadId }) => threadId), ["member-thread-b"]);
   assert.notEqual(later.effects[0].actionId, first.effects[0].actionId);
+});
+
+test("wave-scoped reconciliation retains an earlier unscoped archive action", async (t) => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Reconcile an upgraded cleanup",
+    slices: [
+      {
+        id: "member-a", title: "Member A", objective: "A", deliverable: "A",
+        acceptanceCriteria: ["A"], dependsOn: [], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+      {
+        id: "member-b", title: "Member B", objective: "B", deliverable: "B",
+        acceptanceCriteria: ["B"], dependsOn: ["member-a"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+    ],
+  });
+  const created = createPlanRunV1(plan, {
+    queenThreadId: "queen",
+    sourceId: "upgraded-cleanup-reconciliation-test",
+    webIdentity: {
+      schemaVersion: 1, webId: "A1", queenThreadId: "queen",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const record = { ...created, verifiedWaveIndexes: [1, 2] };
+  const { adapter } = await fixture(t, {
+    planRunStore: {
+      async requireWave({ waveIndex, waveDigest }) {
+        const wave = record.waves.find((candidate) =>
+          candidate.waveIndex === waveIndex);
+        assert.equal(wave?.waveDigest, waveDigest);
+        return { record, wave };
+      },
+    },
+  });
+  const unscoped = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", policy: "auto",
+  });
+  const scoped = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 1, waveDigest: record.waves[0].waveDigest, policy: "auto",
+  });
+  assert.equal(scoped.effects[0].type, "native-reconcile-archive");
+  assert.equal(scoped.effects[0].originalActionId, unscoped.effects[0].actionId);
 });
 
 test("completed cleanup returns attention when the next wave contract is unavailable", async (t) => {

@@ -111,10 +111,6 @@ export async function uninstallDistribution(options = {}) {
   const home = resolve(options.home ?? homedir());
   const codexHome = resolve(options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex"));
   const installRoot = resolve(options.installRoot ?? join(codexHome, "distributions", PLUGIN_NAME));
-  const binDir = resolve(options.binDir ?? join(home, ".local", "bin"));
-  const sourcePath = resolve(options.pluginSource ?? join(home, "plugins", PLUGIN_NAME));
-  const selector = options.pluginSelector ?? `${PLUGIN_NAME}@personal`;
-  const marketplacePath = resolve(options.marketplacePath ?? join(home, ".agents", "plugins", "marketplace.json"));
   const env = { ...process.env, ...options.env, HOME: home, CODEX_HOME: codexHome };
   if (currentDirectoryPathEntries(env.PATH).length > 0) {
     env.PATH = safeCommandPath(env.PATH);
@@ -129,6 +125,19 @@ export async function uninstallDistribution(options = {}) {
     let state = null;
     try { state = JSON.parse(await readFile(join(installRoot, INSTALL_STATE_FILENAME), "utf8")); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
+    const binDir = resolve(
+      options.binDir ?? state?.binDir ?? join(home, ".local", "bin"),
+    );
+    const sourcePath = resolve(
+      options.pluginSource ?? state?.plugin?.sourcePath ?? join(home, "plugins", PLUGIN_NAME),
+    );
+    const selector =
+      options.pluginSelector ?? state?.plugin?.selector ?? `${PLUGIN_NAME}@personal`;
+    const marketplacePath = resolve(
+      options.marketplacePath ??
+      state?.plugin?.liveActivation?.marketplacePath ??
+      join(home, ".agents", "plugins", "marketplace.json"),
+    );
     const codexCommand = await resolveCodexCommand(
       options.codexCommand ?? state?.codexCommand,
       env.PATH,

@@ -233,49 +233,71 @@ function validateArchiveReceipt(value) {
 }
 
 function validateRecord(value) {
-  exact(value, [
+  const normalized = value.cleanupActionId === undefined
+    ? {
+        ...value,
+        cleanupActionId: ["archiving", "archived"].includes(value.cleanupState)
+          ? archiveActionId(value)
+          : null,
+      }
+    : value;
+  exact(normalized, [
     "schemaVersion", "revision", "wakeId", "clientUserMessageId", "webId",
     "queenThreadId", "workUnitId", "specRevision", "attempt", "memberThreadId",
     "outcome", "summary", "wakeState", "wakeReason", "queenTurnId",
-    "cleanupState", "cleanupPolicy", "createdAt", "updatedAt",
+    "cleanupState", "cleanupPolicy", "cleanupActionId", "createdAt", "updatedAt",
   ], "spinoff lifecycle record");
-  if (value.schemaVersion !== SPINOFF_LIFECYCLE_SCHEMA_VERSION) {
+  if (normalized.schemaVersion !== SPINOFF_LIFECYCLE_SCHEMA_VERSION) {
     throw new Error("spinoff lifecycle schemaVersion is unsupported");
   }
-  const identity = lifecycleIdentity(value);
+  const identity = lifecycleIdentity(normalized);
   const wakeId = spinoffWakeIdV1(identity);
-  if (value.wakeId !== wakeId || value.clientUserMessageId !== wakeId) {
+  if (normalized.wakeId !== wakeId || normalized.clientUserMessageId !== wakeId) {
     throw new Error("spinoff lifecycle wake identity is invalid");
   }
-  if (!OUTCOMES.has(value.outcome) || !WAKE_STATES.has(value.wakeState)) {
+  if (!OUTCOMES.has(normalized.outcome) || !WAKE_STATES.has(normalized.wakeState)) {
     throw new Error("spinoff lifecycle wake state is invalid");
   }
-  if (!CLEANUP_STATES.has(value.cleanupState)) {
+  if (!CLEANUP_STATES.has(normalized.cleanupState)) {
     throw new Error("spinoff lifecycle cleanup state is invalid");
   }
   if (
-    value.cleanupPolicy !== null &&
-    !SPINOFF_CLEANUP_POLICIES.includes(value.cleanupPolicy)
+    normalized.cleanupPolicy !== null &&
+    !SPINOFF_CLEANUP_POLICIES.includes(normalized.cleanupPolicy)
   ) {
     throw new Error("spinoff lifecycle cleanup policy is invalid");
   }
+  const cleanupActionId = normalized.cleanupActionId === null
+    ? null
+    : id(normalized.cleanupActionId, "cleanupActionId");
+  if (
+    ["archiving", "archived"].includes(normalized.cleanupState) !==
+    (cleanupActionId !== null)
+  ) {
+    throw new Error("spinoff lifecycle cleanup action identity is invalid");
+  }
   return {
     schemaVersion: SPINOFF_LIFECYCLE_SCHEMA_VERSION,
-    revision: positive(value.revision, "revision"),
+    revision: positive(normalized.revision, "revision"),
     wakeId,
     clientUserMessageId: wakeId,
     ...identity,
-    outcome: value.outcome,
-    summary: text(value.summary, "summary", MAX_SUMMARY_CHARACTERS),
-    wakeState: value.wakeState,
+    outcome: normalized.outcome,
+    summary: text(normalized.summary, "summary", MAX_SUMMARY_CHARACTERS),
+    wakeState: normalized.wakeState,
     wakeReason:
-      value.wakeReason === null ? null : text(value.wakeReason, "wakeReason", 128),
+      normalized.wakeReason === null
+        ? null
+        : text(normalized.wakeReason, "wakeReason", 128),
     queenTurnId:
-      value.queenTurnId === null ? null : id(value.queenTurnId, "queenTurnId"),
-    cleanupState: value.cleanupState,
-    cleanupPolicy: value.cleanupPolicy,
-    createdAt: timestamp(value.createdAt, "createdAt"),
-    updatedAt: timestamp(value.updatedAt, "updatedAt"),
+      normalized.queenTurnId === null
+        ? null
+        : id(normalized.queenTurnId, "queenTurnId"),
+    cleanupState: normalized.cleanupState,
+    cleanupPolicy: normalized.cleanupPolicy,
+    cleanupActionId,
+    createdAt: timestamp(normalized.createdAt, "createdAt"),
+    updatedAt: timestamp(normalized.updatedAt, "updatedAt"),
   };
 }
 
@@ -298,6 +320,7 @@ function initialRecord(completion, now) {
     queenTurnId: null,
     cleanupState: "pending",
     cleanupPolicy: null,
+    cleanupActionId: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -924,7 +947,7 @@ export class SpinoffLifecycleAdapterV1 {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (
               receipt &&
-              receipt.actionId !== scopedArchiveActionId(completion, waveScope)
+              receipt.actionId !== record.cleanupActionId
             ) {
               throw new Error("native archive receipt is stale or conflicting");
             }
@@ -954,7 +977,7 @@ export class SpinoffLifecycleAdapterV1 {
           if (record.cleanupState === "archiving") {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (receipt) {
-              if (receipt.actionId !== scopedArchiveActionId(completion, waveScope)) {
+              if (receipt.actionId !== record.cleanupActionId) {
                 throw new Error("native archive receipt is stale or conflicting");
               }
               record = await this.#store.write({
@@ -970,9 +993,9 @@ export class SpinoffLifecycleAdapterV1 {
             }
             effects.push({
               schemaVersion: 1,
-              actionId: `${scopedArchiveActionId(completion, waveScope)}/reconcile`,
+              actionId: `${record.cleanupActionId}/reconcile`,
               type: "native-reconcile-archive",
-              originalActionId: scopedArchiveActionId(completion, waveScope),
+              originalActionId: record.cleanupActionId,
               threadId: candidate.threadId,
               policy: {
                 onFound: "return-native-archive-receipt",
@@ -1001,16 +1024,18 @@ export class SpinoffLifecycleAdapterV1 {
             }));
             return;
           }
+          const cleanupActionId = scopedArchiveActionId(completion, waveScope);
           record = await this.#store.write({
             ...record,
             revision: record.revision + 1,
             cleanupState: "archiving",
             cleanupPolicy: resolvedPolicy,
+            cleanupActionId,
             updatedAt: this.#now(),
           }, { expectedRevision: record.revision });
           effects.push({
             schemaVersion: 1,
-            actionId: scopedArchiveActionId(completion, waveScope),
+            actionId: cleanupActionId,
             type: "native-archive",
             threadId: candidate.threadId,
             archived: true,
