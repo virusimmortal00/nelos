@@ -72,7 +72,6 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /`orchestration-repair-member`/);
   assert.match(skill, /`orchestration-member-repaired` receipt/);
   assert.match(skill, /adding only `resolution: "detach"`/);
-  assert.match(skill, /Call set\/reset only after an\s+explicit user request/i);
   assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
@@ -80,9 +79,7 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.doesNotMatch(skill, /web collect|web begin|web join|nelos-result/);
   // Marketplace installs ship no `nelos` executable; the installed skill
   // must reference only the bundled MCP tools, never shell commands.
-  assert.match(skill, /`nelos_config_get`/);
-  assert.match(skill, /`nelos_config_set`/);
-  assert.match(skill, /`nelos_config_reset`/);
+  assert.doesNotMatch(skill, /\bnelos_config_(?:get|set|reset)\b/);
   assert.match(skill, /never use the CLI as fallback/i);
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);

@@ -72,6 +72,13 @@ long-lived
   task IDs with four reads maximum in flight, preserves caller order, returns
   bounded per-task failures, and optionally projects only authoritative direct
   parent edges among successful reads;
+- `nelos_web_inspect` — composes one read-only, paged view of a persisted web
+  from current work-unit bindings, the exact orchestration checkpoint, bounded
+  native task status, direct-parent topology, and content-free bridge health.
+  It verifies the persisted web/queen identity, caps the execution-state scan
+  at 256 directory records, inspects the queen plus at most 15 members per call,
+  and returns neither prompts, turns, transcripts, result text, nor filesystem
+  paths;
 - `nelos_thread_wait` — polls current state for 1–8 known tasks for at most 30
   seconds total. `timeoutMs` controls the change-poll window; an initial
   inspection may use up to five seconds of bounded I/O allowance, while the
@@ -137,7 +144,7 @@ long-lived
   receipt without duplicating the visible worker roster.
 
 Bootstrap preparation, batch launch verification, thread inspection,
-inventory, wait, health, routing, verification, and subagent identity
+inventory, web inspection, wait, health, routing, verification, and subagent identity
 resolution perform read-only work. Lifecycle planning, exception replanning,
 the bootstrap compatibility tool, and structured planning are annotated
 non-read-only and idempotent because they write private checkpoints. Queen

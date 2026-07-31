@@ -234,8 +234,8 @@ Nelos is one Codex plugin with two cooperating parts:
 
 - **An MCP orchestration server** — plans dependency-safe waves, routes and
   verifies every launch, persists replay-safe receipts, advances accepted work,
-  coordinates completion and per-web cleanup, and exposes conversational
-  machine-local configuration.
+  coordinates completion and per-web cleanup, composes bounded web inspection,
+  and exposes conversational machine-local configuration.
 - **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
   the MCP server's machine-generated next actions independently of whichever
   model starts as queen.

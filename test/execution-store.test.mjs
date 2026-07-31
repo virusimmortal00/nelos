@@ -466,6 +466,23 @@ test("malformed records are isolated without exposing their contents", async (t)
   );
 });
 
+test("bounded scans fail before reading an oversized execution directory", async (t) => {
+  const { store } = await withStore(t);
+  await store.create(workUnit({ workUnitId: "member-a" }));
+  await store.create(workUnit({ workUnitId: "member-b" }));
+
+  await assert.rejects(
+    store.scan({ maximumRecords: 1 }),
+    (error) =>
+      error instanceof ExecutionStoreRecordError &&
+      error.code === "scan_limit_exceeded",
+  );
+  await assert.rejects(
+    store.scan({ maximumRecords: 0 }),
+    /maximumRecords must be a positive integer/,
+  );
+});
+
 test("a failed atomic replacement preserves the previous complete record", async (t) => {
   let failRename = false;
   const injectedFileSystem = {

@@ -206,6 +206,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_execution_map_refresh",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
+      "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
       "nelos_intelligence_route",
@@ -227,6 +228,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_execution_map_refresh",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
+      "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
       "nelos_intelligence_route",
@@ -2392,6 +2394,70 @@ test("nelos_thread_inventory forwards bounded IDs and topology policy", async ()
       threadIds: ["queen-1", "child-1"],
       includeTopology: true,
     },
+  ]);
+});
+
+test("nelos_web_inspect delegates the complete bounded workflow", async () => {
+  const inspection = {
+    schemaVersion: 1,
+    web: { webId: "A1", queenThreadId: "queen-1" },
+    page: {
+      offset: 0,
+      limit: 15,
+      returned: 0,
+      total: 0,
+      nextOffset: null,
+    },
+  };
+  const calls = [];
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_web_inspect",
+          arguments: {
+            schemaVersion: 1,
+            webId: "A1",
+            queenThreadId: "queen-1",
+            probe: true,
+          },
+        },
+      },
+    ],
+    {
+      appServerBridge: { marker: "bridge" },
+      webRegistry: { marker: "registry" },
+      webInspector: {
+        async inspect(args, options) {
+          calls.push([args, options]);
+          return inspection;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, false);
+  assert.deepEqual(body, {
+    command: "web inspect",
+    inspection,
+  });
+  assert.deepEqual(calls, [
+    [
+      {
+        schemaVersion: 1,
+        webId: "A1",
+        queenThreadId: "queen-1",
+        probe: true,
+      },
+      {
+        appServerBridge: { marker: "bridge" },
+        webRegistry: { marker: "registry" },
+      },
+    ],
   ]);
 });
 

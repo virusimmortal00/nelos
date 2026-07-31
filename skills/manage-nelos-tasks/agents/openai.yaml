@@ -1,5 +1,5 @@
 interface:
-  display_name: Manage Codex Tasks
-  short_description: Coordinate Codex tasks and webs with Nelos
-  default_prompt: Use Nelos to plan this feature into safe parallel slices.
+  display_name: "Manage Nelos Tasks"
+  short_description: "Coordinate Codex tasks and webs with Nelos"
+  default_prompt: "Use $manage-nelos-tasks to plan and execute this work in safe parallel waves."
   brand_color: "#111111"

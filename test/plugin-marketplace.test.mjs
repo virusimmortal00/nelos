@@ -37,7 +37,7 @@ test("the plugin manifest offers three distinct showcase prompts within UI limit
 
   assert.deepEqual(prompts, [
     "Use Nelos to ship team roles across the API, UI, migration, tests, and docs. Plan safe waves and verify every result.",
-    "Use Nelos to diagnose flaky end-to-end tests. Investigate in parallel, reconcile evidence, and ship a verified fix.",
+    "Inspect this Nelos web. Show current orchestration, native task status, topology, and anything needing attention.",
     "Use Nelos to modernize our billing module safely. Map dependencies, parallelize independent changes, and verify the migration.",
   ]);
   assert.equal(new Set(prompts).size, prompts.length);

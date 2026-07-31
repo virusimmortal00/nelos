@@ -6,10 +6,8 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 # Manage Nelos Tasks
 
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes work; the queen identifies user-supplied plans and judges result
-acceptance. Configure with `nelos_config_get`, `nelos_config_set`, or
-`nelos_config_reset`. Call set/reset only after an explicit user request with
-`userIntentConfirmed: true`; never use the CLI as fallback.
+decomposes unstructured work. The queen identifies user-supplied plans and judges
+result acceptance. Use only the bundled Nelos MCP tools; never use the CLI as fallback.
 Keep native kinds exact:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its

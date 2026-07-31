@@ -89,6 +89,10 @@ import {
   parseWebTitle,
   renderPersistedQueenWebTitle,
 } from "./task-web.mjs";
+import {
+  NelosWebInspectorV1,
+  WEB_INSPECTION_INPUT_SCHEMA,
+} from "./web-inspection.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -720,6 +724,24 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_web_inspect",
+    description:
+      "Inspect one persisted Nelos web through a single bounded read-only " +
+      "workflow. Combines current work-unit bindings, orchestration state, " +
+      "paged native task status, topology, and content-free bridge health " +
+      "without returning prompts, turns, transcripts, or result text.",
+    inputSchema: WEB_INSPECTION_INPUT_SCHEMA,
+    async run(args, { appServerBridge, webInspector, webRegistry }) {
+      return {
+        command: "web inspect",
+        inspection: await webInspector.inspect(args, {
+          appServerBridge,
+          webRegistry,
+        }),
+      };
+    },
+  },
+  {
     name: "nelos_thread_wait",
     description:
       "Perform bounded current-state polling for up to eight Codex tasks. " +
@@ -1129,6 +1151,7 @@ export function startNelosMcpServer({
     planRunStore,
   }),
   launchBatchVerifier = verifyLaunchBatchV1,
+  webInspector = new NelosWebInspectorV1(),
 } = {}) {
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -1157,6 +1180,7 @@ export function startNelosMcpServer({
         queenDecisionAdapter,
         lifecycleAdapter,
         configuration,
+        webInspector,
       });
     } catch (error) {
       const body = { error: error.message };
