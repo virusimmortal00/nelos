@@ -75,6 +75,7 @@ function checkpoint(members = [member()], overrides = {}) {
     webId: "A1",
     queenThreadId: "queen",
     checkpointRevision: 1,
+    waveScope: null,
     waitGeneration: 0,
     members,
     consumedReceipts: [],

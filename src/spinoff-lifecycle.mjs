@@ -9,6 +9,8 @@ import {
 } from "./nelos-configuration.mjs";
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { taskStateDirectory, withQueenSpinoffLock } from "./task-state.mjs";
+import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { derivePlanWaveActionV1 } from "./next-action.mjs";
 
 export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
 export const SPINOFF_CLEANUP_POLICIES = NELOS_CLEANUP_POLICIES;
@@ -76,6 +78,9 @@ export const SPINOFF_CLEANUP_INPUT_SCHEMA = Object.freeze({
   properties: {
     webId: { type: "string", minLength: 1, maxLength: 64 },
     queenThreadId: { type: "string", minLength: 1, maxLength: 512 },
+    planRunId: { type: "string", pattern: "^run:[a-f0-9]{40}$" },
+    waveIndex: { type: "integer", minimum: 1 },
+    waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
     policy: { type: "string", enum: SPINOFF_CLEANUP_POLICIES },
     rememberPolicy: { type: "boolean" },
     userIntentConfirmed: { type: "boolean", const: true },
@@ -193,6 +198,11 @@ function wakeActionId(identity) {
 
 function archiveActionId(identity) {
   return `${spinoffWakeIdV1(identity)}/native-archive`;
+}
+
+function scopedArchiveActionId(identity, waveScope) {
+  if (waveScope === null) return archiveActionId(identity);
+  return `${archiveActionId(identity)}/${waveScope.planRunId}/wave-${waveScope.waveIndex}/${waveScope.waveDigest}`;
 }
 
 function validateWakeReceipt(value, identity) {
@@ -444,6 +454,7 @@ export class SpinoffLifecycleAdapterV1 {
   #acceptanceStore;
   #store;
   #configuration;
+  #planRunStore;
   #now;
 
   constructor({
@@ -451,12 +462,14 @@ export class SpinoffLifecycleAdapterV1 {
     acceptanceStore = new QueenAcceptanceStoreV1(),
     store = new SpinoffLifecycleStoreV1(),
     configuration = new NelosConfigurationV1(),
+    planRunStore = new PlanRunStoreV1(),
     now = () => new Date().toISOString(),
   } = {}) {
     this.#executionStore = executionStore;
     this.#acceptanceStore = acceptanceStore;
     this.#store = store;
     this.#configuration = configuration;
+    this.#planRunStore = planRunStore;
     this.#now = now;
   }
 
@@ -557,6 +570,9 @@ export class SpinoffLifecycleAdapterV1 {
   async cleanup({
     webId,
     queenThreadId,
+    planRunId = null,
+    waveIndex = null,
+    waveDigest = null,
     policy = null,
     rememberPolicy = false,
     userIntentConfirmed = false,
@@ -567,6 +583,35 @@ export class SpinoffLifecycleAdapterV1 {
       webId: id(webId, "webId"),
       queenThreadId: id(queenThreadId, "queenThreadId"),
     };
+    const suppliedWaveFields = [planRunId, waveIndex, waveDigest]
+      .filter((value) => value !== null).length;
+    if (suppliedWaveFields !== 0 && suppliedWaveFields !== 3) {
+      throw new Error("cleanup wave scope must be complete");
+    }
+    let waveScope = null;
+    let waveMemberIds = null;
+    let scopedPlanRun = null;
+    if (suppliedWaveFields === 3) {
+      const required = await this.#planRunStore.requireWave({
+        planRunId,
+        queenThreadId: identity.queenThreadId,
+        waveIndex,
+        waveDigest,
+      });
+      if (
+        required.record.webIdentity?.webId !== identity.webId ||
+        !required.record.verifiedWaveIndexes.includes(waveIndex)
+      ) {
+        throw new Error("cleanup wave scope is stale or unverified");
+      }
+      waveScope = { planRunId, waveIndex, waveDigest };
+      waveMemberIds = new Set(
+        required.wave.members
+          .filter(({ lifecycle }) => lifecycle === "spinoff")
+          .map(({ sliceId }) => sliceId),
+      );
+      scopedPlanRun = required.record;
+    }
     if (typeof rememberPolicy !== "boolean") {
       throw new Error("rememberPolicy must be a boolean");
     }
@@ -621,6 +666,7 @@ export class SpinoffLifecycleAdapterV1 {
       (workUnit) =>
         workUnit.webId === identity.webId &&
         workUnit.queenThreadId === identity.queenThreadId &&
+        (waveMemberIds === null || waveMemberIds.has(workUnit.workUnitId)) &&
         workUnit.memberKind === "spinoff" &&
         workUnit.required,
     );
@@ -662,6 +708,7 @@ export class SpinoffLifecycleAdapterV1 {
         return (
           workUnit.webId === identity.webId &&
           workUnit.queenThreadId === identity.queenThreadId &&
+          (waveMemberIds === null || waveMemberIds.has(workUnit.workUnitId)) &&
           workUnit.memberKind === "spinoff" &&
           workUnit.required &&
           workUnit.capabilities.includes("archive") &&
@@ -786,7 +833,8 @@ export class SpinoffLifecycleAdapterV1 {
       resolvedPolicy === "ask" &&
       confirmedThreadIds === undefined &&
       receiptByThreadId.size === 0 &&
-      !archiveInFlight
+      !archiveInFlight &&
+      candidates.length > 0
     ) {
       if (rememberPolicy) {
         await this.#rememberPolicy(policy);
@@ -794,7 +842,7 @@ export class SpinoffLifecycleAdapterV1 {
       return {
         schemaVersion: 1,
         policy: resolvedPolicy,
-        state: candidates.length > 0 ? "confirmation-required" : "complete",
+        state: "confirmation-required",
         candidates: candidates.map(({ workUnit, threadId, title }) => ({
           workUnitId: workUnit.workUnitId,
           threadId,
@@ -876,7 +924,7 @@ export class SpinoffLifecycleAdapterV1 {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (
               receipt &&
-              receipt.actionId !== archiveActionId(completion)
+              receipt.actionId !== scopedArchiveActionId(completion, waveScope)
             ) {
               throw new Error("native archive receipt is stale or conflicting");
             }
@@ -906,7 +954,7 @@ export class SpinoffLifecycleAdapterV1 {
           if (record.cleanupState === "archiving") {
             const receipt = receiptByThreadId.get(candidate.threadId);
             if (receipt) {
-              if (receipt.actionId !== archiveActionId(completion)) {
+              if (receipt.actionId !== scopedArchiveActionId(completion, waveScope)) {
                 throw new Error("native archive receipt is stale or conflicting");
               }
               record = await this.#store.write({
@@ -922,9 +970,9 @@ export class SpinoffLifecycleAdapterV1 {
             }
             effects.push({
               schemaVersion: 1,
-              actionId: `${archiveActionId(completion)}/reconcile`,
+              actionId: `${scopedArchiveActionId(completion, waveScope)}/reconcile`,
               type: "native-reconcile-archive",
-              originalActionId: archiveActionId(completion),
+              originalActionId: scopedArchiveActionId(completion, waveScope),
               threadId: candidate.threadId,
               policy: {
                 onFound: "return-native-archive-receipt",
@@ -962,7 +1010,7 @@ export class SpinoffLifecycleAdapterV1 {
           }, { expectedRevision: record.revision });
           effects.push({
             schemaVersion: 1,
-            actionId: archiveActionId(completion),
+            actionId: scopedArchiveActionId(completion, waveScope),
             type: "native-archive",
             threadId: candidate.threadId,
             archived: true,
@@ -981,16 +1029,32 @@ export class SpinoffLifecycleAdapterV1 {
         }));
       }
     }
+    const state = effects.length > 0
+      ? "effects-required"
+      : results.some(({ state }) => state === "attention")
+      ? "attention"
+      : "complete";
+    let nextAction = null;
+    if (
+      state === "complete" &&
+      scopedPlanRun !== null &&
+      waveScope.waveIndex < scopedPlanRun.waves.length
+    ) {
+      nextAction = derivePlanWaveActionV1(
+        scopedPlanRun.plan,
+        scopedPlanRun,
+        waveScope.waveIndex + 1,
+        scopedPlanRun.cleanupIntended,
+        null,
+      );
+    }
     return {
       schemaVersion: 1,
       policy: resolvedPolicy,
-      state: effects.length > 0
-        ? "effects-required"
-        : results.some(({ state }) => state === "attention")
-        ? "attention"
-        : "complete",
+      state,
       results,
       effects,
+      ...(nextAction === null ? {} : { nextAction }),
     };
   }
 }

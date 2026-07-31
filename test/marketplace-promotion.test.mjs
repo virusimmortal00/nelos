@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   compareStableVersions,
+  materializeMarketplaceProvenance,
   validateMarketplacePromotion,
 } from "../scripts/validate-marketplace-promotion.mjs";
 import {
@@ -85,14 +86,14 @@ test("stable promotion rejects semantic-version downgrades", async () => {
   );
 
   const downgrade = await repositoryFixture();
-  downgrade.currentStableVersion = "0.4.1";
+  downgrade.currentStableVersion = "0.5.1";
   assert.throws(
     () => validateMarketplacePromotion(downgrade),
     /older than current stable version/u,
   );
 
   const sameVersion = await repositoryFixture();
-  sameVersion.currentStableVersion = "0.4.0";
+  sameVersion.currentStableVersion = "0.5.0";
   assert.doesNotThrow(() => validateMarketplacePromotion(sameVersion));
 });
 
@@ -118,6 +119,25 @@ test("stable promotion rejects marketplace contract drift", async () => {
   );
 });
 
+test("stable promotion materializes exact immutable source provenance", async () => {
+  const fixture = await repositoryFixture();
+  const sourceRevision = "a".repeat(40);
+  assert.deepEqual(
+    materializeMarketplaceProvenance(fixture.provenance, sourceRevision),
+    {
+      ...fixture.provenance,
+      sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+      sourceRevision,
+      sourceRevisionType: "git",
+      cacheIdentity: `https://github.com/virusimmortal00/nelos.git#nelos@${fixture.provenance.revision}`,
+    },
+  );
+  assert.throws(
+    () => materializeMarketplaceProvenance(fixture.provenance, "main"),
+    /immutable Git commit/u,
+  );
+});
+
 test("promotion workflow is published-release-only and fast-forward-only", async () => {
   const workflow = await readFile(
     join(repositoryRoot, ".github", "workflows", "promote-marketplace.yml"),
@@ -137,12 +157,15 @@ test("promotion workflow is published-release-only and fast-forward-only", async
   assert.match(workflow, /\.isPrerelease == false/u);
   assert.match(workflow, /build-release-artifacts\.mjs/u);
   assert.match(workflow, /validate-marketplace-promotion\.mjs/u);
+  assert.match(workflow, /--materialize/u);
+  assert.match(workflow, /git commit -m "Record \$\{RELEASE_TAG\} marketplace provenance"/u);
   assert.match(workflow, /--current-version "\$CURRENT_STABLE_VERSION"/u);
   assert.match(
     workflow,
     /http\.extraheader=AUTHORIZATION: bearer \$\{GH_TOKEN\}/u,
   );
   assert.match(workflow, /git merge-base[\s\S]*--is-ancestor/u);
+  assert.match(workflow, /\.sourceRevision/u);
   assert.match(
     workflow,
     /refs\/heads\/marketplace-promotion:refs\/heads\/\$\{STABLE_BRANCH\}/u,

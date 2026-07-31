@@ -5,6 +5,7 @@ import {
   chmod,
   cp,
   copyFile,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -28,6 +29,7 @@ import {
   installDistribution,
   stageDistribution,
 } from "../src/distribution-install.mjs";
+import { uninstallDistribution } from "../src/distribution-uninstall.mjs";
 import {
   DISTRIBUTION_ENTRIES,
   MANAGED_CLI_COMMANDS,
@@ -389,6 +391,15 @@ test("unified install repairs PATH, skill, and plugin from one immutable release
   try {
     const installed = await installFixture(fixture);
     assert.equal(installed.provenance.revision, candidateVersion);
+    assert.equal(
+      installed.provenance.sourceRepository,
+      "https://github.com/virusimmortal00/nelos.git",
+    );
+    assert.match(installed.provenance.sourceRevision, /^[a-f0-9]{40}$/u);
+    assert.equal(
+      installed.provenance.cacheIdentity,
+      `https://github.com/virusimmortal00/nelos.git#nelos@${candidateVersion}`,
+    );
     assert.equal(installed.plugin.liveActivation.status, "restart-required");
     assert.equal(installed.plugin.liveActivation.registryVerified, false);
     assert.equal(installed.plugin.liveActivation.freshTaskSmokeTestRequired, true);
@@ -453,6 +464,96 @@ test("unified install repairs PATH, skill, and plugin from one immutable release
     const repeated = await installFixture(fixture);
     assert.equal(repeated.reusedRelease, true);
     assert.equal(repeated.releasePath, installed.releasePath);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("legacy upgrade replaces every executable surface and prunes only Nelos caches", async () => {
+  const fixture = await createFixture();
+  const staleCache = join(
+    fixture.codexHome,
+    "plugins",
+    "cache",
+    "personal",
+    "nelos",
+    "0.0.1-stale",
+  );
+  const legacyCacheRoot = join(fixture.codexHome, "plugins", "cache", "nelos");
+  const unrelated = join(
+    fixture.codexHome,
+    "plugins",
+    "cache",
+    "personal",
+    "other-plugin",
+    "1.0.0",
+  );
+  try {
+    await mkdir(staleCache, { recursive: true });
+    await mkdir(legacyCacheRoot, { recursive: true });
+    await mkdir(unrelated, { recursive: true });
+    await writeFile(join(staleCache, "old-code.mjs"), "legacy\n");
+    await writeFile(join(unrelated, "user-data"), "keep\n");
+
+    const installed = await installFixture(fixture);
+    const [sourceManifest, cacheManifest, sourceSkill, cacheMcp, installedState] =
+      await Promise.all([
+        readFile(join(fixture.pluginSource, ".codex-plugin", "plugin.json"), "utf8"),
+        readFile(join(installed.plugin.installedPath, ".codex-plugin", "plugin.json"), "utf8"),
+        readFile(join(fixture.skillPath, "SKILL.md"), "utf8"),
+        readFile(join(installed.plugin.installedPath, ".mcp.json"), "utf8"),
+        readFile(join(fixture.installRoot, "install-state.json"), "utf8"),
+      ]);
+    assert.equal(JSON.parse(sourceManifest).version, candidateVersion);
+    assert.equal(JSON.parse(cacheManifest).version, candidateVersion);
+    assert.equal(
+      sourceSkill,
+      await readFile(join(packageRoot, "skills", "manage-nelos-tasks", "SKILL.md"), "utf8"),
+    );
+    assert.equal(cacheMcp, await readFile(join(packageRoot, ".mcp.json"), "utf8"));
+    assert.equal(JSON.parse(installedState).provenance.sourceRevision,
+      installed.provenance.sourceRevision);
+    await assert.rejects(stat(staleCache), /ENOENT/u);
+    await assert.rejects(stat(legacyCacheRoot), /ENOENT/u);
+    assert.equal(await readFile(join(unrelated, "user-data"), "utf8"), "keep\n");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("uninstall removes managed and legacy artifacts while preserving unrelated data", async () => {
+  const fixture = await createFixture();
+  const unrelatedPlugin = join(
+    fixture.codexHome,
+    "plugins",
+    "cache",
+    "personal",
+    "other-plugin",
+    "1.0.0",
+  );
+  const unrelatedLauncher = join(fixture.binDir, "user-tool");
+  try {
+    await installFixture(fixture);
+    await mkdir(unrelatedPlugin, { recursive: true });
+    await writeFile(join(unrelatedPlugin, "data"), "keep\n");
+    await writeFile(unrelatedLauncher, "keep\n");
+    const result = await uninstallDistribution({
+      home: fixture.home,
+      codexHome: fixture.codexHome,
+      installRoot: fixture.installRoot,
+      binDir: fixture.binDir,
+      codexCommand: fixture.codexPath,
+      env: fixture.env,
+    });
+    assert.equal(result.restartRequired, true);
+    for (const path of [fixture.installRoot, fixture.pluginSource, fixture.skillPath]) {
+      await assert.rejects(stat(path), /ENOENT/u);
+    }
+    for (const command of MANAGED_CLI_COMMANDS) {
+      await assert.rejects(lstat(join(fixture.binDir, command)), /ENOENT/u);
+    }
+    assert.equal(await readFile(join(unrelatedPlugin, "data"), "utf8"), "keep\n");
+    assert.equal(await readFile(unrelatedLauncher, "utf8"), "keep\n");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

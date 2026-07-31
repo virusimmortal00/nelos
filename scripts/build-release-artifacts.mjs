@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -18,7 +19,9 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import {
+  SOURCE_REPOSITORY,
   computeDistributionIntegrity,
+  pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -106,6 +109,13 @@ export function validateVersionCoherence({
   }
   if (provenance?.integrity !== actualIntegrity) {
     fail("distribution provenance does not match the candidate bytes");
+  }
+  const expectedCacheIdentity = pluginCacheIdentity({
+    sourceRepository: provenance?.sourceRepository,
+    version,
+  });
+  if (provenance?.cacheIdentity !== expectedCacheIdentity) {
+    fail("distribution provenance cache identity is missing or stale");
   }
   return version;
 }
@@ -278,22 +288,36 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
   };
 }
 
-async function npmPack(destination, root = repositoryRoot) {
-  const { stdout } = await execFileAsync(
-    "npm",
-    ["pack", "--json", "--pack-destination", destination],
-    {
-      cwd: root,
-      encoding: "utf8",
-      env: { ...process.env, npm_config_ignore_scripts: "true" },
-      maxBuffer: 4 * 1024 * 1024,
-    },
-  );
-  const result = json(stdout, "npm pack output");
-  if (!Array.isArray(result) || result.length !== 1 || !result[0]?.filename) {
-    fail("npm pack did not return exactly one artifact");
+async function npmPack(destination, root, releaseProvenance) {
+  const stageParent = await mkdtemp(join(tmpdir(), "nelos-release-source-"));
+  const stageRoot = join(stageParent, "package");
+  try {
+    await cp(root, stageRoot, {
+      recursive: true,
+      filter: (source) => ![".git", "node_modules", "dist"].includes(basename(source)),
+    });
+    await writeFile(
+      join(stageRoot, "distribution-provenance.json"),
+      `${JSON.stringify(releaseProvenance, null, 2)}\n`,
+    );
+    const { stdout } = await execFileAsync(
+      "npm",
+      ["pack", "--json", "--pack-destination", destination],
+      {
+        cwd: stageRoot,
+        encoding: "utf8",
+        env: { ...process.env, npm_config_ignore_scripts: "true" },
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
+    const result = json(stdout, "npm pack output");
+    if (!Array.isArray(result) || result.length !== 1 || !result[0]?.filename) {
+      fail("npm pack did not return exactly one artifact");
+    }
+    return join(destination, result[0].filename);
+  } finally {
+    await rm(stageParent, { recursive: true, force: true });
   }
-  return join(destination, result[0].filename);
 }
 
 async function assertEmptyOutputDirectory(root, outputDirectory) {
@@ -319,6 +343,16 @@ export async function buildReleaseArtifacts({
 }) {
   const inputs = await readReleaseInputs(tag, root);
   const sourceCommit = await validateAnnotatedTag(tag, root, environment);
+  const releaseProvenance = {
+    ...inputs.provenance,
+    sourceRepository: SOURCE_REPOSITORY,
+    sourceRevision: sourceCommit,
+    sourceRevisionType: "git",
+    cacheIdentity: pluginCacheIdentity({
+      sourceRepository: SOURCE_REPOSITORY,
+      version: inputs.version,
+    }),
+  };
   const output = resolve(root, outputDirectory);
   await assertEmptyOutputDirectory(root, output);
 
@@ -326,8 +360,8 @@ export async function buildReleaseArtifacts({
   const secondPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-b-"));
   try {
     const [firstPackage, secondPackage] = await Promise.all([
-      npmPack(firstPackDirectory, root),
-      npmPack(secondPackDirectory, root),
+      npmPack(firstPackDirectory, root, releaseProvenance),
+      npmPack(secondPackDirectory, root, releaseProvenance),
     ]);
     const [firstDigest, secondDigest] = await Promise.all([
       sha256(firstPackage),
@@ -346,10 +380,7 @@ export async function buildReleaseArtifacts({
     const notesPath = join(output, "release-notes.md");
     await Promise.all([
       copyFile(firstPackage, packagePath),
-      copyFile(
-        join(root, "distribution-provenance.json"),
-        provenancePath,
-      ),
+      writeFile(provenancePath, `${JSON.stringify(releaseProvenance, null, 2)}\n`),
       writeFile(
         sbomPath,
         `${JSON.stringify(
@@ -383,7 +414,9 @@ export async function buildReleaseArtifacts({
           name: inputs.packageMetadata.name,
           version: inputs.version,
           tag,
+          sourceRepository: SOURCE_REPOSITORY,
           sourceCommit,
+          cacheIdentity: releaseProvenance.cacheIdentity,
           distributionIntegrity: inputs.provenance.integrity,
           artifacts: artifactRecords,
         },

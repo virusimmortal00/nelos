@@ -306,6 +306,11 @@ export async function runPlanningLifecycleScenario() {
         "queen-1": thread("queen-1", "Planning smoke", null, "active"),
       },
     });
+    await mutateState(appStatePath, (value) => {
+      value.threads["queen-1"].turns = [
+        { id: "queen-turn", status: "inProgress", items: [] },
+      ];
+    });
     const environment = {
       ...process.env,
       PATH: `${binDirectory}${delimiter}${process.env.PATH}`,
@@ -351,8 +356,19 @@ export async function runPlanningLifecycleScenario() {
         "notLoaded",
       );
       value.threads["planner-1"].turns = [
-        { id: "planner-turn", status: "inProgress", items: [] },
+        { id: "planner-turn", status: "interrupted", items: [] },
       ];
+      value.threads["queen-1"].turns[0].items.push({
+        type: "collabAgentToolCall",
+        id: "spawn-planner",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "queen-1",
+        receiverThreadIds: ["planner-1"],
+        agentsStates: {
+          "planner-1": { status: "running" },
+        },
+      });
     });
     const launchReceipt = {
       schemaVersion: 1,
@@ -368,6 +384,14 @@ export async function runPlanningLifecycleScenario() {
       receipt: launchReceipt,
     });
     assert.equal(waiting.nextAction.kind, "native-wait-subagent");
+    assert.equal(
+      waiting.nextAction.reconciliation.nativeCollaborationStatus,
+      "running",
+    );
+    assert.equal(
+      waiting.nextAction.reconciliation.unavailableObservations,
+      0,
+    );
     await mcp.stop();
     mcp = startMcp(environment);
     await mcp.initialize();
@@ -377,9 +401,11 @@ export async function runPlanningLifecycleScenario() {
       receipt: launchReceipt,
     });
     assert.equal(resumed.nextAction.kind, "native-wait-subagent");
+    assert.equal(resumed.nextAction.reconciliation.unavailableObservations, 0);
     await mutateState(appStatePath, (value) => {
       value.threads["planner-1"].updatedAt += 1;
-      value.threads["planner-1"].turns[0].status = "completed";
+      value.threads["queen-1"].turns[0].items[0]
+        .agentsStates["planner-1"].status = "completed";
     });
     const readable = await mcp.tool("nelos_plan_lifecycle", {
       ...lifecycleRequest,
@@ -387,6 +413,9 @@ export async function runPlanningLifecycleScenario() {
       receipt: launchReceipt,
     });
     assert.equal(readable.nextAction.kind, "native-read-subagent-result");
+    assert.equal(readable.nextAction.agentPath, plannerAgentPath);
+    assert.equal(readable.nextAction.threadId, "planner-1");
+    assert.equal(readable.nextAction.turnId, "planner-turn");
 
     const initialSuffix = bootstrapId.slice(5, 17);
     const researchSliceId = `research-${initialSuffix}`;

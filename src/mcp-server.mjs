@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { TextDecoder } from "node:util";
 
 import {
   planWorkSlices,
@@ -71,7 +72,7 @@ import {
 } from "./launch-execution-gate.mjs";
 import {
   EXECUTION_MAP_REFRESH_INPUT_SCHEMA,
-  executionMapForToolResultV1,
+  projectExecutionMapForToolResultV1,
   executionMapOutputSchemaForToolV1,
   executionMapToolMetadataV1,
   listExecutionMapResourcesV1,
@@ -96,14 +97,36 @@ import {
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
-// newline-delimited JSON-RPC over stdio, the framing the Codex host was
-// observed to use (codex-cli 0.144.6). The planner owns one narrowly scoped
+// newline-delimited JSON-RPC over stdio, as required by MCP. The planner owns
+// one narrowly scoped
 // queen-title observation through a lazy Codex app-server child; inspection is
 // bounded and read-only. Native mutations remain host-owned effects.
 
 export const MCP_SERVER_NAME = "nelos";
-export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
-const MAX_MESSAGE_BYTES = 256 * 1024;
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
+  "2025-11-25",
+  "2025-06-18",
+]);
+export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
+export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRequestId(value) {
+  return (
+    typeof value === "string" ||
+    (typeof value === "number" && Number.isInteger(value))
+  );
+}
+
+function negotiatedProtocolVersion(requested) {
+  return MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : MCP_DEFAULT_PROTOCOL_VERSION;
+}
 
 const READ_ONLY_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
@@ -1153,8 +1176,19 @@ export function startNelosMcpServer({
   launchBatchVerifier = verifyLaunchBatchV1,
   webInspector = new NelosWebInspectorV1(),
 } = {}) {
+  let initialized = false;
+  let negotiatedVersion = null;
+
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
+  }
+
+  function sendError(code, message, id) {
+    send({
+      jsonrpc: "2.0",
+      ...(isRequestId(id) ? { id } : {}),
+      error: { code, message },
+    });
   }
 
   async function callTool(params) {
@@ -1198,10 +1232,11 @@ export function startNelosMcpServer({
       };
     }
     const { isError = false, ...body } = result;
-    const structuredContent = executionMapForToolResultV1(
+    const structuredContent = await projectExecutionMapForToolResultV1(
       tool.name,
       args,
       body,
+      { webRegistry },
     ) ?? (
       MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[tool.name]
         ? structuredClone(body)
@@ -1216,16 +1251,36 @@ export function startNelosMcpServer({
 
   async function handle(message) {
     const { id, method, params } = message;
-    const isRequest = id !== undefined && id !== null;
+    const isRequest = Object.hasOwn(message, "id");
     if (method === "initialize") {
+      if (!isRequest) {
+        // Even an invalidly shaped MCP notification must not receive a
+        // response under JSON-RPC notification semantics.
+        return;
+      }
+      if (initialized) {
+        sendError(-32600, "server is already initialized", id);
+        return;
+      }
+      if (
+        !isObject(params) ||
+        typeof params.protocolVersion !== "string" ||
+        !isObject(params.capabilities) ||
+        !isObject(params.clientInfo) ||
+        typeof params.clientInfo.name !== "string" ||
+        typeof params.clientInfo.version !== "string"
+      ) {
+        sendError(-32602, "invalid initialize parameters", id);
+        return;
+      }
+      const selectedProtocolVersion = negotiatedProtocolVersion(
+        params.protocolVersion,
+      );
       send({
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion:
-            typeof params?.protocolVersion === "string"
-              ? params.protocolVersion
-              : MCP_DEFAULT_PROTOCOL_VERSION,
+          protocolVersion: selectedProtocolVersion,
           capabilities: {
             tools: { listChanged: false },
             resources: { listChanged: false, subscribe: false },
@@ -1233,11 +1288,25 @@ export function startNelosMcpServer({
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
         },
       });
+      negotiatedVersion = selectedProtocolVersion;
+      initialized = true;
+      return;
+    }
+    if (method === "notifications/initialized") {
+      if (isRequest) {
+        sendError(-32600, "notifications/initialized must be a notification", id);
+      }
+      // Initialization is complete from the client's perspective. Nelos does
+      // not initiate requests, so no additional capability state is needed.
       return;
     }
     if (!isRequest) return; // notifications require no response
     if (method === "ping") {
       send({ jsonrpc: "2.0", id, result: {} });
+      return;
+    }
+    if (!initialized || negotiatedVersion === null) {
+      sendError(-32002, "server is not initialized", id);
       return;
     }
     if (method === "tools/list") {
@@ -1297,73 +1366,172 @@ export function startNelosMcpServer({
     });
   }
 
-  let buffer = "";
+  function validateMessage(message) {
+    if (!isObject(message) || message.jsonrpc !== "2.0") {
+      return "message must be a JSON-RPC 2.0 object";
+    }
+    if (Object.hasOwn(message, "id") && !isRequestId(message.id)) {
+      return "request id must be a string or integer";
+    }
+    if (Object.hasOwn(message, "method")) {
+      if (typeof message.method !== "string") return "method must be a string";
+      if (Object.hasOwn(message, "result") || Object.hasOwn(message, "error")) {
+        return "request or notification must not contain response fields";
+      }
+      if (Object.hasOwn(message, "params") && !isObject(message.params)) {
+        return "params must be an object";
+      }
+      return null;
+    }
+    const isResult = Object.hasOwn(message, "result");
+    const isError = Object.hasOwn(message, "error");
+    if (!Object.hasOwn(message, "id") || isResult === isError) {
+      return "message is not a request, notification, or response";
+    }
+    if (isResult && !isObject(message.result)) {
+      return "result response is malformed";
+    }
+    if (
+      isError &&
+      (!isObject(message.error) ||
+        !Number.isInteger(message.error.code) ||
+        typeof message.error.message !== "string")
+    ) {
+      return "error response is malformed";
+    }
+    return null;
+  }
+
+  let buffer = Buffer.alloc(0);
+  let discardingOversizedFrame = false;
+  let finished = false;
   let processing = Promise.resolve();
   let waitProcessing = Promise.resolve();
-  input.setEncoding("utf8");
-  input.on("data", (chunk) => {
-    buffer += chunk;
-    if (Buffer.byteLength(buffer, "utf8") > MAX_MESSAGE_BYTES) {
-      process.stderr.write(
-        `nelos-mcp: message exceeds ${MAX_MESSAGE_BYTES} bytes; terminating\n`,
-      );
-      onExit(1);
+
+  function scheduleError(code, message, id) {
+    processing = processing
+      .then(() => sendError(code, message, id))
+      .catch(() => {
+        process.stderr.write("nelos-mcp: error response failed unexpectedly\n");
+      });
+  }
+
+  function schedule(message) {
+    // Responses are only relevant when the server has issued a request. Nelos
+    // never does so, and JSON-RPC responses never receive responses themselves.
+    if (!Object.hasOwn(message, "method")) return;
+    if (
+      message.method === "tools/call" &&
+      message.params?.name === "nelos_thread_wait"
+    ) {
+      // A bounded wait may run beside later requests. JSON-RPC permits
+      // out-of-order responses, while stateful non-wait operations retain
+      // their existing serialized ordering. Waits serialize with each other
+      // so their per-call read bounds cannot multiply without limit.
+      const waitPrerequisites = Promise.all([processing, waitProcessing]);
+      waitProcessing = waitPrerequisites
+        .then(
+          () => handle(message),
+          () => {
+            if (Object.hasOwn(message, "id") && isRequestId(message.id)) {
+              sendError(-32603, "internal wait scheduling failure", message.id);
+            }
+          },
+        )
+        .catch(() => {
+          if (Object.hasOwn(message, "id") && isRequestId(message.id)) {
+            sendError(-32603, "internal error", message.id);
+          }
+          process.stderr.write("nelos-mcp: wait request failed unexpectedly\n");
+        });
       return;
     }
+    processing = processing
+      .then(() => handle(message))
+      .catch(() => {
+        if (Object.hasOwn(message, "id") && isRequestId(message.id)) {
+          sendError(-32603, "internal error", message.id);
+        }
+        process.stderr.write("nelos-mcp: request failed unexpectedly\n");
+      });
+  }
+
+  function acceptFrame(rawFrame) {
+    const frame = rawFrame.at(-1) === 0x0d
+      ? rawFrame.subarray(0, rawFrame.length - 1)
+      : rawFrame;
+    if (frame.length > MCP_MAX_MESSAGE_BYTES) {
+      scheduleError(-32600, `message exceeds ${MCP_MAX_MESSAGE_BYTES} bytes`);
+      return;
+    }
+    let text;
+    try {
+      text = UTF8_DECODER.decode(frame);
+    } catch {
+      scheduleError(-32700, "invalid UTF-8 in stdio frame");
+      return;
+    }
+    if (!text.trim()) return;
+    let message;
+    try {
+      message = JSON.parse(text);
+    } catch {
+      scheduleError(-32700, "parse error");
+      return;
+    }
+    const validationError = validateMessage(message);
+    if (validationError) {
+      scheduleError(-32600, validationError, message?.id);
+      return;
+    }
+    schedule(message);
+  }
+
+  function finish(code) {
+    if (finished) return;
+    finished = true;
+    Promise.allSettled([processing, waitProcessing])
+      .then(() => appServerBridge.close?.())
+      .catch((error) => {
+        process.stderr.write(
+          `nelos-mcp: shutdown cleanup failed: ${error.message}\n`,
+        );
+      })
+      .then(() => onExit(code));
+  }
+
+  input.on("data", (chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    buffer = buffer.length === 0 ? bytes : Buffer.concat([buffer, bytes]);
     let newline;
-    while ((newline = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line) continue;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        process.stderr.write("nelos-mcp: ignored unparseable message\n");
+    while ((newline = buffer.indexOf(0x0a)) !== -1) {
+      const frame = buffer.subarray(0, newline);
+      buffer = buffer.subarray(newline + 1);
+      if (discardingOversizedFrame) {
+        discardingOversizedFrame = false;
         continue;
       }
-      if (
-        message.method === "tools/call" &&
-        message.params?.name === "nelos_thread_wait"
-      ) {
-        // A bounded wait may run beside later requests. JSON-RPC permits
-        // out-of-order responses, while stateful non-wait operations retain
-        // their existing serialized ordering. Waits serialize with each other
-        // so their per-call read bounds cannot multiply without limit.
-        const waitPrerequisites = Promise.all([processing, waitProcessing]);
-        waitProcessing = waitPrerequisites
-          .then(
-            () => handle(message),
-            () => {
-              if (message.id !== undefined && message.id !== null) {
-                send({
-                  jsonrpc: "2.0",
-                  id: message.id,
-                  error: {
-                    code: -32603,
-                    message: "internal wait scheduling failure",
-                  },
-                });
-              }
-            },
-          )
-          .catch(() => {
-            process.stderr.write(
-              "nelos-mcp: wait request failed unexpectedly\n",
-            );
-          });
-      } else {
-        processing = processing
-          .then(() => handle(message))
-          .catch(() => {
-            process.stderr.write("nelos-mcp: request failed unexpectedly\n");
-          });
-      }
+      acceptFrame(frame);
+    }
+    if (
+      !discardingOversizedFrame &&
+      buffer.length > MCP_MAX_MESSAGE_BYTES
+    ) {
+      buffer = Buffer.alloc(0);
+      discardingOversizedFrame = true;
+      scheduleError(-32600, `message exceeds ${MCP_MAX_MESSAGE_BYTES} bytes`);
     }
   });
   input.on("end", () => {
-    Promise.allSettled([processing, waitProcessing])
-      .then(() => appServerBridge.close?.())
-      .then(() => onExit(0));
+    if (!discardingOversizedFrame && buffer.length > 0) {
+      scheduleError(-32700, "incomplete stdio frame");
+    }
+    buffer = Buffer.alloc(0);
+    discardingOversizedFrame = false;
+    finish(0);
+  });
+  input.on("error", (error) => {
+    process.stderr.write(`nelos-mcp: input failed: ${error.message}\n`);
+    finish(1);
   });
 }

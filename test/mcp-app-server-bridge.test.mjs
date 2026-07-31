@@ -434,6 +434,59 @@ test("latest turn inspection returns the current native turn identity and status
   await bridge.close();
 });
 
+test("collaboration agent inspection returns the newest bounded authoritative state", async () => {
+  const fake = fakeCodexAppServer({
+    initialTurns: [
+      {
+        id: "queen-turn",
+        status: "inProgress",
+        items: [
+          {
+            type: "collabAgentToolCall",
+            id: "spawn-planner",
+            tool: "spawnAgent",
+            status: "completed",
+            senderThreadId: "thread-1",
+            receiverThreadIds: ["planner-1"],
+            agentsStates: {
+              "planner-1": { status: "running" },
+            },
+          },
+        ],
+      },
+    ],
+  });
+  const bridge = new CodexAppServerBridgeV1({
+    spawnProcess: fake.spawnProcess,
+    requestTimeoutMs: 1_000,
+  });
+
+  assert.deepEqual(
+    await bridge.collaborationAgentStatus({
+      parentThreadId: "thread-1",
+      agentThreadId: "planner-1",
+    }),
+    {
+      status: "running",
+      parentTurnId: "queen-turn",
+      toolCallId: "spawn-planner",
+    },
+  );
+  assert.deepEqual(
+    fake.requests.find(
+      ({ method, params }) =>
+        method === "thread/turns/list" && params.itemsView === "full",
+    )?.params,
+    {
+      threadId: "thread-1",
+      limit: 20,
+      sortDirection: "desc",
+      itemsView: "full",
+    },
+  );
+  await bridge.close();
+});
+
 test("public stable Codex 0.144.5 passes the reviewed schema gate", async () => {
   const fake = fakeCodexAppServer({ codexVersion: "0.144.5" });
   const bridge = new CodexAppServerBridgeV1({

@@ -21,6 +21,7 @@ const COORDINATION_STATES = new Set([
   "detached",
 ]);
 const CAPABILITIES = new Set(["observe", "read-result", "follow-up", "archive"]);
+const RUN_ID = /^run:[a-f0-9]{40}$/u;
 
 function fail(message) {
   throw new Error(`orchestration checkpoint ${message}`);
@@ -121,9 +122,15 @@ function member(value) {
 }
 
 export function validateOrchestrationCheckpointV1(value) {
+  if (
+    value && typeof value === "object" && !Array.isArray(value) &&
+    !Object.hasOwn(value, "waveScope")
+  ) {
+    value = { ...value, waveScope: null };
+  }
   exact(value, [
     "schemaVersion", "webId", "queenThreadId", "checkpointRevision",
-    "waitGeneration", "members", "consumedReceipts",
+    "waveScope", "waitGeneration", "members", "consumedReceipts",
   ], "record");
   if (value.schemaVersion !== ORCHESTRATION_CHECKPOINT_SCHEMA_VERSION) fail("schemaVersion is unsupported");
   if (!Array.isArray(value.members) || value.members.length > 100) fail("members are invalid");
@@ -134,6 +141,15 @@ export function validateOrchestrationCheckpointV1(value) {
     fail("receipt history is invalid");
   }
   const members = value.members.map(member);
+  let waveScope = null;
+  if (value.waveScope !== null) {
+    exact(value.waveScope, ["planRunId", "waveIndex", "waveDigest"], "wave scope");
+    waveScope = {
+      planRunId: id(value.waveScope.planRunId, "planRunId", RUN_ID),
+      waveIndex: integer(value.waveScope.waveIndex, "waveIndex"),
+      waveDigest: id(value.waveScope.waveDigest, "waveDigest", /^[a-f0-9]{64}$/u),
+    };
+  }
   const workUnitIds = members.map(({ workUnitId }) => workUnitId);
   if (new Set(workUnitIds).size !== workUnitIds.length) fail("members are duplicated");
   members.sort((left, right) => left.workUnitId.localeCompare(right.workUnitId));
@@ -150,6 +166,7 @@ export function validateOrchestrationCheckpointV1(value) {
     webId: id(value.webId, "webId"),
     queenThreadId: id(value.queenThreadId, "queenThreadId"),
     checkpointRevision: integer(value.checkpointRevision, "checkpointRevision", { zero: true }),
+    waveScope,
     waitGeneration: integer(value.waitGeneration, "waitGeneration", { zero: true }),
     members,
     consumedReceipts,

@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
 
 import {
   NelosConfigStoreV1,
@@ -75,6 +77,7 @@ async function fixture(
     units = [workUnit()],
     decisions = units.map(acceptance),
     storeDecorator = (store) => store,
+    planRunStore,
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-spinoff-lifecycle-"));
@@ -104,6 +107,7 @@ async function fixture(
         return decisions;
       },
     },
+    ...(planRunStore ? { planRunStore } : {}),
   });
   return {
     adapter,
@@ -685,4 +689,93 @@ test("remembering a cleanup policy requires explicit user intent", async (t) => 
     }),
     /requires an explicit policy and user intent/u,
   );
+});
+
+test("wave-scoped cleanup isolates retries and archive effects across waves", async (t) => {
+  const second = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: { state: "bound", memberThreadId: "member-thread-b" },
+  });
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Clean each dependency wave",
+    slices: [
+      {
+        id: "member-a", title: "Member A", objective: "A", deliverable: "A",
+        acceptanceCriteria: ["A"], dependsOn: [], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+      {
+        id: "member-b", title: "Member B", objective: "B", deliverable: "B",
+        acceptanceCriteria: ["B"], dependsOn: ["member-a"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+    ],
+  });
+  const created = createPlanRunV1(plan, {
+    queenThreadId: "queen",
+    sourceId: "wave-scoped-lifecycle-test",
+    webIdentity: {
+      schemaVersion: 1, webId: "A1", queenThreadId: "queen",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const record = { ...created, verifiedWaveIndexes: [1, 2] };
+  const { planRunId, waves } = record;
+  const { adapter } = await fixture(t, {
+    units: [workUnit(), second],
+    decisions: [acceptance(), acceptance(second)],
+    planRunStore: {
+      async requireWave({ waveIndex, waveDigest }) {
+        const wave = waves.find((candidate) => candidate.waveIndex === waveIndex);
+        assert.equal(wave?.waveDigest, waveDigest);
+        return { record, wave };
+      },
+    },
+  });
+  const first = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 1, waveDigest: waves[0].waveDigest, policy: "auto",
+  });
+  assert.deepEqual(first.effects.map(({ threadId }) => threadId), ["member-thread"]);
+  const restarted = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 1, waveDigest: waves[0].waveDigest, policy: "auto",
+  });
+  assert.equal(restarted.effects[0].type, "native-reconcile-archive");
+  assert.equal(restarted.effects[0].originalActionId, first.effects[0].actionId);
+  const settled = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 1, waveDigest: waves[0].waveDigest,
+    archiveReceipts: [archiveReceipt(first.effects[0])],
+  });
+  assert.equal(settled.state, "complete");
+  assert.equal(settled.nextAction.kind, "authorization-required");
+  const later = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 2, waveDigest: waves[1].waveDigest, policy: "auto",
+  });
+  assert.deepEqual(later.effects.map(({ threadId }) => threadId), ["member-thread-b"]);
+  assert.notEqual(later.effects[0].actionId, first.effects[0].actionId);
+});
+
+test("high-cardinality cleanup remains web-bounded", async (t) => {
+  const units = Array.from({ length: 100 }, (_, index) => {
+    const webId = index < 50 ? "A1" : "B2";
+    return workUnit({
+      webId,
+      workUnitId: `member-${index}`,
+      binding: { state: "bound", memberThreadId: `thread-${index}` },
+    });
+  });
+  const { adapter } = await fixture(t, {
+    units,
+    decisions: units.map(acceptance),
+  });
+  const result = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", policy: "auto",
+  });
+  assert.equal(result.effects.length, 50);
+  assert.ok(result.effects.every(({ threadId }) => Number(threadId.slice(7)) < 50));
 });

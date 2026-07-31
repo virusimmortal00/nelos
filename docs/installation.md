@@ -59,6 +59,53 @@ Restart Codex and open a fresh task after installation or upgrade. Enabling the
 bundled MCP server remains an explicit per-selector configuration step, as
 shown in the [Quick start](../README.md#quick-start).
 
+This restart is required, not advisory: an already-open task can retain the old
+skill text, and an already-running MCP worker can retain the old JavaScript
+module even after the marketplace checkout and cache have changed. Quit and
+relaunch Codex after the install command succeeds, then create a new task. Do
+not use that task's pre-upgrade worker as verification evidence.
+
+Each installed copy contains `distribution-provenance.json`. Its
+`sourceRepository`, 40-character `sourceRevision`, `sourceRevisionType`, `revision`,
+`cacheIdentity`, and `integrity` identify the repository commit, release/cache
+key, and exact distributable bytes. A reproducible verification is:
+
+```bash
+VERSION=$(node -p 'require(process.argv[1]).version' \
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.5.0/.codex-plugin/plugin.json")
+test "$VERSION" = "0.5.0"
+node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1]));
+  if (p.sourceRepository!=="https://github.com/virusimmortal00/nelos.git" ||
+      !/^[a-f0-9]{40}$/.test(p.sourceRevision) ||
+      p.cacheIdentity!==p.sourceRepository+"#nelos@"+p.revision)
+    process.exit(1); console.log(JSON.stringify(p,null,2))' \
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.5.0/distribution-provenance.json"
+git -C "$HOME/.codex/plugins/marketplaces/nelos-marketplace" rev-parse HEAD
+```
+
+For marketplace and tagged-release installs, `sourceRevisionType` is `git` and
+the printed Git revision must equal `sourceRevision`. An unpacked, untagged
+offline source copy or a dirty Git checkout instead uses `distribution-sha256`, whose revision is the
+first 40 hexadecimal characters of the verified distribution digest. In the fresh task, ask
+Codex to identify the loaded `manage-nelos-tasks` skill and call one current
+Nelos read-only tool (for example `nelos_config_get`). A missing tool, a second
+Nelos skill path, a different revision, or any provenance mismatch means the
+upgrade is not verified; remove and reinstall the plugin, restart Codex, and
+create another fresh task.
+
+Maintainers can reproduce the complete isolated legacy-upgrade path—including
+the real Codex Git marketplace refresh, cache replacement, Codex process
+restart, fresh ephemeral task creation, skill/MCP byte checks, and unrelated
+data preservation—with:
+
+```bash
+npm run verify:plugin-upgrade
+npm run test:plugin-lifecycle
+```
+
+The expected focused result is 83 passing tests. The dogfood record is
+[issue-61-marketplace-upgrade.md](../dogfood/issue-61-marketplace-upgrade.md).
+
 For a reproducible pin, replace the channel ref with an exact immutable release
 tag. If the stable marketplace is already configured, remove the installed
 plugin and marketplace snapshot before changing its ref:
@@ -121,6 +168,20 @@ To upgrade, repeat those checks for the newer published release, run its unified
 installer, run `nelos-verify-distribution`, restart Codex when requested, and
 validate the skill from a fresh task. Read the release's **Compatibility
 requirements** and **Migrations** sections before upgrading.
+
+To remove a source-distribution installation and all installer-owned legacy
+surfaces, run the installed uninstaller before deleting its distribution root:
+
+```bash
+nelos-uninstall-distribution
+```
+
+It removes the `nelos@personal` install, the managed global skill and plugin
+source, all managed launcher symlinks (including install/verify launchers), the
+personal Nelos cache and historical `plugins/cache/nelos` root, the exact
+personal marketplace entry, and distribution state. Other plugins, foreign
+launchers, and unrelated user data are preserved. Restart Codex and create a
+fresh task after uninstall as well.
 
 To roll back, use a previously downloaded and verified release that remains in
 a supported line. Review migrations first because a release may change

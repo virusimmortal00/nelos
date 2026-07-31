@@ -485,9 +485,15 @@ const NEXT_ACTION_MEMBERS = [
       reason: { const: "planner-turn-observation-conflict" },
       retryable: { const: true },
       appServerTurnStatus: { const: "interrupted" },
-      nativeCollaborationStatus: { const: "unavailable" },
-      observation: POSITIVE,
-      maximumObservations: { const: 1 },
+      nativeCollaborationStatus: {
+        enum: ["pendingInit", "running", "unavailable"],
+      },
+      unavailableObservations: {
+        type: "integer",
+        minimum: 0,
+        maximum: 3,
+      },
+      maximumUnavailableObservations: { const: 3 },
     }),
   }, ["actionId", "agentPath", "threadId", "turnId", "after"]),
   discriminated("kind", "native-read-subagent-result", {
@@ -631,7 +637,18 @@ const NEXT_ACTION_MEMBERS = [
   }),
   discriminated("kind", "cleanup-spinoffs", {
     tool: { const: "nelos_spinoff_cleanup" },
-    arguments: closed({ webId: ID, queenThreadId: ID }),
+    arguments: {
+      oneOf: [
+        closed({ webId: ID, queenThreadId: ID }),
+        closed({
+          webId: ID,
+          queenThreadId: ID,
+          planRunId: PLAN_RUN_ID,
+          waveIndex: POSITIVE,
+          waveDigest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+        }),
+      ],
+    },
   }),
   discriminated("kind", "execute-cli", {
     command: { const: "worktree provision" },
@@ -1168,6 +1185,7 @@ const COMPATIBILITY_MEMBERS = [
     effects: {
       type: "array", maxItems: 100, items: PROTOCOL_NATIVE_EFFECT_SCHEMA_V1,
     },
+    nextAction: PROTOCOL_ACTION_SCHEMA_V1,
   }, ["schemaVersion", "policy", "state"]),
 ];
 

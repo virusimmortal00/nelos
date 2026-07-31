@@ -26,6 +26,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Reject stale plugin cache identities
+        run: npm run validate:plugin-release -- --base-ref "origin/${GITHUB_BASE_REF}"
       - name: Run token-free offline compatibility gate
         shell: bash
         run: env -u OPENAI_API_KEY npm run compatibility:required

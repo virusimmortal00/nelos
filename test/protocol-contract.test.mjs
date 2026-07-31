@@ -226,19 +226,51 @@ test("planner interrupted-turn reconciliation evidence is closed and typed", () 
       reason: "planner-turn-observation-conflict",
       retryable: true,
       appServerTurnStatus: "interrupted",
-      nativeCollaborationStatus: "unavailable",
-      observation: 1,
-      maximumObservations: 1,
+      nativeCollaborationStatus: "running",
+      unavailableObservations: 0,
+      maximumUnavailableObservations: 3,
     },
   };
 
   assert.deepEqual(validateProtocolContractV1("action", action), action);
+  const unavailable = {
+    ...action,
+    reconciliation: {
+      ...action.reconciliation,
+      nativeCollaborationStatus: "unavailable",
+      unavailableObservations: 3,
+    },
+  };
+  assert.deepEqual(
+    validateProtocolContractV1("action", unavailable),
+    unavailable,
+  );
   assert.throws(
     () => validateProtocolContractV1("action", {
       ...action,
       reconciliation: {
         ...action.reconciliation,
         appServerTurnStatus: "failed",
+      },
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...action,
+      reconciliation: {
+        ...action.reconciliation,
+        nativeCollaborationStatus: "completed",
+      },
+    }),
+    /exactly one/,
+  );
+  assert.throws(
+    () => validateProtocolContractV1("action", {
+      ...action,
+      reconciliation: {
+        ...action.reconciliation,
+        unavailableObservations: 4,
       },
     }),
     /exactly one/,

@@ -110,6 +110,12 @@ jobs:
                 jq -er '.version'
             )"
             echo "version=${current_version}" >>"$GITHUB_OUTPUT"
+            current_source_revision="$(
+              git show \
+                "refs/remotes/origin/${STABLE_BRANCH}:distribution-provenance.json" |
+                jq -er '.sourceRevision'
+            )"
+            echo "source_revision=${current_source_revision}" >>"$GITHUB_OUTPUT"
           fi
       - name: Validate release and marketplace contracts
         env:
@@ -132,7 +138,8 @@ jobs:
           fi
           env -u GITHUB_SHA node \
             automation/scripts/validate-marketplace-promotion.mjs \
-            "${promotion_arguments[@]}"
+            "${promotion_arguments[@]}" \
+            --materialize
       - name: Promote release commit
         working-directory: release-source
         env:
@@ -146,19 +153,30 @@ jobs:
             --quiet \
             "refs/remotes/origin/${STABLE_BRANCH}"
           then
-            if ! git merge-base \
+            current_source_revision="${{ steps.current-stable.outputs.source_revision }}"
+            if [[ ! "$current_source_revision" =~ ^[a-f0-9]{40}$ ]] || ! git merge-base \
               --is-ancestor \
-              "refs/remotes/origin/${STABLE_BRANCH}" \
+              "$current_source_revision" \
               "$tag_commit"
             then
               echo \
-                "${RELEASE_TAG} is older than or unrelated to ${STABLE_BRANCH}; refusing to move the stable channel backward" \
+                "${RELEASE_TAG} is older than or unrelated to the source revision on ${STABLE_BRANCH}; refusing to move the stable channel backward" \
                 >&2
               exit 1
             fi
           fi
 
-          git update-ref refs/heads/marketplace-promotion "$tag_commit"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add distribution-provenance.json
+          git commit -m "Record ${RELEASE_TAG} marketplace provenance"
+          promotion_commit="$(git rev-parse HEAD)"
+          if [[ "$(git rev-parse HEAD^)" != "$tag_commit" ]]; then
+            echo "marketplace provenance commit is not based directly on ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          git update-ref refs/heads/marketplace-promotion "$promotion_commit"
           git \
             -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
             push \
@@ -174,8 +192,8 @@ jobs:
               "refs/heads/${STABLE_BRANCH}" |
               awk '{print $1}'
           )"
-          if [[ "$promoted_commit" != "$tag_commit" ]]; then
-            echo "remote stable channel does not match ${RELEASE_TAG}" >&2
+          if [[ "$promoted_commit" != "$promotion_commit" ]]; then
+            echo "remote stable channel does not match the provenance commit for ${RELEASE_TAG}" >&2
             exit 1
           fi
           {
@@ -183,5 +201,6 @@ jobs:
             echo
             echo "- Tag: \`${RELEASE_TAG}\`"
             echo "- Commit: \`${tag_commit}\`"
+            echo "- Provenance commit: \`${promotion_commit}\`"
             echo "- Branch: \`${STABLE_BRANCH}\`"
           } >>"$GITHUB_STEP_SUMMARY"

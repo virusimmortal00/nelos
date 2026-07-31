@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+
+import {
+  SOURCE_REPOSITORY,
+  pluginCacheIdentity,
+} from "../src/distribution-provenance.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -110,6 +115,22 @@ export function validateMarketplacePromotion({
   };
 }
 
+export function materializeMarketplaceProvenance(provenance, sourceRevision) {
+  if (!/^[a-f0-9]{40}$/u.test(sourceRevision)) {
+    fail(`marketplace source revision must be an immutable Git commit: ${sourceRevision}`);
+  }
+  return {
+    ...provenance,
+    sourceRepository: SOURCE_REPOSITORY,
+    sourceRevision,
+    sourceRevisionType: "git",
+    cacheIdentity: pluginCacheIdentity({
+      sourceRepository: SOURCE_REPOSITORY,
+      version: provenance.revision,
+    }),
+  };
+}
+
 async function git(root, ...argumentsList) {
   const { stdout } = await execFileAsync("git", argumentsList, {
     cwd: root,
@@ -157,9 +178,13 @@ async function validateSourceCheckout(root, tag) {
 }
 
 function parseArguments(argumentsList) {
-  const options = { root: repositoryRoot };
+  const options = { root: repositoryRoot, materialize: false };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
+    if (argument === "--materialize") {
+      options.materialize = true;
+      continue;
+    }
     if (
       argument !== "--tag" &&
       argument !== "--root" &&
@@ -190,6 +215,21 @@ async function main() {
     );
   }
   const sourceCommit = await validateSourceCheckout(options.root, options.tag);
+  if (options.materialize) {
+    const provenancePath = join(options.root, "distribution-provenance.json");
+    const provenance = parseJson(
+      await readFile(provenancePath, "utf8"),
+      "distribution-provenance.json",
+    );
+    await writeFile(
+      provenancePath,
+      `${JSON.stringify(
+        materializeMarketplaceProvenance(provenance, sourceCommit),
+        null,
+        2,
+      )}\n`,
+    );
+  }
   process.stdout.write(`${JSON.stringify({ ...result, sourceCommit })}\n`);
 }
 
