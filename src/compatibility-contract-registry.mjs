@@ -996,6 +996,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "src/upstream-documentation-contracts.mjs",
           "src/upstream-documentation-evidence.mjs",
           "src/upstream-source-collector.mjs",
+          "src/web-inspection.mjs",
           "src/work-result.mjs",
         ]),
         test: Object.freeze([
@@ -1028,9 +1029,11 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/queen-acceptance.test.mjs",
           "test/upstream-documentation-evidence.test.mjs",
           "test/upstream-source-collector.test.mjs",
+          "test/web-inspection.test.mjs",
         ]),
         documentation: Object.freeze([
           "CONTRIBUTING.md",
+          "docs/backlog.md",
           "docs/compatibility-architecture.md",
           "docs/configuration.md",
           "docs/codex-capability-audit.md",

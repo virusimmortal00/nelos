@@ -12,6 +12,13 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   validation and fast-forward-only updates.
 - Added conversational installed-plugin configuration through the bundled
   `nelos_config_get`, `nelos_config_set`, and `nelos_config_reset` MCP tools.
+- Added `nelos_web_inspect`, a bounded read-only MCP workflow that combines
+  persisted work-unit bindings, orchestration state, paged native task status,
+  direct-parent topology, and content-free bridge health without exposing
+  prompts, turns, transcripts, result text, or filesystem paths.
+- Reduced the bundled skill to task-planning and coordination policy.
+  Configuration and web inspection now route directly through MCP tool
+  metadata and schemas.
 - Added a machine-local TOML configuration file at
   `$XDG_CONFIG_HOME/nelos/config.toml`, falling back to
   `~/.config/nelos/config.toml`. Repository-local `.nelos/` configuration is

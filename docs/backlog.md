@@ -7,7 +7,7 @@ to **Done**, and revise **Next** before beginning new product work.
 This backlog is the source of truth for longer-term queen-driven coordination
 work. Order future slices by their evidence and acceptance gates.
 
-**Last reviewed:** 2026-07-28 16:18 EDT (`America/New_York`)
+**Last reviewed:** 2026-07-30 10:31 EDT (`America/New_York`)
 
 Refresh this timestamp whenever **Next** is reordered, an item changes state, or
 a material implementation lands that changes the remaining scope.
@@ -171,6 +171,10 @@ module boundaries, safety rules, and rollout criteria.
 
 ## Done
 
+- Add a bounded, read-only `nelos_web_inspect` MCP composition that pages
+  persisted work-unit and checkpoint state together with native task status,
+  topology, and bridge health; keep configuration tool-driven instead of
+  expanding the orchestration skill.
 - Define a public, versioned protocol-contract package with closed action,
   effect, receipt, continuation, attention, error, and semantic-input schemas;
   add a centralized recovery registry, replay-safe transition reducer, producer
