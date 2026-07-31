@@ -559,6 +559,81 @@ test("uninstall removes managed and legacy artifacts while preserving unrelated 
   }
 });
 
+test("uninstall refuses to race an active distribution install", async () => {
+  const fixture = await createFixture();
+  let releaseLock;
+  try {
+    await installFixture(fixture);
+    releaseLock = await distributionInstallInternals.acquireInstallLock(
+      fixture.installRoot,
+    );
+    await assert.rejects(
+      uninstallDistribution({
+        home: fixture.home,
+        codexHome: fixture.codexHome,
+        installRoot: fixture.installRoot,
+        binDir: fixture.binDir,
+        codexCommand: fixture.codexPath,
+        env: fixture.env,
+      }),
+      /another distribution uninstall is active/u,
+    );
+  } finally {
+    await releaseLock?.();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("legacy cache cleanup preserves the live nested install and unsafe entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-cache-cleanup-"));
+  const managedRoot = join(root, "marketplace", "nelos");
+  const installedPath = join(managedRoot, "0.5.0", "content");
+  const stalePath = join(managedRoot, "0.4.0");
+  const unsafePath = join(managedRoot, "metadata.json");
+  const reports = [];
+  try {
+    await mkdir(installedPath, { recursive: true });
+    await mkdir(stalePath, { recursive: true });
+    await writeFile(unsafePath, "keep\n");
+    await distributionInstallInternals.cleanupLegacyPluginCaches({
+      cacheRoot: root,
+      managedPluginCacheRoot: managedRoot,
+      installedPath,
+      report: (message) => reports.push(message),
+    });
+    assert.equal(await readFile(unsafePath, "utf8"), "keep\n");
+    assert.equal((await stat(installedPath)).isDirectory(), true);
+    await assert.rejects(stat(stalePath), /ENOENT/u);
+    assert.ok(reports.some((message) => message.includes("skipped unsafe")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("post-commit legacy cache cleanup failures are report-only", async () => {
+  const fixture = await createFixture();
+  const unsafeLegacyRoot = join(
+    fixture.codexHome,
+    "plugins",
+    "cache",
+    "nelos",
+  );
+  const reports = [];
+  try {
+    await mkdir(dirname(unsafeLegacyRoot), { recursive: true });
+    await writeFile(unsafeLegacyRoot, "keep\n");
+    const installed = await installFixture(fixture, {
+      report: (message) => reports.push(message),
+    });
+    assert.equal(installed.provenance.revision, candidateVersion);
+    assert.equal(await readFile(unsafeLegacyRoot, "utf8"), "keep\n");
+    assert.ok(reports.some((message) =>
+      message.includes("stale plugin cache cleanup did not complete")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("a clean isolated home bootstraps source and marketplace idempotently", async () => {
   const fixture = await createFixture();
   try {

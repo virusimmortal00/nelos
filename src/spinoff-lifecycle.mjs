@@ -1040,13 +1040,26 @@ export class SpinoffLifecycleAdapterV1 {
       scopedPlanRun !== null &&
       waveScope.waveIndex < scopedPlanRun.waves.length
     ) {
-      nextAction = derivePlanWaveActionV1(
-        scopedPlanRun.plan,
-        scopedPlanRun,
-        waveScope.waveIndex + 1,
-        scopedPlanRun.cleanupIntended,
-        null,
-      );
+      try {
+        if (!scopedPlanRun.plan) {
+          throw new Error("remaining plan wave contract is unavailable");
+        }
+        nextAction = derivePlanWaveActionV1(
+          scopedPlanRun.plan,
+          scopedPlanRun,
+          waveScope.waveIndex + 1,
+          scopedPlanRun.cleanupIntended,
+          null,
+        );
+      } catch {
+        nextAction = {
+          schemaVersion: 1,
+          kind: "attention",
+          reason: "remaining-plan-wave-contract-is-unavailable",
+          planRunId: scopedPlanRun.planRunId,
+          nextWaveIndex: waveScope.waveIndex + 1,
+        };
+      }
     }
     return {
       schemaVersion: 1,

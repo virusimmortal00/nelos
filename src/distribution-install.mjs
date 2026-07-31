@@ -133,7 +133,7 @@ async function sha256File(path) {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
-async function writeJsonAtomically(
+export async function writeJsonAtomically(
   path,
   value,
   mode = 0o600,
@@ -537,7 +537,7 @@ async function readInitializingLockOwner(lockPath) {
   }
 }
 
-async function acquireInstallLock(
+export async function acquireInstallLock(
   lockRoot,
   {
     lockDirectory = LOCK_DIRECTORY,
@@ -816,11 +816,18 @@ async function cleanupLegacyPluginCaches({
       withFileTypes: true,
     })) {
       const candidate = join(managedPluginCacheRoot, entry.name);
-      if (resolve(candidate) === installed) continue;
-      if (!entry.isDirectory() || entry.isSymbolicLink()) {
-        throw new Error(`refusing unsafe legacy plugin cache entry: ${candidate}`);
+      const installedRelative = relative(resolve(candidate), installed);
+      if (
+        installedRelative === "" ||
+        (!installedRelative.startsWith("..") && !isAbsolute(installedRelative))
+      ) {
+        continue;
       }
-      await rm(candidate, { recursive: true });
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        report(`skipped unsafe legacy plugin cache entry ${candidate}`);
+        continue;
+      }
+      await rm(candidate, { recursive: true, force: true });
       report(`removed stale Nelos plugin cache ${candidate}`);
     }
   }
@@ -933,7 +940,7 @@ export async function stageDistribution({ packageRoot, installRoot, env }) {
   }
 }
 
-async function resolveCodexCommand(explicitPath, pathValue) {
+export async function resolveCodexCommand(explicitPath, pathValue) {
   if (explicitPath) {
     const resolved = await realpath(resolve(explicitPath));
     return resolved;
@@ -2987,12 +2994,18 @@ export async function installDistribution(options = {}) {
           `installation is committed, but the live-activation result could not be recorded: ${error.message}`,
         );
       }
-      await cleanupLegacyPluginCaches({
-        cacheRoot,
-        managedPluginCacheRoot,
-        installedPath: pluginInstall.installedPath,
-        report,
-      });
+      try {
+        await cleanupLegacyPluginCaches({
+          cacheRoot,
+          managedPluginCacheRoot,
+          installedPath: pluginInstall.installedPath,
+          report,
+        });
+      } catch (error) {
+        report(
+          `installation is committed, but stale plugin cache cleanup did not complete: ${error.message}`,
+        );
+      }
       report(`installed ${staged.provenance.revision} (${staged.provenance.integrity})`);
       return {
         ...state,
@@ -3046,6 +3059,7 @@ export const distributionInstallInternals = {
   LEGACY_SKILL_HASHES,
   acquireInstallLock,
   activatePluginSource,
+  cleanupLegacyPluginCaches,
   discoverPlugin,
   ensurePersonalMarketplace,
   activateMarketplaceBootstrap,

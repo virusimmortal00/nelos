@@ -80,11 +80,18 @@ node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process
       p.cacheIdentity!==p.sourceRepository+"#nelos@"+p.revision)
     process.exit(1); console.log(JSON.stringify(p,null,2))' \
   "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.5.0/distribution-provenance.json"
-git -C "$HOME/.codex/plugins/marketplaces/nelos-marketplace" rev-parse HEAD
+SOURCE_REVISION=$(node -p \
+  'JSON.parse(require("node:fs").readFileSync(process.argv[1])).sourceRevision' \
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.5.0/distribution-provenance.json")
+MARKETPLACE="$HOME/.codex/plugins/marketplaces/nelos-marketplace"
+git -C "$MARKETPLACE" merge-base --is-ancestor "$SOURCE_REVISION" HEAD
+git -C "$MARKETPLACE" rev-parse HEAD
 ```
 
 For marketplace and tagged-release installs, `sourceRevisionType` is `git` and
-the printed Git revision must equal `sourceRevision`. An unpacked, untagged
+`sourceRevision` must be an ancestor of the marketplace checkout. The printed
+marketplace `HEAD` is the later promotion commit that records marketplace
+provenance, so it is not expected to equal `sourceRevision`. An unpacked, untagged
 offline source copy or a dirty Git checkout instead uses `distribution-sha256`, whose revision is the
 first 40 hexadecimal characters of the verified distribution digest. In the fresh task, ask
 Codex to identify the loaded `manage-nelos-tasks` skill and call one current

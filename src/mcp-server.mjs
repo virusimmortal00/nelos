@@ -1513,10 +1513,9 @@ export function startNelosMcpServer({
       }
       acceptFrame(frame);
     }
-    if (
-      !discardingOversizedFrame &&
-      buffer.length > MCP_MAX_MESSAGE_BYTES
-    ) {
+    if (discardingOversizedFrame) {
+      buffer = Buffer.alloc(0);
+    } else if (buffer.length > MCP_MAX_MESSAGE_BYTES) {
       buffer = Buffer.alloc(0);
       discardingOversizedFrame = true;
       scheduleError(-32600, `message exceeds ${MCP_MAX_MESSAGE_BYTES} bytes`);

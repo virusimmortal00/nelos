@@ -10,6 +10,7 @@ const codexAvailable = spawnSync("codex", ["--version"], {
 
 test("real Codex marketplace refresh loads 0.5.0 skills and MCP in a fresh process", {
   skip: codexAvailable ? false : "requires the Codex CLI",
+  timeout: 600_000,
 }, async () => {
   const result = await verifyPluginMarketplaceUpgrade();
   assert.equal(result.verified, true);

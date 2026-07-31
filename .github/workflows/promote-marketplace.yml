@@ -113,9 +113,15 @@ jobs:
             current_source_revision="$(
               git show \
                 "refs/remotes/origin/${STABLE_BRANCH}:distribution-provenance.json" |
-                jq -er '.sourceRevision'
+                jq -r '.sourceRevision // empty'
             )"
-            echo "source_revision=${current_source_revision}" >>"$GITHUB_OUTPUT"
+            if [[ -n "$current_source_revision" ]]; then
+              if [[ ! "$current_source_revision" =~ ^[a-f0-9]{40}$ ]]; then
+                echo "${STABLE_BRANCH} declares an invalid source revision" >&2
+                exit 1
+              fi
+              echo "source_revision=${current_source_revision}" >>"$GITHUB_OUTPUT"
+            fi
           fi
       - name: Validate release and marketplace contracts
         env:
@@ -154,15 +160,17 @@ jobs:
             "refs/remotes/origin/${STABLE_BRANCH}"
           then
             current_source_revision="${{ steps.current-stable.outputs.source_revision }}"
-            if [[ ! "$current_source_revision" =~ ^[a-f0-9]{40}$ ]] || ! git merge-base \
-              --is-ancestor \
-              "$current_source_revision" \
-              "$tag_commit"
-            then
-              echo \
-                "${RELEASE_TAG} is older than or unrelated to the source revision on ${STABLE_BRANCH}; refusing to move the stable channel backward" \
-                >&2
-              exit 1
+            if [[ -n "$current_source_revision" ]]; then
+              if ! git merge-base \
+                --is-ancestor \
+                "$current_source_revision" \
+                "$tag_commit"
+              then
+                echo \
+                  "${RELEASE_TAG} is older than or unrelated to the source revision on ${STABLE_BRANCH}; refusing to move the stable channel backward" \
+                  >&2
+                exit 1
+              fi
             fi
           fi
 

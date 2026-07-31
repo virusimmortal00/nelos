@@ -166,6 +166,8 @@ test("promotion workflow is published-release-only and fast-forward-only", async
   );
   assert.match(workflow, /git merge-base[\s\S]*--is-ancestor/u);
   assert.match(workflow, /\.sourceRevision/u);
+  assert.match(workflow, /jq -r '\.sourceRevision \/\/ empty'/u);
+  assert.match(workflow, /if \[\[ -n "\$current_source_revision" \]\]/u);
   assert.match(
     workflow,
     /refs\/heads\/marketplace-promotion:refs\/heads\/\$\{STABLE_BRANCH\}/u,

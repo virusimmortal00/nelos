@@ -6,7 +6,6 @@ import {
   readdir,
   realpath,
   rm,
-  writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -17,8 +16,16 @@ import {
   MANAGED_CLI_COMMANDS,
   PLUGIN_NAME,
   PROVENANCE_FILENAME,
+  currentDirectoryPathEntries,
   readProvenance,
+  safeCommandPath,
 } from "./distribution-provenance.mjs";
+import {
+  acquireInstallLock,
+  resolveCodexCommand,
+  writeJsonAtomically,
+} from "./distribution-install.mjs";
+import { ensureCanonicalDirectory } from "./path-safety.mjs";
 
 async function info(path) {
   try { return await lstat(path); }
@@ -92,9 +99,11 @@ async function removePersonalMarketplaceEntry(path, sourcePath) {
     resolve(dirname(path), plugin.source.path) === resolve(sourcePath)
   ));
   if (retained.length === document.plugins.length) return false;
-  await writeFile(path, `${JSON.stringify({ ...document, plugins: retained }, null, 2)}\n`, {
-    mode: pathInfo.mode & 0o777,
-  });
+  await writeJsonAtomically(
+    path,
+    { ...document, plugins: retained },
+    pathInfo.mode & 0o777,
+  );
   return true;
 }
 
@@ -107,40 +116,56 @@ export async function uninstallDistribution(options = {}) {
   const selector = options.pluginSelector ?? `${PLUGIN_NAME}@personal`;
   const marketplacePath = resolve(options.marketplacePath ?? join(home, ".agents", "plugins", "marketplace.json"));
   const env = { ...process.env, ...options.env, HOME: home, CODEX_HOME: codexHome };
-  let state = null;
-  try { state = JSON.parse(await readFile(join(installRoot, INSTALL_STATE_FILENAME), "utf8")); }
-  catch (error) { if (error.code !== "ENOENT") throw error; }
-  const codexCommand = options.codexCommand ?? state?.codexCommand ?? "codex";
-  await run(codexCommand, ["plugin", "remove", selector, "--json"], env).catch((error) => {
-    if (!options.allowMissingPlugin) throw error;
+  if (currentDirectoryPathEntries(env.PATH).length > 0) {
+    env.PATH = safeCommandPath(env.PATH);
+  }
+  await ensureCanonicalDirectory(installRoot, "distribution install root", {
+    enforceMode: true,
   });
+  const releaseLock = await acquireInstallLock(installRoot, {
+    scope: "distribution uninstall",
+  });
+  try {
+    let state = null;
+    try { state = JSON.parse(await readFile(join(installRoot, INSTALL_STATE_FILENAME), "utf8")); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    const codexCommand = await resolveCodexCommand(
+      options.codexCommand ?? state?.codexCommand,
+      env.PATH,
+    );
+    await run(codexCommand, ["plugin", "remove", selector, "--json"], env).catch((error) => {
+      if (!options.allowMissingPlugin) throw error;
+    });
 
-  const removed = [];
-  for (const command of MANAGED_CLI_COMMANDS) {
-    if (await removeLauncher(join(binDir, command), installRoot)) removed.push(`launcher:${command}`);
-  }
-  if (await removeManagedTree(join(codexHome, "skills", "manage-nelos-tasks"), "global skill")) {
-    removed.push("global-skill");
-  }
-  if (await removeManagedTree(sourcePath, "managed plugin source")) removed.push("plugin-source");
-  for (const cachePath of [
-    join(codexHome, "plugins", "cache", "personal", PLUGIN_NAME),
-    join(codexHome, "plugins", "cache", PLUGIN_NAME),
-  ]) {
-    if (await removePluginCacheRoot(cachePath)) removed.push(`cache:${cachePath}`);
-  }
-  if (await removePersonalMarketplaceEntry(marketplacePath, sourcePath)) {
-    removed.push("personal-marketplace-entry");
-  }
-  const rootInfo = await info(installRoot);
-  if (rootInfo) {
-    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-      throw new Error(`refusing unsafe distribution root: ${installRoot}`);
+    const removed = [];
+    for (const command of MANAGED_CLI_COMMANDS) {
+      if (await removeLauncher(join(binDir, command), installRoot)) removed.push(`launcher:${command}`);
     }
-    await rm(installRoot, { recursive: true });
-    removed.push("distribution-root");
+    if (await removeManagedTree(join(codexHome, "skills", "manage-nelos-tasks"), "global skill")) {
+      removed.push("global-skill");
+    }
+    if (await removeManagedTree(sourcePath, "managed plugin source")) removed.push("plugin-source");
+    for (const cachePath of [
+      join(codexHome, "plugins", "cache", "personal", PLUGIN_NAME),
+      join(codexHome, "plugins", "cache", PLUGIN_NAME),
+    ]) {
+      if (await removePluginCacheRoot(cachePath)) removed.push(`cache:${cachePath}`);
+    }
+    if (await removePersonalMarketplaceEntry(marketplacePath, sourcePath)) {
+      removed.push("personal-marketplace-entry");
+    }
+    const rootInfo = await info(installRoot);
+    if (rootInfo) {
+      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+        throw new Error(`refusing unsafe distribution root: ${installRoot}`);
+      }
+      await rm(installRoot, { recursive: true });
+      removed.push("distribution-root");
+    }
+    return { uninstalled: true, selector, removed, restartRequired: true, freshTaskRequired: true };
+  } finally {
+    await releaseLock();
   }
-  return { uninstalled: true, selector, removed, restartRequired: true, freshTaskRequired: true };
 }
 
 export const distributionUninstallInternals = {

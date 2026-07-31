@@ -273,12 +273,14 @@ test("malformed, oversized, and interrupted frames fail deterministically and re
   const initialize = `${JSON.stringify(INITIALIZE)}\n`;
   const ping = `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`;
   const oversizedPrefix = "x".repeat(MCP_MAX_MESSAGE_BYTES + 1);
+  const oversizedTail = "y".repeat(MCP_MAX_MESSAGE_BYTES + 1);
   const { exitCode, responses } = await rawRoundTrip([
     initialize,
     "{bad json}\n",
     Buffer.from([0xff, 0x0a]),
     ping,
     oversizedPrefix,
+    oversizedTail,
     `\n${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" })}\n`,
     '{"jsonrpc":"2.0","id":4,"method":"ping"',
   ]);

@@ -760,6 +760,71 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
   assert.notEqual(later.effects[0].actionId, first.effects[0].actionId);
 });
 
+test("completed cleanup returns attention when the next wave contract is unavailable", async (t) => {
+  const second = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: { state: "bound", memberThreadId: "member-thread-b" },
+  });
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Preserve completed cleanup evidence",
+    slices: [
+      {
+        id: "member-a", title: "Member A", objective: "A", deliverable: "A",
+        acceptanceCriteria: ["A"], dependsOn: [], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+      {
+        id: "member-b", title: "Member B", objective: "B", deliverable: "B",
+        acceptanceCriteria: ["B"], dependsOn: ["member-a"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+    ],
+  });
+  const created = createPlanRunV1(plan, {
+    queenThreadId: "queen",
+    sourceId: "missing-next-wave-contract-test",
+    webIdentity: {
+      schemaVersion: 1, webId: "A1", queenThreadId: "queen",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const { plan: ignoredPlan, ...planless } = created;
+  void ignoredPlan;
+  const record = { ...planless, verifiedWaveIndexes: [1, 2] };
+  const { adapter } = await fixture(t, {
+    units: [workUnit(), second],
+    decisions: [acceptance(), acceptance(second)],
+    planRunStore: {
+      async requireWave({ waveIndex, waveDigest }) {
+        const wave = record.waves.find((candidate) =>
+          candidate.waveIndex === waveIndex);
+        assert.equal(wave?.waveDigest, waveDigest);
+        return { record, wave };
+      },
+    },
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 1, waveDigest: record.waves[0].waveDigest, policy: "auto",
+  });
+  const settled = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 1, waveDigest: record.waves[0].waveDigest,
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+  assert.equal(settled.state, "complete");
+  assert.equal(settled.results[0].state, "archived");
+  assert.deepEqual(settled.nextAction, {
+    schemaVersion: 1,
+    kind: "attention",
+    reason: "remaining-plan-wave-contract-is-unavailable",
+    planRunId: record.planRunId,
+    nextWaveIndex: 2,
+  });
+});
+
 test("high-cardinality cleanup remains web-bounded", async (t) => {
   const units = Array.from({ length: 100 }, (_, index) => {
     const webId = index < 50 ? "A1" : "B2";
