@@ -34,7 +34,7 @@ jobs:
         run: npm run compatibility:drift:source
       - name: Upload public drift reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compatibility-public-drift
           path: compatibility-reports/
@@ -92,7 +92,7 @@ jobs:
             > "compatibility-reports/runtime-${{ matrix.codex }}.json"
       - name: Upload exact release drift reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compatibility-exact-${{ matrix.codex }}
           path: compatibility-reports/
