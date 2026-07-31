@@ -650,6 +650,9 @@ export class SpinoffLifecycleAdapterV1 {
                 ? workUnit.binding.memberThreadId
                 : null,
             title: workUnit.title,
+            model: workUnit.launch?.nativeTask?.model ?? "host-default",
+            reasoning:
+              workUnit.launch?.nativeTask?.thinking ?? "host-default",
           })),
       };
     }
@@ -796,6 +799,9 @@ export class SpinoffLifecycleAdapterV1 {
           workUnitId: workUnit.workUnitId,
           threadId,
           title,
+          model: workUnit.launch?.nativeTask?.model ?? "host-default",
+          reasoning:
+            workUnit.launch?.nativeTask?.thinking ?? "host-default",
         })),
       };
     }
@@ -843,6 +849,17 @@ export class SpinoffLifecycleAdapterV1 {
     }
     const results = [];
     const effects = [];
+    const cleanupResult = (candidate, state, details = {}) => ({
+      workUnitId: candidate.workUnit.workUnitId,
+      threadId: candidate.threadId,
+      title: candidate.title,
+      model:
+        candidate.workUnit.launch?.nativeTask?.model ?? "host-default",
+      reasoning:
+        candidate.workUnit.launch?.nativeTask?.thinking ?? "host-default",
+      state,
+      ...details,
+    });
     for (const candidate of selected) {
       const completion = candidate.completion;
       try {
@@ -863,27 +880,21 @@ export class SpinoffLifecycleAdapterV1 {
             ) {
               throw new Error("native archive receipt is stale or conflicting");
             }
-            results.push({
-              threadId: candidate.threadId,
-              state: "archived",
+            results.push(cleanupResult(candidate, "archived", {
               replayed: true,
-            });
+            }));
             return;
           }
           if (record.cleanupState === "kept") {
-            results.push({
-              threadId: candidate.threadId,
-              state: "kept",
+            results.push(cleanupResult(candidate, "kept", {
               replayed: true,
-            });
+            }));
             return;
           }
           if (record.cleanupState === "attention") {
-            results.push({
-              threadId: candidate.threadId,
-              state: "attention",
+            results.push(cleanupResult(candidate, "attention", {
               reason: "prior-archive-attention",
-            });
+            }));
             return;
           }
           if (
@@ -904,11 +915,9 @@ export class SpinoffLifecycleAdapterV1 {
                 cleanupState: "archived",
                 updatedAt: this.#now(),
               }, { expectedRevision: record.revision });
-              results.push({
-                threadId: candidate.threadId,
-                state: "archived",
+              results.push(cleanupResult(candidate, "archived", {
                 replayed: false,
-              });
+              }));
               return;
             }
             effects.push({
@@ -923,11 +932,9 @@ export class SpinoffLifecycleAdapterV1 {
                 onAmbiguous: "return-attention",
               },
             });
-            results.push({
-              threadId: candidate.threadId,
-              state: "archiving",
+            results.push(cleanupResult(candidate, "archiving", {
               replayed: true,
-            });
+            }));
             return;
           }
           if (receiptByThreadId.has(candidate.threadId)) {
@@ -941,11 +948,9 @@ export class SpinoffLifecycleAdapterV1 {
               cleanupPolicy: resolvedPolicy,
               updatedAt: this.#now(),
             }, { expectedRevision: record.revision });
-            results.push({
-              threadId: candidate.threadId,
-              state: "kept",
+            results.push(cleanupResult(candidate, "kept", {
               replayed: false,
-            });
+            }));
             return;
           }
           record = await this.#store.write({
@@ -966,18 +971,14 @@ export class SpinoffLifecycleAdapterV1 {
               expectedAcceptedWorkUnitId: candidate.workUnit.workUnitId,
             },
           });
-          results.push({
-            threadId: candidate.threadId,
-            state: "archiving",
+          results.push(cleanupResult(candidate, "archiving", {
             replayed: false,
-          });
+          }));
         });
       } catch {
-        results.push({
-          threadId: candidate.threadId,
-          state: "attention",
+        results.push(cleanupResult(candidate, "attention", {
           reason: "cleanup-candidate-failed",
-        });
+        }));
       }
     }
     return {

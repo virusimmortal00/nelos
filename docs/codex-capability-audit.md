@@ -67,7 +67,7 @@ Codex versions tested, and evidence gaps.
 | 12 | Skills, skill metadata, scripts, assets, controls, and discovery | Existing Nelos workflow surface | `adopt` | Core delivered; remaining audit queued |
 | 13 | Plugins, manifests, marketplaces, packaging, updates, controls, and submission checks | Existing distribution surface | `adopt` | Substantially delivered; first verified release published |
 | 14 | MCP tools, resources, prompts, apps/connectors, dynamic tools, authentication, and elicitation | Existing tool and integration surface | `adopt` | Core delivered; broader surface queued |
-| 15 | MCP Apps UI, components, metadata, CSP, and host compatibility | Possible inspect/confirm/navigation UI | `defer` | Deferred behind lifecycle foundations |
+| 15 | MCP Apps UI, components, metadata, CSP, and host compatibility | Narrow planning and dispatch receipt UI | `adopt` | Inline execution map shipped; broad live dashboard remains deferred |
 | 16 | Scheduled tasks, chat automations, thread wakeups, notifications, and attention UX | Recovery and unattended coordination | `pilot` | Partial; continuation experiments active Next |
 | 17 | CLI commands, slash commands, `codex exec`, completions, remote TUI, and integrated terminal | Developer, recovery, and automation surfaces | `adopt` | Core delivered; release/clean-install tooling delivered |
 | 18 | Codex SDK | Possible programmatic orchestration alternative | `monitor` | Alternative architecture remains queued |

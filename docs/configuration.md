@@ -14,12 +14,13 @@ Set Nelos spin-off cleanup to ask.
 Reset my Nelos spin-off cleanup preference.
 ```
 
-The bundled skill maps these requests to `nelos_config_get`,
-`nelos_config_set`, and `nelos_config_reset`. The get response includes the
-effective value, whether it came from TOML or the built-in default, the exact
-file path in use, and any one-time migration it performed. Set and reset are
-valid only when the user explicitly asks to change the global preference; an
-agent must not infer that intent from a one-off cleanup decision.
+The bundled MCP tool metadata and schemas route these requests directly to
+`nelos_config_get`, `nelos_config_set`, and `nelos_config_reset`; the
+task-management skill is not required. The get response includes the effective
+value, whether it came from TOML or the built-in default, the exact file path in
+use, and any one-time migration it performed. Set and reset are valid only when
+the user explicitly asks to change the global preference; an agent must not
+infer that intent from a one-off cleanup decision.
 
 Codex does not currently provide Nelos with a custom Settings pane. The
 conversation is therefore the primary UI, with the TOML file as the transparent

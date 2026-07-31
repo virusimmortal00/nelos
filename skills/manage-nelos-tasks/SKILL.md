@@ -6,15 +6,13 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 # Manage Nelos Tasks
 
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes work; the queen identifies user plans and judges results. Configure
-with `nelos_config_get`, `nelos_config_set`, or `nelos_config_reset`. Call set/reset only after an
-explicit user request with `userIntentConfirmed: true`;
-never use the CLI as fallback.
+decomposes unstructured work. The queen identifies user-supplied plans and judges
+result acceptance. Use only the bundled Nelos MCP tools; never use the CLI as fallback.
 Keep native kinds exact:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
   internal thread ID is verification evidence only. Never call it a spinoff.
-- A `spinoff` is a durable Codex task with `threadId`.
+- A `spinoff` is a durable Codex task controlled by `threadId`.
 
 ## Choose the Planning Path
 
@@ -31,7 +29,9 @@ classify them in the queen. Execute only its returned action, then
 call again with the unchanged request, returned `bootstrapId`, and exact native
 receipt. Never substitute an agent path for a task ID.
 
-The coordinator verifies identity, route, and result; invalid evidence stops.
+Reject invalid identity, parent, route, or result-turn evidence. Render maps
+from top-level `structuredContent`; reserve `structuredContent.protocol.result`
+for nonvisual handling.
 
 ## Follow the One Desktop Path
 
@@ -75,7 +75,7 @@ After the fast path or bootstrap, execute only the returned
   terminal turn; expose protocol details only if `attention` persists.
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
-  Never collapse the wave into one lifecycle kind.
+  After terminal turns call `nelos_execution_map_refresh` with resolved display/thread/turn fields; never trust mailbox status.
 - `native-wait` and `native-read`: use Codex task controls for durable task
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
@@ -96,13 +96,10 @@ After the fast path or bootstrap, execute only the returned
   evidence gap; do not infer an executable action.
 - `complete`: stop; the command has no additional protocol step.
 
-The launch prompt requires a bounded result and, for spinoffs, an exact
-`nelos_spinoff_complete` cycle: call with `receipt: null`, run its effect through
-`codex_app.send_message_to_thread`, then pass the exact `{"threadId":"..."}`
-result; never add fields. Reconciliation is `attention`; never repeat the send.
-After terminal acceptance, follow the emitted `cleanup-spinoffs` action; never
-depend on remembering a separate cleanup call. `ask` confirms exact candidates,
-`auto` returns native archive effects, and `keep` preserves them.
+Spinoffs run exact `nelos_spinoff_complete`: call with `receipt: null`, send its
+effect through `codex_app.send_message_to_thread`, then pass the exact
+`{"threadId":"..."}` result; never add fields or repeat an `attention`
+reconciliation. After acceptance follow `cleanup-spinoffs`; never depend on remembering a separate cleanup call.
 Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
 
 Use `nelos_plan_replan` only for a typed terminal failure/block, user

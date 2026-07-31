@@ -193,6 +193,10 @@ module boundaries, safety rules, and rollout criteria.
   `nelos/experimentation-contract` and
   `nelos/experimentation-contract/index.mjs`, with golden fixtures and exact
   structured-error coverage.
+- Add a bounded, read-only `nelos_web_inspect` MCP composition that pages
+  persisted work-unit and checkpoint state together with native task status,
+  topology, and bridge health; keep configuration tool-driven instead of
+  expanding the orchestration skill.
 - Define a public, versioned protocol-contract package with closed action,
   effect, receipt, continuation, attention, error, and semantic-input schemas;
   add a centralized recovery registry, replay-safe transition reducer, producer

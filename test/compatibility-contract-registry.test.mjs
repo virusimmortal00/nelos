@@ -122,9 +122,10 @@ test("changed paths select direct contracts and transitive dependents", () => {
   ]);
 });
 
-test("installed configuration surfaces belong to lifecycle invariants", () => {
+test("installed lifecycle surfaces belong to lifecycle invariants", () => {
   const paths = [
     ".codex-plugin/plugin.json",
+    "docs/backlog.md",
     "docs/configuration.md",
     "docs/observation-join.md",
     "docs/slice-planning.md",
@@ -133,12 +134,14 @@ test("installed configuration surfaces belong to lifecycle invariants", () => {
     "src/planning-lifecycle.mjs",
     "src/vendor/smol-toml-1.6.0.LICENSE",
     "src/vendor/smol-toml-1.6.0.cjs",
+    "src/web-inspection.mjs",
     "test/durable-spinoff-composition.test.mjs",
     "test/manage-nelos-tasks-skill.test.mjs",
     "test/mcp-config.test.mjs",
     "test/mcp-server.test.mjs",
     "test/nelos-configuration.test.mjs",
     "test/plugin-marketplace.test.mjs",
+    "test/web-inspection.test.mjs",
   ];
   const selection = selectImpactedCompatibilityContractsV1(
     COMPATIBILITY_CONTRACT_REGISTRY_V1,

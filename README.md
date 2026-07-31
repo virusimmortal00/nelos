@@ -111,6 +111,12 @@ subagents, or hand-run parallel chats:
   universe. The MCP server lazily starts one official
   `codex app-server --stdio` child, uses a narrow version-checked control
   surface, and exposes no prompts or transcripts.
+- **Visible Execution Map:** MCP Apps-compatible hosts render an inline receipt
+  after planning, dispatch, and spin-off cleanup, showing every task's
+  lifecycle, exact model, reasoning level, authorization, launch, and archive
+  status as an individual worker card. Aggregate counts remain in the
+  structured receipt for non-UI clients without duplicating the visible
+  roster, and protocol tools publish their exact model-visible result schemas.
 
 ## Nelos in action
 
@@ -228,8 +234,8 @@ Nelos is one Codex plugin with two cooperating parts:
 
 - **An MCP orchestration server** — plans dependency-safe waves, routes and
   verifies every launch, persists replay-safe receipts, advances accepted work,
-  coordinates completion and per-web cleanup, and exposes conversational
-  machine-local configuration.
+  coordinates completion and per-web cleanup, composes bounded web inspection,
+  and exposes conversational machine-local configuration.
 - **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
   the MCP server's machine-generated next actions independently of whichever
   model starts as queen.
