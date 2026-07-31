@@ -3,6 +3,7 @@ import { contractFailure } from "./errors.mjs";
 import { canonicalDigest, sha256Bytes } from "./identity.mjs";
 import { createLifecycle } from "./lifecycle.mjs";
 import { reviseRecord, sealRecord, verifyRevision } from "./revision.mjs";
+import { isSemanticVersion } from "./semantic-version.mjs";
 import {
   assertArray,
   assertClosedObject,
@@ -29,12 +30,14 @@ const TASK_FIELDS = [
 const REQUIRED_TASK_FIELDS = TASK_FIELDS;
 const ID = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
 const TASK_ID = /^task:[0-9a-f]{64}$/u;
-const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u;
+const UTC_SECOND = /^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/u;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/u;
 const MEDIA_TYPE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u;
 const HOST = /^(?:\*\.)?[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u;
 const SECRET_NAME = /(?:SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_KEY|API_KEY|ACCESS_KEY|CREDENTIAL|AUTH)/u;
-const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|github_pat|xox[baprs])[_-][-A-Za-z0-9_]{12,}\b|\b[A-Za-z0-9+/]{40,}={0,2}\b)/u;
+const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|github_pat|xox[baprs])[_-][-A-Za-z0-9_]{12,}\b)/u;
+const OPAQUE_SECRET_VALUE = /^(?:[A-Za-z0-9+/]{40,}={0,2}|[A-Za-z0-9_-]{40,})$/u;
+const IMMUTABLE_REFERENCE_VALUE = /^(?:[0-9a-f]{40,128}|(?:artifact|build|commit|digest|revision|sha256)[._:-][A-Za-z0-9._:-]{1,255})$/u;
 
 function options(path) {
   return { path, contractKind: "Task", schemaVersion: 1 };
@@ -53,6 +56,24 @@ function nullableDigest(value, path) {
   if (value !== null) assertDigest(value, options(path));
 }
 
+function semanticVersion(value, path) {
+  string(value, path, { maxLength: 64 });
+  if (!isSemanticVersion(value)) {
+    contractFailure("INVALID_FORMAT", "value must be a semantic version", options(path));
+  }
+}
+
+function utcSecond(value, path) {
+  string(value, path, { maxLength: 20, pattern: UTC_SECOND });
+  const milliseconds = Date.parse(value);
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== `${value.slice(0, -1)}.000Z`
+  ) {
+    contractFailure("INVALID_FORMAT", "value must be a real UTC instant", options(path));
+  }
+}
+
 function validatePrompt(value) {
   closed(value, ["kind", "encoding", "text", "digest"], ["kind", "encoding", "text", "digest"], "/prompt");
   assertEnum(value.kind, ["prompt", "objective"], options("/prompt/kind"));
@@ -68,7 +89,7 @@ function validateFixture(value, path, baseline = false) {
   const fields = baseline ? ["format", "digest"] : ["format", "version", "digest"];
   closed(value, fields, fields, path);
   assertEnum(value.format, ["directory-tar", "json", "jsonl", "text", "binary"], options(`${path}/format`));
-  if (!baseline) string(value.version, `${path}/version`, { maxLength: 64, pattern: VERSION });
+  if (!baseline) semanticVersion(value.version, `${path}/version`);
   assertDigest(value.digest, options(`${path}/digest`));
 }
 
@@ -90,7 +111,7 @@ function validateDeterminism(value) {
   const fields = ["seed", "clock", "timezone", "locale"];
   closed(value, fields, fields, "/determinism");
   assertInteger(value.seed, { minimum: 0, maximum: 0xffffffff, ...options("/determinism/seed") });
-  string(value.clock, "/determinism/clock", { maxLength: 32, pattern: /^20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$/u });
+  utcSecond(value.clock, "/determinism/clock");
   assertEnum(value.timezone, ["UTC"], options("/determinism/timezone"));
   string(value.locale, "/determinism/locale", { maxLength: 32, pattern: /^[a-z]{2,3}(?:-[A-Z]{2})?$/u });
 }
@@ -111,7 +132,7 @@ function validateTools(values) {
     const path = `/tools/${index}`;
     closed(value, ["id", "version", "digest"], ["id", "version", "digest"], path);
     string(value.id, `${path}/id`, { maxLength: 64, pattern: ID });
-    string(value.version, `${path}/version`, { maxLength: 64, pattern: VERSION });
+    semanticVersion(value.version, `${path}/version`);
     assertDigest(value.digest, options(`${path}/digest`));
   });
 }
@@ -133,7 +154,15 @@ function validateEnvironment(values) {
     string(value.name, `${path}/name`, { maxLength: 64, pattern: ENV_NAME });
     assertString(value.value, { minLength: 0, maxLength: 4096, ...options(`${path}/value`) });
     if (SECRET_NAME.test(value.name)) contractFailure("INVALID_FORMAT", "environment variable name is secret-bearing", options(`${path}/name`));
-    if (SECRET_VALUE.test(value.value)) contractFailure("INVALID_FORMAT", "environment variable value appears secret-bearing", options(`${path}/value`));
+    if (
+      SECRET_VALUE.test(value.value) ||
+      (
+        OPAQUE_SECRET_VALUE.test(value.value) &&
+        !IMMUTABLE_REFERENCE_VALUE.test(value.value)
+      )
+    ) {
+      contractFailure("INVALID_FORMAT", "environment variable value appears secret-bearing", options(`${path}/value`));
+    }
   });
 }
 
@@ -180,13 +209,13 @@ function validateArtifacts(values) {
 function validateGrader(value) {
   closed(value, ["id", "version", "digest", "rubricDigest", "inputVisibility", "oracle"], ["id", "version", "digest", "rubricDigest", "inputVisibility", "oracle"], "/grader");
   string(value.id, "/grader/id", { maxLength: 64, pattern: ID });
-  string(value.version, "/grader/version", { maxLength: 64, pattern: VERSION });
+  semanticVersion(value.version, "/grader/version");
   assertDigest(value.digest, options("/grader/digest"));
   assertDigest(value.rubricDigest, options("/grader/rubricDigest"));
   assertEnum(value.inputVisibility, ["hidden", "public"], options("/grader/inputVisibility"));
   closed(value.oracle, ["kind", "version", "digest"], ["kind", "version", "digest"], "/grader/oracle");
   assertEnum(value.oracle.kind, ["exact", "program", "human"], options("/grader/oracle/kind"));
-  string(value.oracle.version, "/grader/oracle/version", { maxLength: 64, pattern: VERSION });
+  semanticVersion(value.oracle.version, "/grader/oracle/version");
   assertDigest(value.oracle.digest, options("/grader/oracle/digest"));
 }
 

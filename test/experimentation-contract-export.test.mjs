@@ -5,7 +5,13 @@ import * as contract from "nelos/experimentation-contract";
 import * as indexContract from "nelos/experimentation-contract/index.mjs";
 
 test("package self-reference exposes the assembled experimentation contract index", () => {
-  assert.deepEqual(Object.keys(contract).sort(), Object.keys(indexContract).sort());
+  const contractKeys = Object.keys(contract).sort();
+  const indexKeys = Object.keys(indexContract).sort();
+  assert.equal(contractKeys.length, 94);
+  assert.deepEqual(contractKeys, indexKeys);
+  for (const api of contractKeys) {
+    assert.strictEqual(contract[api], indexContract[api], `${api} has one identity`);
+  }
 
   for (const api of [
     "ContractError",
@@ -25,6 +31,5 @@ test("package self-reference exposes the assembled experimentation contract inde
     "validateRuntimeLock",
   ]) {
     assert.equal(typeof contract[api], "function", `${api} is exported`);
-    assert.strictEqual(contract[api], indexContract[api]);
   }
 });

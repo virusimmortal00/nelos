@@ -1,4 +1,5 @@
 import {
+  MAX_CANONICAL_JSON_BYTES,
   appendJsonPointer,
   canonicalBytes,
   parseCanonicalJsonV1,
@@ -42,6 +43,7 @@ export const CORPUS_RELEASE_STATES = Object.freeze([
 
 const CONTRACT_KIND = "CorpusRelease";
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/u;
+const TASK_ID_PATTERN = /^task:[0-9a-f]{64}$/u;
 const MEDIA_TYPE_PATTERN = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u;
 const SPDX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/u;
 const UTC_PATTERN = /^(?:19|20|21)[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/u;
@@ -66,7 +68,12 @@ const EXCLUSION_REASONS = Object.freeze([
 ]);
 
 function options(path = "") {
-  return { path, contractKind: CONTRACT_KIND, schemaVersion: 1 };
+  return {
+    path,
+    contractKind: CONTRACT_KIND,
+    schemaVersion: 1,
+    maxBytes: MAX_CANONICAL_JSON_BYTES,
+  };
 }
 
 function fail(code, message, path) {
@@ -90,6 +97,14 @@ function id(value, path) {
   return string(value, path, { maxLength: 128, pattern: ID_PATTERN });
 }
 
+function taskId(value, path) {
+  return string(value, path, {
+    minLength: 69,
+    maxLength: 69,
+    pattern: TASK_ID_PATTERN,
+  });
+}
+
 function semanticVersion(value, path) {
   string(value, path, { maxLength: 128 });
   if (!isSemanticVersion(value)) {
@@ -99,7 +114,11 @@ function semanticVersion(value, path) {
 
 function timestamp(value, path) {
   string(value, path, { minLength: 20, maxLength: 20, pattern: UTC_PATTERN });
-  if (Number.isNaN(Date.parse(value))) fail("invalid_format", "timestamp must be a real UTC instant", path);
+  const instant = new Date(value);
+  const canonicalInstant = `${value.slice(0, -1)}.000Z`;
+  if (Number.isNaN(instant.valueOf()) || instant.toISOString() !== canonicalInstant) {
+    fail("invalid_format", "timestamp must be a real UTC instant", path);
+  }
 }
 
 function validateSortedUnique(values, identity, path) {
@@ -114,6 +133,12 @@ function validateSortedUnique(values, identity, path) {
 function validateStringSet(values, path, { minItems = 0, maxItems = 128 } = {}) {
   assertArray(values, { minItems, maxItems, ...options(path) });
   values.forEach((value, index) => id(value, fieldPath(path, index)));
+  validateSortedUnique(values, (value) => value, path);
+}
+
+function validateTaskIdSet(values, path, { minItems = 0, maxItems = 128 } = {}) {
+  assertArray(values, { minItems, maxItems, ...options(path) });
+  values.forEach((value, index) => taskId(value, fieldPath(path, index)));
   validateSortedUnique(values, (value) => value, path);
 }
 
@@ -137,7 +162,7 @@ function validateChangelog(entries, path) {
     id(entry.changeId, fieldPath(itemPath, "changeId"));
     assertEnum(entry.kind, CHANGE_KINDS, options(fieldPath(itemPath, "kind")));
     string(entry.summary, fieldPath(itemPath, "summary"), { maxLength: 1024 });
-    validateStringSet(entry.taskIds, fieldPath(itemPath, "taskIds"), { maxItems: 1024 });
+    validateTaskIdSet(entry.taskIds, fieldPath(itemPath, "taskIds"), { maxItems: 1024 });
   });
   validateSortedUnique(entries, (entry) => entry.changeId, path);
 }
@@ -181,7 +206,7 @@ function validateTasks(tasks, path, catalogs) {
   tasks.forEach((task, index) => {
     const itemPath = fieldPath(path, index);
     closed(task, ["taskId", "revision", "digest", "assetDigests", "strata"], itemPath);
-    id(task.taskId, fieldPath(itemPath, "taskId"));
+    taskId(task.taskId, fieldPath(itemPath, "taskId"));
     assertInteger(task.revision, { minimum: 1, maximum: 1000000, ...options(fieldPath(itemPath, "revision")) });
     assertDigest(task.digest, options(fieldPath(itemPath, "digest")));
     assertArray(task.assetDigests, { maxItems: 256, ...options(fieldPath(itemPath, "assetDigests")) });
@@ -237,7 +262,7 @@ function validateDuplicateGroups(groups, path, near) {
     const fields = near ? ["groupId", "taskIds", "maximumSimilarity"] : ["groupId", "taskIds"];
     closed(group, fields, itemPath);
     id(group.groupId, fieldPath(itemPath, "groupId"));
-    validateStringSet(group.taskIds, fieldPath(itemPath, "taskIds"), { minItems: 2, maxItems: 1000 });
+    validateTaskIdSet(group.taskIds, fieldPath(itemPath, "taskIds"), { minItems: 2, maxItems: 1000 });
     if (near) assertNumber(group.maximumSimilarity, { minimum: 0, maximum: 1, ...options(fieldPath(itemPath, "maximumSimilarity")) });
   });
   validateSortedUnique(groups, (group) => group.groupId, path);
@@ -274,7 +299,7 @@ function validateExclusions(exclusions, path) {
   exclusions.forEach((exclusion, index) => {
     const itemPath = fieldPath(path, index);
     closed(exclusion, ["taskId", "reasonCode", "reason"], itemPath);
-    id(exclusion.taskId, fieldPath(itemPath, "taskId"));
+    taskId(exclusion.taskId, fieldPath(itemPath, "taskId"));
     assertEnum(exclusion.reasonCode, EXCLUSION_REASONS, options(fieldPath(itemPath, "reasonCode")));
     string(exclusion.reason, fieldPath(itemPath, "reason"), { maxLength: 1024 });
   });
@@ -298,6 +323,60 @@ function validateReferences(release) {
     groups.forEach((group, groupIndex) => group.taskIds.forEach((taskId, taskIndex) => {
       if (!taskIds.has(taskId) && !excluded.has(taskId)) fail("invalid_lineage", "duplicate analysis must reference a retained task identity", `/duplicateAnalysis/${groupField}/${groupIndex}/taskIds/${taskIndex}`);
     }));
+  }
+}
+
+function validateSuccessorTaskAudit(previous, next) {
+  const previousTaskIds = new Set(previous.tasks.map((task) => task.taskId));
+  const nextTaskIds = new Set(next.tasks.map((task) => task.taskId));
+  const nextExclusionIds = new Set(
+    next.retainedExclusions.map((exclusion) => exclusion.taskId),
+  );
+  const removedTaskIds = new Set(
+    [...previousTaskIds].filter((taskIdentity) => !nextTaskIds.has(taskIdentity)),
+  );
+
+  for (const exclusion of previous.retainedExclusions) {
+    if (!nextExclusionIds.has(exclusion.taskId)) {
+      fail(
+        "invalid_lineage",
+        "successor must retain prior task exclusion evidence",
+        "/retainedExclusions",
+      );
+    }
+  }
+  for (const removedTaskId of removedTaskIds) {
+    if (!nextExclusionIds.has(removedTaskId)) {
+      fail(
+        "invalid_lineage",
+        "removed task must remain listed as a retained exclusion",
+        "/retainedExclusions",
+      );
+    }
+  }
+
+  const auditedTaskIds = new Set();
+  next.changelog.forEach((entry, entryIndex) => {
+    if (entry.kind !== "task-excluded") return;
+    entry.taskIds.forEach((taskIdentity, taskIndex) => {
+      if (!removedTaskIds.has(taskIdentity)) {
+        fail(
+          "invalid_lineage",
+          "task-excluded changelog entries must identify tasks removed from the predecessor",
+          `/changelog/${entryIndex}/taskIds/${taskIndex}`,
+        );
+      }
+      auditedTaskIds.add(taskIdentity);
+    });
+  });
+  for (const removedTaskId of removedTaskIds) {
+    if (!auditedTaskIds.has(removedTaskId)) {
+      fail(
+        "invalid_lineage",
+        "removed task requires a task-excluded changelog entry",
+        "/changelog",
+      );
+    }
   }
 }
 
@@ -417,7 +496,9 @@ export function reviseCorpusRelease(previous, changes) {
     contractKind: CONTRACT_KIND,
     schemaVersion: 1,
   });
-  return sealCorpusRelease(revised);
+  const sealed = sealCorpusRelease(revised);
+  validateSuccessorTaskAudit(previous, sealed);
+  return sealed;
 }
 
 export function verifyCorpusReleaseLineage(previous, next) {
@@ -432,6 +513,7 @@ export function verifyCorpusReleaseLineage(previous, next) {
   if (next.parent.version !== previous.version) fail("invalid_lineage", "parent version does not match predecessor", "/parent/version");
   if (next.parent.digest !== previous.digest) fail("invalid_lineage", "parent digest does not match predecessor", "/parent/digest");
   if (compareSemanticVersions(next.version, previous.version) <= 0) fail("invalid_revision", "successor semantic version must increase", "/version");
+  validateSuccessorTaskAudit(previous, next);
   return next;
 }
 

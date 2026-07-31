@@ -50,11 +50,14 @@ export const CONTRACT_ERROR_CODES_V1 = Object.freeze({
 });
 
 export const LEGACY_CONTRACT_ERROR_CODE_MAP = Object.freeze(
-  Object.fromEntries(
-    Object.values(CONTRACT_ERROR_CODES_V1).map((code) => [
-      code.toLowerCase(),
-      code,
-    ]),
+  Object.assign(
+    Object.create(null),
+    Object.fromEntries(
+      Object.values(CONTRACT_ERROR_CODES_V1).map((code) => [
+        code.toLowerCase(),
+        code,
+      ]),
+    ),
   ),
 );
 
@@ -153,7 +156,9 @@ export function contractFailure(
     details,
   } = {},
 ) {
-  const normalizedCode = LEGACY_CONTRACT_ERROR_CODE_MAP[code] ?? code;
+  const normalizedCode = Object.hasOwn(LEGACY_CONTRACT_ERROR_CODE_MAP, code)
+    ? LEGACY_CONTRACT_ERROR_CODE_MAP[code]
+    : code;
   throw new ContractError({
     code: normalizedCode,
     path,

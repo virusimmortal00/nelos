@@ -107,10 +107,11 @@ test("documented Experiment lifecycle accepts all edges and rejects skips and te
 });
 
 test("semantic revisions enforce identity, digest, revision, and lineage", () => {
-  const previous = sealExperiment(validExperimentV1);
+  const previous = sealExperiment(buildExperimentV1({ state: "sealed" }));
   const next = reviseExperiment(previous, { metrics: { ...structuredClone(previous.metrics), minimumDetectableEffect: { ...previous.metrics.minimumDetectableEffect, absolute: 0.08 } } });
   assert.equal(next.specRevision, 2);
   assert.equal(next.previousDigest, previous.digest);
+  assert.equal(next.state, "draft");
   assert.notEqual(next.experimentId, previous.experimentId);
   assert.notEqual(next.digest, previous.digest);
   assert.equal(verifyExperimentRevision(previous, next), next);
@@ -122,6 +123,10 @@ test("semantic revisions enforce identity, digest, revision, and lineage", () =>
   skipped.specRevision = 3;
   skipped.digest = deriveExperimentDigest(skipped);
   expectError(() => verifyExperimentRevision(previous, sealExperiment(skipped)), "INVALID_REVISION", "/specRevision");
+  const alreadySealed = structuredClone(next);
+  alreadySealed.state = "sealed";
+  alreadySealed.digest = deriveExperimentDigest(alreadySealed);
+  expectError(() => verifyExperimentRevision(previous, sealExperiment(alreadySealed)), "INVALID_REVISION", "/state");
 });
 
 test("identity and record digest mismatches fail at their exact fields", () => {

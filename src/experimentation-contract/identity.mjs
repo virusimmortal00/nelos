@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { appendJsonPointer, canonicalBytes } from "./canonical-json.mjs";
-import { contractFailure, errorContext } from "./errors.mjs";
+import { ContractError, contractFailure, errorContext } from "./errors.mjs";
 
 export const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
@@ -71,7 +71,8 @@ export function deriveIdentity(value, projection, options = {}) {
   if (typeof projection === "function") {
     try {
       material = projection(value);
-    } catch {
+    } catch (error) {
+      if (error instanceof ContractError) throw error;
       contractFailure(
         "identity_projection_failed",
         "identity projection could not be evaluated",

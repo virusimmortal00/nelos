@@ -3,7 +3,18 @@ import { sealRecord } from "./revision.mjs";
 import { appendJsonPointer } from "./canonical-json.mjs";
 
 function normalizedTransitions(transitions) {
-  if (transitions instanceof Map) return transitions;
+  if (transitions instanceof Map) {
+    return new Map(
+      [...transitions].map(([state, targets]) => [
+        state,
+        Array.isArray(targets)
+          ? [...targets]
+          : targets instanceof Set
+            ? new Set(targets)
+            : targets,
+      ]),
+    );
+  }
   if (
     transitions === null ||
     typeof transitions !== "object" ||
@@ -42,7 +53,7 @@ export function createLifecycle({
     ) {
       throw new TypeError("lifecycle transition entries are invalid");
     }
-    const normalized = targets instanceof Set ? targets : new Set(targets);
+    const normalized = new Set(targets);
     if (
       [...normalized].some(
         (target) => typeof target !== "string" || target.length === 0,

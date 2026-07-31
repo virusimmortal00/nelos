@@ -112,7 +112,7 @@ manifests.
 - Offline contract lane.
 - Pull-request smoke matrix.
 - Nightly targeted regression matrix.
-- Weekly/manual powered studies.
+- Weekly/manual-powered studies.
 - Release headless and dedicated Desktop canaries.
 
 Exit: all lanes use the same contracts and runner, and infrastructure failure is

@@ -44,8 +44,8 @@ permitted only as a separately versioned, measured policy with its own seed.
 ```text
 draft -> validating -> expanded -> queued -> running -> finalizing
 running -> cancelling -> cancelled
-finalizing -> succeeded | failed | invalid
-failed | cancelled | invalid -> resuming -> queued
+finalizing -> succeeded | failed | invalid | inconclusive
+failed | cancelled | invalid | inconclusive -> resuming -> queued
 ```
 
 Terminal records are immutable. Resume creates a new run generation linked to

@@ -244,10 +244,16 @@ experimentId = digest(sealed experiment identity)
 releaseId    = digest(corpus release semantic identity)
 taskId       = digest(task semantic identity)
 runtimeId    = digest(runtime admission and provenance identity)
-trialKey     = digest(experimentId, candidate, task, replicate, environment)
+trialKey     = digest(experimentId, candidate, taskId, taskRevision, replicate, seed, environment)
 trialId      = experimentId + truncated trialKey
 artifactId   = digest(artifact bytes)
 ```
+
+Canonical JSON v1 rejects structures deeper than 64 container levels. The
+shared readers and serializers default to 64 MiB and enforce a 256 MiB hard
+ceiling before recursive work; `CorpusRelease` uses that ceiling for its
+bounded task, asset, exclusion, changelog, and duplicate-analysis catalogs.
+Limit violations are structured `OUT_OF_BOUNDS` contract errors.
 
 The implemented projections are contract-specific: `Experiment` binds the
 sealed design but not display name or description; `CorpusRelease` excludes its

@@ -213,6 +213,93 @@ test("canonical ordering and cross-reference rules fail at the first offending e
   expectContractError(() => validateCorpusRelease(initial), "INVALID_LINEAGE", "/tasks/0/assetDigests/0");
 });
 
+test("Task identities and cutoff timestamps use canonical closed formats", async () => {
+  const initial = await fixture("golden-initial.json");
+
+  const taskIdentity = clone(initial);
+  taskIdentity.tasks[0].taskId = `task:${"G".repeat(64)}`;
+  expectContractError(
+    () => validateCorpusRelease(taskIdentity),
+    "INVALID_FORMAT",
+    "/tasks/0/taskId",
+  );
+
+  const normalizedCutoff = clone(initial);
+  normalizedCutoff.cutoff.sourceCutoffAt = "2026-02-31T00:00:00Z";
+  expectContractError(
+    () => validateCorpusRelease(normalizedCutoff),
+    "INVALID_FORMAT",
+    "/cutoff/sourceCutoffAt",
+  );
+});
+
+test("successor task removals retain exclusion evidence and an exact changelog audit", async () => {
+  const previous = parseCorpusRelease(await canonicalFixture("golden-successor.json"));
+  const removedTask = previous.tasks[0];
+  const retainedTasks = previous.tasks.slice(1);
+  const exclusion = {
+    taskId: removedTask.taskId,
+    reasonCode: "superseded",
+    reason: "Replaced by the retained migration task.",
+  };
+
+  expectContractError(
+    () => reviseCorpusRelease(previous, {
+      version: "1.2.0",
+      tasks: retainedTasks,
+      changelog: [{
+        changeId: "change:remove-repair",
+        kind: "metadata-revised",
+        summary: "Remove a task without retaining exclusion evidence.",
+        taskIds: [],
+      }],
+    }),
+    "INVALID_LINEAGE",
+    "/retainedExclusions",
+  );
+
+  expectContractError(
+    () => reviseCorpusRelease(previous, {
+      version: "1.2.0",
+      tasks: retainedTasks,
+      retainedExclusions: [...previous.retainedExclusions, exclusion]
+        .sort((left, right) => left.taskId.localeCompare(right.taskId)),
+      changelog: [{
+        changeId: "change:remove-repair",
+        kind: "metadata-revised",
+        summary: "Remove the repair task without an audit entry.",
+        taskIds: [],
+      }],
+    }),
+    "INVALID_LINEAGE",
+    "/changelog",
+  );
+
+  const audited = reviseCorpusRelease(previous, {
+    version: "1.2.0",
+    tasks: retainedTasks,
+    retainedExclusions: [...previous.retainedExclusions, exclusion]
+      .sort((left, right) => left.taskId.localeCompare(right.taskId)),
+    changelog: [{
+      changeId: "change:remove-repair",
+      kind: "task-excluded",
+      summary: "Remove the repair task.",
+      taskIds: [removedTask.taskId],
+    }],
+  });
+  assert.equal(verifyCorpusReleaseLineage(previous, audited), audited);
+
+  const wrongAudit = clone(audited);
+  wrongAudit.changelog[0].taskIds = [retainedTasks[0].taskId];
+  wrongAudit.releaseId = deriveCorpusReleaseId(wrongAudit);
+  wrongAudit.digest = deriveCorpusReleaseDigest(wrongAudit);
+  expectContractError(
+    () => verifyCorpusReleaseLineage(previous, sealCorpusRelease(wrongAudit)),
+    "INVALID_LINEAGE",
+    "/changelog/0/taskIds/0",
+  );
+});
+
 test("semantic versions fail at exact nested paths and build metadata cannot advance a release", async () => {
   const initial = await fixture("golden-initial.json");
 

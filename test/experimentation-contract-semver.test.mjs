@@ -7,7 +7,7 @@ import {
   parseSemanticVersion,
 } from "../src/experimentation-contract/semantic-version.mjs";
 
-test("semantic version parsing accepts the complete bounded v1 grammar", () => {
+test("semantic version parsing accepts the complete v1 grammar", () => {
   assert.deepEqual(parseSemanticVersion("0.0.0"), {
     core: ["0", "0", "0"],
     prerelease: [],

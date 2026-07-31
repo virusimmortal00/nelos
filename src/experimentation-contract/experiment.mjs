@@ -30,6 +30,8 @@ export const EXPERIMENT_STATES_V1 = Object.freeze([
 
 const ID = /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._-]{1,128}$/u;
 const EXPERIMENT_ID = /^exp:[0-9a-f]{64}$/u;
+const CORPUS_RELEASE_ID = /^corpus:[0-9a-f]{64}$/u;
+const RUNTIME_LOCK_ID = /^runtime:[0-9a-f]{64}$/u;
 const NAME = /^[a-z][a-z0-9_.-]{0,63}$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
 const ctx = (path) => ({ path, contractKind: "Experiment", schemaVersion: 1 });
@@ -112,7 +114,7 @@ function validateHypothesis(value, path) {
 
 function validateCorpus(value, path) {
   object(value, ["releaseId", "digest"], ["releaseId", "digest"], path);
-  string(value.releaseId, `${path}/releaseId`, 1, 160, ID);
+  string(value.releaseId, `${path}/releaseId`, 71, 71, CORPUS_RELEASE_ID);
   assertDigest(value.digest, ctx(`${path}/digest`));
 }
 
@@ -147,24 +149,31 @@ function validateLimits(value, path) {
 function validateRuntimeMatrix(value, path, candidateIds) {
   array(value, path, 1, 64);
   unique(value, path, (item) => item.runtimeLockId);
+  const eligibleCandidateIds = new Set();
   value.forEach((item, index) => {
     const itemPath = `${path}/${index}`;
     object(item, ["runtimeLockId", "digest", "backend", "platform", "eligibleCandidateIds", "requiredCapabilities"],
       ["runtimeLockId", "digest", "backend", "platform", "eligibleCandidateIds", "requiredCapabilities"], itemPath);
-    string(item.runtimeLockId, `${itemPath}/runtimeLockId`, 1, 160, ID);
+    string(item.runtimeLockId, `${itemPath}/runtimeLockId`, 72, 72, RUNTIME_LOCK_ID);
     assertDigest(item.digest, ctx(`${itemPath}/digest`));
     enumeration(item.backend, ["oci-headless", "dedicated-desktop"], `${itemPath}/backend`);
     enumeration(item.platform, ["linux-amd64", "linux-arm64", "macos-arm64"], `${itemPath}/platform`);
+    const platformIsCompatible = item.backend === "oci-headless"
+      ? item.platform === "linux-amd64" || item.platform === "linux-arm64"
+      : item.platform === "macos-arm64";
+    if (!platformIsCompatible) contractFailure("invalid_format", "runtime platform is incompatible with its backend", ctx(`${itemPath}/platform`));
     array(item.eligibleCandidateIds, `${itemPath}/eligibleCandidateIds`, 1, 64);
     unique(item.eligibleCandidateIds, `${itemPath}/eligibleCandidateIds`, (id) => id);
     item.eligibleCandidateIds.forEach((id, candidateIndex) => {
       string(id, `${itemPath}/eligibleCandidateIds/${candidateIndex}`, 1, 160, ID);
       if (!candidateIds.has(id)) contractFailure("invalid_format", "runtime eligibility must reference a declared candidate", ctx(`${itemPath}/eligibleCandidateIds/${candidateIndex}`));
+      eligibleCandidateIds.add(id);
     });
     array(item.requiredCapabilities, `${itemPath}/requiredCapabilities`, 0, 64);
     unique(item.requiredCapabilities, `${itemPath}/requiredCapabilities`, (capability) => capability);
     item.requiredCapabilities.forEach((capability, capabilityIndex) => string(capability, `${itemPath}/requiredCapabilities/${capabilityIndex}`, 1, 64, NAME));
   });
+  return eligibleCandidateIds;
 }
 
 function validateExclusions(value, path) {
@@ -193,7 +202,13 @@ function validateMetrics(value, path, primaryMetric) {
   if (value.primary.metricId !== primaryMetric) contractFailure("invalid_format", "primary metric must match the hypothesis", ctx(`${path}/primary/metricId`));
   array(value.secondary, `${path}/secondary`, 0, 32);
   unique(value.secondary, `${path}/secondary`, (item) => item.metricId);
-  value.secondary.forEach((item, index) => validateMetric(item, `${path}/secondary/${index}`));
+  value.secondary.forEach((item, index) => {
+    const metricPath = `${path}/secondary/${index}`;
+    validateMetric(item, metricPath);
+    if (item.metricId === value.primary.metricId) {
+      contractFailure("duplicate_identity", "secondary metric must not duplicate the primary metric", ctx(`${metricPath}/metricId`));
+    }
+  });
   const mde = value.minimumDetectableEffect;
   object(mde, ["metricId", "absolute", "power", "alpha"], ["metricId", "absolute", "power", "alpha"], `${path}/minimumDetectableEffect`);
   string(mde.metricId, `${path}/minimumDetectableEffect/metricId`, 1, 64, NAME);
@@ -203,19 +218,20 @@ function validateMetrics(value, path, primaryMetric) {
   assertNumber(mde.alpha, { minimum: 0.000001, maximum: 0.5, ...ctx(`${path}/minimumDetectableEffect/alpha`) });
 }
 
-function validateRule(value, path, kinds) {
+function validateRule(value, path, kinds, metricIds) {
   object(value, ["kind", "metricId", "threshold", "minimumSamples"], ["kind", "metricId", "threshold", "minimumSamples"], path);
   enumeration(value.kind, kinds, `${path}/kind`);
   string(value.metricId, `${path}/metricId`, 1, 64, NAME);
+  if (!metricIds.has(value.metricId)) contractFailure("invalid_format", "decision rule must reference a declared metric", ctx(`${path}/metricId`));
   assertNumber(value.threshold, { minimum: 0, maximum: 1000000000, ...ctx(`${path}/threshold`) });
   assertInteger(value.minimumSamples, { minimum: 1, maximum: 1000000, ...ctx(`${path}/minimumSamples`) });
 }
 
-function validateDecisionRules(value, path) {
+function validateDecisionRules(value, path, metricIds) {
   object(value, ["promotion", "regression", "stop", "invalidation"], ["promotion", "regression", "stop", "invalidation"], path);
-  validateRule(value.promotion, `${path}/promotion`, ["superiority", "noninferiority"]);
-  validateRule(value.regression, `${path}/regression`, ["absolute", "relative"]);
-  validateRule(value.stop, `${path}/stop`, ["fixed-sample", "futility", "safety"]);
+  validateRule(value.promotion, `${path}/promotion`, ["superiority", "noninferiority"], metricIds);
+  validateRule(value.regression, `${path}/regression`, ["absolute", "relative"], metricIds);
+  validateRule(value.stop, `${path}/stop`, ["fixed-sample", "futility", "safety"], metricIds);
   const invalidation = value.invalidation;
   object(invalidation, ["maxInvalidFraction", "asymmetricInvalidity", "reasonCodes"], ["maxInvalidFraction", "asymmetricInvalidity", "reasonCodes"], `${path}/invalidation`);
   assertNumber(invalidation.maxInvalidFraction, { minimum: 0, maximum: 1, ...ctx(`${path}/invalidation/maxInvalidFraction`) });
@@ -244,13 +260,18 @@ function validateV1(value) {
   validateDesign(value.design, "/design");
   if (value.design.seedSchedule.length !== value.design.repetitions) contractFailure("out_of_bounds", "seed schedule length must equal repetitions", ctx("/design/seedSchedule"));
   validateLimits(value.limits, "/limits");
-  validateRuntimeMatrix(value.runtimeMatrix, "/runtimeMatrix", new Set(value.candidates.map((candidate) => candidate.candidateId)));
+  const candidateIds = new Set(value.candidates.map((candidate) => candidate.candidateId));
+  const eligibleCandidateIds = validateRuntimeMatrix(value.runtimeMatrix, "/runtimeMatrix", candidateIds);
+  value.candidates.forEach((candidate, index) => {
+    if (!eligibleCandidateIds.has(candidate.candidateId)) contractFailure("invalid_format", "candidate must be eligible for at least one runtime", ctx(`/candidates/${index}/candidateId`));
+  });
   object(value.graderBundle, ["id", "digest"], ["id", "digest"], "/graderBundle");
   string(value.graderBundle.id, "/graderBundle/id", 1, 160, ID);
   assertDigest(value.graderBundle.digest, ctx("/graderBundle/digest"));
   validateExclusions(value.exclusions, "/exclusions");
   validateMetrics(value.metrics, "/metrics", value.hypothesis.primaryMetric);
-  validateDecisionRules(value.decisionRules, "/decisionRules");
+  const metricIds = new Set([value.metrics.primary.metricId, ...value.metrics.secondary.map((metric) => metric.metricId)]);
+  validateDecisionRules(value.decisionRules, "/decisionRules", metricIds);
   if (value.specRevision === 1 && value.previousDigest !== null) contractFailure("invalid_lineage", "initial revision cannot have a previous digest", ctx("/previousDigest"));
   if (value.specRevision > 1 && value.previousDigest === null) contractFailure("invalid_lineage", "successor revision requires a previous digest", ctx("/previousDigest"));
   return value;
@@ -325,8 +346,9 @@ export function reviseExperiment(previous, changes) {
     if (Object.hasOwn(changes, field)) contractFailure("unknown_field", "revision field is managed by the Experiment contract", ctx(`/${field}`));
   }
   const semanticCandidate = { ...structuredClone(previous), ...structuredClone(changes) };
+  semanticCandidate.state = "draft";
   semanticCandidate.experimentId = deriveExperimentIdentity(semanticCandidate);
-  const next = reviseRecord(previous, { ...changes, experimentId: semanticCandidate.experimentId }, {
+  const next = reviseRecord(previous, { ...changes, state: "draft", experimentId: semanticCandidate.experimentId }, {
     revisionField: "specRevision", digestField: "digest", previousDigestField: "previousDigest",
     identityProjection: experimentIdentityProjection, contractKind: "Experiment", schemaVersion: 1,
   });
@@ -338,6 +360,7 @@ export function reviseExperiment(previous, changes) {
 export function verifyExperimentRevision(previous, next) {
   sealExperiment(previous);
   sealExperiment(next);
+  if (next.state !== "draft") contractFailure("invalid_revision", "successor experiment revision must return to draft", ctx("/state"));
   verifyRevision(previous, next, {
     revisionField: "specRevision", digestField: "digest", previousDigestField: "previousDigest",
     identityProjection: experimentIdentityProjection, contractKind: "Experiment", schemaVersion: 1,

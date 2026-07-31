@@ -81,6 +81,12 @@ function mutable(value) {
   return structuredClone(value);
 }
 
+function rebindTask(value) {
+  value.taskId = deriveTaskIdentity(value);
+  value.digest = deriveTaskDigest(value);
+  return value;
+}
+
 function expectError(action, code, path, schemaVersion = 1) {
   assert.throws(action, (error) => {
     assert.ok(error instanceof ContractError);
@@ -159,6 +165,51 @@ test("unsupported versions and non-canonical input fail before admission", () =>
   const canonical = canonicalizeTask(sealTask(taskDraft()));
   const nonCanonical = canonical.replace('{"artifacts"', '{ "artifacts"');
   expectError(() => parseCanonicalTask(Buffer.from(nonCanonical)), "NON_CANONICAL_JSON", "");
+});
+
+test("Task rejects impossible clocks and malformed component versions", () => {
+  const impossibleClock = mutable(sealTask(taskDraft()));
+  impossibleClock.determinism.clock = "2026-02-31T00:00:00Z";
+  expectError(
+    () => validateTask(impossibleClock),
+    "INVALID_FORMAT",
+    "/determinism/clock",
+  );
+
+  for (const [mutate, path] of [
+    [(task) => { task.fixture.version = "01.0.0"; }, "/fixture/version"],
+    [(task) => { task.tools[0].version = "1.0.0-01"; }, "/tools/0/version"],
+    [(task) => { task.grader.version = "1.0.0-alpha..1"; }, "/grader/version"],
+    [(task) => { task.grader.oracle.version = "1.0.0+build..1"; }, "/grader/oracle/version"],
+  ]) {
+    const candidate = mutable(sealTask(taskDraft()));
+    mutate(candidate);
+    expectError(() => validateTask(candidate), "INVALID_FORMAT", path);
+  }
+});
+
+test("Task accepts bounded SemVer pins and non-secret immutable identifiers", () => {
+  const task = taskDraft();
+  task.fixture.version = "1.0.0-fixture.1+build.001";
+  task.tools[0].version = "22.0.0+sha.abc123";
+  task.grader.version = "1.2.0-rc.1";
+  task.grader.oracle.version = "1.0.0+oracle.1";
+  task.environment[0].value = "0123456789abcdef".repeat(4);
+  assert.doesNotThrow(() => sealTask(rebindTask(task)));
+
+  const buildReference = taskDraft();
+  buildReference.environment[0].value = `build-${"A1".repeat(32)}`;
+  assert.doesNotThrow(() => sealTask(rebindTask(buildReference)));
+
+  const encodedSecret = taskDraft();
+  encodedSecret.environment[0].value = Buffer.from(
+    "this is a real secret value that must not enter a durable task contract",
+  ).toString("base64").replaceAll("=", "");
+  expectError(
+    () => sealTask(rebindTask(encodedSecret)),
+    "INVALID_FORMAT",
+    "/environment/0/value",
+  );
 });
 
 test("revisions reject unchanged semantics, invalid lineage, and record digest mismatch", () => {

@@ -13,6 +13,7 @@ import {
   canonicalBytes,
   canonicalDigest,
   canonicalize,
+  contractFailure,
   createLifecycle,
   createVersionDispatcher,
   deriveIdentity,
@@ -21,6 +22,12 @@ import {
   sealRecord,
   verifyRevision,
 } from "../src/experimentation-contract/index.mjs";
+import {
+  DEFAULT_MAX_CANONICAL_JSON_BYTES,
+  DEFAULT_MAX_CANONICAL_JSON_DEPTH,
+  MAX_CANONICAL_JSON_BYTES,
+  MAX_CANONICAL_JSON_DEPTH,
+} from "../src/experimentation-contract/canonical-json.mjs";
 
 function expectContractError(action, code, path) {
   assert.throws(action, (error) => {
@@ -152,6 +159,91 @@ test("parseCanonicalJsonV1 accepts only exact canonical UTF-8 bytes", () => {
   }
 });
 
+test("canonical JSON enforces byte and container-depth bounds", () => {
+  const testMaxBytes = 128;
+  const boundaryValue = "x".repeat(testMaxBytes - 2);
+  const boundaryBytes = canonicalBytes(boundaryValue, {
+    maxBytes: testMaxBytes,
+  });
+  assert.equal(boundaryBytes.length, testMaxBytes);
+  assert.equal(
+    parseCanonicalJsonV1(boundaryBytes, { maxBytes: testMaxBytes }),
+    boundaryValue,
+  );
+
+  expectContractError(
+    () => canonicalize(`${boundaryValue}x`, { maxBytes: testMaxBytes }),
+    "OUT_OF_BOUNDS",
+    "",
+  );
+  expectContractError(
+    () => parseCanonicalJsonV1(Buffer.alloc(testMaxBytes + 1), {
+      maxBytes: testMaxBytes,
+    }),
+    "OUT_OF_BOUNDS",
+    "",
+  );
+
+  const testMaxDepth = 4;
+  let boundaryDepth = 0;
+  for (let depth = 0; depth < testMaxDepth; depth += 1) {
+    boundaryDepth = [boundaryDepth];
+  }
+  const boundaryDepthBytes = canonicalBytes(boundaryDepth, {
+    maxDepth: testMaxDepth,
+  });
+  assert.deepEqual(
+    parseCanonicalJsonV1(boundaryDepthBytes, { maxDepth: testMaxDepth }),
+    boundaryDepth,
+  );
+
+  const excessiveDepth = [boundaryDepth];
+  const excessivePath = "/0".repeat(testMaxDepth);
+  expectContractError(
+    () => canonicalize(excessiveDepth, { maxDepth: testMaxDepth }),
+    "OUT_OF_BOUNDS",
+    excessivePath,
+  );
+  expectContractError(
+    () =>
+      parseCanonicalJsonV1(
+        Buffer.from(canonicalize(boundaryDepth).replace("0", "[0]")),
+        { maxDepth: testMaxDepth },
+      ),
+    "OUT_OF_BOUNDS",
+    excessivePath,
+  );
+});
+
+test("canonical JSON accepts only validated caller-specific limits", () => {
+  assert.equal(DEFAULT_MAX_CANONICAL_JSON_BYTES, 64 * 1024 * 1024);
+  assert.equal(MAX_CANONICAL_JSON_BYTES, 256 * 1024 * 1024);
+  assert.equal(DEFAULT_MAX_CANONICAL_JSON_DEPTH, 64);
+  assert.equal(MAX_CANONICAL_JSON_DEPTH, 64);
+
+  expectContractError(
+    () => canonicalize([[0]], { maxDepth: 1 }),
+    "OUT_OF_BOUNDS",
+    "/0",
+  );
+  assert.throws(
+    () => canonicalize(null, { maxBytes: MAX_CANONICAL_JSON_BYTES + 1 }),
+    TypeError,
+  );
+  assert.throws(
+    () => parseCanonicalJsonV1(Buffer.from("null"), { maxDepth: 0 }),
+    TypeError,
+  );
+  assert.throws(
+    () => canonicalize(null, { maxBytes: 1.5 }),
+    TypeError,
+  );
+  assert.throws(
+    () => canonicalize(null, { maxDepth: MAX_CANONICAL_JSON_DEPTH + 1 }),
+    TypeError,
+  );
+});
+
 test("identity helpers require explicit projections and exclude other fields", () => {
   const first = {
     task: "task:a",
@@ -174,6 +266,26 @@ test("identity helpers require explicit projections and exclude other fields", (
   expectContractError(
     () => deriveIdentity(first),
     "IDENTITY_PROJECTION_REQUIRED",
+    "",
+  );
+  expectContractError(
+    () =>
+      deriveIdentity(first, () => {
+        contractFailure("unknown_field", "projected field is unknown", {
+          path: "/metricId",
+          contractKind: "Experiment",
+          schemaVersion: 1,
+        });
+      }),
+    "UNKNOWN_FIELD",
+    "/metricId",
+  );
+  expectContractError(
+    () =>
+      deriveIdentity(first, () => {
+        throw new Error("super-secret");
+      }),
+    "IDENTITY_PROJECTION_FAILED",
     "",
   );
 });
@@ -212,23 +324,21 @@ test("validation is closed, bounded, version-exact, and structured", () => {
     "OUT_OF_BOUNDS",
     "/count",
   );
-  expectContractError(
+  assert.throws(
     () => validateV1({ ...valid, schemaVersion: 2 }),
-    "UNSUPPORTED_SCHEMA_VERSION",
-    "/schemaVersion",
+    (error) => {
+      assert.ok(error instanceof ContractError);
+      assert.deepEqual(error.toJSON(), {
+        code: "UNSUPPORTED_SCHEMA_VERSION",
+        path: "/schemaVersion",
+        contractKind: "Example",
+        schemaVersion: 2,
+        message: "schemaVersion is not supported; explicit migration is required",
+        details: null,
+      });
+      return true;
+    },
   );
-  try {
-    validateV1({ ...valid, schemaVersion: 2 });
-  } catch (error) {
-    assert.deepEqual(error.toJSON(), {
-      code: "UNSUPPORTED_SCHEMA_VERSION",
-      path: "/schemaVersion",
-      contractKind: "Example",
-      schemaVersion: 2,
-      message: "schemaVersion is not supported; explicit migration is required",
-      details: null,
-    });
-  }
 
   expectContractError(
     () => validateV1({ count: 2, digest: valid.digest }),
@@ -338,6 +448,40 @@ test("lifecycle transitions are declared and never mutate inputs", () => {
   );
 });
 
+test("lifecycle configuration clones caller-owned Maps and target containers", () => {
+  const draftTargets = ["reviewed"];
+  const reviewedTargets = new Set(["sealed"]);
+  const transitions = new Map([
+    ["draft", draftTargets],
+    ["reviewed", reviewedTargets],
+  ]);
+  const transition = createLifecycle({
+    contractKind: "Experiment",
+    transitions,
+    terminalStates: ["sealed"],
+  });
+
+  assert.equal(transitions.get("draft"), draftTargets);
+  assert.equal(transitions.get("reviewed"), reviewedTargets);
+  assert.deepEqual(draftTargets, ["reviewed"]);
+  assert.deepEqual([...reviewedTargets], ["sealed"]);
+
+  draftTargets.push("sealed");
+  reviewedTargets.add("draft");
+  transitions.set("draft", ["sealed"]);
+
+  expectContractError(
+    () => transition(sealRecord({ state: "draft" }), "sealed"),
+    "UNAUTHORIZED_TRANSITION",
+    "/state",
+  );
+  expectContractError(
+    () => transition(sealRecord({ state: "reviewed" }), "draft"),
+    "UNAUTHORIZED_TRANSITION",
+    "/state",
+  );
+});
+
 test("ContractError exposes frozen enumerable bounded fields and compatibility codes", () => {
   const error = new ContractError({
     code: CONTRACT_ERROR_CODES_V1.UNKNOWN_FIELD,
@@ -359,6 +503,8 @@ test("ContractError exposes frozen enumerable bounded fields and compatibility c
     "details",
   ]);
   assert.equal(LEGACY_CONTRACT_ERROR_CODE_MAP.unknown_field, "UNKNOWN_FIELD");
+  assert.equal(Object.getPrototypeOf(LEGACY_CONTRACT_ERROR_CODE_MAP), null);
+  assert.equal(LEGACY_CONTRACT_ERROR_CODE_MAP.constructor, undefined);
   assert.throws(
     () =>
       new ContractError({

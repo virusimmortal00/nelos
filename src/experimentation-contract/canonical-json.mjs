@@ -2,6 +2,15 @@ import { contractFailure, errorContext } from "./errors.mjs";
 
 const objectPrototype = Object.prototype;
 
+// Callers may raise the byte budget for large bounded contracts, but never
+// beyond the process-safe ceiling. The 64 MiB default accommodates 100,000
+// compact records; CorpusRelease opts into the 256 MiB ceiling for large
+// combined task, asset, exclusion, changelog, and duplicate-analysis catalogs.
+export const DEFAULT_MAX_CANONICAL_JSON_BYTES = 64 * 1024 * 1024;
+export const MAX_CANONICAL_JSON_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_MAX_CANONICAL_JSON_DEPTH = 64;
+export const MAX_CANONICAL_JSON_DEPTH = 64;
+
 export function jsonPointerToken(value) {
   return String(value).replaceAll("~", "~0").replaceAll("/", "~1");
 }
@@ -39,15 +48,48 @@ function assertUnicodeScalarString(value, path, options, subject = "string") {
   }
 }
 
-function serialize(value, path, active, visited, options) {
-  if (value === null) return "null";
+function canonicalLimits(options) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError("canonical JSON options must be an object");
+  }
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_CANONICAL_JSON_BYTES;
+  const maxDepth = options.maxDepth ?? DEFAULT_MAX_CANONICAL_JSON_DEPTH;
+  if (
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes < 1 ||
+    maxBytes > MAX_CANONICAL_JSON_BYTES ||
+    !Number.isSafeInteger(maxDepth) ||
+    maxDepth < 1 ||
+    maxDepth > MAX_CANONICAL_JSON_DEPTH
+  ) {
+    throw new TypeError("canonical JSON limits are invalid");
+  }
+  return { maxBytes, maxDepth };
+}
+
+function accountBytes(serialized, path, state, options) {
+  state.bytes += Buffer.byteLength(serialized, "utf8");
+  if (state.bytes > state.maxBytes) {
+    fail(
+      "out_of_bounds",
+      `canonical JSON must not exceed ${state.maxBytes} bytes`,
+      path,
+      options,
+    );
+  }
+  return serialized;
+}
+
+function serialize(value, path, active, visited, options, state, depth) {
+  if (value === null) return accountBytes("null", path, state, options);
 
   switch (typeof value) {
     case "boolean":
-      return value ? "true" : "false";
-    case "string":
+      return accountBytes(value ? "true" : "false", path, state, options);
+    case "string": {
       assertUnicodeScalarString(value, path, options);
-      return JSON.stringify(value);
+      return accountBytes(JSON.stringify(value), path, state, options);
+    }
     case "number":
       if (!Number.isFinite(value)) {
         fail("non_finite_number", "number must be finite", path, options);
@@ -63,7 +105,7 @@ function serialize(value, path, active, visited, options) {
           options,
         );
       }
-      return JSON.stringify(value);
+      return accountBytes(JSON.stringify(value), path, state, options);
     case "object":
       break;
     default:
@@ -73,6 +115,16 @@ function serialize(value, path, active, visited, options) {
         path,
         options,
       );
+  }
+
+  const containerDepth = depth + 1;
+  if (containerDepth > state.maxDepth) {
+    fail(
+      "out_of_bounds",
+      `canonical JSON must not exceed ${state.maxDepth} container levels`,
+      path,
+      options,
+    );
   }
 
   if (active.has(value)) {
@@ -90,6 +142,7 @@ function serialize(value, path, active, visited, options) {
   active.add(value);
   try {
     if (Array.isArray(value)) {
+      accountBytes("[", path, state, options);
       for (const key of Reflect.ownKeys(value)) {
         if (
           key === "length" ||
@@ -116,6 +169,7 @@ function serialize(value, path, active, visited, options) {
             options,
           );
         }
+        if (index > 0) accountBytes(",", path, state, options);
         entries.push(
           serialize(
             value[index],
@@ -123,9 +177,12 @@ function serialize(value, path, active, visited, options) {
             active,
             visited,
             options,
+            state,
+            containerDepth,
           ),
         );
       }
+      accountBytes("]", path, state, options);
       return `[${entries.join(",")}]`;
     }
 
@@ -162,7 +219,7 @@ function serialize(value, path, active, visited, options) {
       );
     }
     const entries = [];
-    for (const key of keys) {
+    for (const [index, key] of keys.entries()) {
       const keyPath = appendJsonPointer(path, key);
       assertUnicodeScalarString(key, keyPath, options, "object key");
       const descriptor = descriptors[key];
@@ -174,16 +231,32 @@ function serialize(value, path, active, visited, options) {
           options,
         );
       }
+      if (index === 0) {
+        accountBytes("{", path, state, options);
+      } else {
+        accountBytes(",", path, state, options);
+      }
+      const serializedKey = accountBytes(
+        JSON.stringify(key),
+        keyPath,
+        state,
+        options,
+      );
+      accountBytes(":", keyPath, state, options);
       entries.push(
-        `${JSON.stringify(key)}:${serialize(
+        `${serializedKey}:${serialize(
           descriptor.value,
           keyPath,
           active,
           visited,
           options,
+          state,
+          containerDepth,
         )}`,
       );
     }
+    if (keys.length === 0) accountBytes("{", path, state, options);
+    accountBytes("}", path, state, options);
     return `{${entries.join(",")}}`;
   } finally {
     active.delete(value);
@@ -191,7 +264,16 @@ function serialize(value, path, active, visited, options) {
 }
 
 export function canonicalize(value, options = {}) {
-  return serialize(value, "", new Set(), new Set(), options);
+  const limits = canonicalLimits(options);
+  return serialize(
+    value,
+    "",
+    new Set(),
+    new Set(),
+    options,
+    { bytes: 0, ...limits },
+    0,
+  );
 }
 
 export function canonicalBytes(value, options = {}) {
@@ -206,8 +288,19 @@ function parseFailure(code, message, path, options) {
   });
 }
 
-function parseJsonText(text, options) {
+function parseJsonText(text, options, limits) {
   let offset = 0;
+
+  function assertContainerDepth(path, depth) {
+    if (depth > limits.maxDepth) {
+      parseFailure(
+        "out_of_bounds",
+        `canonical JSON must not exceed ${limits.maxDepth} container levels`,
+        path,
+        options,
+      );
+    }
+  }
 
   function skipWhitespace() {
     while (
@@ -288,11 +381,11 @@ function parseJsonText(text, options) {
     return Number(match[0]);
   }
 
-  function parseValue(path) {
+  function parseValue(path, depth) {
     const character = text[offset];
     if (character === '"') return parseString(path);
-    if (character === "{") return parseObject(path);
-    if (character === "[") return parseArray(path);
+    if (character === "{") return parseObject(path, depth + 1);
+    if (character === "[") return parseArray(path, depth + 1);
     if (text.startsWith("true", offset)) {
       offset += 4;
       return true;
@@ -311,7 +404,8 @@ function parseJsonText(text, options) {
     parseFailure("invalid_json_syntax", "JSON value syntax is invalid", path, options);
   }
 
-  function parseArray(path) {
+  function parseArray(path, depth) {
+    assertContainerDepth(path, depth);
     const value = [];
     offset += 1;
     skipWhitespace();
@@ -320,7 +414,7 @@ function parseJsonText(text, options) {
       return value;
     }
     for (let index = 0; ; index += 1) {
-      value.push(parseValue(appendJsonPointer(path, index)));
+      value.push(parseValue(appendJsonPointer(path, index), depth));
       skipWhitespace();
       if (text[offset] === "]") {
         offset += 1;
@@ -339,7 +433,8 @@ function parseJsonText(text, options) {
     }
   }
 
-  function parseObject(path) {
+  function parseObject(path, depth) {
+    assertContainerDepth(path, depth);
     const value = Object.create(null);
     const keys = new Set();
     offset += 1;
@@ -371,7 +466,7 @@ function parseJsonText(text, options) {
       }
       offset += 1;
       skipWhitespace();
-      value[key] = parseValue(keyPath);
+      value[key] = parseValue(keyPath, depth);
       skipWhitespace();
       if (text[offset] === "}") {
         offset += 1;
@@ -391,7 +486,7 @@ function parseJsonText(text, options) {
   }
 
   skipWhitespace();
-  const value = parseValue("");
+  const value = parseValue("", 0);
   skipWhitespace();
   if (offset !== text.length) {
     parseFailure("trailing_data", "JSON contains trailing data", "", options);
@@ -402,6 +497,15 @@ function parseJsonText(text, options) {
 export function parseCanonicalJsonV1(bytes, options = {}) {
   if (!(bytes instanceof Uint8Array)) {
     parseFailure("invalid_type", "canonical JSON input must be bytes", "", options);
+  }
+  const limits = canonicalLimits(options);
+  if (bytes.length > limits.maxBytes) {
+    parseFailure(
+      "out_of_bounds",
+      `canonical JSON must not exceed ${limits.maxBytes} bytes`,
+      "",
+      options,
+    );
   }
   if (
     bytes.length >= 3 &&
@@ -418,10 +522,13 @@ export function parseCanonicalJsonV1(bytes, options = {}) {
   } catch {
     parseFailure("invalid_utf8", "canonical JSON must be valid UTF-8", "", options);
   }
-  const value = parseJsonText(text, options);
+  const value = parseJsonText(text, options, limits);
   const expected = canonicalBytes(value, {
+    ...options,
     contractKind: options.contractKind ?? "CanonicalJson",
     schemaVersion: options.schemaVersion ?? 1,
+    maxBytes: limits.maxBytes,
+    maxDepth: limits.maxDepth,
   });
   if (
     expected.length !== bytes.length ||
