@@ -86,7 +86,8 @@ test("stable promotion rejects semantic-version downgrades", async () => {
   );
 
   const downgrade = await repositoryFixture();
-  downgrade.currentStableVersion = "0.5.2";
+  const [major, minor, patch] = downgrade.packageMetadata.version.split(".");
+  downgrade.currentStableVersion = `${major}.${minor}.${BigInt(patch) + 1n}`;
   assert.throws(
     () => validateMarketplacePromotion(downgrade),
     /older than current stable version/u,
