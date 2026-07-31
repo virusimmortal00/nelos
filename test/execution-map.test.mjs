@@ -239,6 +239,29 @@ test("archived spin-offs produce a terminal execution-map receipt", () => {
   );
 });
 
+test("not-ready cleanup preserves each pending spin-off route", () => {
+  const notReady = executionMapForToolResultV1(
+    "nelos_spinoff_cleanup",
+    { webId: "B4", queenThreadId: "queen-thread" },
+    {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "not-ready",
+      pending: [{
+        workUnitId: "pending-route",
+        threadId: "thread-pending",
+        title: "Pending routed spin-off",
+        model: "gpt-5.6-luna",
+        reasoning: "high",
+      }],
+    },
+  );
+
+  assert.equal(notReady.phase, "attention");
+  assert.equal(notReady.members[0].model, "gpt-5.6-luna");
+  assert.equal(notReady.members[0].reasoning, "high");
+});
+
 test("native turn refresh replaces launch-pending with current worker state", async () => {
   const calls = [];
   const result = await refreshExecutionMapStatusV1({
@@ -293,6 +316,51 @@ test("native turn refresh replaces launch-pending with current worker state", as
     view.protocol.result.members[0].observedTurnStatus,
     "completed",
   );
+});
+
+test("native turn refresh validates every member before app-server reads", async () => {
+  let reads = 0;
+  const appServerBridge = {
+    async latestTurn() {
+      reads += 1;
+      return null;
+    },
+  };
+  const member = {
+    id: "worker",
+    task: "Validate refresh input",
+    lifecycle: "subagent",
+    model: "gpt-5.6-terra",
+    reasoning: "low",
+    threadId: "thread-worker",
+    turnId: "turn-worker",
+  };
+
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      { task: "Refresh", members: [] },
+      { appServerBridge },
+    ),
+    /members must contain 1 to 16 items/u,
+  );
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      { task: "Refresh", members: Array.from({ length: 17 }, () => member) },
+      { appServerBridge },
+    ),
+    /members must contain 1 to 16 items/u,
+  );
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      {
+        task: "Refresh",
+        members: [{ ...member, lifecycle: "durable" }],
+      },
+      { appServerBridge },
+    ),
+    /members\[0\]\.lifecycle is invalid/u,
+  );
+  assert.equal(reads, 0);
 });
 
 test("the execution map is a self-contained MCP Apps resource", () => {

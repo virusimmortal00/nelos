@@ -31,9 +31,9 @@ classify them in the queen. Execute only its returned action, then
 call again with the unchanged request, returned `bootstrapId`, and exact native
 receipt. Never substitute an agent path for a task ID.
 
-The coordinator verifies identity, parent, route, and result turn; invalid
-evidence stops. For execution maps use `structuredContent.protocol.result`,
-never display fields.
+Reject invalid identity, parent, route, or result-turn evidence. Render maps
+from top-level `structuredContent`; reserve `structuredContent.protocol.result`
+for nonvisual handling.
 
 ## Follow the One Desktop Path
 

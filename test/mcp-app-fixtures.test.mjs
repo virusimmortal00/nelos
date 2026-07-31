@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { win32 } from "node:path";
 import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -8,6 +9,7 @@ import {
   EXECUTION_MAP_FIXTURES,
   startMcpAppFixtureServer,
 } from "../scripts/mcp-app-fixture-server.mjs";
+import { isPathWithin } from "../scripts/dev-mcp-app-ui.mjs";
 import {
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
@@ -44,6 +46,33 @@ test("execution-map visual fixtures cover the meaningful lifecycle states", () =
       current.map.members.filter(({ status }) => status === "archived").length,
     );
   }
+});
+
+test("reference-host cache containment is platform-aware", () => {
+  assert.equal(
+    isPathWithin(
+      String.raw`C:\nelos-cache`,
+      String.raw`C:\nelos-cache\reviewed-commit`,
+      win32,
+    ),
+    true,
+  );
+  assert.equal(
+    isPathWithin(
+      String.raw`C:\nelos-cache`,
+      String.raw`C:\nelos-cache-sibling\reviewed-commit`,
+      win32,
+    ),
+    false,
+  );
+  assert.equal(
+    isPathWithin(
+      String.raw`C:\nelos-cache`,
+      String.raw`D:\nelos-cache\reviewed-commit`,
+      win32,
+    ),
+    false,
+  );
 });
 
 test("official MCP SDK reaches every fixture and the production UI resource", async () => {

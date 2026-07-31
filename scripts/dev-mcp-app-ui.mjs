@@ -11,7 +11,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -47,6 +54,18 @@ const cacheRoot = resolve(
 const basicHostRoot = join(cacheRoot, MCP_APPS_UPSTREAM_COMMIT);
 const markerPath = join(basicHostRoot, ".nelos-upstream.json");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
+export function isPathWithin(
+  root,
+  candidate,
+  pathApi = { isAbsolute, relative, sep },
+) {
+  const relativePath = pathApi.relative(root, candidate);
+  return Boolean(relativePath) &&
+    !pathApi.isAbsolute(relativePath) &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${pathApi.sep}`);
+}
 
 function run(command, args, { cwd, env = process.env } = {}) {
   const result = spawnSync(command, args, {
@@ -151,7 +170,7 @@ async function prepareBasicHost() {
       "utf8",
     );
 
-    if (!basicHostRoot.startsWith(`${cacheRoot}/`)) {
+    if (!isPathWithin(cacheRoot, basicHostRoot)) {
       throw new Error("refusing to replace a basic-host cache outside its root");
     }
     await rm(basicHostRoot, { recursive: true, force: true });
@@ -306,4 +325,9 @@ async function main() {
   }
 }
 
-await main();
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
+) {
+  await main();
+}

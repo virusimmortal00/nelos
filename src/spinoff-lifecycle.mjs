@@ -650,6 +650,9 @@ export class SpinoffLifecycleAdapterV1 {
                 ? workUnit.binding.memberThreadId
                 : null,
             title: workUnit.title,
+            model: workUnit.launch?.nativeTask?.model ?? "host-default",
+            reasoning:
+              workUnit.launch?.nativeTask?.thinking ?? "host-default",
           })),
       };
     }

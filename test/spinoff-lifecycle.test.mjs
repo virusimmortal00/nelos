@@ -507,6 +507,9 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
   const second = workUnit({
     workUnitId: "member-b",
     title: "Member B",
+    launch: {
+      nativeTask: { model: "gpt-5.6-luna", thinking: "high" },
+    },
     binding: {
       state: "bound",
       memberThreadId: "member-thread-b",
@@ -526,6 +529,8 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
     workUnitId: "member-b",
     threadId: "member-thread-b",
     title: "Member B",
+    model: "gpt-5.6-luna",
+    reasoning: "high",
   }]);
 });
 

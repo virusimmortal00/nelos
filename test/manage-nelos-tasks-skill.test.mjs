@@ -30,7 +30,11 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /call `nelos_plan_slices` directly/);
   assert.match(skill, /execute only the returned\n+`nextAction`/);
   assert.match(skill, /`structuredContent\.protocol\.result`/);
-  assert.match(skill, /never display fields/i);
+  assert.match(skill, /maps\s+from top-level `structuredContent`/i);
+  assert.match(
+    skill,
+    /reserve `structuredContent\.protocol\.result`\s+for nonvisual handling/i,
+  );
   assert.match(skill, /`native-set-title`/);
   assert.match(skill, /`launch-planner`/);
   assert.match(skill, /`launch-wave`/);

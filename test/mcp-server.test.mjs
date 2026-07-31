@@ -2314,6 +2314,36 @@ test("nelos_execution_map_refresh projects current native turn status", async ()
   );
 });
 
+test("nelos_execution_map_refresh rejects invalid members before reads", async () => {
+  let reads = 0;
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_execution_map_refresh",
+          arguments: { task: "Refresh the worker", members: [] },
+        },
+      },
+    ],
+    {
+      appServerBridge: {
+        async latestTurn() {
+          reads += 1;
+          return null;
+        },
+      },
+    },
+  );
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, true);
+  assert.match(body.error, /members must contain 1 to 16 items/u);
+  assert.equal(reads, 0);
+});
+
 test("nelos_thread_inventory forwards bounded IDs and topology policy", async () => {
   const inventory = {
     schemaVersion: 1,

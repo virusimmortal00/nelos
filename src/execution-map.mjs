@@ -83,6 +83,11 @@ const REFRESH_MEMBER_REQUIRED = Object.freeze(
   Object.keys(REFRESH_MEMBER_PROPERTIES),
 );
 
+const REFRESH_INPUT_FIELDS = Object.freeze(new Set(["task", "members"]));
+const REFRESH_MEMBER_FIELDS = Object.freeze(
+  new Set(REFRESH_MEMBER_REQUIRED),
+);
+
 export const EXECUTION_MAP_REFRESH_INPUT_SCHEMA = Object.freeze({
   type: "object",
   properties: {
@@ -263,10 +268,66 @@ function refreshStatus(latestTurn, expectedTurnId) {
   return "attention";
 }
 
+function validateRefreshString(value, schema, label) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+  if (value.length > schema.maxLength) {
+    throw new Error(`${label} exceeds ${schema.maxLength} characters`);
+  }
+}
+
+function validateRefreshInput(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error("execution-map refresh input must be an object");
+  }
+  const unknown = Object.keys(args).find(
+    (field) => !REFRESH_INPUT_FIELDS.has(field),
+  );
+  if (unknown) {
+    throw new Error(`execution-map refresh contains unknown field: ${unknown}`);
+  }
+  validateRefreshString(
+    args.task,
+    EXECUTION_MAP_REFRESH_INPUT_SCHEMA.properties.task,
+    "execution-map refresh task",
+  );
+  if (
+    !Array.isArray(args.members) ||
+    args.members.length < 1 ||
+    args.members.length > 16
+  ) {
+    throw new Error("execution-map refresh members must contain 1 to 16 items");
+  }
+  for (const [index, member] of args.members.entries()) {
+    const label = `execution-map refresh members[${index}]`;
+    if (!member || typeof member !== "object" || Array.isArray(member)) {
+      throw new Error(`${label} must be an object`);
+    }
+    const memberUnknown = Object.keys(member).find(
+      (field) => !REFRESH_MEMBER_FIELDS.has(field),
+    );
+    if (memberUnknown) {
+      throw new Error(`${label} contains unknown field: ${memberUnknown}`);
+    }
+    for (const field of REFRESH_MEMBER_REQUIRED) {
+      const schema = REFRESH_MEMBER_PROPERTIES[field];
+      if (schema.enum) {
+        if (!schema.enum.includes(member[field])) {
+          throw new Error(`${label}.${field} is invalid`);
+        }
+      } else {
+        validateRefreshString(member[field], schema, `${label}.${field}`);
+      }
+    }
+  }
+}
+
 export async function refreshExecutionMapStatusV1(
   args,
   { appServerBridge } = {},
 ) {
+  validateRefreshInput(args);
   for (const field of ["id", "threadId", "turnId"]) {
     if (new Set(args.members.map((member) => member[field])).size !==
       args.members.length) {
