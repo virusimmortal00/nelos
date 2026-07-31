@@ -7,12 +7,28 @@ to **Done**, and revise **Next** before beginning new product work.
 This backlog is the source of truth for longer-term queen-driven coordination
 work. Order future slices by their evidence and acceptance gates.
 
-**Last reviewed:** 2026-07-28 16:18 EDT (`America/New_York`)
+**Last reviewed:** 2026-07-31 11:31 EDT (`America/New_York`)
 
 Refresh this timestamp whenever **Next** is reordered, an item changes state, or
 a material implementation lands that changes the remaining scope.
 
 ## Next
+
+- [ ] continue the dependency-safe
+  [experimentation framework](experimentation-framework.md) and its
+  [roadmap](experimentation-roadmap.md) from the completed v1 Experiment,
+  CorpusRelease, Task, and RuntimeLock contract foundation: finish the
+  remaining Milestone 1 contracts and evidence boundaries, then the runner and
+  analysis, then continuous and scaled validation. The framework must support
+  Nelos-versus-direct Codex studies, exact plugin-version comparisons,
+  code-change regressions, efficiency hypotheses, and future experiment
+  adapters without using the active development Codex app or its state. GitHub
+  milestones and issues track execution; the linked documents remain the
+  architecture and acceptance authority.
+
+The visual execution-map lifecycle/status defect is tracked separately in
+[GitHub issue #57](https://github.com/virusimmortal00/nelos/issues/57); it does
+not change the experimentation architecture or delivery sequence.
 
 - [ ] complete the ordered [Codex Capability Leverage Audit](codex-capability-audit.md)
   so every documented Codex capability is explicitly adopted, piloted,
@@ -171,6 +187,12 @@ module boundaries, safety rules, and rollout criteria.
 
 ## Done
 
+- Complete and independently verify the closed v1 Experiment, CorpusRelease,
+  Task, and RuntimeLock contracts on the shared canonicalization, validation,
+  revision, lineage, and lifecycle kernel; publish the identical API through
+  `nelos/experimentation-contract` and
+  `nelos/experimentation-contract/index.mjs`, with golden fixtures and exact
+  structured-error coverage.
 - Define a public, versioned protocol-contract package with closed action,
   effect, receipt, continuation, attention, error, and semantic-input schemas;
   add a centralized recovery registry, replay-safe transition reducer, producer
