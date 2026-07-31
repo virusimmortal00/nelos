@@ -163,8 +163,13 @@ test("promotion workflow is published-release-only and fast-forward-only", async
   assert.match(workflow, /--current-version "\$CURRENT_STABLE_VERSION"/u);
   assert.match(
     workflow,
-    /http\.extraheader=AUTHORIZATION: bearer \$\{GH_TOKEN\}/u,
+    /printf 'x-access-token:%s' "\$GH_TOKEN" \| base64 --wrap=0/u,
   );
+  assert.match(
+    workflow,
+    /http\.https:\/\/github\.com\/\.extraheader=AUTHORIZATION: basic \$\{git_auth\}/u,
+  );
+  assert.doesNotMatch(workflow, /AUTHORIZATION: bearer/u);
   assert.match(workflow, /git merge-base[\s\S]*--is-ancestor/u);
   assert.match(workflow, /\.sourceRevision/u);
   assert.match(workflow, /jq -r '\.sourceRevision \/\/ empty'/u);
