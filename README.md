@@ -247,6 +247,15 @@ own Git branches, merges, and final review.
 ## Learn more
 
 - [Configuration](docs/configuration.md) — conversational settings, TOML schema, and precedence
+- [Experimentation framework](docs/experimentation-framework.md) — contracts,
+  isolation, measurement, and reproducibility for validating Nelos, Codex,
+  plugin versions, code changes, and efficiency claims
+- Experimentation contract API — import `nelos/experimentation-contract` or
+  `nelos/experimentation-contract/index.mjs`; both expose the same 94 symbols
+- [Experiment evaluation](docs/experimentation-evaluation.md) ·
+  [Runtime isolation](docs/experimentation-runtime.md) ·
+  [Runner and operations](docs/experimentation-operations.md) ·
+  [Implementation roadmap](docs/experimentation-roadmap.md)
 - [Model & reasoning routing](docs/routing.md) — how each slice is sized, and verified
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
 - [App Server compatibility contract](docs/app-server-compatibility-contract.md) —

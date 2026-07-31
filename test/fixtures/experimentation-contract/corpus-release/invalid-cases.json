@@ -1,0 +1,14 @@
+[
+  {"name":"unknown-nested-field","code":"UNKNOWN_FIELD","path":"/tasks/0/strata/extra"},
+  {"name":"missing-required-field","code":"REQUIRED_FIELD","path":"/license/attribution"},
+  {"name":"invalid-enum","code":"INVALID_ENUM","path":"/visibility"},
+  {"name":"duplicate-task","code":"DUPLICATE_IDENTITY","path":"/tasks/1"},
+  {"name":"out-of-bounds","code":"OUT_OF_BOUNDS","path":"/assets/0/bytes"},
+  {"name":"malformed-digest","code":"INVALID_DIGEST","path":"/tasks/0/digest"},
+  {"name":"invalid-semver","code":"INVALID_FORMAT","path":"/version"},
+  {"name":"unsupported-version","code":"UNSUPPORTED_SCHEMA_VERSION","path":"/schemaVersion"},
+  {"name":"invalid-transition","code":"UNAUTHORIZED_TRANSITION","path":"/state"},
+  {"name":"invalid-parent-lineage","code":"INVALID_LINEAGE","path":"/parent/digest"},
+  {"name":"invalid-revision-lineage","code":"INVALID_REVISION","path":"/revision"},
+  {"name":"digest-mismatch","code":"REVISION_DIGEST_MISMATCH","path":"/digest"}
+]

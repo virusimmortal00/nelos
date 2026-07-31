@@ -1,0 +1,14 @@
+[
+  {"mutation":"unknownNested","code":"UNKNOWN_FIELD","path":"/grader/oracle/extra"},
+  {"mutation":"missingRequired","code":"REQUIRED_FIELD","path":"/limits/tokenBudget"},
+  {"mutation":"invalidEnum","code":"INVALID_ENUM","path":"/network/mode"},
+  {"mutation":"duplicateTool","code":"DUPLICATE_IDENTITY","path":"/tools/1"},
+  {"mutation":"duplicateOutput","code":"DUPLICATE_IDENTITY","path":"/outputs/1"},
+  {"mutation":"duplicateArtifact","code":"DUPLICATE_IDENTITY","path":"/artifacts/1"},
+  {"mutation":"duplicatePartialCredit","code":"DUPLICATE_IDENTITY","path":"/partialCredit/criteria/1"},
+  {"mutation":"bound","code":"OUT_OF_BOUNDS","path":"/limits/wallClockSeconds"},
+  {"mutation":"malformedDigest","code":"INVALID_DIGEST","path":"/fixture/digest"},
+  {"mutation":"secretEnvironmentName","code":"INVALID_FORMAT","path":"/environment/0/name"},
+  {"mutation":"secretEnvironmentValue","code":"INVALID_FORMAT","path":"/environment/0/value"},
+  {"mutation":"digestMismatch","code":"INVALID_DIGEST","path":"/prompt/digest"}
+]

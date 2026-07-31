@@ -23,7 +23,9 @@
     "./upstream-documentation-evidence": "./src/upstream-documentation-evidence.mjs",
     "./upstream-documentation-contracts": "./src/upstream-documentation-contracts.mjs",
     "./protocol-contract": "./src/protocol-contract/index.mjs",
-    "./protocol-contract/migration-map": "./src/protocol-contract/migration-map.mjs"
+    "./protocol-contract/migration-map": "./src/protocol-contract/migration-map.mjs",
+    "./experimentation-contract": "./src/experimentation-contract/index.mjs",
+    "./experimentation-contract/index.mjs": "./src/experimentation-contract/index.mjs"
   },
   "files": [
     ".codex-plugin/",

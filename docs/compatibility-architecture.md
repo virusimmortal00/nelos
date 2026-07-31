@@ -48,6 +48,7 @@ The current ownership split is:
 | --- | --- | --- |
 | `app-server.protocol-shapes` | Reduced protocol contracts, generated-schema fixture, exact upstream protocol files | Strict bridge |
 | `app-server.strict-bridge` | MCP App Server bridge and exact stdio/live transport behavior | Nelos lifecycle invariants |
+| `nelos.experimentation-contracts` | Closed v1 Experiment, CorpusRelease, Task, and RuntimeLock schemas, fixtures, public exports, and the mapped experimentation architecture documents | Experimentation runners, graders, and analysis planned in later milestones |
 | `nelos.lifecycle-invariants` | Fail-closed compatibility gate, registry consistency, reports, advisory isolation, and orchestration safety | All pull requests and releases |
 
 ## Global invariants and fail-closed impact selection

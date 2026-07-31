@@ -352,6 +352,18 @@ function defaultCheckRunners() {
       "repo.protocol-contracts",
       ({ root }) => runNodeTests(root, ["test/protocol-contract.test.mjs"]),
     ],
+    [
+      "repo.experimentation-contracts",
+      ({ root }) => runNodeTests(root, [
+        "test/experimentation-contract-kernel.test.mjs",
+        "test/experimentation-contract-experiment.test.mjs",
+        "test/corpus-release-contract.test.mjs",
+        "test/experimentation-task-contract.test.mjs",
+        "test/experimentation-runtime-lock-contract.test.mjs",
+        "test/experimentation-contract-export.test.mjs",
+        "test/experimentation-contract-semver.test.mjs",
+      ]),
+    ],
     ["schema.app-server-v0144x", validateGeneratedSchema],
   ]);
 }
