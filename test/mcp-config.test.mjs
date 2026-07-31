@@ -71,6 +71,9 @@ async function bootstrapFixture() {
   await cp(join(packageRoot, "src"), join(cachedPlugin, "src"), {
     recursive: true,
   });
+  await cp(join(packageRoot, "assets"), join(cachedPlugin, "assets"), {
+    recursive: true,
+  });
   return home;
 }
 

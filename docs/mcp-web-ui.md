@@ -1,23 +1,100 @@
-# Future Host Integration
+# MCP Execution Map and Future Host Integration
 
-Status: broad live-state UI integration is not implemented. The installed
-plugin has only bounded task inspection/polling, direct-parent projection, and
-queen-title synchronization described in
-[MCP tool surface](mcp-tool-surface.md).
+Status: the installed plugin exposes a narrow inline execution-map resource for
+planning, dispatch, and spin-off cleanup receipts. Broad live-state UI
+integration is not implemented.
 
-Nelos's current product surface is the queen skill, the offline planner
-and router, the native Codex task lifecycle, and locally synchronized web
-topology. A visual dashboard would otherwise promise live Desktop state that
-the plugin cannot safely read on ordinary installations.
+## Shipped receipt UI
+
+`nelos_plan_bootstrap`, `nelos_plan_lifecycle`, `nelos_plan_replan`,
+`nelos_plan_slices`, `nelos_orchestrate_create`,
+`nelos_execution_map_refresh`, and `nelos_spinoff_cleanup` advertise the
+versioned `ui://nelos/execution-map-v7.html` MCP Apps resource. Successful calls preserve
+their existing complete text/JSON result and additionally return
+`structuredContent` containing a compact visual projection plus a versioned
+`protocol.result` copy of the complete tool result. The latter keeps
+`nextAction`, receipts, identifiers, and other continuation fields visible to
+modern MCP clients that report only `structuredContent`.
+
+Every protocol-producing tool also publishes an exact per-tool `outputSchema`.
+Schemas for tools that return `nextAction` reference the complete discriminated
+action union rather than an untyped object. Visual tools correlate
+`protocol.tool` with the exact raw result schema nested under
+`protocol.result`; nonvisual protocol tools return their complete raw result as
+`structuredContent`. The visual projection contains:
+
+- the parent task or objective;
+- every member task in the current receipt;
+- lifecycle, exact requested model, and reasoning level;
+- planned, authorization-required, launch-pending, running, created,
+  archiving, complete, archived, kept, or attention status.
+
+Aggregate total, lifecycle, created, and archived counts remain in
+`structuredContent` for model and client compatibility, but are intentionally
+not rendered because the visible worker cards already communicate the roster.
+Archived phases and workers use a muted neutral treatment so green remains
+reserved for created or completed work. Attention uses an amber review-needed
+treatment rather than failure red. The widget does not render its own header or
+global phase because the host card already supplies the tool title and each
+worker card shows its status inline. The global phase remains available in
+`structuredContent`.
+
+Lifecycle is shown as neutral metadata using the compact labels `Sub-agent` and
+`Spin-off`. Current status appears beside the worker title and may use semantic
+color. Planning, launch-pending, running, and archiving dots pulse subtly while
+work is active; the animation is disabled when the host operating system
+requests reduced motion.
+
+Tool receipts remain immutable snapshots. After a native wait or result read,
+`nelos_execution_map_refresh` checks the exact supplied thread and turn
+identities through the app-server bridge and emits a new current-state visual.
+A matching completed latest turn renders `complete`; an in-progress turn
+renders `running`; unavailable, stale, failed, or mismatched evidence renders
+`attention`. The widget never guesses that launch-pending work completed.
+
+The component is self-contained, uses the MCP Apps bridge, loads no remote
+resources, and renders only the tool result supplied by the host. It does not
+read Desktop state, discover tasks, poll, mutate native state, or treat widget
+state as authoritative. Clients that do not support MCP Apps continue to use
+the unchanged text/JSON result. The parent objective remains in the structured
+data for model context but the compact component does not render it.
+
+The authorization status mirrors the launch gate exactly: an unapproved wave
+renders `authorization-required`, while replaying a valid native-host receipt
+changes the same planned members to `launch-pending`. The component does not
+approve or launch tasks itself.
+
+Cleanup remains host-owned and receipt-driven. Its first map can show
+`archiving` while native archive effects are outstanding; replaying the exact
+archive receipts produces a second terminal map with each affected worker
+marked `archived`.
+
+Development verification is layered:
+
+1. `npm test` exercises the execution-map projection, resource contract,
+   lifecycle styling hooks, and deterministic fixture data.
+2. `npm run verify:mcp-app` uses the official MCP Inspector for
+   machine-readable initialization, app-binding, resource, representative-call,
+   and invalid-input probes. `npm run inspect:mcp` opens its interactive UI.
+3. `npm run verify:mcp-app:host` builds the official MCP Apps `basic-host` at
+   the repository-pinned commit and verifies its host, sandbox, and fixture MCP
+   endpoints. `npm run dev:mcp-app-ui` keeps that stack running and prints a
+   direct link for every meaningful map state.
+4. A connected-browser review of those fixtures and a final smoke test in
+   Codex cover visual presentation and product-host integration.
+
+`npm run verify:mcp-app:all` runs the Inspector and reference-host lanes
+together. The pinned Inspector requires Node.js 22.19 or newer; this does not
+change the plugin's Node.js 20 runtime floor.
 
 ## Scope: live host state, not tool transport
 
 This gate governs broad **live host state** exposure—turns, lifecycle streams,
 dashboards, or general-purpose controls—from the installed plugin. It does not
-govern MCP as a transport or the narrowly allowlisted app-server operations
-already specified in [MCP tool surface](mcp-tool-surface.md). Those operations
-read bounded task metadata and synchronize one current-task title; they expose
-no turns, prompts, transcripts, socket endpoint, or UI.
+govern MCP as a transport, the receipt UI above, or the narrowly allowlisted
+app-server operations specified in [MCP tool surface](mcp-tool-surface.md).
+Those operations expose no prompts, transcripts, or socket endpoint to the
+component.
 
 ## Host Capability Required
 
@@ -40,8 +117,8 @@ The detailed proposal, trust model, and compatibility descriptor are in
 
 ## Future Reintroduction Gate
 
-Consider a future MCP server or embedded UI only after all of the following are
-demonstrated on a fresh Desktop task:
+Consider a future live dashboard or stateful embedded UI only after all of the
+following are demonstrated on a fresh Desktop task:
 
 1. Codex injects the descriptor into the plugin process.
 2. The plugin verifies the endpoint schema and negotiated read-only capability.
@@ -51,8 +128,7 @@ demonstrated on a fresh Desktop task:
    explicit unavailable states rather than stale or invented activity.
 5. Process ownership, permissions, and shutdown are explicit and testable.
 
-The earlier prototype was intentionally removed from the source tree as well
-as the distributed plugin. Git history retains it for future reference. The
-later bounded tool surface is not a reintroduction of that prototype: it has no
-UI or general-purpose state exposure and is governed by its own narrow allowlist
-and fail-closed contract.
+The earlier live-state prototype was intentionally removed from the source tree
+and distributed plugin. Git history retains it for future reference. The
+execution map is not a reintroduction of that prototype: it is a pure rendering
+of the current tool receipt and has no general-purpose state exposure.

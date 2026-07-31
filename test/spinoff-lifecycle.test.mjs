@@ -243,6 +243,8 @@ test("an explicit ask policy confirms before returning archive effects", async (
       workUnitId: "member-a",
       threadId: "member-thread",
       title: "Member A",
+      model: "host-default",
+      reasoning: "host-default",
     }],
   });
 
@@ -487,7 +489,11 @@ test("keep rejects an archive receipt without changing terminal state", async (t
   });
   assert.equal(result.state, "attention");
   assert.deepEqual(result.results, [{
+    workUnitId: "member-a",
     threadId: "member-thread",
+    title: "Member A",
+    model: "host-default",
+    reasoning: "host-default",
     state: "attention",
     reason: "cleanup-candidate-failed",
   }]);
@@ -501,6 +507,9 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
   const second = workUnit({
     workUnitId: "member-b",
     title: "Member B",
+    launch: {
+      nativeTask: { model: "gpt-5.6-luna", thinking: "high" },
+    },
     binding: {
       state: "bound",
       memberThreadId: "member-thread-b",
@@ -520,6 +529,8 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
     workUnitId: "member-b",
     threadId: "member-thread-b",
     title: "Member B",
+    model: "gpt-5.6-luna",
+    reasoning: "high",
   }]);
 });
 

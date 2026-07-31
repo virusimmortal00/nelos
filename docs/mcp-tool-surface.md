@@ -59,6 +59,11 @@ long-lived
   Joined subagents use agent-path identity with title `not-applicable`;
   spinoffs require exact settled native titles. Any member failure prevents
   the downstream wait/read action;
+- `nelos_execution_map_refresh` — performs bounded latest-turn reads for 1–16
+  exact native thread and turn identities after launch. A matching completed
+  turn renders `complete`, an in-progress turn renders `running`, and stale,
+  unavailable, or unsuccessful evidence renders `attention`. It returns no
+  prompts, previews, result bodies, or transcripts;
 - `nelos_thread_inspect` — reads one explicitly identified task and returns
   only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never
@@ -125,7 +130,11 @@ long-lived
   list. It acts only after every required current result is accepted, returns
   host-owned native archive effects, and persists exact receipts per spin-off;
   partial and in-flight outcomes remain visible without replaying an archive.
-  Persisting a cleanup choice globally requires explicit user intent.
+  Persisting a cleanup choice globally requires explicit user intent. It also
+  exposes the execution-map resource: outstanding effects render as
+  `archiving`, while accepted native archive receipts render a terminal
+  `archived` worker card. Aggregate counts remain available in the structured
+  receipt without duplicating the visible worker roster.
 
 Bootstrap preparation, batch launch verification, thread inspection,
 inventory, wait, health, routing, verification, and subagent identity
@@ -138,9 +147,19 @@ idempotent: they write private Nelos state but do not perform native host
 effects. Completion
 delivery persists private state and returns a receipt-bound host wake effect;
 cleanup remains declared destructive because its requested native effect
-archives tasks. This small bridge exposes no web
-server, task dashboard, transcript surface, or general-purpose app-server
-proxy.
+archives tasks. This small bridge exposes no web server, live task dashboard,
+transcript surface, or general-purpose app-server proxy. Selected planning,
+dispatch, status-refresh, and spin-off cleanup tools expose a self-contained
+MCP Apps execution-map resource that renders only their current receipt,
+including the authorization-required state before a launch wave becomes
+executable, native-turn completion after bounded refresh, and the terminal
+archived state after exact native archive receipts are accepted. The widget
+performs no app-server reads or native effects; the refresh tool owns its
+bounded read before returning the receipt. Every protocol-producing tool
+publishes its exact result `outputSchema`. Results containing `nextAction`
+expose the complete discriminated action union, and successful nonvisual
+protocol calls return the same complete result as model-visible
+`structuredContent`.
 
 ## Why not the alternatives
 

@@ -1,0 +1,418 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  EXECUTION_MAP_OUTPUT_SCHEMA,
+  EXECUTION_MAP_RESOURCE_MIME_TYPE,
+  EXECUTION_MAP_RESOURCE_URI,
+  executionMapForToolResultV1,
+  executionMapOutputSchemaForToolV1,
+  executionMapToolMetadataV1,
+  listExecutionMapResourcesV1,
+  readExecutionMapResourceV1,
+  refreshExecutionMapStatusV1,
+} from "../src/execution-map.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
+
+function plannedSlice(id, overrides = {}) {
+  return {
+    id,
+    title: `${id} task`,
+    objective: `Complete ${id}`,
+    deliverable: `${id} result`,
+    acceptanceCriteria: [`${id} is verified`],
+    dependsOn: [],
+    lifecycle: "spinoff",
+    workspaceMode: "isolated-write",
+    taskShape: "everyday",
+    ...overrides,
+  };
+}
+
+test("planned task webs project exact task, route, lifecycle, and count data", () => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Ship the execution map",
+    maxParallel: 2,
+    slices: [
+      plannedSlice("inspect", {
+        lifecycle: "subagent",
+        workspaceMode: "shared-read-only",
+        taskShape: "complex/open-ended",
+      }),
+      plannedSlice("implement"),
+    ],
+  });
+  const view = executionMapForToolResultV1(
+    "nelos_plan_slices",
+    { plan: {} },
+    { command: "plan slices", plan },
+  );
+
+  assert.deepEqual(view.summary, {
+    total: 2,
+    spinoffs: 1,
+    subagents: 1,
+    created: 0,
+  });
+  assert.equal(view.phase, "planned");
+  assert.equal(view.task, "Ship the execution map");
+  assert.deepEqual(view.protocol, {
+    schemaVersion: 1,
+    tool: "nelos_plan_slices",
+    result: { command: "plan slices", plan },
+  });
+  assert.deepEqual(
+    view.members.map((member) => ({
+      id: member.id,
+      lifecycle: member.lifecycle,
+      model: member.model,
+      reasoning: member.reasoning,
+      status: member.status,
+    })),
+    [
+      {
+        id: "inspect",
+        lifecycle: "subagent",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        status: "planned",
+      },
+      {
+        id: "implement",
+        lifecycle: "spinoff",
+        model: "gpt-5.6-terra",
+        reasoning: "low",
+        status: "planned",
+      },
+    ],
+  );
+  assert.equal(EXECUTION_MAP_OUTPUT_SCHEMA.additionalProperties, false);
+  assert.deepEqual(
+    EXECUTION_MAP_OUTPUT_SCHEMA.required.includes("protocol"),
+    true,
+  );
+  const lifecycleSchema = executionMapOutputSchemaForToolV1(
+    "nelos_plan_lifecycle",
+  );
+  assert.equal(
+    lifecycleSchema.properties.protocol.properties.tool.const,
+    "nelos_plan_lifecycle",
+  );
+  assert.ok(
+    lifecycleSchema.properties.protocol.properties.result.properties
+      .nextAction.oneOf.length > 10,
+  );
+  const bootstrapSchema = executionMapOutputSchemaForToolV1(
+    "nelos_plan_bootstrap",
+  );
+  assert.ok(
+    bootstrapSchema.properties.protocol.properties.result.properties
+      .nextAction.oneOf.length > 10,
+  );
+});
+
+test("planning and durable creation remain visibly distinct", () => {
+  const planning = executionMapForToolResultV1(
+    "nelos_plan_lifecycle",
+    { objective: "Ship history" },
+    {
+      lifecycle: { bootstrapId: "plan:123", phase: "launch-pending" },
+      nextAction: { kind: "native-create-planner" },
+    },
+  );
+  assert.equal(planning.phase, "planning");
+  assert.equal(planning.summary.created, 0);
+  assert.deepEqual(planning.members[0], {
+    id: "plan:123",
+    task: "Plan the work",
+    lifecycle: "subagent",
+    model: "gpt-5.6-sol",
+    reasoning: "medium",
+    status: "planning",
+    threadId: null,
+  });
+
+  const workUnit = {
+    workUnitId: "implementation",
+    memberKind: "spinoff",
+    title: "Implement history",
+    objectiveSummary: "Ship the history implementation.",
+    launch: {
+      nativeTask: { model: "gpt-5.6-luna", thinking: "high" },
+    },
+  };
+  const pending = executionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit, receipt: null },
+    {
+      binding: { state: "launch-pending", memberThreadId: null },
+    },
+  );
+  assert.equal(pending.phase, "launch-pending");
+  assert.equal(pending.summary.created, 0);
+
+  const created = executionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit, receipt: { type: "native-create" } },
+    {
+      binding: { state: "bound", memberThreadId: "thread-history" },
+    },
+  );
+  assert.equal(created.phase, "created");
+  assert.equal(created.summary.created, 1);
+  assert.equal(created.members[0].threadId, "thread-history");
+  assert.equal(created.members[0].model, "gpt-5.6-luna");
+  assert.equal(created.members[0].reasoning, "high");
+});
+
+test("planned task webs expose authorization and authorized launch phases", () => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Launch the visible task web",
+    slices: [plannedSlice("launch")],
+  });
+  const authorizationRequired = executionMapForToolResultV1(
+    "nelos_plan_slices",
+    { plan: {} },
+    {
+      plan,
+      nextAction: { kind: "authorization-required" },
+    },
+  );
+  assert.equal(authorizationRequired.phase, "authorization-required");
+  assert.equal(
+    authorizationRequired.members[0].status,
+    "authorization-required",
+  );
+  assert.equal(authorizationRequired.summary.created, 0);
+
+  const launchPending = executionMapForToolResultV1(
+    "nelos_plan_slices",
+    { plan: {} },
+    {
+      plan,
+      nextAction: { kind: "launch-wave" },
+    },
+  );
+  assert.equal(launchPending.phase, "launch-pending");
+  assert.equal(launchPending.members[0].status, "launch-pending");
+  assert.equal(launchPending.summary.created, 0);
+});
+
+test("archived spin-offs produce a terminal execution-map receipt", () => {
+  const archived = executionMapForToolResultV1(
+    "nelos_spinoff_cleanup",
+    { webId: "B4", queenThreadId: "queen-thread" },
+    {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "complete",
+      results: [{
+        workUnitId: "inspect-next-action",
+        threadId: "thread-archive",
+        title: "Inspect nextAction protocol visibility",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        state: "archived",
+        replayed: false,
+      }],
+      effects: [],
+    },
+  );
+
+  assert.equal(archived.phase, "archived");
+  assert.equal(archived.summary.archived, 1);
+  assert.equal(archived.summary.created, 0);
+  assert.deepEqual(archived.members, [{
+    id: "inspect-next-action",
+    task: "Inspect nextAction protocol visibility",
+    lifecycle: "spinoff",
+    model: "gpt-5.6-sol",
+    reasoning: "medium",
+    status: "archived",
+    threadId: "thread-archive",
+  }]);
+  assert.equal(
+    archived.protocol.result.results[0].state,
+    "archived",
+  );
+});
+
+test("not-ready cleanup preserves each pending spin-off route", () => {
+  const notReady = executionMapForToolResultV1(
+    "nelos_spinoff_cleanup",
+    { webId: "B4", queenThreadId: "queen-thread" },
+    {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "not-ready",
+      pending: [{
+        workUnitId: "pending-route",
+        threadId: "thread-pending",
+        title: "Pending routed spin-off",
+        model: "gpt-5.6-luna",
+        reasoning: "high",
+      }],
+    },
+  );
+
+  assert.equal(notReady.phase, "attention");
+  assert.equal(notReady.members[0].model, "gpt-5.6-luna");
+  assert.equal(notReady.members[0].reasoning, "high");
+});
+
+test("native turn refresh replaces launch-pending with current worker state", async () => {
+  const calls = [];
+  const result = await refreshExecutionMapStatusV1({
+    task: "Verify execution-map status",
+    members: [
+      {
+        id: "finished",
+        task: "Finished worker",
+        lifecycle: "subagent",
+        model: "gpt-5.6-terra",
+        reasoning: "low",
+        threadId: "thread-finished",
+        turnId: "turn-finished",
+      },
+      {
+        id: "active",
+        task: "Active worker",
+        lifecycle: "spinoff",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        threadId: "thread-active",
+        turnId: "turn-active",
+      },
+    ],
+  }, {
+    appServerBridge: {
+      async latestTurn({ threadId }) {
+        calls.push(threadId);
+        return threadId === "thread-finished"
+          ? { turnId: "turn-finished", status: "completed" }
+          : { turnId: "turn-active", status: "inProgress" };
+      },
+    },
+  });
+  assert.deepEqual(calls.sort(), ["thread-active", "thread-finished"]);
+  assert.deepEqual(
+    result.members.map(({ status }) => status),
+    ["complete", "running"],
+  );
+
+  const view = executionMapForToolResultV1(
+    "nelos_execution_map_refresh",
+    {},
+    result,
+  );
+  assert.equal(view.phase, "running");
+  assert.deepEqual(
+    view.members.map(({ status }) => status),
+    ["complete", "running"],
+  );
+  assert.equal(
+    view.protocol.result.members[0].observedTurnStatus,
+    "completed",
+  );
+});
+
+test("native turn refresh validates every member before app-server reads", async () => {
+  let reads = 0;
+  const appServerBridge = {
+    async latestTurn() {
+      reads += 1;
+      return null;
+    },
+  };
+  const member = {
+    id: "worker",
+    task: "Validate refresh input",
+    lifecycle: "subagent",
+    model: "gpt-5.6-terra",
+    reasoning: "low",
+    threadId: "thread-worker",
+    turnId: "turn-worker",
+  };
+
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      { task: "Refresh", members: [] },
+      { appServerBridge },
+    ),
+    /members must contain 1 to 16 items/u,
+  );
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      { task: "Refresh", members: Array.from({ length: 17 }, () => member) },
+      { appServerBridge },
+    ),
+    /members must contain 1 to 16 items/u,
+  );
+  await assert.rejects(
+    refreshExecutionMapStatusV1(
+      {
+        task: "Refresh",
+        members: [{ ...member, lifecycle: "durable" }],
+      },
+      { appServerBridge },
+    ),
+    /members\[0\]\.lifecycle is invalid/u,
+  );
+  assert.equal(reads, 0);
+});
+
+test("the execution map is a self-contained MCP Apps resource", () => {
+  const [listed] = listExecutionMapResourcesV1();
+  assert.equal(listed.uri, EXECUTION_MAP_RESOURCE_URI);
+  assert.equal(listed.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
+  assert.deepEqual(listed._meta.ui.csp, {
+    connectDomains: [],
+    resourceDomains: [],
+  });
+
+  const resource = readExecutionMapResourceV1(EXECUTION_MAP_RESOURCE_URI);
+  assert.equal(resource.contents[0].mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
+  assert.match(resource.contents[0].text, /ui\/initialize/u);
+  assert.match(
+    resource.contents[0].text,
+    /ui\/notifications\/tool-result/u,
+  );
+  assert.match(resource.contents[0].text, /structuredContent/u);
+  assert.match(resource.contents[0].text, /authorization-required/u);
+  assert.match(resource.contents[0].text, /--archived/u);
+  assert.match(resource.contents[0].text, /member\.status/u);
+  assert.match(resource.contents[0].text, /className = "member-heading"/u);
+  assert.match(resource.contents[0].text, /"Sub-agent"/u);
+  assert.match(resource.contents[0].text, /prefers-reduced-motion: reduce/u);
+  assert.match(resource.contents[0].text, /@keyframes status-pulse/u);
+  assert.doesNotMatch(resource.contents[0].text, /"Joined subagent"/u);
+  assert.doesNotMatch(resource.contents[0].text, /--danger/u);
+  assert.doesNotMatch(resource.contents[0].text, /<header>/u);
+  assert.doesNotMatch(resource.contents[0].text, /class="eyebrow"/u);
+  assert.doesNotMatch(resource.contents[0].text, /id="phase"/u);
+  assert.doesNotMatch(resource.contents[0].text, /phaseElement/u);
+  assert.doesNotMatch(resource.contents[0].text, /id="summary"/u);
+  assert.doesNotMatch(resource.contents[0].text, /className = "metric"/u);
+  assert.doesNotMatch(resource.contents[0].text, /id="task"/u);
+  assert.doesNotMatch(resource.contents[0].text, /taskElement/u);
+  assert.doesNotMatch(resource.contents[0].text, /https?:\/\//u);
+  assert.throws(
+    () => readExecutionMapResourceV1("ui://nelos/unknown.html"),
+    /unknown resource/u,
+  );
+
+  assert.deepEqual(executionMapToolMetadataV1("nelos_plan_slices").ui, {
+    resourceUri: EXECUTION_MAP_RESOURCE_URI,
+  });
+  assert.deepEqual(
+    executionMapToolMetadataV1("nelos_spinoff_cleanup").ui,
+    { resourceUri: EXECUTION_MAP_RESOURCE_URI },
+  );
+  assert.deepEqual(
+    executionMapToolMetadataV1("nelos_execution_map_refresh").ui,
+    { resourceUri: EXECUTION_MAP_RESOURCE_URI },
+  );
+  assert.equal(executionMapToolMetadataV1("nelos_thread_inspect"), null);
+});

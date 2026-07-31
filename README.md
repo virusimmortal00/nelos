@@ -111,6 +111,12 @@ subagents, or hand-run parallel chats:
   universe. The MCP server lazily starts one official
   `codex app-server --stdio` child, uses a narrow version-checked control
   surface, and exposes no prompts or transcripts.
+- **Visible Execution Map:** MCP Apps-compatible hosts render an inline receipt
+  after planning, dispatch, and spin-off cleanup, showing every task's
+  lifecycle, exact model, reasoning level, authorization, launch, and archive
+  status as an individual worker card. Aggregate counts remain in the
+  structured receipt for non-UI clients without duplicating the visible
+  roster, and protocol tools publish their exact model-visible result schemas.
 
 ## Nelos in action
 

@@ -191,7 +191,8 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
   // The socket-free tool surface (docs/mcp-tool-surface.md) is an active,
   // provenance-covered distribution entry. The retired live-state prototype's
   // built runtime surfaces stay excluded, and the server remains
-  // dependency-free by design.
+  // runtime-dependency-free by design. The official MCP Apps SDK and host
+  // packages are development-only test infrastructure.
   assert.ok(DISTRIBUTION_ENTRIES.includes(".mcp.json"));
   assert.ok(packageMetadata.files.includes(".mcp.json"));
   assert.ok(!DISTRIBUTION_ENTRIES.includes("dist"));
@@ -200,8 +201,15 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
   assert.ok(!packageMetadata.files.includes("ui/"));
   assert.equal(packageMetadata.scripts["build:mcp"], undefined);
   assert.equal(packageMetadata.scripts["verify:packed"], undefined);
-  assert.equal(packageMetadata.dependencies["@modelcontextprotocol/sdk"], undefined);
   assert.deepEqual(packageMetadata.dependencies ?? {}, {});
+  assert.equal(
+    packageMetadata.devDependencies["@modelcontextprotocol/sdk"],
+    "1.30.0",
+  );
+  assert.equal(
+    packageMetadata.devDependencies["@modelcontextprotocol/ext-apps"],
+    "1.7.5",
+  );
 });
 
 test("read-only verification detects a tampered PATH command without executing it", async () => {

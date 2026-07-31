@@ -62,12 +62,22 @@ import {
 } from "./nelos-configuration.mjs";
 import {
   MCP_PROTOCOL_TOOL_CONTRACTS_V1,
+  MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1,
 } from "./protocol-contract/index.mjs";
 import {
   createLaunchAuthorizationReceiptV1,
   LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
 } from "./launch-execution-gate.mjs";
+import {
+  EXECUTION_MAP_REFRESH_INPUT_SCHEMA,
+  executionMapForToolResultV1,
+  executionMapOutputSchemaForToolV1,
+  executionMapToolMetadataV1,
+  listExecutionMapResourcesV1,
+  readExecutionMapResourceV1,
+  refreshExecutionMapStatusV1,
+} from "./execution-map.mjs";
 import {
   listWebRecords,
   readWebRecord,
@@ -636,6 +646,18 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_execution_map_refresh",
+    description:
+      "Refresh the visible execution map from bounded current native-turn " +
+      "evidence after launched workers run. Use this after a wait or result " +
+      "read so completed workers do not remain visually launch-pending.",
+    inputSchema: EXECUTION_MAP_REFRESH_INPUT_SCHEMA,
+    annotations: READ_ONLY_ANNOTATIONS,
+    async run(args, { appServerBridge }) {
+      return refreshExecutionMapStatusV1(args, { appServerBridge });
+    },
+  },
+  {
     name: "nelos_thread_inspect",
     description:
       "Read bounded metadata for one Codex task through the MCP-owned " +
@@ -1037,22 +1059,36 @@ export function listNelosMcpTools() {
     description,
     inputSchema,
     annotations,
-  }) => ({
-    name,
-    description,
-    inputSchema,
-    annotations: annotations ?? READ_ONLY_ANNOTATIONS,
-    ...(MCP_PROTOCOL_TOOL_CONTRACTS_V1[name]
-      ? {
-          _meta: {
-            "nelos/protocolContract": {
-              schemaVersion: 1,
-              ...MCP_PROTOCOL_TOOL_CONTRACTS_V1[name],
+  }) => {
+    const uiMetadata = executionMapToolMetadataV1(name);
+    const protocolMetadata = MCP_PROTOCOL_TOOL_CONTRACTS_V1[name];
+    const outputSchema =
+      executionMapOutputSchemaForToolV1(name) ??
+      MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[name] ??
+      null;
+    return {
+      name,
+      description,
+      inputSchema,
+      ...(outputSchema ? { outputSchema } : {}),
+      annotations: annotations ?? READ_ONLY_ANNOTATIONS,
+      ...(protocolMetadata || uiMetadata
+        ? {
+            _meta: {
+              ...(protocolMetadata
+                ? {
+                    "nelos/protocolContract": {
+                      schemaVersion: 1,
+                      ...protocolMetadata,
+                    },
+                  }
+                : {}),
+              ...(uiMetadata ?? {}),
             },
-          },
-        }
-      : {}),
-  }));
+          }
+        : {}),
+    };
+  });
 }
 
 function assertToolArguments(tool, value) {
@@ -1106,8 +1142,10 @@ export function startNelosMcpServer({
       throw error;
     }
     let result;
+    let args;
     try {
-      result = await tool.run(assertToolArguments(tool, params.arguments), {
+      args = assertToolArguments(tool, params.arguments);
+      result = await tool.run(args, {
         appServerBridge,
         exceptionReplanning,
         launchBatchVerifier,
@@ -1136,7 +1174,17 @@ export function startNelosMcpServer({
       };
     }
     const { isError = false, ...body } = result;
+    const structuredContent = executionMapForToolResultV1(
+      tool.name,
+      args,
+      body,
+    ) ?? (
+      MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[tool.name]
+        ? structuredClone(body)
+        : null
+    );
     return {
+      ...(structuredContent ? { structuredContent } : {}),
       content: [{ type: "text", text: JSON.stringify(body) }],
       isError,
     };
@@ -1154,7 +1202,10 @@ export function startNelosMcpServer({
             typeof params?.protocolVersion === "string"
               ? params.protocolVersion
               : MCP_DEFAULT_PROTOCOL_VERSION,
-          capabilities: { tools: { listChanged: false } },
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { listChanged: false, subscribe: false },
+          },
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
         },
       });
@@ -1182,6 +1233,37 @@ export function startNelosMcpServer({
           },
         });
       }
+      return;
+    }
+    if (method === "resources/list") {
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: { resources: listExecutionMapResourcesV1() },
+      });
+      return;
+    }
+    if (method === "resources/read") {
+      try {
+        send({
+          jsonrpc: "2.0",
+          id,
+          result: readExecutionMapResourceV1(params?.uri),
+        });
+      } catch (error) {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32602,
+            message: error.message,
+          },
+        });
+      }
+      return;
+    }
+    if (method === "resources/templates/list") {
+      send({ jsonrpc: "2.0", id, result: { resourceTemplates: [] } });
       return;
     }
     send({

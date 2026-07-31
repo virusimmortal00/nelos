@@ -282,6 +282,8 @@ test("queen decision persists exact provenance, advances observation, and gates 
     workUnitId: "alpha",
     threadId: "thread-alpha",
     title: "Alpha",
+    model: "host-default",
+    reasoning: "host-default",
   }]);
 });
 

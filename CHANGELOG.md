@@ -28,6 +28,32 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Authorization proposals now include a typed host effect backed by the
   `nelos_launch_authorize` receipt producer, preventing installed Desktop flows
   from stopping without a way to complete the authorized replay.
+- Added an inline MCP Apps execution map for planning and dispatch receipts.
+  It shows each task's lifecycle, exact model, reasoning level, and whether the
+  task is planned, launch-pending, or created as an individual worker card.
+- Extended the execution map to spin-off cleanup. Outstanding archive effects
+  render as `archiving`; accepted native archive receipts produce a terminal
+  update with worker identities, model, reasoning level, task ID, and a muted
+  archived state. Aggregate counts remain in structured output without being
+  duplicated in the visual.
+- Refined execution-map semantics and spacing: attention now uses an amber
+  review-needed treatment, while the redundant internal header and global phase
+  pill are no longer rendered above worker statuses.
+- Moved each worker status beside its title, shortened joined-worker lifecycle
+  metadata to neutral `Sub-agent`, and added a reduced-motion-safe pulse for
+  active work.
+- Added an app-server-backed execution-map refresh receipt so a completed
+  native turn produces a terminal visual update instead of leaving the latest
+  visible worker at launch-pending.
+- Published exact MCP output schemas for every protocol-producing tool,
+  including the complete discriminated `nextAction` union, and made nonvisual
+  protocol results available as model-visible `structuredContent`.
+- Added pinned official MCP Inspector commands for interactive inspection and
+  automated capability, app-binding, resource, valid-call, and invalid-input
+  verification of the execution map.
+- Added a deterministic nine-state visual fixture server and a pinned build of
+  the official MCP Apps reference host, giving the component repeatable
+  protocol, sandbox-readiness, and connected-browser test lanes.
 
 ### Compatibility requirements
 
@@ -62,6 +88,9 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Nelos does not yet provide a custom Codex Settings pane or MCP settings form.
   Conversation is the primary interface, with TOML available for manual edits;
   no Nelos-specific slash command is provided.
+- The execution map renders only in MCP Apps-compatible hosts. Other clients
+  continue to receive the complete text/JSON tool result.
+- The map is a point-in-time receipt, not a broad live Desktop-state dashboard.
 
 ## [0.4.0] - 2026-07-28
 
