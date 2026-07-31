@@ -86,7 +86,7 @@ jobs:
           --out compatibility-reports/release-bundle.json
       - name: Upload exact release evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-compatibility-${{ matrix.codex }}
           path: compatibility-reports/
@@ -185,7 +185,7 @@ jobs:
               --tag "$RELEASE_TAG" \
               --out-dir dist/release
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nelos-release-${{ env.RELEASE_TAG }}
           path: dist/release/*
