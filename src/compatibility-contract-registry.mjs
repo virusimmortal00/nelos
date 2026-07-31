@@ -885,7 +885,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
             repository: "https://github.com/openai/codex",
             paths: Object.freeze([
               "codex-rs/app-server-protocol/src/protocol/common.rs",
-              "codex-rs/app-server-protocol/src/protocol/v2.rs",
+              "codex-rs/app-server-protocol/src/protocol/v2/mod.rs",
             ]),
             artifacts: Object.freeze([]),
             advisoryRef: "refs/heads/main",
