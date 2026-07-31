@@ -16,7 +16,7 @@ jobs:
       CI: true
       GITHUB_BASE_REF: ${{ github.base_ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -43,7 +43,7 @@ jobs:
       CODEX_HOME: ${{ github.workspace }}/.ci/codex-home
       CI: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
