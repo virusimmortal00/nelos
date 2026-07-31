@@ -173,7 +173,7 @@ async function freshProcessProbe({ installedPath, candidateRoot, expectedVersion
     const provenance = JSON.parse(readFileSync(join(root, "distribution-provenance.json")));
     const expectedVersion = process.argv[3];
     if (manifest.version !== expectedVersion || mcp.nelos.env.NELOS_PLUGIN_VERSION !== expectedVersion) throw new Error("fresh process loaded a stale version");
-    if (expectedVersion === "0.5.0") {
+    if (expectedVersion !== "0.4.0") {
       if (!provenance.sourceRepository || !provenance.sourceRevision || !provenance.cacheIdentity) throw new Error("fresh process lacks provenance");
       const module = await import(pathToFileURL(join(root, "src/mcp-server.mjs")).href);
       if (typeof module.startNelosMcpServer !== "function") throw new Error("fresh process cannot load candidate MCP server");
@@ -202,7 +202,12 @@ async function waitForSocket(path, child, stderr) {
   throw new Error("fresh Codex app-server did not create its control socket");
 }
 
-async function verifyFreshCodexTask({ codexCommand, env, marketplacePath }) {
+async function verifyFreshCodexTask({
+  codexCommand,
+  env,
+  expectedVersion,
+  marketplacePath,
+}) {
   const socketBase = process.platform === "darwin" ? "/private/tmp" : tmpdir();
   const socketRoot = await mkdtemp(join(socketBase, "npu-"));
   const socketPath = join(socketRoot, `${randomUUID().slice(0, 8)}.sock`);
@@ -230,11 +235,13 @@ async function verifyFreshCodexTask({ codexCommand, env, marketplacePath }) {
     const summary = plugin?.plugin?.summary;
     if (
       summary?.id !== "nelos@upgrade-fixture" ||
-      summary?.localVersion !== "0.5.0" ||
+      summary?.localVersion !== expectedVersion ||
       summary?.installed !== true ||
       summary?.enabled !== true
     ) {
-      throw new Error("fresh Codex app-server did not activate nelos@upgrade-fixture 0.5.0");
+      throw new Error(
+        `fresh Codex app-server did not activate nelos@upgrade-fixture ${expectedVersion}`,
+      );
     }
     const started = await client.request("thread/start", {
       cwd: repositoryRoot,
@@ -261,6 +268,9 @@ async function verifyFreshCodexTask({ codexCommand, env, marketplacePath }) {
 }
 
 export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } = {}) {
+  const candidateVersion = JSON.parse(
+    await readFile(join(repositoryRoot, ".codex-plugin", "plugin.json"), "utf8"),
+  ).version;
   const root = await mkdtemp(join(tmpdir(), "nelos-marketplace-upgrade-"));
   const sourceRoot = join(root, "source");
   const bareRoot = join(root, "served", "nelos-upgrade.git");
@@ -306,7 +316,7 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
 
     await replaceWithCandidate(sourceRoot);
     await git(sourceRoot, "add", ".");
-    await git(sourceRoot, "commit", "-m", "candidate 0.5.0");
+    await git(sourceRoot, "commit", "-m", `candidate ${candidateVersion}`);
     const candidateRevision = await git(sourceRoot, "rev-parse", "HEAD");
     const candidateProvenancePath = join(sourceRoot, PROVENANCE_FILENAME);
     const candidateProvenance = JSON.parse(
@@ -336,11 +346,12 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
     const freshProbe = await freshProcessProbe({
       installedPath: candidateInstall.installedPath,
       candidateRoot: sourceRoot,
-      expectedVersion: "0.5.0",
+      expectedVersion: candidateVersion,
     });
     const freshTask = await verifyFreshCodexTask({
       codexCommand,
       env,
+      expectedVersion: candidateVersion,
       marketplacePath: join(
         added.installedRoot,
         ".agents",
@@ -374,7 +385,7 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
     const active = listing.installed.find(
       (entry) => entry.pluginId === `nelos@${marketplaceName}`,
     );
-    if (active?.version !== "0.5.0" || freshProbe.pid === process.pid) {
+    if (active?.version !== candidateVersion || freshProbe.pid === process.pid) {
       throw new Error("fresh Codex process did not resolve the candidate plugin");
     }
     return {
@@ -392,7 +403,7 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
       legacyCacheRemoved,
       unrelatedDataPreserved: true,
       candidateIntegrity,
-      cacheIdentity: pluginCacheIdentity({ version: "0.5.0" }),
+      cacheIdentity: pluginCacheIdentity({ version: candidateVersion }),
     };
   } finally {
     if (server) await new Promise((accept) => server.close(accept));

@@ -5,6 +5,23 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.5.1] - 2026-07-31
+
+### User-facing changes
+
+- Published the 0.5 milestone with a fresh plugin version and cache identity
+  after correcting the authoritative Codex App Server source mapping from the
+  retired `protocol/v2.rs` path to `protocol/v2/mod.rs`.
+- Preserved all verified 0.5.0 candidate behavior while ensuring exact-source,
+  generated-schema, and runtime-transport release evidence agree on the public
+  compatibility contract. The `v0.5.0` candidate tag was never released.
+
+### Migrations
+
+- Upgrade existing `0.4.0` marketplace installs directly to `0.5.1`, restart
+  Codex, and create a fresh task before verifying the loaded skill and MCP
+  server.
+
 ## [0.5.0] - 2026-07-31
 
 ### User-facing changes
