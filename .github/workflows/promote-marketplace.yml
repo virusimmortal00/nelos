@@ -60,6 +60,7 @@ jobs:
           git_auth="$(
             printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
           )"
+          echo "::add-mask::${git_auth}"
           git \
             -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
             fetch --force \
@@ -98,6 +99,7 @@ jobs:
           git_auth="$(
             printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
           )"
+          echo "::add-mask::${git_auth}"
           if git \
             -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
             ls-remote \
@@ -163,6 +165,7 @@ jobs:
           git_auth="$(
             printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
           )"
+          echo "::add-mask::${git_auth}"
           tag_commit="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
           if git show-ref \
             --verify \
