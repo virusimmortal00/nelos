@@ -55,12 +55,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: >-
-          git
-          -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}"
-          fetch --force
-          "https://github.com/${GITHUB_REPOSITORY}.git"
-          "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+        run: |
+          set -euo pipefail
+          git_auth="$(
+            printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
+          )"
+          echo "::add-mask::${git_auth}"
+          git \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
+            fetch --force \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -91,8 +96,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git_auth="$(
+            printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
+          )"
+          echo "::add-mask::${git_auth}"
           if git \
-            -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
             ls-remote \
             --exit-code \
             --heads \
@@ -100,7 +109,7 @@ jobs:
             "refs/heads/${STABLE_BRANCH}" >/dev/null 2>&1
           then
             git \
-              -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+              -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
               fetch \
               origin \
               "refs/heads/${STABLE_BRANCH}:refs/remotes/origin/${STABLE_BRANCH}"
@@ -153,6 +162,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git_auth="$(
+            printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0
+          )"
+          echo "::add-mask::${git_auth}"
           tag_commit="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
           if git show-ref \
             --verify \
@@ -203,13 +216,13 @@ jobs:
             )
           fi
           git \
-            -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
             push \
             "${push_arguments[@]}"
 
           promoted_commit="$(
             git \
-              -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
+              -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${git_auth}" \
               ls-remote \
               --heads \
               origin \
