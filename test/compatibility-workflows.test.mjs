@@ -24,10 +24,26 @@ import {
 } from "../scripts/verify-release-compatibility-evidence.mjs";
 import {
   main as collectCompatibilityEvidence,
+  sourceEvidenceRegistry,
 } from "../scripts/collect-compatibility-evidence.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const execFileAsync = promisify(execFile);
+
+test("source evidence follows the upstream split v2 module without mutating the packaged registry", () => {
+  const registry = sourceEvidenceRegistry();
+  const source = registry.capabilities
+    .find(({ id }) => id === "app-server.protocol-shapes")
+    .mappings.upstreamSource[0];
+  assert.deepEqual(source.paths, [
+    "codex-rs/app-server-protocol/src/protocol/common.rs",
+    "codex-rs/app-server-protocol/src/protocol/v2/mod.rs",
+  ]);
+  assert.equal(
+    source.paths.includes("codex-rs/app-server-protocol/src/protocol/v2.rs"),
+    false,
+  );
+});
 
 async function text(path) {
   return readFile(new URL(path, import.meta.url), "utf8");

@@ -32,6 +32,10 @@ import {
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const repositoryUrl = "https://github.com/openai/codex";
+const legacyV2SourcePath =
+  "codex-rs/app-server-protocol/src/protocol/v2.rs";
+const releaseV2SourcePath =
+  "codex-rs/app-server-protocol/src/protocol/v2/mod.rs";
 const requiredMethods = [
   "thread/read",
   "thread/name/set",
@@ -104,15 +108,27 @@ async function collectDocumentation() {
   return createUpstreamDocumentationReportV1([observation]);
 }
 
+export function sourceEvidenceRegistry() {
+  const registry = structuredClone(COMPATIBILITY_CONTRACT_REGISTRY_V1);
+  for (const capability of registry.capabilities) {
+    for (const mapping of capability.mappings.upstreamSource) {
+      mapping.paths = mapping.paths.map((path) =>
+        path === legacyV2SourcePath ? releaseV2SourcePath : path);
+    }
+  }
+  return registry;
+}
+
 async function collectSource(kind, releaseId) {
+  const registry = sourceEvidenceRegistry();
   const reports = [];
-  for (const capability of COMPATIBILITY_CONTRACT_REGISTRY_V1.capabilities) {
+  for (const capability of registry.capabilities) {
     const mapping = capability.mappings.upstreamSource.find(
       ({ repository }) => repository === repositoryUrl,
     );
     if (!mapping) continue;
     reports.push(await collectUpstreamSourceEvidenceV1(
-      COMPATIBILITY_CONTRACT_REGISTRY_V1,
+      registry,
       {
         capabilityId: capability.id,
         repositoryUrl,
