@@ -5,6 +5,43 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.11.0] - 2026-08-03
+
+### User-facing changes
+
+- Added one experiment CI workflow family for offline contracts, pull-request
+  smoke, scheduled regression, powered studies, release canaries, and fenced
+  dedicated Desktop lifecycle validation.
+- Added deterministic gate contracts for sharding, bounded execution, immutable
+  caches, terminal evidence retention, and exact release provenance.
+
+### Compatibility requirements
+
+- Pull-request contract tests require neither model credentials nor live
+  network; powered lanes use isolated homes and explicit task, repetition,
+  concurrency, and start budgets.
+- Release canaries bind exact Codex, plugin, source, runtime-lock, schema, and
+  compatibility identities. Dedicated Desktop jobs remain limited to labeled
+  self-hosted macOS workers.
+
+### Migrations
+
+- Existing dedicated Desktop automation moves from
+  `dedicated-desktop-experiment.yml` into the `experiment-ci.yml` workflow
+  family without changing its fenced lifecycle runtime.
+
+### Security fixes
+
+- Infrastructure failures, interruptions, and incompatible provenance cannot
+  be reported as product success or regression, and budget exhaustion retains
+  all terminal evidence collected before new work stops.
+
+### Known limitations
+
+- Powered studies still require explicitly provisioned runtime credentials and
+  infrastructure; offline and smoke fixtures do not establish live-model
+  quality.
+
 ## [0.10.0] - 2026-08-03
 
 ### User-facing changes

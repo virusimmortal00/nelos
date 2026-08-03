@@ -208,11 +208,11 @@ test("install drains, installs an exact lock, targets the leased processes, and 
 });
 
 test("Desktop automation is dedicated, host-serialized, fixed-driver, and contains no generic termination", async () => {
-  const workflow = await readFile(new URL("../.github/workflows/dedicated-desktop-experiment.yml", import.meta.url), "utf8");
+  const workflow = await readFile(new URL("../.github/workflows/experiment-ci.yml", import.meta.url), "utf8");
   const entrypoint = await readFile(new URL("../scripts/run-dedicated-desktop-lifecycle.mjs", import.meta.url), "utf8");
   const runtime = await readFile(new URL("../src/dedicated-desktop-runtime.mjs", import.meta.url), "utf8");
   assert.match(workflow, /runs-on: \[self-hosted, macOS, nelos-dedicated-desktop\]/u);
-  assert.match(workflow, /group: dedicated-desktop-\$\{\{ inputs\.host_id \}\}/u);
+  assert.match(workflow, /group: dedicated-desktop-\$\{\{ inputs\.desktop_host_id \}\}/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/u);
   assert.match(entrypoint, /\/Library\/NelosDesktopWorker\/automation-driver\.mjs/u);

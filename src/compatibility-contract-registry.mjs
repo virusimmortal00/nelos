@@ -811,7 +811,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.experimentation-contracts",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs test/experimentation-corpus.test.mjs test/experimentation-evidence.test.mjs test/headless-experiment-runtime.test.mjs test/dedicated-desktop-runtime.test.mjs test/experiment-runner.test.mjs test/experimentation-reporting.test.mjs",
+      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs test/experimentation-corpus.test.mjs test/experimentation-evidence.test.mjs test/headless-experiment-runtime.test.mjs test/dedicated-desktop-runtime.test.mjs test/experiment-runner.test.mjs test/experiment-ci-gates.test.mjs test/experimentation-reporting.test.mjs",
       source: "test/experimentation-contract-export.test.mjs",
     }),
     Object.freeze({
@@ -959,11 +959,14 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
         owned: Object.freeze([
-          ".github/workflows/dedicated-desktop-experiment.yml",
+          ".github/workflows/experiment-ci.yml",
           "bin/nelos-experiment",
           "bin/nelos-verify-experiment-report",
+          "scripts/bind-release-experiment-canary.mjs",
           "scripts/run-dedicated-desktop-lifecycle.mjs",
+          "scripts/run-experiment-ci-gate.mjs",
           "src/dedicated-desktop-runtime.mjs",
+          "src/experiment-ci-gates.mjs",
           "src/experiment-runner.mjs",
           "src/experimentation-reporting/**",
           "src/headless-experiment-runtime.mjs",
@@ -986,6 +989,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/experimentation-contract-semver.test.mjs",
           "test/experimentation-corpus.test.mjs",
           "test/experimentation-evidence.test.mjs",
+          "test/experiment-ci-gates.test.mjs",
           "test/experiment-runner.test.mjs",
           "test/experimentation-reporting.test.mjs",
           "test/experimentation-runtime-lock-contract.test.mjs",

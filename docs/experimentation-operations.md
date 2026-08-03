@@ -294,6 +294,17 @@ Every report bundle contains:
 All lanes use the same runner and contracts. They differ only in the sealed
 manifest, task selection, repetitions, and runtime eligibility.
 
+The executable workflow family is `.github/workflows/experiment-ci.yml` and its
+shared admission, sharding, provenance, budget, and terminal-evidence contract is
+`src/experiment-ci-gates.mjs`. `scripts/run-experiment-ci-gate.mjs` exercises the
+same sealed manifest expansion used by `nelos-experiment`; it is also the offline
+end-to-end fixture driver for success, regression, infrastructure outage,
+interruption, incompatible provenance, and deterministic report regeneration.
+Release jobs add a closed canary binding over exact Codex and plugin versions,
+source commit, runtime lock, generated schema, and compatibility bundle. Desktop
+jobs remain manual and run only on `self-hosted`, `macOS`, and
+`nelos-dedicated-desktop` labeled workers.
+
 Shards contain disjoint deterministic trial identities. A merger verifies the
 same experiment, corpus, runtime policy, collector, and grader provenance and
 rejects duplicate or missing trials.
