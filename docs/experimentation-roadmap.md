@@ -95,11 +95,13 @@ are normalized or rejected without silently losing work.
 
 ### Experiment runner
 
-- Manifest validation and deterministic matrix expansion.
-- Seeds, blocks, queues, leases, attempts, cancellation, and resumption.
-- Direct Codex and Nelos adapters.
-- Idempotent effects and fail-closed finalization.
-- Local content-addressed artifact storage and query index.
+- Complete: manifest validation and deterministic matrix expansion.
+- Complete: seeds, bounded queues and quotas, fenced leases, attempts,
+  cancellation, retry, and generation-based resumption.
+- Complete: direct Codex and Nelos adapter API and headless process adapter.
+- Complete: idempotent command receipts, reconciliation, and fail-closed
+  finalization.
+- Complete: local content-addressed attempt storage and replaceable query index.
 
 Exit: a small repeated Nelos-versus-direct matrix is reproducible from a clean
 environment and resumes without duplicating valid trials.

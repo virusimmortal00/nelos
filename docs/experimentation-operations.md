@@ -2,8 +2,9 @@
 
 Status: correlated evidence collectors, append-only event ledger, task-web
 accounting, artifact privacy controls, provenance validation, evidence-health
-analysis, and attempt-manifest verification implemented; the experiment runner,
-query index, reporting operations, and fleet control plane remain proposed.
+analysis, attempt-manifest verification, and the local resumable experiment
+runner are implemented; reporting operations and the fleet control plane remain
+proposed.
 
 This document defines execution, evidence collection, reporting operations, and
 scale behavior for the [experimentation framework](experimentation-framework.md).
@@ -14,6 +15,15 @@ lifecycle records, the runner, query index, reporting operations, and fleet
 services described here remain proposed.
 
 ## Runner responsibilities
+
+The runner implementation is exported from `nelos/experiment-runner` and the
+headless CLI is `nelos-experiment`. A runner manifest binds one sealed
+`Experiment`, an ordered list of sealed `Task` records, direct-Codex and Nelos
+adapter commands, and bounded scheduling policy. Adapter commands consume one
+canonical JSON request on standard input and produce one JSON result on standard
+output. This keeps invocation replaceable while including the exact command,
+version, and non-secret environment declaration in the persisted manifest
+digest.
 
 The runner may:
 
@@ -253,10 +263,11 @@ an informational warning.
 
 ## Storage and reporting
 
-The first implementation should use content-addressed artifact directories plus
-SQLite or DuckDB indexes for local queries. The immutable artifact and event
-formats are the scaling boundary; a later backend can use object storage,
-PostgreSQL, and a durable queue without changing experiment contracts.
+The local implementation uses content-addressed immutable JSON objects and
+generation refs plus a replaceable derived JSON query index. The immutable
+artifact and event formats are the scaling boundary; a later index may use
+SQLite or DuckDB, and a later backend can use object storage, PostgreSQL, and a
+durable queue without changing experiment contracts.
 
 Every report bundle contains:
 

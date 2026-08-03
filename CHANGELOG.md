@@ -5,6 +5,38 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.9.0] - 2026-08-03
+
+### User-facing changes
+
+- Added a deterministic resumable experiment runner API and
+  `nelos-experiment` CLI with stable matrix expansion, seeds, trials, and
+  content-addressed run bundles.
+- Added direct Codex and Nelos adapter contracts with fenced scheduling,
+  cancellation, retry, reconciliation, and generation-based resume.
+
+### Compatibility requirements
+
+- Runner inputs, adapter identities, budgets, and provenance are immutable for
+  an existing run identity; conflicting reuse fails closed.
+- Resume trusts only verified terminal attempts and schedules unfinished work
+  under a new generation without overwriting prior evidence.
+
+### Migrations
+
+- Experiment automation can adopt the `nelos/experiment-runner` export or the
+  `nelos-experiment` CLI while keeping existing runtime and evidence adapters.
+
+### Security fixes
+
+- Finalization rejects incomplete, mismatched, partially evidenced, or
+  ambiguously dispatched attempts instead of producing a successful bundle.
+
+### Known limitations
+
+- The runner produces immutable machine-readable bundles; aggregate reporting
+  and fleet-scale operations remain follow-on milestones.
+
 ## [0.8.0] - 2026-08-03
 
 ### User-facing changes

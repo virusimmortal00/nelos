@@ -41,6 +41,7 @@ export const REQUIRED_CLI_COMMANDS = [
 ];
 export const MANAGED_CLI_BINS = Object.freeze({
   "nelos": "bin/nelos",
+  "nelos-experiment": "bin/nelos-experiment",
   "nelos-title": "bin/nelos-title",
   "nelos-install-skill": "bin/nelos-install-skill",
   "nelos-install-distribution": "bin/nelos-install-distribution",

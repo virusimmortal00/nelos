@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+import {
+  adaptersFromManifest,
+  expandExperimentPlan,
+  ExperimentRunStore,
+  runExperiment,
+  validateRunnerManifest,
+} from "../src/experiment-runner.mjs";
+
+function usage(message) {
+  if (message) process.stderr.write(`${message}\n\n`);
+  process.stderr.write(`Usage:
+  nelos-experiment validate --manifest FILE
+  nelos-experiment plan --manifest FILE
+  nelos-experiment run --manifest FILE --store DIR [--run-id ID]
+  nelos-experiment resume --manifest FILE --store DIR --run-id ID --generation N
+
+Adapter commands read one canonical JSON request from stdin and must write one JSON
+result to stdout. Commands, versions, and non-secret environment entries are bound
+by the persisted runner-manifest digest.
+`);
+  process.exitCode = 2;
+}
+
+function argumentsFor(argv) {
+  const command = argv[0];
+  const values = {};
+  for (let index = 1; index < argv.length; index += 1) {
+    const name = argv[index];
+    if (!["--manifest", "--store", "--run-id", "--generation"].includes(name) || index + 1 >= argv.length) {
+      usage(`Unknown or incomplete option: ${name}`);
+      return null;
+    }
+    values[name.slice(2)] = argv[index += 1];
+  }
+  return { command, values };
+}
+
+async function main() {
+  const parsed = argumentsFor(process.argv.slice(2));
+  if (!parsed || !["validate", "plan", "run", "resume"].includes(parsed.command) || !parsed.values.manifest) return usage();
+  const manifest = JSON.parse(await readFile(resolve(parsed.values.manifest), "utf8"));
+  if (parsed.command === "validate") {
+    validateRunnerManifest(manifest);
+    process.stdout.write(`${JSON.stringify({ valid: true })}\n`);
+    return;
+  }
+  const plan = expandExperimentPlan(manifest);
+  if (parsed.command === "plan") {
+    process.stdout.write(`${JSON.stringify(plan)}\n`);
+    return;
+  }
+  if (!parsed.values.store) return usage("--store is required");
+  if (parsed.command === "resume" && (!parsed.values["run-id"] || !parsed.values.generation)) return usage("resume requires --run-id and --generation");
+  const generation = parsed.values.generation === undefined ? null : Number(parsed.values.generation);
+  if (generation !== null && (!Number.isSafeInteger(generation) || generation < 1)) return usage("--generation must be a positive integer");
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
+  try {
+    const result = await runExperiment({
+      manifest,
+      store: await ExperimentRunStore.open(resolve(parsed.values.store)),
+      adapters: adaptersFromManifest(manifest),
+      runId: parsed.values["run-id"],
+      resume: parsed.command === "resume" ? { runId: parsed.values["run-id"], generation } : null,
+      signal: controller.signal,
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.outcome !== "succeeded") process.exitCode = 1;
+  } finally {
+    process.removeListener("SIGINT", cancel);
+    process.removeListener("SIGTERM", cancel);
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`${JSON.stringify({ error: error.code ?? "UNEXPECTED", message: error.message, details: error.details ?? {} })}\n`);
+  process.exitCode = 1;
+});
