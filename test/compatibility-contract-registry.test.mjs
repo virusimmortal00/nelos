@@ -131,6 +131,7 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "docs/slice-planning.md",
     "src/mcp-server.mjs",
     "src/nelos-configuration.mjs",
+    "src/planning-bootstrap.mjs",
     "src/planning-lifecycle.mjs",
     "src/vendor/smol-toml-1.6.0.LICENSE",
     "src/vendor/smol-toml-1.6.0.cjs",
@@ -140,6 +141,7 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "test/mcp-config.test.mjs",
     "test/mcp-server.test.mjs",
     "test/nelos-configuration.test.mjs",
+    "test/exception-replanning.test.mjs",
     "test/plugin-marketplace.test.mjs",
     "test/web-inspection.test.mjs",
   ];
