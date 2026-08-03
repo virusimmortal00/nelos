@@ -5,6 +5,36 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.0] - 2026-08-03
+
+### User-facing changes
+
+- Added a durable experiment fleet control plane with exact worker admission,
+  bounded weighted-fair queues, quotas, reservations, fenced leases, health
+  management, deterministic shard merge, replaceable storage, and recovery
+  verification.
+
+### Compatibility requirements
+
+- Fleet scheduling preserves existing experiment, evidence, artifact, and
+  result bytes and identities. Shards with mismatched experiment, corpus,
+  runtime, collector, grader, or plan provenance fail closed.
+
+### Migrations
+
+- None. Existing single-run and CI-gate entry points remain valid; fleet
+  coordination is an additive exported contract.
+
+### Security fixes
+
+- Lease loss now fences new effects and requires reconciliation before retrying
+  ambiguous mutations; contaminated or clock-anomalous workers are quarantined.
+
+### Known limitations
+
+- Durable fleet deployments still require operators to provide a shared
+  immutable object-store adapter and external worker infrastructure.
+
 ## [0.11.0] - 2026-08-03
 
 ### User-facing changes
