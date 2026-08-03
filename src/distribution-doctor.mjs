@@ -121,9 +121,15 @@ export async function diagnoseDistribution(options = {}) {
       inspectCliProvenance(nelosTaskBinding?.matches[0]?.path ?? null),
       inspectProvenance(join(codexHome, "skills", "manage-nelos-tasks", PROVENANCE_FILENAME)),
       inspectProvenance(join(state.plugin.installedPath, PROVENANCE_FILENAME)),
-      observedIntegrity(() => computeDistributionIntegrity(state.releasePath)),
+      observedIntegrity(() => computeDistributionIntegrity(
+        state.releasePath,
+        { allowLegacyWithoutCorpus: true },
+      )),
       observedIntegrity(() => computeFileIntegrity(join(state.skillPath, "SKILL.md"))),
-      observedIntegrity(() => computeDistributionIntegrity(state.plugin.installedPath)),
+      observedIntegrity(() => computeDistributionIntegrity(
+        state.plugin.installedPath,
+        { allowLegacyWithoutCorpus: true },
+      )),
     ]);
     const distributionIntact = Boolean(
       state.provenance.integrity &&

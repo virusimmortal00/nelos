@@ -5,6 +5,38 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.6.0] - 2026-08-03
+
+### User-facing changes
+
+- Added immutable governed experiment task packages and a reproducible starter
+  corpus spanning ten task families with seven deterministic machine outcomes.
+- Added host-isolated hidden grading, contamination controls, semantic corpus
+  revision tooling, release locks, and public experimentation-corpus exports.
+- Bound grader, task, package, and corpus identities to a recursive manifest of
+  the complete shipped grader implementation and its local contract modules.
+
+### Compatibility requirements
+
+- Task packages now fail closed when their grader identity does not match the
+  exact installed implementation. Regenerate packages after grader or local
+  experimentation-contract module changes.
+
+### Migrations
+
+- Existing development corpus packages must be rebuilt with
+  `npm run corpus:build` before grading under `0.6.0`.
+
+### Security fixes
+
+- Candidate-visible and hidden grader assets may not reuse the same digest,
+  preventing hidden-oracle bytes from crossing audience boundaries.
+
+### Known limitations
+
+- The bundled corpus is an offline starter release; additional task families
+  require the documented governed semantic-revision workflow.
+
 ## [0.5.3] - 2026-08-03
 
 ### User-facing changes

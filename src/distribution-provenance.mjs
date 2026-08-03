@@ -56,6 +56,7 @@ export const DISTRIBUTION_ENTRIES = [
   "assets",
   "bin",
   "completions",
+  "corpus",
   "docs",
   "package.json",
   "skills",
@@ -238,9 +239,20 @@ async function listIntegrityFiles(root, entry) {
   return files;
 }
 
-export async function computeDistributionIntegrity(root) {
+export async function computeDistributionIntegrity(
+  root,
+  { allowLegacyWithoutCorpus = false } = {},
+) {
   const files = [];
   for (const entry of DISTRIBUTION_ENTRIES) {
+    if (allowLegacyWithoutCorpus && entry === "corpus") {
+      try {
+        await lstat(join(root, entry));
+      } catch (error) {
+        if (error.code === "ENOENT") continue;
+        throw error;
+      }
+    }
     files.push(...(await listIntegrityFiles(root, entry)));
   }
   files.sort((left, right) => {
