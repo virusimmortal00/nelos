@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { readProcessIdentity } from "../src/process-liveness.mjs";
+import {
+  createBoundedProcessIdentityLookup,
+  readProcessIdentity,
+} from "../src/process-liveness.mjs";
 import {
   readTaskRegistryRecord,
   readWebRecord,
@@ -16,6 +19,31 @@ import {
 } from "../src/task-state.mjs";
 
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
+
+test("contended owner identity lookups are bounded instead of spawning once per retry", async () => {
+  let now = 0;
+  let spawnCount = 0;
+  const readOwnerIdentity = createBoundedProcessIdentityLookup({
+    isRunning: () => true,
+    now: () => now,
+    maxAgeMs: 100,
+    async readIdentity(pid) {
+      spawnCount += 1;
+      return { "ps-start": `start:${pid}` };
+    },
+  });
+
+  for (let retry = 0; retry < 20; retry += 1) {
+    await readOwnerIdentity(4242);
+    now += 5;
+  }
+  assert.equal(spawnCount, 1);
+
+  // Expiry deliberately rechecks the owner, preserving PID-reuse detection.
+  now += 100;
+  await readOwnerIdentity(4242);
+  assert.equal(spawnCount, 2);
+});
 
 test("pre-queen records retain lineage and rewrite to the current schema", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-state-upgrade-"));

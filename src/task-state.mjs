@@ -12,11 +12,15 @@ import { homedir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
 
 import {
+  createBoundedProcessIdentityLookup,
   processMayOwnLease,
   readProcessIdentity,
 } from "./process-liveness.mjs";
 
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
+// This process cannot be replaced under its own PID. Cache both success and
+// failure so every state-lock acquisition does not spawn macOS `ps` again.
+const currentProcessIdentity = readProcessIdentity(process.pid);
 
 function sleep(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -161,10 +165,14 @@ async function withOwnedStateLock(lockName, callback, timeoutMs) {
   const ownerPath = join(lockPath, "owner.json");
   const token = randomUUID();
   const deadline = Date.now() + timeoutMs;
-  const processIdentity = await readProcessIdentity(process.pid);
+  const processIdentity = await currentProcessIdentity;
   if (!processIdentity) {
     throw new Error("could not establish the state-lock owner process identity");
   }
+  // Owner identities are only cached during this acquisition. The bounded
+  // lifetime prevents retry loops from spawning `ps` each time while ensuring
+  // a replacement process is re-examined before stale-lock reclamation.
+  const readOwnerIdentity = createBoundedProcessIdentityLookup();
 
   while (true) {
     try {
@@ -188,7 +196,7 @@ async function withOwnedStateLock(lockName, callback, timeoutMs) {
         .catch(() => null);
       const lockInfo = await stat(lockPath).catch(() => null);
       const activeIdentity = owner
-        ? await readProcessIdentity(owner.pid)
+        ? await readOwnerIdentity(owner.pid)
         : null;
       // State callbacks are short and caller-bounded. Be conservative on
       // pid-only platforms: reclaim a live PID only when a strong identity
