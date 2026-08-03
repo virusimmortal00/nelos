@@ -1012,6 +1012,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "src/exception-replanning.mjs",
           "src/execution-map.mjs",
           "src/execution-store.mjs",
+          "src/distribution-doctor.mjs",
           "src/distribution-install.mjs",
           "src/distribution-provenance.mjs",
           "src/distribution-uninstall.mjs",
