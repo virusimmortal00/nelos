@@ -928,10 +928,11 @@ test("completed cleanup requires the full prerequisite closure for a later wave"
     decisions: [acceptance(memberB)],
     planRunStore: {
       async requireWave({ waveIndex, waveDigest }) {
-        const wave = record.waves.find((candidate) =>
+        const snapshot = structuredClone(record);
+        const wave = snapshot.waves.find((candidate) =>
           candidate.waveIndex === waveIndex);
         assert.equal(wave?.waveDigest, waveDigest);
-        return { record, wave };
+        return { record: snapshot, wave };
       },
     },
   });

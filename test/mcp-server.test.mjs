@@ -1345,14 +1345,15 @@ test("launch verification rejects a conflicting joined-member binding atomically
     receipt: null,
   });
   const launch = prepared.effects.find(({ type }) => type === "native-create");
+  assert.ok(launch);
   await orchestrationAdapter.orchestrate({
     workUnit: definition,
     receipt: {
       schemaVersion: 1,
       actionId: launch.actionId,
       type: "native-create",
-      workUnitId: "review",
-      specRevision: 1,
+      workUnitId: review.workUnitId,
+      specRevision: review.specRevision,
       attempt: 1,
       memberThreadId: "thread-review-existing",
     },
