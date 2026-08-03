@@ -64,10 +64,13 @@ host processes and sockets remain untouched.
 
 ### Desktop runtime
 
-- Dedicated macOS worker admission and automation marker.
-- Exact bundle/plugin installation, restart, fresh-task discovery, and recovery.
-- Exclusive lease, targeted lifecycle controls, quarantine, and reimage.
-- Guard that rejects development hosts and generic process termination.
+- Complete: dedicated macOS worker admission and automation marker.
+- Complete: exact bundle/plugin installation, restart, fresh-task discovery,
+  upgrade, rollback, and crash recovery.
+- Complete: exclusive fenced lease, targeted lifecycle controls, quarantine,
+  cleanup, and signed golden-image reimage.
+- Complete: guard that rejects development homes, profiles, credentials,
+  headless evidence, and generic process termination.
 
 Exit: install/restart/upgrade/crash tests run on a disposable dedicated worker
 and cannot address the development Codex app.

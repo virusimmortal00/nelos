@@ -1,7 +1,6 @@
 # Experiment Runtime Isolation and Version Locking
 
-Status: v1 RuntimeLock contract and headless worker lane implemented; dedicated
-Desktop execution remains proposed.
+Status: v1 RuntimeLock, hermetic headless worker lane, and dedicated Desktop worker lane implemented.
 
 This document defines the execution environments for the
 [experimentation framework](experimentation-framework.md). It separates routine
@@ -12,9 +11,10 @@ The closed v1 `RuntimeLock` record and its identity, revision, lineage, digest,
 and lifecycle APIs are part of the implemented
 [contract foundation](experimentation-framework.md#implemented-contract-foundation).
 The headless worker admission and lifecycle API is implemented in
-`src/headless-experiment-runtime.mjs`. A deployment supplies an engine adapter
-for its OCI or disposable-VM infrastructure. The dedicated Desktop worker
-remains a proposed execution system.
+`src/headless-experiment-runtime.mjs`; deployments supply an engine adapter for
+their OCI or disposable-VM infrastructure. The dedicated Desktop worker
+contract, automation entrypoint, workflow, and disposable tests are implemented
+in the [dedicated worker runbook](dedicated-desktop-worker.md).
 
 ## Runtime classes
 
@@ -93,6 +93,10 @@ rejects absolute paths, traversal, missing paths, and symlinks whose canonical
 target escapes the attempt output root.
 
 ## Dedicated Desktop boundary
+
+The executable v1 boundary is defined by the
+[dedicated Desktop worker contract](dedicated-desktop-worker.md). The rules
+below are its normative safety requirements.
 
 Desktop testing requires:
 

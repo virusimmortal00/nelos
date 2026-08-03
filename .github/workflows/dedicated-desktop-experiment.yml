@@ -1,0 +1,83 @@
+name: Dedicated Desktop experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Exact leased lifecycle action
+        required: true
+        type: choice
+        options: [install, restart, upgrade, cancel, crash-recovery, cleanup, rollback, reimage]
+      host_id:
+        description: Dedicated worker identity
+        required: true
+        type: string
+      lease_id:
+        description: Current exclusive lease identity
+        required: true
+        type: string
+      request_id:
+        description: Sealed request identity under the worker request root
+        required: true
+        type: string
+      request_digest:
+        description: SHA-256 digest of the sealed request
+        required: true
+        type: string
+      golden_image_digest:
+        description: Signed golden-image digest expected by the lease
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dedicated-desktop-${{ inputs.host_id }}
+  cancel-in-progress: false
+
+jobs:
+  lifecycle:
+    name: Fenced Desktop / ${{ inputs.host_id }} / ${{ inputs.action }}
+    runs-on: [self-hosted, macOS, nelos-dedicated-desktop]
+    environment: dedicated-desktop-experiment
+    timeout-minutes: 45
+    steps:
+      - name: Checkout trusted lifecycle automation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Execute one exact fenced lifecycle action
+        env:
+          DESKTOP_ACTION: ${{ inputs.action }}
+          DESKTOP_GOLDEN_IMAGE_DIGEST: ${{ inputs.golden_image_digest }}
+          DESKTOP_HOST_ID: ${{ inputs.host_id }}
+          DESKTOP_LEASE_ID: ${{ inputs.lease_id }}
+          DESKTOP_REQUEST_DIGEST: ${{ inputs.request_digest }}
+          DESKTOP_REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p dedicated-desktop-evidence
+          node automation/scripts/run-dedicated-desktop-lifecycle.mjs \
+            --action "$DESKTOP_ACTION" \
+            --host-id "$DESKTOP_HOST_ID" \
+            --lease-id "$DESKTOP_LEASE_ID" \
+            --request-id "$DESKTOP_REQUEST_ID" \
+            --request-digest "$DESKTOP_REQUEST_DIGEST" \
+            --golden-image-digest "$DESKTOP_GOLDEN_IMAGE_DIGEST" \
+            > dedicated-desktop-evidence/receipt.json
+      - name: Retain Desktop-only receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dedicated-desktop-${{ inputs.host_id }}-${{ inputs.lease_id }}
+          path: dedicated-desktop-evidence/
+          if-no-files-found: warn
+          retention-days: 30
