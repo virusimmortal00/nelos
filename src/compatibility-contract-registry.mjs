@@ -1069,6 +1069,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/compatibility-rollout-e2e.test.mjs",
           "test/compatibility-workflows.test.mjs",
           "test/durable-spinoff-composition.test.mjs",
+          "test/distribution-doctor.test.mjs",
           "test/distribution-install.test.mjs",
           "test/distribution-provenance.test.mjs",
           "test/execution-map.test.mjs",
