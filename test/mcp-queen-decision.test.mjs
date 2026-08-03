@@ -14,7 +14,11 @@ import {
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
 import { McpQueenDecisionAdapterV1 } from "../src/mcp-queen-decision.mjs";
 import { OrchestrationCheckpointStoreV1 } from "../src/orchestration-checkpoint-store.mjs";
-import { QueenAcceptanceStoreV1 } from "../src/queen-acceptance.mjs";
+import {
+  QueenAcceptanceStoreV1,
+  createQueenAcceptanceV1,
+  queenAcceptanceIdV1,
+} from "../src/queen-acceptance.mjs";
 import {
   SpinoffLifecycleAdapterV1,
   SpinoffLifecycleStoreV1,
@@ -314,6 +318,100 @@ test("exact restart replay is idempotent and conflicting reuse is rejected", asy
       appServerBridge: currentBridge,
     }),
     /different decision/u,
+  );
+});
+
+test("unknown dependencies reject a queen decision without mutating durable state", async (t) => {
+  const current = await fixture(t, "succeeded", {
+    workUnitOverrides: { dependencies: ["missing-review"] },
+  });
+  const beforeCheckpoint = await current.checkpointStore.read("A1", "queen");
+
+  await assert.rejects(
+    new McpQueenDecisionAdapterV1(current.adapterOptions).decide(
+      input(current.receipt),
+      { appServerBridge: currentBridge },
+    ),
+    /unknown dependency missing-review for alpha/u,
+  );
+
+  assert.deepEqual(await current.acceptanceStore.list(), []);
+  assert.deepEqual(
+    await current.checkpointStore.read("A1", "queen"),
+    beforeCheckpoint,
+  );
+  assert.equal(beforeCheckpoint.members[0].coordination.state, "collected");
+});
+
+test("a persisted accepted joined review satisfies a dependent decision after restart", async (t) => {
+  const current = await fixture(t, "succeeded", {
+    workUnitOverrides: { dependencies: ["review"] },
+  });
+  const review = workUnit({
+    workUnitId: "review",
+    memberKind: "joined-subagent",
+    capabilities: ["observe", "read-result", "follow-up"],
+    title: "Review",
+    dependencies: [],
+  });
+  await current.executionStore.create(review);
+  await current.executionStore.markLaunchPending({
+    workUnitId: "review",
+    specRevision: 1,
+    launchActionId: "launch-review",
+  });
+  await current.executionStore.bind({
+    workUnitId: "review",
+    specRevision: 1,
+    launchActionId: "launch-review",
+    memberThreadId: "thread-review",
+  });
+  await current.acceptanceStore.record(createQueenAcceptanceV1({
+    schemaVersion: 1,
+    decisionId: queenAcceptanceIdV1({
+      webId: "A1",
+      workUnitId: "review",
+      specRevision: 1,
+      attempt: 1,
+      memberThreadId: "thread-review",
+      sourceTurnId: "turn-review",
+    }),
+    webId: "A1",
+    queenThreadId: "queen",
+    workUnitId: "review",
+    specRevision: 1,
+    attempt: 1,
+    memberThreadId: "thread-review",
+    sourceTurnId: "turn-review",
+    decision: "accepted",
+    decisionSummary: "The independent joined review passed.",
+    result: {
+      schemaVersion: 1,
+      workUnitId: "review",
+      specRevision: 1,
+      attempt: 1,
+      outcome: "succeeded",
+      summary: "review passed",
+      artifacts: [],
+      verification: ["independent review"],
+      blockers: [],
+      recoveryHint: null,
+    },
+    recordedAt: "2026-08-03T12:00:00.000Z",
+  }));
+
+  const accepted = await new McpQueenDecisionAdapterV1(
+    current.adapterOptions,
+  ).decide(input(current.receipt), {
+    appServerBridge: currentBridge,
+  });
+
+  assert.equal(accepted.decision.decision, "accepted");
+  assert.equal(
+    accepted.readiness.entries.find(
+      ({ workUnitId }) => workUnitId === "alpha",
+    ).unacceptedDependencies.length,
+    0,
   );
 });
 

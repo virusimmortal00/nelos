@@ -94,11 +94,14 @@ queen-owned compact web identity. The queen and every spinoff title are rendered
 from that identity before a wave is returned. Replays reuse the same identity
 and exact titles; conflicting persisted or observed identities fail closed.
 
-Each durable `launch-wave` member carries an exact
+Each web-backed `launch-wave` member carries an exact
 `nelos_orchestrate_create` preparation call. The queen must execute that call
-before native task creation, create only from its returned effect, and submit
-the exact task-ID receipt to bind the work unit. This guarantees the callback
-target exists before the worker can call `nelos_spinoff_complete`.
+before native creation, create only from its returned effect, and submit the
+exact task-ID receipt to bind the work unit. Joined subagents use their
+canonical agent path for collaboration control and the resolved native thread
+ID only for the binding receipt. This persists review evidence before a later
+wave can depend on it and guarantees a spinoff callback target exists before
+the worker can call `nelos_spinoff_complete`.
 Durable spin-offs are cleanup-capable by default: omitted `cleanupIntended`
 behaves as `true` and grants the work unit `archive` capability. This is
 authority for the later lifecycle step, not permission to archive immediately;

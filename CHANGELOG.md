@@ -5,6 +5,43 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.5.3] - 2026-08-03
+
+### User-facing changes
+
+- Persisted web-backed joined subagents as durable work units so accepted
+  review results can satisfy later spin-off dependencies after restart.
+- Added an idempotent legacy reconciliation path: successful launch-batch
+  verification adopts previously omitted joined members into the execution
+  web, while later waves stop with the exact missing dependency IDs until the
+  repair is completed.
+- Made queen decisions validate the complete dependency graph before writing
+  acceptance state, so an unknown dependency cannot partially advance a
+  correction attempt.
+- Allowed a completed spin-off cleanup call to consume the exact next-wave
+  launch authorization receipt it requested.
+
+### Compatibility requirements
+
+- `nelos_launch_verify_batch` is now non-read-only and idempotent because a
+  successful call may persist a verified joined-member binding.
+- `nelos_spinoff_cleanup` accepts the optional, backward-compatible
+  `launchAuthorization` receipt used by its next-wave execution gate.
+
+### Migrations
+
+- Existing webs stopped by `missing-persisted-dependency-work-units` should
+  replay exact launch-batch verification for the named joined members. Nelos
+  revalidates their native identity and adopts their binding without relaunch.
+
+### Security fixes
+
+- No security fixes.
+
+### Known limitations
+
+- No new known limitations.
+
 ## [0.5.2] - 2026-08-03
 
 ### User-facing changes

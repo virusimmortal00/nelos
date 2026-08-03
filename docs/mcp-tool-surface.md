@@ -50,13 +50,15 @@ long-lived
   current native host tool registry, and explicit user intent. It
   deterministically produces the receipt that must be replayed through the
   planning tool and never launches work itself;
-- `nelos_launch_verify_batch` — performs one all-or-nothing read-only gate for
+- `nelos_launch_verify_batch` — performs one all-or-nothing idempotent gate for
   1–16 launched wave members. It binds receipts to a persisted plan-run,
   wave index, digest, and authoritative member contract; resolves subagents
   from parent plus canonical agent path; rejects altered member sets and
   duplicate identities; performs one bounded inventory and topology
   projection; and verifies lifecycle-appropriate identity plus route metadata.
-  Joined subagents use agent-path identity with title `not-applicable`;
+  Joined subagents use agent-path identity with title `not-applicable`; a
+  successful gate adopts their verified native thread binding into the durable
+  execution web, including as a reconciliation path for older plan runs;
   spinoffs require exact settled native titles. Any member failure prevents
   the downstream wait/read action;
 - `nelos_execution_map_refresh` — performs bounded latest-turn reads for 1–16
@@ -143,9 +145,11 @@ long-lived
   `archived` worker card. Aggregate counts remain available in the structured
   receipt without duplicating the visible worker roster.
 
-Bootstrap preparation, batch launch verification, thread inspection,
-inventory, web inspection, wait, health, routing, verification, and subagent identity
-resolution perform read-only work. Lifecycle planning, exception replanning,
+Bootstrap preparation, thread inspection, inventory, web inspection, wait,
+health, routing, verification, and subagent identity resolution perform
+read-only work. Batch launch verification is non-read-only and idempotent
+because successful verification adopts joined members into the execution web.
+Lifecycle planning, exception replanning,
 the bootstrap compatibility tool, and structured planning are annotated
 non-read-only and idempotent because they write private checkpoints. Queen
 title synchronization is returned as a host-owned effect.

@@ -12,6 +12,9 @@ import { derivePlanWaveActionV1 } from "./next-action.mjs";
 import {
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
 } from "./launch-execution-gate.mjs";
+import {
+  missingPersistedDependencyIdsV1,
+} from "./plan-orchestration-bridge.mjs";
 
 export const MCP_OBSERVATION_SCHEMA_VERSION = 1;
 
@@ -177,6 +180,7 @@ async function terminalNextAction(
   queenThreadId,
   workUnits,
   planRunStore,
+  executionStore,
   launchAuthorization,
 ) {
   if (
@@ -236,10 +240,26 @@ async function terminalNextAction(
           nextWaveIndex: lastVerifiedWave + 1,
         };
       }
+      const nextWaveIndex = lastVerifiedWave + 1;
+      const missingDependencies = missingPersistedDependencyIdsV1(
+        activeRun.plan,
+        nextWaveIndex,
+        await executionStore.list(),
+      );
+      if (missingDependencies.length > 0) {
+        return {
+          schemaVersion: 1,
+          kind: "attention",
+          reason: "missing-persisted-dependency-work-units",
+          planRunId: activeRun.planRunId,
+          nextWaveIndex,
+          workUnitIds: missingDependencies,
+        };
+      }
       return derivePlanWaveActionV1(
         activeRun.plan,
         activeRun,
-        lastVerifiedWave + 1,
+        nextWaveIndex,
         activeRun.cleanupIntended,
         launchAuthorization,
       );
@@ -416,6 +436,7 @@ export class McpJoinAdapterV1 {
         queenThreadId,
         workUnits,
         this.#planRunStore,
+        this.#executionStore,
         launchAuthorization,
       );
       return {

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test, { after } from "node:test";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
+import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 import {
   NelosConfigStoreV1,
@@ -753,6 +754,14 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
   });
   assert.equal(settled.state, "complete");
   assert.equal(settled.nextAction.kind, "authorization-required");
+  const authorized = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 1, waveDigest: waves[0].waveDigest,
+    launchAuthorization: authorizeLaunchProposal(settled.nextAction),
+  });
+  assert.equal(authorized.state, "complete");
+  assert.equal(authorized.nextAction.kind, "launch-wave");
+  assert.equal(authorized.nextAction.waveIndex, 2);
   const later = await adapter.cleanup({
     webId: "A1", queenThreadId: "queen", planRunId,
     waveIndex: 2, waveDigest: waves[1].waveDigest, policy: "auto",
@@ -806,6 +815,67 @@ test("wave-scoped reconciliation retains an earlier unscoped archive action", as
   });
   assert.equal(scoped.effects[0].type, "native-reconcile-archive");
   assert.equal(scoped.effects[0].originalActionId, unscoped.effects[0].actionId);
+});
+
+test("completed cleanup stops before a wave with an omitted joined dependency", async (t) => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Require a persisted review before implementation",
+    maxParallel: 2,
+    slices: [
+      {
+        id: "review", title: "Review", objective: "Review", deliverable: "Review",
+        acceptanceCriteria: ["Review passes"], dependsOn: [], lifecycle: "subagent",
+        workspaceMode: "shared-read-only", taskShape: "everyday",
+      },
+      {
+        id: "member-a", title: "Member A", objective: "A", deliverable: "A",
+        acceptanceCriteria: ["A"], dependsOn: [], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+      {
+        id: "member-b", title: "Member B", objective: "B", deliverable: "B",
+        acceptanceCriteria: ["B"], dependsOn: ["review", "member-a"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+    ],
+  });
+  const created = createPlanRunV1(plan, {
+    queenThreadId: "queen",
+    sourceId: "missing-joined-dependency-test",
+    webIdentity: {
+      schemaVersion: 1, webId: "A1", queenThreadId: "queen",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const record = { ...created, verifiedWaveIndexes: [1] };
+  const { adapter } = await fixture(t, {
+    planRunStore: {
+      async requireWave({ waveIndex, waveDigest }) {
+        const wave = record.waves.find((candidate) =>
+          candidate.waveIndex === waveIndex);
+        assert.equal(wave?.waveDigest, waveDigest);
+        return { record, wave };
+      },
+    },
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 1, waveDigest: record.waves[0].waveDigest, policy: "auto",
+  });
+  const settled = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 1, waveDigest: record.waves[0].waveDigest,
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+  assert.deepEqual(settled.nextAction, {
+    schemaVersion: 1,
+    kind: "attention",
+    reason: "missing-persisted-dependency-work-units",
+    planRunId: record.planRunId,
+    nextWaveIndex: 2,
+    workUnitIds: ["review"],
+  });
 });
 
 test("completed cleanup returns attention when the next wave contract is unavailable", async (t) => {

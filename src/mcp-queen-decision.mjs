@@ -233,18 +233,16 @@ export class McpQueenDecisionAdapterV1 {
       }
     }
 
-    const persisted = await this.#acceptanceStore.record(
-      createQueenAcceptanceV1({
-        schemaVersion: 1,
-        decisionId,
-        ...identity,
-        queenThreadId,
-        decision,
-        decisionSummary,
-        result: receipt.resultEnvelope,
-        recordedAt: existing?.recordedAt ?? this.#now(),
-      }),
-    );
+    const proposed = createQueenAcceptanceV1({
+      schemaVersion: 1,
+      decisionId,
+      ...identity,
+      queenThreadId,
+      decision,
+      decisionSummary,
+      result: receipt.resultEnvelope,
+      recordedAt: existing?.recordedAt ?? this.#now(),
+    });
     const workUnits = (await this.#executionStore.list()).filter(
       (candidate) =>
         candidate.webId === webId &&
@@ -254,11 +252,23 @@ export class McpQueenDecisionAdapterV1 {
       webId,
       queenThreadId,
     });
+    const readiness = deriveWebReadinessV1({
+      workUnits,
+      decisions: decisions.some(
+        (candidate) => candidate.decisionId === decisionId,
+      )
+        ? decisions
+        : [...decisions, proposed],
+    });
+    // The complete web graph and proposed decision are validated before the
+    // acceptance store is mutated. A dangling dependency therefore cannot
+    // leave behind a decision that a later observation pass would consume.
+    const persisted = await this.#acceptanceStore.record(proposed);
     return {
       schemaVersion: MCP_QUEEN_DECISION_SCHEMA_VERSION,
       replayed: existing !== null,
       decision: persisted,
-      readiness: deriveWebReadinessV1({ workUnits, decisions }),
+      readiness,
       nextAction: {
         schemaVersion: 1,
         kind: "advance-orchestration",
