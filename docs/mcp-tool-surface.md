@@ -146,8 +146,9 @@ long-lived
   receipt without duplicating the visible worker roster.
 
 Bootstrap preparation, thread inspection, inventory, web inspection, wait,
-health, routing, verification, and subagent identity resolution perform
-read-only work. Batch launch verification is non-read-only and idempotent
+health, routing, verification, and subagent identity resolution advertise
+`readOnlyHint: true`. Batch launch verification advertises
+`readOnlyHint: false`, `destructiveHint: false`, and `idempotentHint: true`
 because successful verification adopts joined members into the execution web.
 Lifecycle planning, exception replanning,
 the bootstrap compatibility tool, and structured planning are annotated

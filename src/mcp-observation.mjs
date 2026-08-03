@@ -245,6 +245,7 @@ async function terminalNextAction(
         activeRun.plan,
         nextWaveIndex,
         await executionStore.list(),
+        { webId, queenThreadId },
       );
       if (missingDependencies.length > 0) {
         return {

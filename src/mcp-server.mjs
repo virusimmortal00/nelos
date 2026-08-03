@@ -162,6 +162,10 @@ const DEFAULT_WEB_REGISTRY = Object.freeze({
   write: writeWebRecord,
 });
 
+/**
+ * Persist verified joined-member bindings before recording a verified wave.
+ * Replays accept the same durable binding and reject conflicting identities.
+ */
 async function adoptVerifiedJoinedMembers(
   record,
   verification,

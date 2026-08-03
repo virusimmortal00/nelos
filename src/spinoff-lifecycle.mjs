@@ -1082,6 +1082,10 @@ export class SpinoffLifecycleAdapterV1 {
           scopedPlanRun.plan,
           nextWaveIndex,
           await this.#executionStore.list(),
+          {
+            webId: identity.webId,
+            queenThreadId: identity.queenThreadId,
+          },
         );
         if (missingDependencies.length > 0) {
           nextAction = {

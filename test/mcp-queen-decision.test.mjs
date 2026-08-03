@@ -400,9 +400,18 @@ test("a persisted accepted joined review satisfies a dependent decision after re
     recordedAt: "2026-08-03T12:00:00.000Z",
   }));
 
-  const accepted = await new McpQueenDecisionAdapterV1(
-    current.adapterOptions,
-  ).decide(input(current.receipt), {
+  const restarted = new McpQueenDecisionAdapterV1({
+    executionStore: new ExecutionStoreV1({
+      directory: join(current.root, "executions"),
+    }),
+    acceptanceStore: new QueenAcceptanceStoreV1({
+      directory: join(current.root, "acceptances"),
+    }),
+    checkpointStore: new OrchestrationCheckpointStoreV1({
+      directory: join(current.root, "checkpoints"),
+    }),
+  });
+  const accepted = await restarted.decide(input(current.receipt), {
     appServerBridge: currentBridge,
   });
 

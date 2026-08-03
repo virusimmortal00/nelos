@@ -878,6 +878,83 @@ test("completed cleanup stops before a wave with an omitted joined dependency", 
   });
 });
 
+test("completed cleanup requires the full prerequisite closure for a later wave", async (t) => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Preserve every prerequisite across three waves",
+    slices: [
+      {
+        id: "review", title: "Review", objective: "Review", deliverable: "Review",
+        acceptanceCriteria: ["Review passes"], dependsOn: [], lifecycle: "subagent",
+        workspaceMode: "shared-read-only", taskShape: "everyday",
+      },
+      {
+        id: "member-b", title: "Member B", objective: "B", deliverable: "B",
+        acceptanceCriteria: ["B"], dependsOn: ["review"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+      {
+        id: "member-c", title: "Member C", objective: "C", deliverable: "C",
+        acceptanceCriteria: ["C"], dependsOn: ["member-b"], lifecycle: "spinoff",
+        workspaceMode: "isolated-write", taskShape: "everyday",
+      },
+    ],
+  });
+  const created = createPlanRunV1(plan, {
+    queenThreadId: "queen",
+    sourceId: "transitive-dependency-test",
+    webIdentity: {
+      schemaVersion: 1, webId: "A1", queenThreadId: "queen",
+      queenTitle: "👑 A1 · Queen",
+    },
+  });
+  const record = { ...created, verifiedWaveIndexes: [1, 2] };
+  const memberB = workUnit({
+    workUnitId: "member-b",
+    title: "Member B",
+    binding: { state: "bound", memberThreadId: "member-thread-b" },
+  });
+  const otherWebReview = workUnit({
+    webId: "B2",
+    queenThreadId: "other-queen",
+    workUnitId: "review",
+    title: "Unrelated Review",
+    memberKind: "joined-subagent",
+    capabilities: ["observe", "read-result", "follow-up"],
+    binding: { state: "bound", memberThreadId: "other-review-thread" },
+  });
+  const { adapter } = await fixture(t, {
+    units: [memberB, otherWebReview],
+    decisions: [acceptance(memberB)],
+    planRunStore: {
+      async requireWave({ waveIndex, waveDigest }) {
+        const wave = record.waves.find((candidate) =>
+          candidate.waveIndex === waveIndex);
+        assert.equal(wave?.waveDigest, waveDigest);
+        return { record, wave };
+      },
+    },
+  });
+  const requested = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 2, waveDigest: record.waves[1].waveDigest, policy: "auto",
+  });
+  const settled = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId: record.planRunId,
+    waveIndex: 2, waveDigest: record.waves[1].waveDigest,
+    archiveReceipts: [archiveReceipt(requested.effects[0])],
+  });
+
+  assert.deepEqual(settled.nextAction, {
+    schemaVersion: 1,
+    kind: "attention",
+    reason: "missing-persisted-dependency-work-units",
+    planRunId: record.planRunId,
+    nextWaveIndex: 3,
+    workUnitIds: ["review"],
+  });
+});
+
 test("completed cleanup returns attention when the next wave contract is unavailable", async (t) => {
   const second = workUnit({
     workUnitId: "member-b",
