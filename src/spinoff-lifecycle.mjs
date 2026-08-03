@@ -11,6 +11,12 @@ import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { taskStateDirectory, withQueenSpinoffLock } from "./task-state.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
 import { derivePlanWaveActionV1 } from "./next-action.mjs";
+import {
+  LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
+} from "./launch-execution-gate.mjs";
+import {
+  missingPersistedDependencyIdsV1,
+} from "./plan-orchestration-bridge.mjs";
 
 export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
 export const SPINOFF_CLEANUP_POLICIES = NELOS_CLEANUP_POLICIES;
@@ -107,6 +113,7 @@ export const SPINOFF_CLEANUP_INPUT_SCHEMA = Object.freeze({
         additionalProperties: false,
       },
     },
+    launchAuthorization: LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
   },
   required: ["webId", "queenThreadId"],
   additionalProperties: false,
@@ -601,6 +608,7 @@ export class SpinoffLifecycleAdapterV1 {
     userIntentConfirmed = false,
     confirmedThreadIds,
     archiveReceipts = [],
+    launchAuthorization = null,
   } = {}) {
     const identity = {
       webId: id(webId, "webId"),
@@ -1069,13 +1077,34 @@ export class SpinoffLifecycleAdapterV1 {
         if (!scopedPlanRun.plan) {
           throw new Error("remaining plan wave contract is unavailable");
         }
-        nextAction = derivePlanWaveActionV1(
+        const nextWaveIndex = waveScope.waveIndex + 1;
+        const missingDependencies = missingPersistedDependencyIdsV1(
           scopedPlanRun.plan,
-          scopedPlanRun,
-          waveScope.waveIndex + 1,
-          scopedPlanRun.cleanupIntended,
-          null,
+          nextWaveIndex,
+          await this.#executionStore.list(),
+          {
+            webId: identity.webId,
+            queenThreadId: identity.queenThreadId,
+          },
         );
+        if (missingDependencies.length > 0) {
+          nextAction = {
+            schemaVersion: 1,
+            kind: "attention",
+            reason: "missing-persisted-dependency-work-units",
+            planRunId: scopedPlanRun.planRunId,
+            nextWaveIndex,
+            workUnitIds: missingDependencies,
+          };
+        } else {
+          nextAction = derivePlanWaveActionV1(
+            scopedPlanRun.plan,
+            scopedPlanRun,
+            nextWaveIndex,
+            scopedPlanRun.cleanupIntended,
+            launchAuthorization,
+          );
+        }
       } catch {
         nextAction = {
           schemaVersion: 1,

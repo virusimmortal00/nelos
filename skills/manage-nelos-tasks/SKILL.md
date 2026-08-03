@@ -6,8 +6,8 @@ description: Plan multi-stream feature or fix work into dependency-safe waves, c
 # Manage Nelos Tasks
 
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes unstructured work. The queen identifies user-supplied plans and judges
-result acceptance. Use only the bundled Nelos MCP tools; never use the CLI as fallback.
+decomposes; the queen judges acceptance. Use bundled Nelos MCP tools only;
+never use the CLI as fallback.
 Keep native kinds exact:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
@@ -17,9 +17,8 @@ Keep native kinds exact:
 ## Choose the Planning Path
 
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
-`objective`, and bounded `slices`, call `nelos_plan_slices` directly with the
-queen task ID. A queen-authored plan is not user-supplied and
-must not use this fast path.
+`objective`, and bounded `slices`, call `nelos_plan_slices` directly. A
+queen-authored plan is not user-supplied and must not use this fast path.
 
 Otherwise call `nelos_plan_lifecycle` with schema version 1, queen task ID,
 caller-stable idempotency key, objective, optional bounded context/parallelism,
@@ -30,8 +29,7 @@ call again with the unchanged request, returned `bootstrapId`, and exact native
 receipt. Never substitute an agent path for a task ID.
 
 Reject invalid identity, parent, route, or result-turn evidence. Render maps
-from top-level `structuredContent`; reserve `structuredContent.protocol.result`
-for nonvisual handling.
+from top-level `structuredContent`; reserve `structuredContent.protocol.result` for nonvisual handling.
 
 ## Follow the One Desktop Path
 
@@ -52,26 +50,26 @@ After the fast path or bootstrap, execute only the returned
   `create-thread` makes spinoffs; `spawn-subagent` uses
   `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
   valid only for durable spinoffs. Never bind an agent name as a thread ID.
-  For spinoffs, call the exact `orchestration.tool` and arguments, execute its
-  `native-create`, then submit the unchanged work unit and exact task-ID receipt.
-  Follow title effects; never create from the member prompt or invent capabilities.
+  For each `orchestration`, call its exact tool/arguments, execute
+  `native-create`, and submit the unchanged work unit plus exact task-ID receipt.
+  For a subagent, resolve its agent path to the verification-only thread ID.
+  Follow title effects; never invent prompts or capabilities.
   Do not launch a later wave until required current results are accepted.
 - Before waiting or reading any launched wave, call
   `nelos_launch_verify_batch` once with the launch action's exact
-  `verification` identity and every current-wave launch receipt. Joined
-  Subagents use agent paths; spinoffs use thread IDs, omit parent claims absent
-  native inventory, and include turn IDs.
-  Proceed only when `allVerified` is true.
-  Subagents report title as `not-applicable`; spinoffs verify
-  `native-thread-title`. On title mismatch, run `native-set-title` and repeat.
+  `verification` identity and every wave receipt. Subagents use agent paths;
+  spinoffs use thread IDs, omit unobserved parent claims, and include turn IDs.
+  Proceed only when `allVerified` is true; success durably adopts joined
+  members and safely replays legacy adoption.
+  Subagent title is `not-applicable`; spinoffs verify `native-thread-title`.
+  On mismatch, run `native-set-title` and repeat.
   Bad identity, topology, read, or route evidence blocks the whole batch.
 - `native-wait-subagent` and `native-read-subagent-result`: use collaboration
-  controls with the exact `agentPath`. Do not send the verification-only
-  subagent thread ID to Codex task title/read controls. After waiting, never
+  controls with exact `agentPath`; never use its thread ID for task controls. Never
   submit a mailbox result directly: replay the exact planner launch receipt
   until Nelos returns `native-read-subagent-result`, then use its exact
-  `actionId`. Never construct or guess a result action ID. While this settles,
-  tell the user only that the planner finished and Nelos is verifying its
+  `actionId`. Never construct or guess a result action ID. Say only that the
+  planner finished and Nelos is verifying its
   terminal turn; expose protocol details only if `attention` persists.
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
@@ -89,11 +87,13 @@ After the fast path or bootstrap, execute only the returned
   snapshotted default `auto` archives eligible accepted spinoffs; `ask` prompts
   once with exact names/IDs, and `keep` preserves them. Set `rememberPolicy:
   true` with `userIntentConfirmed: true` only for an explicit always choice;
-  submit exact receipts until `complete`.
+  submit receipts until `complete`. On `authorization-required`, run its exact
+  effect and replay cleanup with the resulting `launchAuthorization`.
 - `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
   adding only `resolution: "detach"`; never detach locally.
-- `attention`: stop and supply the missing launch inputs or resolve the named
-  evidence gap; do not infer an executable action.
+- `attention`: stop and resolve the named evidence gap; do not infer an action.
+  For `missing-persisted-dependency-work-units`, replay exact launch
+  verification for named legacy joined members, then retry the transition.
 - `complete`: stop; the command has no additional protocol step.
 
 Spinoffs run exact `nelos_spinoff_complete`: call with `receipt: null`, send its
@@ -110,6 +110,7 @@ triggers. Completed slices remain unchanged and are never scheduled again; a
 second autonomous replan stops.
 
 Unavailable reads and timed-out waits are unknown evidence, not failure.
-Registry-only topology has a lifecycle cache; never write lifecycle or archival state
-from a native action. Lifecycle reads reconcile their cache on every read; the observation lease is informational.
+Registry-only topology has a lifecycle cache; never write lifecycle
+or archival state from a native action. Lifecycle reads reconcile their cache on every read;
+the observation lease is informational.
 Never perform a second local lifecycle mutation to mirror a native archive.

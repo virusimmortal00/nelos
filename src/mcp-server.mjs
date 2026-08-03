@@ -90,6 +90,8 @@ import {
   parseWebTitle,
   renderPersistedQueenWebTitle,
 } from "./task-web.mjs";
+import { workUnitFromPlanSliceV1 } from "./plan-orchestration-bridge.mjs";
+import { workUnitDefinitionV1 } from "./execution-store.mjs";
 import {
   NelosWebInspectorV1,
   WEB_INSPECTION_INPUT_SCHEMA,
@@ -159,6 +161,78 @@ const DEFAULT_WEB_REGISTRY = Object.freeze({
   list: listWebRecords,
   write: writeWebRecord,
 });
+
+/**
+ * Persist verified joined-member bindings before recording a verified wave.
+ * Replays accept the same durable binding and reject conflicting identities.
+ */
+async function adoptVerifiedJoinedMembers(
+  record,
+  verification,
+  orchestrationAdapter,
+) {
+  const joined = verification.members.filter(
+    ({ lifecycle }) => lifecycle === "subagent",
+  );
+  if (joined.length === 0) return;
+  // Subagent-only plans intentionally have no durable web identity or later
+  // durable dependency consumer, so they retain their lightweight path.
+  if (!record.webIdentity) return;
+  if (!record.plan) {
+    throw new Error(
+      "verified joined-member repair requires a persisted plan and web identity",
+    );
+  }
+  const slices = record.plan.waves.flatMap((wave) => wave.slices);
+  for (const member of joined) {
+    const slice = slices.find(({ id }) => id === member.sliceId);
+    if (!slice) {
+      throw new Error(
+        `verified joined member ${member.sliceId} is absent from the persisted plan`,
+      );
+    }
+    const workUnit = workUnitDefinitionV1(workUnitFromPlanSliceV1(slice, {
+      webId: record.webIdentity.webId,
+      queenThreadId: record.queenThreadId,
+      cleanupIntended: record.cleanupIntended,
+    }));
+    const prepared = await orchestrationAdapter.orchestrate({
+      workUnit,
+      receipt: null,
+    });
+    if (prepared.binding.state === "bound") {
+      if (prepared.binding.memberThreadId !== member.threadId) {
+        throw new Error(
+          `verified joined member ${member.sliceId} conflicts with its durable binding`,
+        );
+      }
+      continue;
+    }
+    const launch = prepared.effects.find(
+      ({ type }) => ["native-create", "native-reconcile-create"].includes(type),
+    );
+    const actionId = launch?.type === "native-create"
+      ? launch.actionId
+      : launch?.createActionId;
+    if (!actionId) {
+      throw new Error(
+        `verified joined member ${member.sliceId} has no durable launch action`,
+      );
+    }
+    await orchestrationAdapter.orchestrate({
+      workUnit,
+      receipt: {
+        schemaVersion: 1,
+        actionId,
+        type: "native-create",
+        workUnitId: workUnit.workUnitId,
+        specRevision: workUnit.specRevision,
+        attempt: workUnit.attempt,
+        memberThreadId: member.threadId,
+      },
+    });
+  }
+}
 
 async function plannedSlicesOutput(
   plan,
@@ -578,12 +652,14 @@ const TOOLS = [
       "(agent path for joined subagents, native title for spinoffs), and exact model/effort " +
       "before any result is read or accepted. Any member failure blocks the batch.",
     inputSchema: LAUNCH_BATCH_VERIFICATION_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
     async run(args, {
       appServerBridge,
       launchBatchVerifier,
+      orchestrationAdapter,
       planRunStore,
     }) {
-      const { wave } = await planRunStore.requireWave({
+      const { record, wave } = await planRunStore.requireWave({
         planRunId: args.planRunId,
         queenThreadId: args.parentThreadId,
         waveIndex: args.waveIndex,
@@ -594,6 +670,11 @@ const TOOLS = [
         waveContract: wave,
       });
       if (verification.allVerified) {
+        await adoptVerifiedJoinedMembers(
+          record,
+          verification,
+          orchestrationAdapter,
+        );
         await planRunStore.markWaveVerified({
           planRunId: args.planRunId,
           queenThreadId: args.parentThreadId,

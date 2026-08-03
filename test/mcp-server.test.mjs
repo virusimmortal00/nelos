@@ -24,6 +24,7 @@ import {
   EXECUTION_MAP_RESOURCE_URI,
 } from "../src/execution-map.mjs";
 import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
+import { workUnitFromPlanSliceV1 } from "../src/plan-orchestration-bridge.mjs";
 import {
   createPlanRunV1,
   PlanRunStoreV1,
@@ -345,7 +346,6 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   );
   for (const tool of tools.filter(({ name }) =>
     [
-      "nelos_launch_verify_batch",
       "nelos_execution_map_refresh",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
@@ -382,6 +382,15 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
     ({ name }) => name === "nelos_orchestrate_create",
   );
   assert.deepEqual(orchestration.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
+  const launchVerification = tools.find(
+    ({ name }) => name === "nelos_launch_verify_batch",
+  );
+  assert.deepEqual(launchVerification.annotations, {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
@@ -1216,6 +1225,359 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
       body,
     );
   }
+});
+
+test("launch verification durably adopts and replays a joined member", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-joined-adoption-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planRunStore = new PlanRunStoreV1({
+    directory: join(root, "plan-runs"),
+  });
+  const executionStore = new ExecutionStoreV1({
+    directory: join(root, "executions"),
+  });
+  const run = await planRunStore.create(createPlanRunV1(
+    planWorkSlices(validPlan("review")),
+    {
+      queenThreadId: "queen-1",
+      sourceId: "joined-adoption-test",
+      webIdentity: {
+        schemaVersion: 1,
+        webId: "A1",
+        queenThreadId: "queen-1",
+        queenTitle: "👑 A1 · Queen",
+      },
+    },
+  ));
+  const args = {
+    planRunId: run.planRunId,
+    waveIndex: 1,
+    waveDigest: run.waves[0].waveDigest,
+    parentThreadId: "queen-1",
+    members: [{
+      sliceId: "review",
+      lifecycle: "subagent",
+      agentPath: "/root/review",
+      turnId: "turn-review",
+    }],
+  };
+  const messages = [INITIALIZE, ...[2, 3].map((id) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name: "nelos_launch_verify_batch", arguments: args },
+  }))];
+  const responses = await roundTrip(messages, {
+    planRunStore,
+    orchestrationAdapter: new McpOrchestrationAdapterV1({
+      store: executionStore,
+    }),
+    async launchBatchVerifier() {
+      return {
+        schemaVersion: 1,
+        parentThreadId: "queen-1",
+        allVerified: true,
+        members: [{
+          sliceId: "review",
+          lifecycle: "subagent",
+          threadId: "thread-review",
+          checks: {
+            identity: "verified",
+            read: "verified",
+            topology: "verified",
+            title: "not-applicable",
+            route: "verified",
+          },
+          verified: true,
+        }],
+      };
+    },
+  });
+
+  assert.equal(toolBody(responses[1]).isError, false);
+  assert.equal(toolBody(responses[2]).isError, false);
+  const adopted = await executionStore.read("review");
+  assert.equal(adopted.memberKind, "joined-subagent");
+  assert.equal(adopted.binding.state, "bound");
+  assert.equal(adopted.binding.memberThreadId, "thread-review");
+  assert.deepEqual(
+    (await planRunStore.read(run.planRunId)).verifiedWaveIndexes,
+    [1],
+  );
+});
+
+test("launch verification rejects a conflicting joined-member binding atomically", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-joined-conflict-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planRunStore = new PlanRunStoreV1({
+    directory: join(root, "plan-runs"),
+  });
+  const executionStore = new ExecutionStoreV1({
+    directory: join(root, "executions"),
+  });
+  const run = await planRunStore.create(createPlanRunV1(
+    planWorkSlices(validPlan("review")),
+    {
+      queenThreadId: "queen-1",
+      sourceId: "joined-conflict-test",
+      webIdentity: {
+        schemaVersion: 1,
+        webId: "A1",
+        queenThreadId: "queen-1",
+        queenTitle: "👑 A1 · Queen",
+      },
+    },
+  ));
+  const review = workUnitFromPlanSliceV1(
+    run.plan.waves[0].slices[0],
+    {
+      webId: "A1",
+      queenThreadId: "queen-1",
+      cleanupIntended: true,
+    },
+  );
+  const orchestrationAdapter = new McpOrchestrationAdapterV1({
+    store: executionStore,
+  });
+  const { binding: _binding, replacementHistory: _history, ...definition } = review;
+  const prepared = await orchestrationAdapter.orchestrate({
+    workUnit: definition,
+    receipt: null,
+  });
+  const launch = prepared.effects.find(({ type }) => type === "native-create");
+  assert.ok(launch);
+  await orchestrationAdapter.orchestrate({
+    workUnit: definition,
+    receipt: {
+      schemaVersion: 1,
+      actionId: launch.actionId,
+      type: "native-create",
+      workUnitId: review.workUnitId,
+      specRevision: review.specRevision,
+      attempt: 1,
+      memberThreadId: "thread-review-existing",
+    },
+  });
+  const args = {
+    planRunId: run.planRunId,
+    waveIndex: 1,
+    waveDigest: run.waves[0].waveDigest,
+    parentThreadId: "queen-1",
+    members: [{
+      sliceId: "review",
+      lifecycle: "subagent",
+      agentPath: "/root/review",
+      turnId: "turn-review",
+    }],
+  };
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "nelos_launch_verify_batch", arguments: args },
+    },
+  ], {
+    planRunStore,
+    orchestrationAdapter,
+    async launchBatchVerifier() {
+      return {
+        schemaVersion: 1,
+        parentThreadId: "queen-1",
+        allVerified: true,
+        members: [{
+          sliceId: "review",
+          lifecycle: "subagent",
+          threadId: "thread-review-conflict",
+          checks: {
+            identity: "verified",
+            read: "verified",
+            topology: "verified",
+            title: "not-applicable",
+            route: "verified",
+          },
+          verified: true,
+        }],
+      };
+    },
+  });
+
+  const { isError, body } = toolBody(response);
+  assert.equal(isError, true);
+  assert.match(body.error, /conflicts with its durable binding/u);
+  assert.deepEqual(
+    (await planRunStore.read(run.planRunId)).verifiedWaveIndexes,
+    [],
+  );
+  assert.equal(
+    (await executionStore.read("review")).binding.memberThreadId,
+    "thread-review-existing",
+  );
+});
+
+test("launch verification leaves a wave unverified when joined adoption cannot prepare", async (t) => {
+  for (const scenario of [
+    {
+      name: "verified member is absent from the plan",
+      verifiedSliceId: "missing-review",
+      error: /absent from the persisted plan/u,
+      orchestrationAdapter: undefined,
+    },
+    {
+      name: "durable launch action is absent",
+      verifiedSliceId: "review",
+      error: /has no durable launch action/u,
+      orchestrationAdapter: {
+        async orchestrate() {
+          return { binding: { state: "unbound" }, effects: [] };
+        },
+      },
+    },
+  ]) {
+    await t.test(scenario.name, async (t) => {
+      const root = await mkdtemp(join(tmpdir(), "nelos-joined-prepare-failure-"));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const planRunStore = new PlanRunStoreV1({
+        directory: join(root, "plan-runs"),
+      });
+      const run = await planRunStore.create(createPlanRunV1(
+        planWorkSlices(validPlan("review")),
+        {
+          queenThreadId: "queen-1",
+          sourceId: "joined-prepare-failure-test",
+          webIdentity: {
+            schemaVersion: 1,
+            webId: "A1",
+            queenThreadId: "queen-1",
+            queenTitle: "👑 A1 · Queen",
+          },
+        },
+      ));
+      const args = {
+        planRunId: run.planRunId,
+        waveIndex: 1,
+        waveDigest: run.waves[0].waveDigest,
+        parentThreadId: "queen-1",
+        members: [{
+          sliceId: "review",
+          lifecycle: "subagent",
+          agentPath: "/root/review",
+          turnId: "turn-review",
+        }],
+      };
+      const [, response] = await roundTrip([
+        INITIALIZE,
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "nelos_launch_verify_batch", arguments: args },
+        },
+      ], {
+        planRunStore,
+        ...(scenario.orchestrationAdapter
+          ? { orchestrationAdapter: scenario.orchestrationAdapter }
+          : {}),
+        async launchBatchVerifier() {
+          return {
+            schemaVersion: 1,
+            parentThreadId: "queen-1",
+            allVerified: true,
+            members: [{
+              sliceId: scenario.verifiedSliceId,
+              lifecycle: "subagent",
+              threadId: "thread-review",
+              checks: {
+                identity: "verified",
+                read: "verified",
+                topology: "verified",
+                title: "not-applicable",
+                route: "verified",
+              },
+              verified: true,
+            }],
+          };
+        },
+      });
+
+      const { isError, body } = toolBody(response);
+      assert.equal(isError, true);
+      assert.match(body.error, scenario.error);
+      assert.deepEqual(
+        (await planRunStore.read(run.planRunId)).verifiedWaveIndexes,
+        [],
+      );
+    });
+  }
+});
+
+test("launch verification keeps subagent-only plans lightweight", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-lightweight-subagent-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planRunStore = new PlanRunStoreV1({
+    directory: join(root, "plan-runs"),
+  });
+  const executionStore = new ExecutionStoreV1({
+    directory: join(root, "executions"),
+  });
+  const run = await planRunStore.create(createPlanRunV1(
+    planWorkSlices(validPlan("review-only")),
+    { queenThreadId: "queen-1", sourceId: "lightweight-subagent-test" },
+  ));
+  const args = {
+    planRunId: run.planRunId,
+    waveIndex: 1,
+    waveDigest: run.waves[0].waveDigest,
+    parentThreadId: "queen-1",
+    members: [{
+      sliceId: "review-only",
+      lifecycle: "subagent",
+      agentPath: "/root/review_only",
+      turnId: "turn-review",
+    }],
+  };
+  const [, response] = await roundTrip([
+    INITIALIZE,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "nelos_launch_verify_batch", arguments: args },
+    },
+  ], {
+    planRunStore,
+    orchestrationAdapter: new McpOrchestrationAdapterV1({
+      store: executionStore,
+    }),
+    async launchBatchVerifier() {
+      return {
+        schemaVersion: 1,
+        parentThreadId: "queen-1",
+        allVerified: true,
+        members: [{
+          sliceId: "review-only",
+          lifecycle: "subagent",
+          threadId: "thread-review",
+          checks: {
+            identity: "verified",
+            read: "verified",
+            topology: "verified",
+            title: "not-applicable",
+            route: "verified",
+          },
+          verified: true,
+        }],
+      };
+    },
+  });
+
+  assert.equal(toolBody(response).isError, false);
+  assert.equal(await executionStore.read("review-only"), null);
+  assert.deepEqual(
+    (await planRunStore.read(run.planRunId)).verifiedWaveIndexes,
+    [1],
+  );
 });
 
 test("nelos_launch_verify_batch returns one replay-stable post-bind title synchronization", async () => {

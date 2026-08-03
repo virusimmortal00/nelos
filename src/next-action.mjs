@@ -152,9 +152,9 @@ function launchMember(
     },
     prompt: memberPrompt(slice, title),
   };
-  if (joinedSubagent) return member;
   if (!planRun?.webIdentity) {
-    throw new Error("durable launch requires a persisted web identity");
+    if (joinedSubagent) return member;
+    throw new Error("orchestrated launch requires a persisted web identity");
   }
   const workUnit = workUnitDefinitionV1(
     workUnitFromLaunchMemberV1(member, {

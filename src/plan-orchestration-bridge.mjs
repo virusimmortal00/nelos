@@ -3,10 +3,73 @@ import { normalizeLaunchMemberV1 } from "./launch-contract.mjs";
 
 export const PLAN_ORCHESTRATION_BRIDGE_SCHEMA_VERSION = 1;
 
+/**
+ * Return the complete prerequisite closure of one planned wave that has no
+ * durable work unit in the current web.
+ * This closes the gap for legacy plans where joined reviews were verified by
+ * the native host but omitted from the persisted execution web.
+ */
+export function missingPersistedDependencyIdsV1(
+  plan,
+  waveIndex,
+  workUnits,
+  { webId, queenThreadId },
+) {
+  const wave = plan?.waves?.find(({ index }) => index === waveIndex);
+  if (!wave) throw new Error(`plan has no dependency wave ${waveIndex}`);
+  if (!Array.isArray(workUnits)) throw new Error("workUnits must be an array");
+  if (!webId || !queenThreadId) {
+    throw new Error("webId and queenThreadId are required");
+  }
+  const slices = plan.waves.flatMap(({ slices: plannedSlices }) => plannedSlices);
+  const slicesById = new Map(slices.map((slice) => [slice.id, slice]));
+  const dependencies = new Set();
+  const visit = (dependencyId) => {
+    if (dependencies.has(dependencyId)) return;
+    dependencies.add(dependencyId);
+    for (const nested of slicesById.get(dependencyId)?.dependsOn ?? []) {
+      visit(nested);
+    }
+  };
+  for (const dependencyId of wave.slices.flatMap(
+    ({ dependsOn = [] }) => dependsOn,
+  )) {
+    visit(dependencyId);
+  }
+  const persisted = new Set(
+    workUnits
+      .filter((workUnit) =>
+        workUnit.webId === webId && workUnit.queenThreadId === queenThreadId)
+      .map(({ workUnitId }) => workUnitId),
+  );
+  return [...dependencies]
+    .filter((dependency) => !persisted.has(dependency))
+    .sort();
+}
+
 function capabilitiesFor(memberKind, cleanupIntended) {
   const capabilities = ["observe", "read-result", "follow-up"];
   if (memberKind === "spinoff" && cleanupIntended) capabilities.push("archive");
   return capabilities;
+}
+
+/**
+ * Reconstruct the durable work-unit definition for a persisted plan slice.
+ * Launch verification uses this to adopt joined members from legacy runs
+ * without trusting caller-authored work-unit fields.
+ */
+export function workUnitFromPlanSliceV1(slice, options) {
+  return workUnitFromLaunchMemberV1({
+    sliceId: slice.id,
+    lifecycle: slice.lifecycle,
+    title: slice.title,
+    objective: slice.objective,
+    deliverable: slice.deliverable,
+    acceptanceCriteria: slice.acceptanceCriteria,
+    dependsOn: slice.dependsOn,
+    workspaceMode: slice.workspaceMode,
+    nativeTask: slice.route?.launch?.nativeTask,
+  }, options);
 }
 
 /**
