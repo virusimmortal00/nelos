@@ -108,11 +108,11 @@ environment and resumes without duplicating valid trials.
 
 ### Statistical reporting
 
-- Metric accounting for all terminal and invalid states.
-- Paired/task-cluster analysis, intervals, effects, and multiplicity controls.
-- Promotion, regression, inconclusive, and safety decisions.
-- Machine-readable and human-readable report bundles.
-- Golden datasets with known wins, ties, regressions, missing data, and
+- Complete: metric accounting for all terminal and invalid states.
+- Complete: paired/task-cluster analysis, intervals, effects, and multiplicity controls.
+- Complete: promotion, regression, inconclusive, and safety decisions.
+- Complete: machine-readable and human-readable report bundles.
+- Complete: golden datasets with known wins, ties, regressions, missing data, and
   insufficient power.
 
 Exit: every aggregate and decision recomputes from immutable accepted attempt

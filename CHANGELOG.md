@@ -5,6 +5,25 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.10.0] - 2026-08-03
+
+### User-facing changes
+
+- Added deterministic experiment metric accounting, paired and task-cluster
+  statistical comparisons, sealed promotion decisions, Markdown reports, and a
+  standalone exact-recomputation verifier.
+
+### Compatibility requirements
+
+- Reporting consumes the complete digest-bound plan and immutable attempt set;
+  duplicate or missing trials, provenance mismatches, asymmetric invalidity,
+  contamination, and route mismatch fail closed.
+
+### Security fixes
+
+- Failed, partial, retried, invalid, censored, and timed-out attempts can no
+  longer disappear from aggregate accounting or pass decisions.
+
 ## [0.9.0] - 2026-08-03
 
 ### User-facing changes
@@ -34,8 +53,7 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### Known limitations
 
-- The runner produces immutable machine-readable bundles; aggregate reporting
-  and fleet-scale operations remain follow-on milestones.
+- Fleet-scale experiment operations remain a follow-on milestone.
 
 ## [0.8.0] - 2026-08-03
 
