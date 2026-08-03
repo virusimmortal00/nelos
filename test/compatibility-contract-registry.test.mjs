@@ -164,6 +164,7 @@ test("experimentation contracts have a bounded independent compatibility owner",
 
   const paths = [
     "src/experimentation-contract/semantic-version.mjs",
+    "src/experimentation-corpus/grader.mjs",
     "test/fixtures/experimentation-contract/runtime-lock-v1.json",
     ...capability.mappings.shared,
     ...capability.mappings.test.filter((path) => !path.endsWith("/**")),

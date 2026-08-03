@@ -1,0 +1,9 @@
+[
+  {"name":"success","termination":"exited","exitCode":0,"contaminated":false,"submission":"exact","outcome":"success","strictPass":true,"scoreBasisPoints":10000},
+  {"name":"failure","termination":"exited","exitCode":1,"contaminated":false,"submission":"exact","outcome":"failure","strictPass":false,"scoreBasisPoints":0},
+  {"name":"partial","termination":"exited","exitCode":0,"contaminated":false,"submission":"partial","outcome":"partial","strictPass":false,"scoreBasisPoints":8000},
+  {"name":"timeout","termination":"timeout","exitCode":null,"contaminated":false,"submission":"exact","outcome":"timeout","strictPass":false,"scoreBasisPoints":0},
+  {"name":"malformed","termination":"exited","exitCode":0,"contaminated":false,"submission":"malformed","outcome":"malformed","strictPass":false,"scoreBasisPoints":0},
+  {"name":"contaminated","termination":"exited","exitCode":0,"contaminated":true,"submission":"exact","outcome":"contaminated","strictPass":false,"scoreBasisPoints":0},
+  {"name":"grader-failure","termination":"exited","exitCode":0,"contaminated":false,"submission":"exact","outcome":"grader-failure","strictPass":false,"scoreBasisPoints":0}
+]

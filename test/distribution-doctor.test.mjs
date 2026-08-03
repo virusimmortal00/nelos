@@ -42,6 +42,7 @@ async function createDoctorFixture(root) {
     join(releasePath, "assets"),
     join(releasePath, "bin"),
     join(releasePath, "completions"),
+    join(releasePath, "corpus"),
     join(releasePath, "docs"),
     join(releasePath, "skills"),
     join(releasePath, "src"),

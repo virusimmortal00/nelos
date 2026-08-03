@@ -811,7 +811,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.experimentation-contracts",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs",
+      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs test/experimentation-corpus.test.mjs",
       source: "test/experimentation-contract-export.test.mjs",
     }),
     Object.freeze({
@@ -953,25 +953,35 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     }),
     Object.freeze({
       id: "nelos.experimentation-contracts",
-      title: "Closed experimentation contract foundation",
+      title: "Experimentation contracts, corpus, and grading",
       dependsOn: Object.freeze([]),
       globalInvariant: false,
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
-        owned: Object.freeze(["src/experimentation-contract/**"]),
-        shared: Object.freeze(["package.json"]),
+        owned: Object.freeze([
+          "src/experimentation-contract/**",
+          "src/experimentation-corpus/**",
+        ]),
+        shared: Object.freeze([
+          "corpus/starter/**",
+          "package.json",
+          "scripts/build-experiment-corpus.mjs",
+        ]),
         test: Object.freeze([
           "test/corpus-release-contract.test.mjs",
           "test/experimentation-contract-experiment.test.mjs",
           "test/experimentation-contract-export.test.mjs",
           "test/experimentation-contract-kernel.test.mjs",
           "test/experimentation-contract-semver.test.mjs",
+          "test/experimentation-corpus.test.mjs",
           "test/experimentation-runtime-lock-contract.test.mjs",
           "test/experimentation-task-contract.test.mjs",
           "test/fixtures/experimentation-contract/**",
+          "test/fixtures/experimentation-corpus/**",
         ]),
         documentation: Object.freeze([
           "README.md",
+          "docs/corpus-authoring.md",
           "docs/experimentation-evaluation.md",
           "docs/experimentation-framework.md",
           "docs/experimentation-operations.md",

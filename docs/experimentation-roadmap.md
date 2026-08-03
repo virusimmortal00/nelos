@@ -42,10 +42,12 @@ same invalid fixtures.
 
 ### Task corpus and graders
 
-- Task packaging and immutable fixture builder.
-- Initial task families and hidden grader interface.
-- Corpus release, access, contamination, and review workflow.
-- Deterministic grader conformance tests and blinded-rubric support boundary.
+- Complete: task packaging and immutable fixture builder.
+- Complete: initial task families and hidden deterministic grader interface.
+- Complete: corpus release lock, access, contamination, and review workflow.
+- Complete: grader conformance fixtures and blinded-rubric support boundary.
+- Complete: transitive grader implementation manifests and fail-closed installed
+  identity verification.
 
 Exit: passing, failing, partial, timed-out, contaminated, and grader-failed
 fixtures produce the declared machine-readable outcomes.

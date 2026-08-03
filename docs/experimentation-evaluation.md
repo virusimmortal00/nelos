@@ -1,6 +1,8 @@
 # Evaluation, Task Corpus, and Statistical Analysis
 
-Status: proposed architecture; v1 CorpusRelease and Task contracts implemented.
+Status: v1 contracts, governed starter corpus, immutable packaging,
+deterministic host graders, release lock, and contamination controls implemented;
+statistical analysis remains proposed.
 
 This document defines how experiments are graded and compared. It extends the
 [framework contract](experimentation-framework.md) and is intentionally
@@ -8,8 +10,9 @@ independent of a specific runner or storage implementation.
 
 The closed v1 `CorpusRelease` and `Task` records are part of the implemented
 [contract foundation](experimentation-framework.md#implemented-contract-foundation).
-Corpus construction and review tooling, graders, and statistical analysis in
-this document remain proposed.
+Corpus authoring and release instructions are in
+[Governed Corpus Authoring and Release](corpus-authoring.md). Statistical
+analysis and subjective-grading execution remain proposed.
 
 ## Corpus governance
 
@@ -47,6 +50,11 @@ Access is audited. Canary markers, similarity analysis, post-cutoff fixtures,
 and rotating challenge sets reduce contamination risk. Hosted-model pretraining
 contamination cannot be proven absent and remains a reported limitation.
 
+The implemented partition validator binds access, exclusion, membership, and
+cross-partition similarity evidence in a deterministic contamination report.
+Private packages and oracle bytes remain outside development source and build
+artifacts.
+
 ## Initial task families
 
 The starter corpus should include several difficulty and decomposability
@@ -64,6 +72,10 @@ strata. A single standardized task cannot support a broad efficiency claim.
 | Routing/capability | Deterministic policy oracle and observed-route receipt |
 | Orchestration/restart | Reference state-machine trace and effect invariants |
 | Compatibility/safety | Protocol fixtures and forbidden-side-effect audit |
+
+The versioned starter development release includes all ten families above. Its
+release and package digests are locked in
+[`corpus/starter/release-lock.json`](../corpus/starter/release-lock.json).
 
 Tasks expected to benefit from orchestration must be balanced with tasks where
 coordination overhead is unlikely to help. Categories and weights are declared
@@ -83,6 +95,16 @@ Prefer executable, deterministic grading:
 
 An agent message, queen acceptance, or successful process exit is diagnostic
 evidence only.
+
+The implemented machine grader requires a distinct host grader environment,
+uses host-observed termination and contamination evidence, strips worker
+self-report, and keeps rubric and oracle bytes out of the candidate envelope.
+Its implementation identity binds a deterministic manifest of the complete
+local corpus and experimentation-contract module closure, while `RuntimeLock`
+binds Node and built-in behavior. A package carrying an older or otherwise
+different grader identity is rejected before grading.
+Golden conformance fixtures cover success, failure, partial, timeout, malformed,
+contaminated, and grader-failure outcomes.
 
 Some research, requirements, and architecture tasks require judgment. These
 tasks use a separately versioned blinded rubric, at least two independent

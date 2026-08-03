@@ -56,6 +56,7 @@ export const DISTRIBUTION_ENTRIES = [
   "assets",
   "bin",
   "completions",
+  "corpus",
   "docs",
   "package.json",
   "skills",
