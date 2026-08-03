@@ -5,6 +5,30 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.5.2] - 2026-08-03
+
+### User-facing changes
+
+- Reduced state-lock contention overhead by memoizing the current process
+  identity for the process lifetime and bounding repeated owner identity
+  lookups while preserving stale-lock replacement revalidation.
+
+### Compatibility requirements
+
+- No compatibility changes.
+
+### Migrations
+
+- No migrations.
+
+### Security fixes
+
+- No security fixes.
+
+### Known limitations
+
+- No new known limitations.
+
 ## [0.5.1] - 2026-07-31
 
 ### User-facing changes
