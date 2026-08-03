@@ -1294,3 +1294,26 @@ test("doctor verifies a pre-corpus release with its legacy integrity entry set",
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("doctor rejects a partially present corpus instead of using legacy integrity", async () => {
+  const root = await canonicalMkdtemp("nelos-doctor-partial-corpus-");
+  try {
+    const fixture = await createDoctorFixture(root, { includeCorpus: false });
+    for (const path of [fixture.releasePath, fixture.pluginInstalledPath]) {
+      await mkdir(join(path, "corpus"));
+      await writeFile(join(path, "corpus", "partial.json"), "{}\n");
+    }
+    const diagnosis = await diagnoseDistribution({
+      ...fixture,
+      env: { PATH: fixture.binDir },
+    });
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "distribution").status,
+      "error",
+    );
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "coherence").status,
+      "error",
+    );
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
