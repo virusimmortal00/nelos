@@ -1,0 +1,237 @@
+name: Experiment CI gates
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+    - cron: "41 4 * * 0"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Explicit non-PR lane
+        required: true
+        type: choice
+        options: [regression, powered, release-canary, desktop]
+      desktop_action:
+        description: Exact leased Desktop lifecycle action
+        required: false
+        type: choice
+        options: [install, restart, upgrade, crash-recovery, cleanup, rollback, reimage]
+      desktop_host_id:
+        description: Dedicated worker identity
+        required: false
+        type: string
+      desktop_lease_id:
+        description: Current exclusive lease identity
+        required: false
+        type: string
+      desktop_request_id:
+        description: Sealed request identity
+        required: false
+        type: string
+      desktop_request_digest:
+        description: SHA-256 of sealed request
+        required: false
+        type: string
+      desktop_golden_image_digest:
+        description: Signed golden-image digest
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TERMINAL_EVIDENCE_CLASSES: succeeded,regression,failed,invalid,inconclusive,infrastructure-failure,interrupted,incompatible-provenance
+
+jobs:
+  offline-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - name: Run credential-free contract and end-to-end fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset OPENAI_API_KEY CODEX_API_KEY
+          npm run check:experiment-ci
+          node --import ./scripts/test-bootstrap.mjs --test test/experiment-ci-gates.test.mjs
+          for scenario in success regression outage interruption incompatible-provenance report-regeneration; do
+            npm run experiment:ci -- --lane smoke --scenario "$scenario" --out experiment-ci-evidence
+          done
+      - name: Retain all terminal contract evidence classes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-offline-${{ github.run_id }}
+          path: experiment-ci-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  pull-request-smoke:
+    if: github.event_name == 'pull_request'
+    needs: offline-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-${{ github.run_id }}-${{ github.run_attempt }}
+      HOME: ${{ runner.temp }}/nelos-home-${{ github.run_id }}-${{ github.run_attempt }}
+      TASK_BUDGET: 1
+      REPETITION_BUDGET: 1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - name: Run one-task one-repetition isolated smoke contract
+        run: npm run experiment:ci -- --lane smoke --scenario success --out experiment-ci-evidence
+      - name: Retain smoke evidence regardless of terminal outcome
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-smoke-${{ github.run_id }}
+          path: experiment-ci-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  nightly-regression:
+    if: github.event.schedule == '17 3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.lane == 'regression')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-regression-${{ matrix.shard }}-${{ github.run_id }}
+      HOME: ${{ runner.temp }}/nelos-home-regression-${{ matrix.shard }}-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: 20 }
+      - run: npm ci --ignore-scripts
+      - run: npm run experiment:ci -- --lane regression --shard-index ${{ matrix.shard }} --shard-count 4 --out experiment-ci-evidence
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-regression-${{ github.run_id }}-${{ matrix.shard }}
+          path: experiment-ci-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  powered-study:
+    if: github.event.schedule == '41 4 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.lane == 'powered')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-powered-${{ matrix.shard }}-${{ github.run_id }}
+      HOME: ${{ runner.temp }}/nelos-home-powered-${{ matrix.shard }}-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: 20 }
+      - run: npm ci --ignore-scripts
+      - run: npm run experiment:ci -- --lane powered --shard-index ${{ matrix.shard }} --shard-count 8 --out experiment-ci-evidence
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-powered-${{ github.run_id }}-${{ matrix.shard }}
+          path: experiment-ci-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  release-canary:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.lane == 'release-canary')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        codex: ["0.144.5", "0.144.6"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with: { node-version: 20 }
+      - run: npm ci --ignore-scripts
+      - run: mkdir -p experiment-ci-evidence .ci/codex
+      - name: Install exact Codex canary
+        run: npm install --prefix .ci/codex --no-save --package-lock=false --ignore-scripts @openai/codex@${{ matrix.codex }}
+      - name: Collect exact compatibility, schema, and runtime evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/collect-compatibility-evidence.mjs --lane source-release --release-id codex@${{ matrix.codex }} --out experiment-ci-evidence/source.json
+          node scripts/collect-compatibility-evidence.mjs --lane schema --release-id codex@${{ matrix.codex }} --codex .ci/codex/node_modules/.bin/codex --out experiment-ci-evidence/schema.json
+          node scripts/collect-runtime-transport.mjs --codex .ci/codex/node_modules/.bin/codex --expected-version ${{ matrix.codex }} > experiment-ci-evidence/runtime.json
+          node scripts/verify-release-compatibility-evidence.mjs --release-id codex@${{ matrix.codex }} --source experiment-ci-evidence/source.json --schema experiment-ci-evidence/schema.json --runtime experiment-ci-evidence/runtime.json --out experiment-ci-evidence/compatibility.json
+          node scripts/bind-release-experiment-canary.mjs --codex-version ${{ matrix.codex }} --source-commit "$(git rev-parse HEAD)" --runtime-lock test/fixtures/experimentation-contract/runtime-lock-v1.json --schema experiment-ci-evidence/schema.json --compatibility experiment-ci-evidence/compatibility.json --out experiment-ci-evidence/release-canary.json
+          npm run experiment:ci -- --lane release-canary --scenario success --out experiment-ci-evidence
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-release-canary-${{ matrix.codex }}-${{ github.run_id }}
+          path: experiment-ci-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  dedicated-desktop:
+    if: github.event_name == 'workflow_dispatch' && inputs.lane == 'desktop'
+    runs-on: [self-hosted, macOS, nelos-dedicated-desktop]
+    environment: dedicated-desktop-experiment
+    timeout-minutes: 45
+    concurrency:
+      group: dedicated-desktop-${{ inputs.desktop_host_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with: { node-version: 20 }
+      - name: Execute exact fenced lifecycle scenario
+        shell: bash
+        env:
+          DESKTOP_ACTION: ${{ inputs.desktop_action }}
+          DESKTOP_HOST_ID: ${{ inputs.desktop_host_id }}
+          DESKTOP_LEASE_ID: ${{ inputs.desktop_lease_id }}
+          DESKTOP_REQUEST_ID: ${{ inputs.desktop_request_id }}
+          DESKTOP_REQUEST_DIGEST: ${{ inputs.desktop_request_digest }}
+          DESKTOP_GOLDEN_IMAGE_DIGEST: ${{ inputs.desktop_golden_image_digest }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p experiment-ci-evidence
+          node automation/scripts/run-dedicated-desktop-lifecycle.mjs --action "$DESKTOP_ACTION" --host-id "$DESKTOP_HOST_ID" --lease-id "$DESKTOP_LEASE_ID" --request-id "$DESKTOP_REQUEST_ID" --request-digest "$DESKTOP_REQUEST_DIGEST" --golden-image-digest "$DESKTOP_GOLDEN_IMAGE_DIGEST" > experiment-ci-evidence/desktop-receipt.json
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: experiment-desktop-${{ inputs.desktop_host_id }}-${{ inputs.desktop_lease_id }}
+          path: experiment-ci-evidence/
+          if-no-files-found: warn
+          retention-days: 30
