@@ -5,6 +5,33 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.6.1] - 2026-08-03
+
+### User-facing changes
+
+- Aligned structured planning and exception replanning size limits so every
+  valid plan up to the 64 KiB plan ceiling can enter the bounded one-generation
+  exception workflow.
+
+### Compatibility requirements
+
+- Planning context now accepts up to 128 Ki characters; generated exception
+  context remains independently bounded to 128 KiB of UTF-8.
+
+### Migrations
+
+- No migration is required. Existing plan runs retain their exact identities
+  and completed-slice preservation rules.
+
+### Security fixes
+
+- Oversized and malformed exception-replanning plans are rejected before any
+  planner task can launch.
+
+### Known limitations
+
+- Exception replanning remains limited to one generation.
+
 ## [0.6.0] - 2026-08-03
 
 ### User-facing changes

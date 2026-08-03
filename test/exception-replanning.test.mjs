@@ -4,11 +4,15 @@ import test from "node:test";
 import {
   ExceptionReplanningCoordinatorV1,
   EXCEPTION_REPLAN_TRIGGER_TYPES,
+  MAX_EXCEPTION_REPLAN_CONTEXT_BYTES,
 } from "../src/exception-replanning.mjs";
 import {
   createPlanRunV1,
 } from "../src/plan-run-store.mjs";
-import { planWorkSlices } from "../src/slice-planner.mjs";
+import {
+  MAX_PLAN_BYTES,
+  planWorkSlices,
+} from "../src/slice-planner.mjs";
 
 function slice(id, overrides = {}) {
   return {
@@ -35,6 +39,35 @@ function basePlan() {
       slice("failed", { dependsOn: ["accepted"] }),
       slice("followup", { dependsOn: ["failed"] }),
     ],
+  };
+}
+
+function sizedPlan({ count, fillerLength, objective }) {
+  return {
+    schemaVersion: 1,
+    objective,
+    maxParallel: Math.min(count, 8),
+    slices: Array.from({ length: count }, (_, index) =>
+      slice(`slice-${index}`, {
+        objective: `Complete slice ${index} ${"x".repeat(fillerLength)}`,
+        dependsOn: index === 0 ? [] : [`slice-${index - 1}`],
+      }),
+    ),
+  };
+}
+
+function launchPendingResult() {
+  return {
+    schemaVersion: 1,
+    command: "plan lifecycle",
+    lifecycle: {
+      bootstrapId: "plan:1234567890abcdef12345678",
+      revision: 1,
+      phase: "launch-pending",
+      plannerThreadId: null,
+    },
+    bootstrap: {},
+    nextAction: { schemaVersion: 1, kind: "launch-planner" },
   };
 }
 
@@ -89,18 +122,7 @@ function coordinatorReturning(result, calls = [], basePlanValue = basePlan()) {
 test("exception replanning accepts only typed exceptional triggers and launches through the planning lifecycle", async () => {
   const calls = [];
   const coordinator = coordinatorReturning(
-    {
-      schemaVersion: 1,
-      command: "plan lifecycle",
-      lifecycle: {
-        bootstrapId: "plan:1234567890abcdef12345678",
-        revision: 1,
-        phase: "launch-pending",
-        plannerThreadId: null,
-      },
-      bootstrap: {},
-      nextAction: { schemaVersion: 1, kind: "launch-planner" },
-    },
+    launchPendingResult(),
     calls,
   );
   const result = await coordinator.advance(input(), {
@@ -124,6 +146,150 @@ test("exception replanning accepts only typed exceptional triggers and launches 
     "requirements-changed",
     "confidence-insufficient",
   ]);
+});
+
+test("exception replanning admits the observed fourteen-slice context above the former 16 KB limit", async () => {
+  const observedPlan = sizedPlan({
+    count: 14,
+    fillerLength: 1_100,
+    objective: "Observed fourteen-slice plan",
+  });
+  const calls = [];
+  const coordinator = coordinatorReturning(
+    launchPendingResult(),
+    calls,
+    observedPlan,
+  );
+  await coordinator.advance(
+    input({
+      basePlan: observedPlan,
+      trigger: {
+        type: "requirements-changed",
+        eventId: "event-observed",
+        summary: "The valid plan needs a bounded replacement after review",
+        affectedSliceIds: ["slice-13"],
+        completedSliceIds: Array.from(
+          { length: 7 },
+          (_, index) => `slice-${index}`,
+        ),
+        evidence: [
+          "The original valid plan exceeds the former exception-context limit.",
+        ],
+      },
+    }),
+    {},
+  );
+  assert.equal(calls.length, 1);
+  const contextBytes = Buffer.byteLength(calls[0].value.context, "utf8");
+  assert.ok(contextBytes >= 19_073);
+  assert.ok(contextBytes <= MAX_EXCEPTION_REPLAN_CONTEXT_BYTES);
+});
+
+test("exception replanning admits a maximum-size thirty-two-slice plan with a maximum bounded trigger", async () => {
+  const maximumPlan = sizedPlan({
+    count: 32,
+    fillerLength: 1_785,
+    objective: "Maximum supported plan",
+  });
+  const serializedBytes = Buffer.byteLength(JSON.stringify(maximumPlan), "utf8");
+  assert.ok(serializedBytes <= MAX_PLAN_BYTES);
+  assert.ok(serializedBytes >= MAX_PLAN_BYTES - 32);
+
+  const calls = [];
+  const coordinator = coordinatorReturning(
+    launchPendingResult(),
+    calls,
+    maximumPlan,
+  );
+  await coordinator.advance(
+    input({
+      basePlan: maximumPlan,
+      trigger: {
+        type: "requirements-changed",
+        eventId: "event-maximum",
+        summary: "漢".repeat(2_000),
+        affectedSliceIds: Array.from(
+          { length: 16 },
+          (_, index) => `slice-${index + 16}`,
+        ),
+        completedSliceIds: Array.from(
+          { length: 16 },
+          (_, index) => `slice-${index}`,
+        ),
+        evidence: Array.from({ length: 8 }, () => "界".repeat(500)),
+      },
+    }),
+    {},
+  );
+  assert.equal(calls.length, 1);
+  const contextBytes = Buffer.byteLength(calls[0].value.context, "utf8");
+  assert.ok(contextBytes > MAX_PLAN_BYTES);
+  assert.ok(contextBytes <= MAX_EXCEPTION_REPLAN_CONTEXT_BYTES);
+});
+
+test("exception replanning rejects oversized and malformed caller plans before planner launch", async (t) => {
+  const maximumPlan = sizedPlan({
+    count: 32,
+    fillerLength: 1_785,
+    objective: "Maximum supported plan",
+  });
+  const oversizedPlan = structuredClone(maximumPlan);
+  oversizedPlan.slices[0].objective += "x".repeat(64);
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(oversizedPlan), "utf8") > MAX_PLAN_BYTES,
+  );
+  let lifecycleCalls = 0;
+  let storeReads = 0;
+  const coordinator = new ExceptionReplanningCoordinatorV1({
+    planningLifecycle: {
+      async advance() {
+        lifecycleCalls += 1;
+        return launchPendingResult();
+      },
+    },
+    planRunStore: {
+      async read() {
+        storeReads += 1;
+        return null;
+      },
+    },
+  });
+  const externalInput = {
+    schemaVersion: 1,
+    idempotencyKey: "oversized-plan",
+    queenThreadId: "queen-1",
+    basePlanRunId: `run:${"0".repeat(40)}`,
+    basePlanDigest: "0".repeat(64),
+    basePlan: oversizedPlan,
+    trigger: {
+      type: "requirements-changed",
+      eventId: "event-oversized",
+      summary: "The requirements changed",
+      affectedSliceIds: [],
+      completedSliceIds: [],
+      evidence: ["External input must remain bounded."],
+    },
+    generation: 1,
+    receipt: null,
+  };
+
+  await t.test("oversized", async () => {
+    await assert.rejects(
+      coordinator.advance(externalInput, {}),
+      new RegExp(`slice plan exceeds ${MAX_PLAN_BYTES} bytes`, "u"),
+    );
+  });
+  await t.test("malformed", async () => {
+    await assert.rejects(
+      coordinator.advance({
+        ...externalInput,
+        basePlan: { ...maximumPlan, slices: "not-an-array" },
+      }, {}),
+      /slices must contain between 1 and 32 entries/u,
+    );
+  });
+  assert.equal(storeReads, 0);
+  assert.equal(lifecycleCalls, 0);
 });
 
 test("exception replanning preserves completed slices and schedules only pending revised work", async () => {

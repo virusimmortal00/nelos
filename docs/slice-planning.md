@@ -122,6 +122,13 @@ must match its persisted plan-run digest. Persisted lineage bounds generation
 to one; completed slices must remain semantically unchanged, and the execution
 plan removes them so accepted work is never launched again.
 
+The size contract is aligned across both paths. A structured plan is bounded to
+64 KiB and 32 slices before persistence. Planning context is bounded to 128 Ki
+characters, while the generated exception-replanning envelope has the stricter
+128 KiB UTF-8 byte ceiling. That envelope accommodates a maximum-size accepted
+plan plus the maximum typed trigger and framing. Oversized or malformed caller
+plans are rejected before a planner task can be launched.
+
 Corrective follow-up and exception replacement are intentionally different
 operations. A corrective follow-up asks an existing durable task to repair a
 result while retaining its established route. An exception replan creates new
