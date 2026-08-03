@@ -2642,17 +2642,21 @@ test("a read that started before archive cannot regress the confirmed archive ca
     }),
   );
   let threadReads = 0;
-  let releaseFirstRead;
+  let markFirstReadStarted;
   const firstReadStarted = new Promise((resolvePromise) => {
-    releaseFirstRead = resolvePromise;
+    markFirstReadStarted = resolvePromise;
+  });
+  let allowFirstReadToReturn;
+  const firstReadMayReturn = new Promise((resolvePromise) => {
+    allowFirstReadToReturn = resolvePromise;
   });
   const server = await startMockAppServer(socketPath, async ({ method }) => {
     if (method === "initialize") return {};
     if (method === "thread/read") {
       threadReads += 1;
       if (threadReads === 1) {
-        releaseFirstRead();
-        await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+        markFirstReadStarted();
+        await firstReadMayReturn;
       }
       return { thread: mockThread("member", "Member") };
     }
@@ -2664,15 +2668,28 @@ test("a read that started before archive cannot regress the confirmed archive ca
   try {
     const delayedStatus = runAsync(
       cli,
-      ["status", "member", "--socket", socketPath, "--timeout-ms", "1000"],
+      ["status", "member", "--socket", socketPath, "--timeout-ms", "5000"],
       { XDG_STATE_HOME: stateHome },
     );
     await firstReadStarted;
-    const archive = await runAsync(
+    const archivePromise = runAsync(
       cli,
-      ["archive", "member", "--socket", socketPath, "--timeout-ms", "1000"],
+      ["archive", "member", "--socket", socketPath, "--timeout-ms", "5000"],
       { XDG_STATE_HOME: stateHome },
     );
+    const archiveDeadline = Date.now() + 4_000;
+    while (true) {
+      const record = JSON.parse(
+        await readFile(join(webDirectory, "member.json"), "utf8"),
+      );
+      if (record.lifecycleObservation?.disposition === "archived") break;
+      if (Date.now() >= archiveDeadline) {
+        assert.fail("archive did not reach the local cache before the deadline");
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    }
+    allowFirstReadToReturn();
+    const archive = await archivePromise;
     assert.equal(archive.status, 0, archive.stderr);
     const status = await delayedStatus;
     assert.equal(status.status, 0, status.stderr);
@@ -2684,6 +2701,7 @@ test("a read that started before archive cannot regress the confirmed archive ca
     assert.equal(record.archivedAt, record.lifecycleObservation.observedAt);
     assert.equal(record.lifecycleObservation.sourceEffectAt, record.archivedAt);
   } finally {
+    allowFirstReadToReturn();
     await server.close();
     await rm(root, { recursive: true, force: true });
   }
