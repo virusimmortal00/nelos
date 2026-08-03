@@ -418,9 +418,10 @@ returns a machine-generated `cleanup-spinoffs` next action containing the exact
 `nelos_spinoff_cleanup` call. The cleanup adapter snapshots the configured
 policy for that web when cleanup begins; the built-in default is `auto`, and
 `ask` returns an exact confirmation list. A later global change applies to
-future webs. Missing,
-rejected, stale, mismatched, failed, blocked, or cross-queen evidence remains
-cleanup `not-ready` and yields no archive effect.
+future webs. Missing, rejected, stale, mismatched, failed, blocked, or
+cross-queen evidence remains cleanup `not-ready` and is never archived.
+Accepted siblings are independently eligible, so their exact archive effects
+can settle without waiting for unrelated pending evidence in the same wave.
 
 A rejected exact-current decision changes the member to
 `correction-pending`. The next advance returns one turn-bound

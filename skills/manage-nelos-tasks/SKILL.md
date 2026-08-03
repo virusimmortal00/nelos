@@ -83,12 +83,13 @@ After the fast path or bootstrap, execute only the returned
   web/queen IDs, decision, and summary; execute its returned
   `nelos_orchestrate_advance` action. Never reconstruct result provenance.
   Author slices only when explicitly returned unresolved.
-- `cleanup-spinoffs`: call its exact `tool` with unchanged `arguments`. The
-  snapshotted default `auto` archives eligible accepted spinoffs; `ask` prompts
-  once with exact names/IDs, and `keep` preserves them. Set `rememberPolicy:
+- `cleanup-spinoffs`: call its exact `tool` and unchanged `arguments`. The
+  snapshotted default `auto` archives eligible spinoffs; `ask` prompts
+  once with exact names/IDs, and `keep` preserves. `rememberPolicy:
   true` with `userIntentConfirmed: true` only for an explicit always choice;
-  submit receipts until `complete`. On `authorization-required`, run its exact
-  effect and replay cleanup with the resulting `launchAuthorization`.
+  submit receipts until settled. `not-ready` retains unaccepted members
+  but accepted siblings archive. On `authorization-required`, run its exact
+  effect and replay with `launchAuthorization`.
 - `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
   adding only `resolution: "detach"`; never detach locally.
 - `attention`: stop and resolve the named evidence gap; do not infer an action.

@@ -277,13 +277,15 @@ The first eligible cleanup call snapshots the effective policy across the web.
 Changing the global default afterward affects future webs but does not change
 an in-flight confirmation, archive, or receipt reconciliation.
 
-If any required current spin-off lacks a successful current acceptance, cleanup
-returns `not-ready` with the exact pending work units and performs no mutation.
-Failed, blocked, detached, unaccepted, stale-attempt, non-spinoff work, and work
-without an explicit `archive` capability is never eligible. Archive remains a
-host-owned native mutation. Each exact host receipt is recorded independently
-so partial cleanup remains recoverable. A persisted `archiving` state returns a
-reconciliation effect and is never replayed as a second archive request.
+If a required current spin-off lacks a successful current acceptance, cleanup
+returns that exact work unit in `pending`. Independently accepted siblings may
+still emit archive effects; after those receipts settle, cleanup remains
+`not-ready` until the pending work is accepted. Failed, blocked, detached,
+unaccepted, stale-attempt, non-spinoff work, and work without an explicit
+`archive` capability is never eligible. Archive remains a host-owned native
+mutation. Each exact host receipt is recorded independently so partial cleanup
+remains recoverable. A persisted `archiving` state returns a reconciliation
+effect and is never replayed as a second archive request.
 Terminal `archived` and `kept` records remain addressable by an exact
 confirmation replay.
 

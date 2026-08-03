@@ -5,6 +5,35 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.6.2] - 2026-08-03
+
+### User-facing changes
+
+- Cleanup can archive independently accepted spin-offs even when another
+  required member of the same wave remains unaccepted.
+
+### Compatibility requirements
+
+- Cleanup responses can include both archive effects and an exact `pending`
+  list; after receipts settle, the state remains `not-ready` for those pending
+  members.
+
+### Migrations
+
+- No migration is required. Existing cleanup records remain replayable and
+  retain their snapshotted policy.
+
+### Security fixes
+
+- Failed, blocked, detached, stale, unaccepted, and archive-incapable work
+  remains ineligible while accepted siblings are cleaned independently.
+
+### Known limitations
+
+- An incomplete wave cannot advance until every required member is accepted;
+  this change only prevents accepted task cleanup from being unnecessarily
+  coupled to that gate.
+
 ## [0.6.1] - 2026-08-03
 
 ### User-facing changes

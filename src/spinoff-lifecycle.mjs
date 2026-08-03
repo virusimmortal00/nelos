@@ -711,28 +711,18 @@ export class SpinoffLifecycleAdapterV1 {
         decision?.memberThreadId === workUnit.binding.memberThreadId
       );
     });
-    if (pendingRequired.length > 0) {
-      return {
-        schemaVersion: 1,
-        policy: requestedPolicy,
-        state: "not-ready",
-        pending: pendingRequired
-          .sort((left, right) =>
-            left.workUnitId.localeCompare(right.workUnitId),
-          )
-          .map((workUnit) => ({
-            workUnitId: workUnit.workUnitId,
-            threadId:
-              workUnit.binding.state === "bound"
-                ? workUnit.binding.memberThreadId
-                : null,
-            title: workUnit.title,
-            model: workUnit.launch?.nativeTask?.model ?? "host-default",
-            reasoning:
-              workUnit.launch?.nativeTask?.thinking ?? "host-default",
-          })),
-      };
-    }
+    const pending = pendingRequired
+      .sort((left, right) => left.workUnitId.localeCompare(right.workUnitId))
+      .map((workUnit) => ({
+        workUnitId: workUnit.workUnitId,
+        threadId:
+          workUnit.binding.state === "bound"
+            ? workUnit.binding.memberThreadId
+            : null,
+        title: workUnit.title,
+        model: workUnit.launch?.nativeTask?.model ?? "host-default",
+        reasoning: workUnit.launch?.nativeTask?.thinking ?? "host-default",
+      }));
     const eligible = workUnits
       .filter((workUnit) => {
         const decision = accepted.get(workUnit.workUnitId);
@@ -757,6 +747,14 @@ export class SpinoffLifecycleAdapterV1 {
         title: workUnit.title,
       }))
       .sort((left, right) => left.workUnit.workUnitId.localeCompare(right.workUnit.workUnitId));
+    if (pending.length > 0 && eligible.length === 0) {
+      return {
+        schemaVersion: 1,
+        policy: requestedPolicy,
+        state: "not-ready",
+        pending,
+      };
+    }
     const candidateBlueprints = eligible.map((candidate) => ({
       ...candidate,
       completion: {
@@ -1066,6 +1064,8 @@ export class SpinoffLifecycleAdapterV1 {
       ? "effects-required"
       : results.some(({ state }) => state === "attention")
       ? "attention"
+      : pending.length > 0
+      ? "not-ready"
       : "complete";
     let nextAction = null;
     if (
@@ -1121,6 +1121,7 @@ export class SpinoffLifecycleAdapterV1 {
       state,
       results,
       effects,
+      ...(pending.length === 0 ? {} : { pending }),
       ...(nextAction === null ? {} : { nextAction }),
     };
   }
