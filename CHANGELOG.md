@@ -5,6 +5,33 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.1] - 2026-08-03
+
+### User-facing changes
+
+- Multi-wave durable plans now continue through the governed cleanup and
+  authorization protocol instead of returning to the completed prior wave.
+
+### Compatibility requirements
+
+- Plan-run records accept legacy files without cleanup progress and persist new
+  cleaned-wave indexes as ordered, verified, spin-off-only progress.
+
+### Migrations
+
+- Existing plan-run records are normalized with an empty cleaned-wave list on
+  read; no manual state migration is required.
+
+### Security fixes
+
+- Next-wave authorization remains bound to the exact plan run, wave index,
+  digest, and member set, and stale or partial receipts continue to fail closed.
+
+### Known limitations
+
+- Cleanup authorization replay remains explicit and host-owned; operators must
+  execute the returned authorization effect before a dependent wave can launch.
+
 ## [0.12.0] - 2026-08-03
 
 ### User-facing changes

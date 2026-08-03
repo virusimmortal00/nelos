@@ -24,6 +24,9 @@ import {
   EXECUTION_MAP_RESOURCE_URI,
 } from "../src/execution-map.mjs";
 import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
+import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
+import { McpQueenDecisionAdapterV1 } from "../src/mcp-queen-decision.mjs";
+import { OrchestrationCheckpointStoreV1 } from "../src/orchestration-checkpoint-store.mjs";
 import { workUnitFromPlanSliceV1 } from "../src/plan-orchestration-bridge.mjs";
 import {
   createPlanRunV1,
@@ -34,6 +37,12 @@ import {
   NelosConfigStoreV1,
   NelosConfigurationV1,
 } from "../src/nelos-configuration.mjs";
+import { QueenAcceptanceStoreV1 } from "../src/queen-acceptance.mjs";
+import {
+  SpinoffLifecycleAdapterV1,
+  SpinoffLifecycleStoreV1,
+} from "../src/spinoff-lifecycle.mjs";
+import { derivePlanWaveActionV1 } from "../src/next-action.mjs";
 import {
   MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1,
   protocolCompatibilityEnvelopeV1,
@@ -1812,6 +1821,348 @@ test("nelos_orchestrate_advance is callback-only and forwards exact arguments", 
     ).value,
     result.body,
   );
+});
+
+test("public MCP cleanup authorization replay launches and verifies wave 2", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-multi-wave-mcp-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planRunStore = new PlanRunStoreV1({
+    directory: join(root, "plan-runs"),
+  });
+  const executionStore = new ExecutionStoreV1({
+    directory: join(root, "executions"),
+  });
+  const checkpointStore = new OrchestrationCheckpointStoreV1({
+    directory: join(root, "checkpoints"),
+  });
+  const acceptanceStore = new QueenAcceptanceStoreV1({
+    directory: join(root, "acceptances"),
+  });
+  const configuration = new NelosConfigurationV1({
+    store: new NelosConfigStoreV1({ path: join(root, "config.toml") }),
+    legacyPreferencePath: join(root, "legacy-cleanup.json"),
+  });
+  const orchestrationAdapter = new McpOrchestrationAdapterV1({
+    store: executionStore,
+  });
+  const joinAdapter = new McpJoinAdapterV1({
+    executionStore,
+    checkpointStore,
+    acceptanceStore,
+    planRunStore,
+  });
+  const queenDecisionAdapter = new McpQueenDecisionAdapterV1({
+    executionStore,
+    checkpointStore,
+    acceptanceStore,
+    now: () => "2026-08-03T12:00:00.000Z",
+  });
+  const lifecycleAdapter = new SpinoffLifecycleAdapterV1({
+    executionStore,
+    acceptanceStore,
+    planRunStore,
+    configuration,
+    store: new SpinoffLifecycleStoreV1({
+      directory: join(root, "spinoff-lifecycle"),
+    }),
+    now: () => "2026-08-03T12:00:00.000Z",
+  });
+  const latestTurns = new Map();
+  const appServerBridge = {
+    async latestTurn({ threadId }) {
+      return latestTurns.get(threadId) ?? null;
+    },
+    async close() {},
+  };
+  const options = {
+    planRunStore,
+    orchestrationAdapter,
+    joinAdapter,
+    queenDecisionAdapter,
+    lifecycleAdapter,
+    configuration,
+    appServerBridge,
+    async launchBatchVerifier(args) {
+      return {
+        schemaVersion: 1,
+        parentThreadId: args.parentThreadId,
+        allVerified: true,
+        members: args.members.map((member) => ({
+          sliceId: member.sliceId,
+          lifecycle: member.lifecycle,
+          threadId: member.threadId,
+          checks: {
+            identity: "verified",
+            read: "verified",
+            topology: "verified",
+            title: "verified",
+            route: "verified",
+          },
+          verified: true,
+        })),
+      };
+    },
+  };
+  let requestId = 10;
+  const call = async (name, args) => {
+    const responses = await roundTrip([
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: requestId++,
+        method: "tools/call",
+        params: { name, arguments: args },
+      },
+    ], options);
+    const result = toolBody(responses[1]);
+    assert.equal(result.isError, false, result.body.error);
+    return result.body;
+  };
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Exercise two dependency-ordered durable waves",
+    slices: [
+      {
+        id: "alpha",
+        title: "Alpha",
+        objective: "Complete the prerequisite",
+        deliverable: "Alpha result",
+        acceptanceCriteria: ["Alpha is accepted"],
+        dependsOn: [],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+      {
+        id: "beta",
+        title: "Beta",
+        objective: "Complete the dependent work",
+        deliverable: "Beta result",
+        acceptanceCriteria: ["Beta is verified"],
+        dependsOn: ["alpha"],
+        lifecycle: "spinoff",
+        workspaceMode: "isolated-write",
+        taskShape: "everyday",
+      },
+    ],
+  });
+  const run = await planRunStore.create(createPlanRunV1(plan, {
+    queenThreadId: "queen-1",
+    sourceId: "multi-wave-public-mcp",
+    webIdentity: {
+      schemaVersion: 1,
+      webId: "A1",
+      queenThreadId: "queen-1",
+      queenTitle: "👑 A1 · Queen",
+    },
+  }));
+  const capabilitiesFor = (proposal) => ({
+    source: "native-host-tool-registry",
+    launchers: proposal.members.map((member) => ({
+      launcher: member.launcher,
+      memberKinds: [member.memberKind],
+      workspaceModes: [member.workspaceMode],
+      routes: [{
+        model: member.nativeTask.model,
+        reasoningEfforts: [member.nativeTask.thinking],
+      }],
+    })),
+  });
+  const authorize = async (proposal) => (await call(
+    "nelos_launch_authorize",
+    {
+      request: proposal.authorizationEffect.arguments.request,
+      capabilities: capabilitiesFor(proposal),
+      userIntentConfirmed: true,
+    },
+  )).receipt;
+  const bindLaunchMember = async (member, threadId) => {
+    const prepared = await call(
+      member.orchestration.tool,
+      member.orchestration.arguments,
+    );
+    const effect = prepared.effects.find(({ type }) => type === "native-create");
+    assert.ok(effect);
+    await call(member.orchestration.tool, {
+      workUnit: member.orchestration.arguments.workUnit,
+      receipt: {
+        schemaVersion: 1,
+        actionId: effect.actionId,
+        type: "native-create",
+        workUnitId: effect.workUnitId,
+        specRevision: effect.specRevision,
+        attempt: effect.attempt,
+        memberThreadId: threadId,
+      },
+    });
+  };
+  const verifyWave = (action, threadId, turnId) => call(
+    "nelos_launch_verify_batch",
+    {
+      ...action.verification,
+      parentThreadId: "queen-1",
+      members: action.members.map((member) => ({
+        sliceId: member.sliceId,
+        lifecycle: member.lifecycle,
+        threadId,
+        turnId,
+      })),
+    },
+  );
+
+  const firstProposal = derivePlanWaveActionV1(plan, run, 1, true, null);
+  const firstAction = derivePlanWaveActionV1(
+    plan,
+    run,
+    1,
+    true,
+    await authorize(firstProposal),
+  );
+  await bindLaunchMember(firstAction.members[0], "thread-alpha");
+  await verifyWave(firstAction, "thread-alpha", "turn-alpha");
+
+  let observed = await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: null,
+  });
+  const titleEffect = observed.join.effects.find(
+    ({ type }) => type === "native-read-title",
+  );
+  observed = await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-title-observed",
+      actionId: titleEffect.actionId,
+      workUnitId: titleEffect.workUnitId,
+      specRevision: titleEffect.specRevision,
+      attempt: titleEffect.attempt,
+      bindingGeneration: titleEffect.bindingGeneration,
+      memberThreadId: titleEffect.memberThreadId,
+      requestedTitle: titleEffect.requestedTitle,
+      observedTitle: titleEffect.requestedTitle,
+    },
+  });
+  const waitEffect = observed.join.effects.find(
+    ({ type }) => type === "native-wait",
+  );
+  observed = await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: waitEffect.actionId,
+      webId: "A1",
+      queenThreadId: "queen-1",
+      status: "event",
+      targets: waitEffect.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-alpha",
+        lifecycle: "completed",
+        latestTurnId: "turn-alpha",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const readEffect = observed.join.effects.find(
+    ({ type }) => type === "native-read-result",
+  );
+  const resultReceipt = {
+    schemaVersion: 1,
+    type: "native-result-read",
+    actionId: readEffect.actionId,
+    workUnitId: "alpha",
+    specRevision: 1,
+    attempt: 1,
+    bindingGeneration: 1,
+    memberThreadId: "thread-alpha",
+    requestedTurnId: "turn-alpha",
+    sourceTurnId: "turn-alpha",
+    resultEnvelope: {
+      schemaVersion: 1,
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      outcome: "succeeded",
+      summary: "Alpha completed",
+      artifacts: [],
+      verification: ["focused fixture"],
+      blockers: [],
+      recoveryHint: null,
+    },
+  };
+  await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: resultReceipt,
+  });
+  latestTurns.set("thread-alpha", {
+    turnId: "turn-alpha",
+    status: "completed",
+  });
+  await call("nelos_queen_decide", {
+    schemaVersion: 1,
+    webId: "A1",
+    queenThreadId: "queen-1",
+    decision: "accepted",
+    decisionSummary: "Alpha meets the recorded criteria.",
+    receipt: resultReceipt,
+  });
+  const advanced = await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: null,
+  });
+  assert.equal(advanced.nextAction.kind, "cleanup-spinoffs");
+
+  const cleanupArguments = advanced.nextAction.arguments;
+  const cleaning = await call("nelos_spinoff_cleanup", cleanupArguments);
+  const archive = cleaning.effects.find(({ type }) => type === "native-archive");
+  const settled = await call("nelos_spinoff_cleanup", {
+    ...cleanupArguments,
+    archiveReceipts: [{
+      schemaVersion: 1,
+      actionId: archive.actionId,
+      type: "native-archive",
+      threadId: archive.threadId,
+      archived: true,
+    }],
+  });
+  assert.equal(settled.nextAction.kind, "authorization-required");
+  assert.deepEqual(
+    (await planRunStore.read(run.planRunId)).cleanedWaveIndexes,
+    [1],
+  );
+  const resumed = await call("nelos_orchestrate_advance", {
+    webId: "A1",
+    queenThreadId: "queen-1",
+    receipt: null,
+  });
+  assert.equal(resumed.nextAction.kind, "authorization-required");
+  assert.equal(resumed.nextAction.verification.waveIndex, 2);
+
+  const secondAuthorization = await authorize(settled.nextAction);
+  const secondAction = (await call("nelos_spinoff_cleanup", {
+    ...cleanupArguments,
+    launchAuthorization: secondAuthorization,
+  })).nextAction;
+  assert.equal(secondAction.kind, "launch-wave");
+  assert.equal(secondAction.waveIndex, 2);
+  assert.deepEqual(
+    (await call("nelos_spinoff_cleanup", {
+      ...cleanupArguments,
+      launchAuthorization: secondAuthorization,
+    })).nextAction,
+    secondAction,
+  );
+  await bindLaunchMember(secondAction.members[0], "thread-beta");
+  await verifyWave(secondAction, "thread-beta", "turn-beta");
+  const completedRun = await planRunStore.read(run.planRunId);
+  assert.deepEqual(completedRun.verifiedWaveIndexes, [1, 2]);
+  assert.deepEqual(completedRun.cleanedWaveIndexes, [1]);
 });
 
 test("nelos_queen_decide forwards the strict versioned decision lifecycle", async () => {

@@ -1,14 +1,12 @@
 ---
 name: manage-nelos-tasks
-description: Plan multi-stream feature or fix work into dependency-safe waves, choose bounded built-in subagents or durable Codex tasks, and execute Nelos's machine-generated next actions.
+description: Plan multi-stream feature or fix work into dependency-safe waves with subagents or durable Codex tasks and machine-generated next actions.
 ---
 
 # Manage Nelos Tasks
 
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes; the queen judges acceptance. Use bundled Nelos MCP tools only;
-never use the CLI as fallback.
-Keep native kinds exact:
+decomposes; the queen judges. Use bundled MCP tools; never use the CLI as fallback. Native kinds:
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
   internal thread ID is verification evidence only. Never call it a spinoff.
@@ -17,8 +15,7 @@ Keep native kinds exact:
 ## Choose the Planning Path
 
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
-`objective`, and bounded `slices`, call `nelos_plan_slices` directly. A
-queen-authored plan is not user-supplied and must not use this fast path.
+`objective`, and bounded `slices`, call `nelos_plan_slices` directly. A queen-authored plan is not user-supplied.
 
 Otherwise call `nelos_plan_lifecycle` with schema version 1, queen task ID,
 caller-stable idempotency key, objective, optional bounded context/parallelism,
@@ -28,22 +25,21 @@ classify them in the queen. Execute only its returned action, then
 call again with the unchanged request, returned `bootstrapId`, and exact native
 receipt. Never substitute an agent path for a task ID.
 
-Reject invalid identity, parent, route, or result-turn evidence. Render maps
-from top-level `structuredContent`; reserve `structuredContent.protocol.result` for nonvisual handling.
+Reject invalid identity, parent, route, or result-turn evidence. Render
+maps from top-level `structuredContent`; reserve `structuredContent.protocol.result` for nonvisual handling.
 
 ## Follow the One Desktop Path
 
 After the fast path or bootstrap, execute only the returned
 `nextAction`; do not reconstruct a procedure from memory.
 
-- `native-set-title`: use only for the queen or a durable spinoff with its exact
-  `threadId` and `title`; verify, then repeat the returning tool. Joined
-  subagents do not support native title control.
+- `native-set-title`: for the queen or durable spinoff, use exact `threadId` and
+  `title`; verify, then repeat the returning tool. Joined subagents cannot use it.
 - `launch-planner`: follow the bounded path; map exact `forkTurns` to the
   native launcher's `fork_turns` field.
 - `verify-route`: call its `tool` with unchanged `arguments`.
-- `authorization-required`: run its `authorizationEffect` with native tool-registry
-  data and confirmed user intent. Replay its exact receipt; never author one.
+- `authorization-required`: run its `authorizationEffect` with registry data and
+  confirmed user intent. Replay its exact receipt; never author one.
 - `execution-unavailable`: stop; never substitute a launcher or execute locally.
 - `launch-wave`: its `executionGate` is authoritative. Dispatch only listed
   members with exact fields. Never omit, substitute, or inherit a decided `nativeTask`.
@@ -60,7 +56,7 @@ After the fast path or bootstrap, execute only the returned
   `verification` identity and every wave receipt. Subagents use agent paths;
   spinoffs use thread IDs, omit unobserved parent claims, and include turn IDs.
   Proceed only when `allVerified` is true; success durably adopts joined
-  members and safely replays legacy adoption.
+  members and replays legacy adoption.
   Subagent title is `not-applicable`; spinoffs verify `native-thread-title`.
   On mismatch, run `native-set-title` and repeat.
   Bad identity, topology, read, or route evidence blocks the whole batch.
@@ -73,7 +69,7 @@ After the fast path or bootstrap, execute only the returned
   terminal turn; expose protocol details only if `attention` persists.
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
-  After terminal turns call `nelos_execution_map_refresh` with resolved display/thread/turn fields; never trust mailbox status.
+  After terminal turns call `nelos_execution_map_refresh` with resolved fields; never trust mailbox status.
 - `native-wait` and `native-read`: use Codex task controls for durable task
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
@@ -87,9 +83,11 @@ After the fast path or bootstrap, execute only the returned
   snapshotted default `auto` archives eligible spinoffs; `ask` prompts
   once with exact names/IDs, and `keep` preserves. `rememberPolicy:
   true` with `userIntentConfirmed: true` only for an explicit always choice;
-  submit receipts until settled. `not-ready` retains unaccepted members
-  but accepted siblings archive. On `authorization-required`, run its exact
-  effect and replay with `launchAuthorization`.
+  submit receipts until settled. `not-ready` retains unaccepted members but archives
+  accepted siblings. On `authorization-required`, run its exact effect and replay
+  the same `nelos_spinoff_cleanup` call with its `launchAuthorization`; never route
+  that receipt through planning. Durable cleanup makes a restarted
+  `nelos_orchestrate_advance` resume the next-wave authorization boundary.
 - `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
   adding only `resolution: "detach"`; never detach locally.
 - `attention`: stop and resolve the named evidence gap; do not infer an action.
@@ -97,10 +95,10 @@ After the fast path or bootstrap, execute only the returned
   verification for named legacy joined members, then retry the transition.
 - `complete`: stop; the command has no additional protocol step.
 
-Spinoffs run exact `nelos_spinoff_complete`: call with `receipt: null`, send its
+Spinoffs run exact `nelos_spinoff_complete`: start with `receipt: null`, send its
 effect through `codex_app.send_message_to_thread`, then pass the exact
-`{"threadId":"..."}` result; never add fields or repeat an `attention`
-reconciliation. After acceptance follow `cleanup-spinoffs`; never depend on remembering a separate cleanup call.
+`{"threadId":"..."}` result; never add fields or repeat `attention`. After acceptance
+follow `cleanup-spinoffs`; never depend on remembering a separate cleanup call.
 Never clean up failed, blocked, detached, unaccepted, stale, or archive-incapable work.
 
 Use `nelos_plan_replan` only for a typed terminal failure/block, user
@@ -110,8 +108,7 @@ Timeouts, unavailable reads, and successful execution are not replanning
 triggers. Completed slices remain unchanged and are never scheduled again; a
 second autonomous replan stops.
 
-Unavailable reads and timed-out waits are unknown evidence, not failure.
-Registry-only topology has a lifecycle cache; never write lifecycle
-or archival state from a native action. Lifecycle reads reconcile their cache on every read;
-the observation lease is informational.
+Unavailable reads and timed-out waits are unknown evidence, not failure. Registry-only
+topology has a lifecycle cache; never write lifecycle or archival state from a native
+action. Lifecycle reads reconcile their cache on every read; the observation lease is informational.
 Never perform a second local lifecycle mutation to mirror a native archive.
