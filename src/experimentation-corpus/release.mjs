@@ -26,8 +26,18 @@ export function reviseCorpusFromPackages(previousRelease, {
   }).sort((left, right) => left.taskId.localeCompare(right.taskId));
   const activeIds = new Set(active.map((entry) => entry.taskId));
   const previousById = new Map(previousRelease.tasks.map((entry) => [entry.taskId, entry]));
-  const changedIds = active.filter((entry) => previousById.get(entry.taskId)?.digest !== entry.digest)
-    .map((entry) => entry.taskId);
+  const previousByDigest = new Map(previousRelease.tasks.map((entry) => [entry.digest, entry]));
+  const taskPackagesById = new Map(members.map(({ taskPackage }) => [taskPackage.task.taskId, taskPackage]));
+  const revisedIds = active.filter((entry) => {
+    const previous = previousById.get(entry.taskId);
+    const predecessorDigest = taskPackagesById.get(entry.taskId).task.previousDigest;
+    return (previous !== undefined && previous.digest !== entry.digest) ||
+      (predecessorDigest !== null && previousByDigest.has(predecessorDigest));
+  }).map((entry) => entry.taskId);
+  const addedIds = active.filter((entry) => (
+    !previousById.has(entry.taskId) &&
+    !revisedIds.includes(entry.taskId)
+  )).map((entry) => entry.taskId);
   const removedIds = previousRelease.tasks.map((entry) => entry.taskId).filter((taskId) => !activeIds.has(taskId)).sort();
   const previousExclusions = new Map(previousRelease.retainedExclusions.map((entry) => [entry.taskId, entry]));
   for (const taskId of removedIds) previousExclusions.set(taskId, {
@@ -52,7 +62,8 @@ export function reviseCorpusFromPackages(previousRelease, {
   });
   const changelog = [
     ...(removedIds.length === 0 ? [] : [{ changeId: "change:task-excluded", kind: "task-excluded", summary: "Retain replaced task identities as audited exclusions.", taskIds: removedIds }]),
-    { changeId: "change:task-revised", kind: "task-revised", summary, taskIds: changedIds },
+    ...(addedIds.length === 0 ? [] : [{ changeId: "change:task-added", kind: "task-added", summary: "Add governed task identities to the corpus.", taskIds: addedIds }]),
+    ...(revisedIds.length === 0 ? [] : [{ changeId: "change:task-revised", kind: "task-revised", summary, taskIds: revisedIds }]),
   ];
   return reviseCorpusRelease(previousRelease, {
     version,

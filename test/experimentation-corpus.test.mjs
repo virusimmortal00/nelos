@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { canonicalBytes, reviseTask, sha256Bytes } from "../src/experimentation-contract/index.mjs";
+import {
+  canonicalBytes,
+  deriveTaskDigest,
+  deriveTaskIdentity,
+  reviseTask,
+  sealTask,
+  sha256Bytes,
+} from "../src/experimentation-contract/index.mjs";
 import {
   graderBundleForImplementationManifest,
 } from "../src/experimentation-corpus/grader.mjs";
@@ -63,6 +70,20 @@ function replaceOracleBytes(taskPackage, bytes) {
     },
   });
   return createTaskPackage({ task, assets, graderBundle: taskPackage.graderBundle });
+}
+
+function independentTask(task, text) {
+  const candidate = structuredClone(task);
+  candidate.prompt = {
+    ...candidate.prompt,
+    text,
+    digest: sha256Bytes(Buffer.from(text, "utf8")),
+  };
+  candidate.specRevision = 1;
+  candidate.previousDigest = null;
+  candidate.taskId = deriveTaskIdentity(candidate);
+  candidate.digest = deriveTaskDigest(candidate);
+  return sealTask(candidate);
 }
 
 test("starter release is reproducible and covers every required task family", async () => {
@@ -188,6 +209,47 @@ test("task packages bind all candidate and hidden assets and expose no oracle by
     }),
     (error) => error instanceof CorpusError && error.code === "HIDDEN_ASSET_EXPOSED" && error.path.endsWith("/audience"),
   );
+
+  const fixtureId = taskPackage.task.fixture.digest;
+  assert.throws(
+    () => createTaskPackage({
+      task: taskPackage.task,
+      graderBundle: taskPackage.graderBundle,
+      assets: taskPackage.assets.map((asset) => ({
+        ...asset,
+        audience: asset.digest === fixtureId ? "grader" : asset.audience,
+        bytes: Buffer.from(asset.bytes, "base64"),
+      })),
+    }),
+    (error) => error instanceof CorpusError && error.code === "MISSING_ASSET" && error.path === "/task/fixture/digest",
+  );
+});
+
+test("exact JSON grader packages reject incompatible oracle and output contracts", () => {
+  const original = createStarterDevelopmentRelease().packages[0];
+  const assets = original.assets.map((asset) => ({
+    ...asset,
+    bytes: Buffer.from(asset.bytes, "base64"),
+  }));
+  for (const task of [
+    reviseTask(original.task, {
+      grader: {
+        ...original.task.grader,
+        oracle: { ...original.task.grader.oracle, kind: "human" },
+      },
+    }),
+    reviseTask(original.task, {
+      outputs: original.task.outputs.map((output) => ({
+        ...output,
+        kind: output.required ? "text" : output.kind,
+      })),
+    }),
+  ]) {
+    assert.throws(
+      () => createTaskPackage({ task, assets, graderBundle: original.graderBundle }),
+      (error) => error instanceof CorpusError && error.code === "GRADER_CONTRACT_MISMATCH",
+    );
+  }
 });
 
 test("every semantic task change creates a new immutable task and package identity", () => {
@@ -219,6 +281,46 @@ test("every semantic task change creates a new immutable task and package identi
   assert.equal(successor.previousDigest, starter.release.digest);
   assert.notEqual(successor.releaseId, starter.release.releaseId);
   assert.ok(successor.retainedExclusions.some((entry) => entry.taskId === original.task.taskId));
+});
+
+test("independent successor tasks are audited as additions, not revisions", () => {
+  const starter = createStarterDevelopmentRelease();
+  const original = starter.packages[0];
+  const task = independentTask(
+    original.task,
+    `${original.task.prompt.text} Independent addition.`,
+  );
+  const addedPackage = createTaskPackage({
+    task,
+    assets: original.assets.map((asset) => ({
+      ...asset,
+      bytes: Buffer.from(asset.bytes, "base64"),
+    })),
+    graderBundle: original.graderBundle,
+  });
+  const strataByTask = new Map(starter.release.tasks.map((entry) => [entry.taskId, entry.strata]));
+  const successor = reviseCorpusFromPackages(starter.release, {
+    version: "1.1.0",
+    createdAt: "2026-08-02T00:00:00Z",
+    summary: "Add one independent governed task.",
+    members: [
+      ...starter.packages.map((taskPackage) => ({
+        taskPackage,
+        strata: strataByTask.get(taskPackage.task.taskId),
+      })),
+      { taskPackage: addedPackage, strata: strataByTask.get(original.task.taskId) },
+    ],
+  });
+  assert.deepEqual(
+    successor.changelog.find(({ kind }) => kind === "task-added")?.taskIds,
+    [addedPackage.task.taskId],
+  );
+  assert.equal(
+    successor.changelog.some(({ kind, taskIds }) => (
+      kind === "task-revised" && taskIds.includes(addedPackage.task.taskId)
+    )),
+    false,
+  );
 });
 
 test("task package asset identity uses locale-independent code-unit ordering", () => {
@@ -318,6 +420,27 @@ test("invalid hidden oracle JSON is a grader failure, not a candidate malformed 
   assert.equal(grade.outcome, "grader-failure");
 });
 
+test("candidate-controlled non-canonical JSON is malformed, not a grader failure", () => {
+  const taskPackage = createStarterDevelopmentRelease().packages[0];
+  for (const [attemptId, bytes] of [
+    ["overflow", Buffer.from("1e400", "utf8")],
+    ["lone-surrogate", Buffer.from('"\\ud800"', "utf8")],
+  ]) {
+    const grade = gradeTaskAttempt({
+      taskPackage,
+      submission: submission(bytes),
+      observation: {
+        attemptId: `attempt:${attemptId}`,
+        termination: "exited",
+        exitCode: 0,
+        contaminated: false,
+      },
+      attestation,
+    });
+    assert.equal(grade.outcome, "malformed", attemptId);
+  }
+});
+
 test("graders fail closed unless host and candidate environments are distinct", () => {
   const taskPackage = createStarterDevelopmentRelease().packages[0];
   assert.throws(
@@ -381,5 +504,23 @@ test("private evaluation access, similarity, and predeclared exclusions are enfo
   assert.throws(
     () => validateEvaluationPartitions({ ...controls, exclusions: [null] }),
     (error) => error instanceof CorpusError && error.code === "INVALID_EXCLUSION",
+  );
+  for (const accessLog of [
+    [{ ...controls.accessLog[0], taskId: undefined }],
+    [{ ...controls.accessLog[0], taskId: "not-a-task" }],
+  ]) {
+    assert.throws(
+      () => validateEvaluationPartitions({ ...controls, accessLog }),
+      (error) => error instanceof CorpusError && error.code === "INVALID_ACCESS_LOG",
+    );
+  }
+  const tampered = structuredClone(development);
+  tampered.task.prompt.text = "tampered prompt";
+  assert.throws(
+    () => validateEvaluationPartitions({
+      ...controls,
+      developmentPackages: [tampered],
+    }),
+    (error) => error.code === "INVALID_DIGEST",
   );
 });

@@ -1,5 +1,8 @@
 import { canonicalDigest, sealRecord } from "../experimentation-contract/index.mjs";
 import { corpusFailure } from "./errors.mjs";
+import { validateTaskPackage } from "./package.mjs";
+
+const TASK_ID = /^task:[0-9a-f]{64}$/u;
 
 function tokens(value) {
   return new Set(value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? []);
@@ -41,6 +44,12 @@ export function validateEvaluationPartitions({
   frozenAt,
   nearThreshold = 0.8,
 }) {
+  if (!Array.isArray(developmentPackages) || !Array.isArray(privatePackages)) {
+    corpusFailure("INVALID_PARTITIONS", "development and private package arrays are required", "/developmentPackages");
+  }
+  for (const taskPackage of [...developmentPackages, ...privatePackages]) {
+    validateTaskPackage(taskPackage);
+  }
   const developmentIds = new Set(developmentPackages.map((entry) => entry.task.taskId));
   const privateIds = new Set(privatePackages.map((entry) => entry.task.taskId));
   for (const id of privateIds) {
@@ -53,8 +62,14 @@ export function validateEvaluationPartitions({
   if (!Number.isFinite(freeze)) corpusFailure("INVALID_FREEZE_TIME", "experiment freeze time is invalid", "/frozenAt");
   for (let index = 0; index < accessLog.length; index += 1) {
     const access = accessLog[index];
-    if (!access || typeof access.actor !== "string" || typeof access.at !== "string" || !["author", "evaluator", "administrator"].includes(access.role)) {
-      corpusFailure("INVALID_ACCESS_LOG", "access records must identify actor, role, and time", `/accessLog/${index}`);
+    if (
+      !access ||
+      typeof access.actor !== "string" ||
+      typeof access.at !== "string" ||
+      !TASK_ID.test(access.taskId) ||
+      !["author", "evaluator", "administrator"].includes(access.role)
+    ) {
+      corpusFailure("INVALID_ACCESS_LOG", "access records must identify actor, role, task, and time", `/accessLog/${index}`);
     }
     const accessedAt = Date.parse(access.at);
     if (!Number.isFinite(accessedAt)) {

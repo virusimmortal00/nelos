@@ -125,6 +125,19 @@ export function validateTaskPackage(value) {
   if (value.task.grader.digest !== value.graderBundle.digest) {
     corpusFailure("GRADER_IDENTITY_MISMATCH", "task and package grader identities disagree", "/graderBundle/digest");
   }
+  if (
+    value.graderBundle.entrypoint === "exact-json-v1" &&
+    (
+      value.task.grader.oracle.kind !== "exact" ||
+      value.task.outputs.find((output) => output.required)?.kind !== "json"
+    )
+  ) {
+    corpusFailure(
+      "GRADER_CONTRACT_MISMATCH",
+      "exact JSON graders require an exact oracle and one required JSON output",
+      "/task/grader/oracle/kind",
+    );
+  }
   for (const [path, digest] of [
     ["/task/fixture/digest", value.task.fixture.digest],
     ["/task/baseline/digest", value.task.baseline.digest],
@@ -132,7 +145,9 @@ export function validateTaskPackage(value) {
     ...value.task.outputs.map((output, index) => [`/task/outputs/${index}/shapeDigest`, output.shapeDigest]),
     ...value.task.artifacts.map((artifact, index) => [`/task/artifacts/${index}/shapeDigest`, artifact.shapeDigest]),
   ]) {
-    if (!digestAudience.has(digest)) corpusFailure("MISSING_ASSET", "task reference is not packaged", path);
+    if (digestAudience.get(digest) !== "candidate") {
+      corpusFailure("MISSING_ASSET", "candidate task material must have candidate audience", path);
+    }
   }
   for (const [path, digest] of [
     ["/task/grader/rubricDigest", value.task.grader.rubricDigest],

@@ -45,8 +45,10 @@ function exactJsonGrade({ taskPackage, submission }) {
   const bytes = outputBytes(taskPackage, submission);
   if (bytes === null) return { outcome: "malformed", strictPass: false, scoreBasisPoints: 0, criteria: [] };
   let actual;
+  let actualDigest;
   try {
     actual = JSON.parse(bytes.toString("utf8"));
+    actualDigest = canonicalDigest(actual);
   } catch {
     return { outcome: "malformed", strictPass: false, scoreBasisPoints: 0, criteria: [] };
   }
@@ -55,7 +57,7 @@ function exactJsonGrade({ taskPackage, submission }) {
   );
   if (oracle.forceGraderFailure === true) throw new Error("sealed grader-failure fixture");
   const expected = oracle.expected;
-  if (canonicalDigest(actual) === canonicalDigest(expected)) {
+  if (actualDigest === canonicalDigest(expected)) {
     return { outcome: "success", strictPass: true, scoreBasisPoints: 10000, criteria: [] };
   }
   const criteria = taskPackage.task.partialCredit.criteria.map((criterion) => ({
