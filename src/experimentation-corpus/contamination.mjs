@@ -16,7 +16,7 @@ export function tokenJaccard(left, right) {
 }
 
 export function analyzePartitionSimilarity(developmentPackages, privatePackages, nearThreshold = 0.8) {
-  if (typeof nearThreshold !== "number" || nearThreshold < 0 || nearThreshold > 1) {
+  if (!Number.isFinite(nearThreshold) || nearThreshold < 0 || nearThreshold > 1) {
     corpusFailure("INVALID_SIMILARITY_THRESHOLD", "similarity threshold must be between zero and one", "/nearThreshold");
   }
   const comparisons = [];
@@ -56,14 +56,40 @@ export function validateEvaluationPartitions({
     if (!access || typeof access.actor !== "string" || typeof access.at !== "string" || !["author", "evaluator", "administrator"].includes(access.role)) {
       corpusFailure("INVALID_ACCESS_LOG", "access records must identify actor, role, and time", `/accessLog/${index}`);
     }
-    if (privateIds.has(access.taskId) && access.role === "author" && Date.parse(access.at) <= freeze) {
+    const accessedAt = Date.parse(access.at);
+    if (!Number.isFinite(accessedAt)) {
+      corpusFailure("INVALID_ACCESS_LOG", "access record time is invalid", `/accessLog/${index}/at`);
+    }
+    if (privateIds.has(access.taskId) && access.role === "author" && accessedAt <= freeze) {
       corpusFailure("PRIVATE_ACCESS_VIOLATION", "policy authors cannot access private tasks before freeze", `/accessLog/${index}`);
     }
   }
-  const excluded = new Map(exclusions.map((entry) => [entry.taskId, entry]));
+  const excluded = new Map();
+  for (let index = 0; index < exclusions.length; index += 1) {
+    const exclusion = exclusions[index];
+    if (
+      !exclusion ||
+      typeof exclusion.taskId !== "string" ||
+      exclusion.taskId.length === 0 ||
+      typeof exclusion.reasonCode !== "string" ||
+      exclusion.reasonCode.length === 0 ||
+      typeof exclusion.declaredAt !== "string"
+    ) {
+      corpusFailure(
+        "INVALID_EXCLUSION",
+        "exclusions must identify a task, reason, and declaration time",
+        `/exclusions/${index}`,
+      );
+    }
+    const declaredAt = Date.parse(exclusion.declaredAt);
+    if (!Number.isFinite(declaredAt)) {
+      corpusFailure("INVALID_EXCLUSION", "exclusion declaration time is invalid", `/exclusions/${index}/declaredAt`);
+    }
+    excluded.set(exclusion.taskId, { exclusion, declaredAt });
+  }
   for (const comparison of analyzePartitionSimilarity(developmentPackages, privatePackages, nearThreshold)) {
-    const exclusion = excluded.get(comparison.privateTaskId);
-    if (!exclusion || exclusion.reasonCode !== "contamination" || Date.parse(exclusion.declaredAt) > freeze) {
+    const record = excluded.get(comparison.privateTaskId);
+    if (!record || record.exclusion.reasonCode !== "contamination" || record.declaredAt > freeze) {
       corpusFailure("SIMILARITY_EXCLUSION_REQUIRED", "near-duplicate private tasks require a predeclared contamination exclusion", "/exclusions");
     }
   }

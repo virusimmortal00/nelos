@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { canonicalBytes } from "../experimentation-contract/canonical-json.mjs";
 
 const IMPLEMENTATION_ROOTS = Object.freeze([
   Object.freeze({
@@ -82,7 +83,7 @@ export function validateGraderImplementationManifest(value) {
 
 export function graderImplementationDigest(value) {
   validateGraderImplementationManifest(value);
-  return sha256(Buffer.from(JSON.stringify(value), "utf8"));
+  return sha256(canonicalBytes(value));
 }
 
 export function graderImplementationManifest() {

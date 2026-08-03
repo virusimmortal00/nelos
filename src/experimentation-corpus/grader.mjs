@@ -45,13 +45,14 @@ function exactJsonGrade({ taskPackage, submission }) {
   const bytes = outputBytes(taskPackage, submission);
   if (bytes === null) return { outcome: "malformed", strictPass: false, scoreBasisPoints: 0, criteria: [] };
   let actual;
-  let oracle;
   try {
     actual = JSON.parse(bytes.toString("utf8"));
-    oracle = JSON.parse(assetBytes(taskPackage, taskPackage.task.grader.oracle.digest).toString("utf8"));
   } catch {
     return { outcome: "malformed", strictPass: false, scoreBasisPoints: 0, criteria: [] };
   }
+  const oracle = JSON.parse(
+    assetBytes(taskPackage, taskPackage.task.grader.oracle.digest).toString("utf8"),
+  );
   if (oracle.forceGraderFailure === true) throw new Error("sealed grader-failure fixture");
   const expected = oracle.expected;
   if (canonicalDigest(actual) === canonicalDigest(expected)) {

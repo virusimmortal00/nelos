@@ -199,6 +199,8 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
   // packages are development-only test infrastructure.
   assert.ok(DISTRIBUTION_ENTRIES.includes(".mcp.json"));
   assert.ok(packageMetadata.files.includes(".mcp.json"));
+  assert.ok(packageMetadata.files.includes("corpus/starter/release-lock.json"));
+  assert.ok(!packageMetadata.files.includes("corpus/"));
   assert.ok(!DISTRIBUTION_ENTRIES.includes("dist"));
   assert.ok(!DISTRIBUTION_ENTRIES.includes("ui"));
   assert.ok(!packageMetadata.files.includes("dist/"));

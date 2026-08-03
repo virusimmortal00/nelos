@@ -98,6 +98,14 @@ test("required PR job is token-free, offline, and isolated from advisory lanes",
   }
 });
 
+test("node verification requires the immutable starter corpus lock", async () => {
+  const workflow = await text("../.github/workflows/verify.yml");
+  assert.match(
+    workflow,
+    /- run: npm run check\s+- run: npm run corpus:validate\s+- run: npm test/u,
+  );
+});
+
 test("drift lanes are scheduled/manual, bounded, and preserve unavailable reports", async () => {
   const workflow = await text("../.github/workflows/compatibility-drift.yml");
   assert.match(workflow, /schedule:/u);

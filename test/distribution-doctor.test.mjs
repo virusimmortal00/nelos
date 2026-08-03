@@ -21,7 +21,7 @@ async function canonicalMkdtemp(prefix) {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
-async function createDoctorFixture(root) {
+async function createDoctorFixture(root, { includeCorpus = true } = {}) {
   const home = join(root, "home");
   const codexHome = join(home, ".codex");
   const installRoot = join(codexHome, "distributions", PLUGIN_NAME);
@@ -42,7 +42,7 @@ async function createDoctorFixture(root) {
     join(releasePath, "assets"),
     join(releasePath, "bin"),
     join(releasePath, "completions"),
-    join(releasePath, "corpus"),
+    ...(includeCorpus ? [join(releasePath, "corpus")] : []),
     join(releasePath, "docs"),
     join(releasePath, "skills"),
     join(releasePath, "src"),
@@ -80,7 +80,10 @@ async function createDoctorFixture(root) {
     schemaVersion: 1,
     distribution: DISTRIBUTION_NAME,
     revision: "test-release",
-    integrity: await computeDistributionIntegrity(releasePath),
+    integrity: await computeDistributionIntegrity(
+      releasePath,
+      { allowLegacyWithoutCorpus: !includeCorpus },
+    ),
     skillIntegrity: await computeFileIntegrity(join(skillPath, "SKILL.md")),
     requiredCliCommands: [...REQUIRED_CLI_COMMANDS],
   };
@@ -1269,6 +1272,25 @@ test("doctor verifies release, skill, and plugin bytes rather than provenance al
     assert.equal(
       pluginTamper.checks.find(({ id }) => id === "coherence").status,
       "error",
+    );
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("doctor verifies a pre-corpus release with its legacy integrity entry set", async () => {
+  const root = await canonicalMkdtemp("nelos-doctor-legacy-integrity-");
+  try {
+    const fixture = await createDoctorFixture(root, { includeCorpus: false });
+    const diagnosis = await diagnoseDistribution({
+      ...fixture,
+      env: { PATH: fixture.binDir },
+    });
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "distribution").status,
+      "ok",
+    );
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "coherence").status,
+      "ok",
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });

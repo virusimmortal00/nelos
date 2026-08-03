@@ -155,7 +155,9 @@ export function createTaskPackage({ task, assets, graderBundle }) {
       digest: sha256Bytes(bytes),
       bytes: bytes.toString("base64"),
     };
-  }).sort((left, right) => left.assetId.localeCompare(right.assetId));
+  }).sort((left, right) => (
+    left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
+  ));
   const candidate = { schemaVersion: 1, packageId: `package:${"0".repeat(64)}`, digest: `sha256:${"0".repeat(64)}`, task, assets: normalizedAssets, graderBundle };
   candidate.packageId = deriveTaskPackageId(candidate);
   candidate.digest = deriveTaskPackageDigest(candidate);

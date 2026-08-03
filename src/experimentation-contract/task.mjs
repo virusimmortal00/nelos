@@ -190,6 +190,13 @@ function validateOutputs(values) {
     assertInteger(value.maxBytes, { minimum: 1, maximum: 1073741824, ...options(`${path}/maxBytes`) });
     assertDigest(value.shapeDigest, options(`${path}/shapeDigest`));
   });
+  if (values.filter(({ required }) => required).length !== 1) {
+    contractFailure(
+      "INVALID_FORMAT",
+      "exactly one output must be required",
+      options("/outputs"),
+    );
+  }
 }
 
 function validateArtifacts(values) {

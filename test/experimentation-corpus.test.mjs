@@ -48,6 +48,23 @@ function replaceOracle(taskPackage, oracle) {
   return createTaskPackage({ task, assets, graderBundle: taskPackage.graderBundle });
 }
 
+function replaceOracleBytes(taskPackage, bytes) {
+  const digest = sha256Bytes(bytes);
+  const assets = taskPackage.assets.map((asset) => ({
+    ...asset,
+    bytes: asset.assetId.endsWith(":oracle")
+      ? bytes
+      : Buffer.from(asset.bytes, "base64"),
+  }));
+  const task = reviseTask(taskPackage.task, {
+    grader: {
+      ...taskPackage.task.grader,
+      oracle: { ...taskPackage.task.grader.oracle, digest },
+    },
+  });
+  return createTaskPackage({ task, assets, graderBundle: taskPackage.graderBundle });
+}
+
 test("starter release is reproducible and covers every required task family", async () => {
   const first = createStarterDevelopmentRelease();
   const second = createStarterDevelopmentRelease();
@@ -129,6 +146,18 @@ test("transitive grader dependency changes rotate every dependent identity and o
   assert.notEqual(revisedRelease.digest, starter.release.digest);
 });
 
+test("grader implementation identity is independent of manifest property order", () => {
+  const manifest = graderImplementationManifest();
+  const reordered = {
+    files: manifest.files.map(({ path, digest }) => ({ digest, path })),
+    schemaVersion: manifest.schemaVersion,
+  };
+  assert.equal(
+    graderImplementationDigest(reordered),
+    graderImplementationDigest(manifest),
+  );
+});
+
 test("task packages bind all candidate and hidden assets and expose no oracle bytes", () => {
   const { packages } = createStarterDevelopmentRelease();
   const taskPackage = packages[0];
@@ -192,6 +221,56 @@ test("every semantic task change creates a new immutable task and package identi
   assert.ok(successor.retainedExclusions.some((entry) => entry.taskId === original.task.taskId));
 });
 
+test("task package asset identity uses locale-independent code-unit ordering", () => {
+  const original = createStarterDevelopmentRelease().packages[0];
+  const extraAssets = [
+    {
+      assetId: "asset:a-b",
+      mediaType: "text/plain",
+      audience: "candidate",
+      bytes: Buffer.from("hyphen", "utf8"),
+    },
+    {
+      assetId: "asset:a.b",
+      mediaType: "text/plain",
+      audience: "candidate",
+      bytes: Buffer.from("period", "utf8"),
+    },
+  ];
+  const taskPackage = createTaskPackage({
+    task: original.task,
+    graderBundle: original.graderBundle,
+    assets: [
+      ...original.assets.map((asset) => ({
+        ...asset,
+        bytes: Buffer.from(asset.bytes, "base64"),
+      })),
+      ...extraAssets,
+    ],
+  });
+  const assetIds = taskPackage.assets.map(({ assetId }) => assetId);
+  assert.deepEqual(assetIds, [...assetIds].sort());
+});
+
+test("task contract requires exactly one required output", () => {
+  const original = createStarterDevelopmentRelease().packages[0].task;
+  assert.throws(
+    () => reviseTask(original, {
+      outputs: original.outputs.map((output) => ({ ...output, required: false })),
+    }),
+    (error) => error.code === "INVALID_FORMAT" && error.path === "/outputs",
+  );
+  assert.throws(
+    () => reviseTask(original, {
+      outputs: [
+        ...original.outputs,
+        { ...original.outputs[0], id: "second", required: true },
+      ],
+    }),
+    (error) => error.code === "INVALID_FORMAT" && error.path === "/outputs",
+  );
+});
+
 test("golden machine outcomes are deterministic and ignore worker self-report", async () => {
   const fixtures = JSON.parse(await readFile(new URL("./fixtures/experimentation-corpus/golden-outcomes.json", import.meta.url), "utf8"));
   const base = createStarterDevelopmentRelease().packages.find((entry) => entry.task.prompt.text.includes("Localized defect repair"));
@@ -217,6 +296,26 @@ test("golden machine outcomes are deterministic and ignore worker self-report", 
     assert.equal(grade.scoreBasisPoints, fixture.scoreBasisPoints, fixture.name);
     assert.deepEqual(canonicalGradeBytes(grade), canonicalGradeBytes(replay), fixture.name);
   }
+});
+
+test("invalid hidden oracle JSON is a grader failure, not a candidate malformed result", () => {
+  const original = createStarterDevelopmentRelease().packages[0];
+  const taskPackage = replaceOracleBytes(
+    original,
+    Buffer.from("{invalid-oracle", "utf8"),
+  );
+  const grade = gradeTaskAttempt({
+    taskPackage,
+    submission: submission({ answer: "candidate-json-is-valid" }),
+    observation: {
+      attemptId: "attempt:invalid-oracle",
+      termination: "exited",
+      exitCode: 0,
+      contaminated: false,
+    },
+    attestation,
+  });
+  assert.equal(grade.outcome, "grader-failure");
 });
 
 test("graders fail closed unless host and candidate environments are distinct", () => {
@@ -260,5 +359,27 @@ test("private evaluation access, similarity, and predeclared exclusions are enfo
   assert.throws(
     () => validateEvaluationPartitions({ ...controls, exclusions: [] }),
     (error) => error instanceof CorpusError && error.code === "SIMILARITY_EXCLUSION_REQUIRED",
+  );
+  assert.throws(
+    () => validateEvaluationPartitions({ ...controls, nearThreshold: Number.NaN }),
+    (error) => error instanceof CorpusError && error.code === "INVALID_SIMILARITY_THRESHOLD",
+  );
+  assert.throws(
+    () => validateEvaluationPartitions({
+      ...controls,
+      accessLog: [{ ...controls.accessLog[0], at: "not-a-time" }],
+    }),
+    (error) => error instanceof CorpusError && error.code === "INVALID_ACCESS_LOG" && error.path.endsWith("/at"),
+  );
+  assert.throws(
+    () => validateEvaluationPartitions({
+      ...controls,
+      exclusions: [{ ...controls.exclusions[0], declaredAt: "not-a-time" }],
+    }),
+    (error) => error instanceof CorpusError && error.code === "INVALID_EXCLUSION" && error.path.endsWith("/declaredAt"),
+  );
+  assert.throws(
+    () => validateEvaluationPartitions({ ...controls, exclusions: [null] }),
+    (error) => error instanceof CorpusError && error.code === "INVALID_EXCLUSION",
   );
 });

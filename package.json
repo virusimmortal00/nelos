@@ -38,7 +38,7 @@
     "distribution-provenance.json",
     "bin/",
     "completions/",
-    "corpus/",
+    "corpus/starter/release-lock.json",
     "docs/",
     "skills/",
     "src/"

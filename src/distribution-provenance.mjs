@@ -239,10 +239,24 @@ async function listIntegrityFiles(root, entry) {
   return files;
 }
 
-export async function computeDistributionIntegrity(root) {
+export async function computeDistributionIntegrity(
+  root,
+  { allowLegacyWithoutCorpus = false } = {},
+) {
   const files = [];
   for (const entry of DISTRIBUTION_ENTRIES) {
-    files.push(...(await listIntegrityFiles(root, entry)));
+    try {
+      files.push(...(await listIntegrityFiles(root, entry)));
+    } catch (error) {
+      if (
+        allowLegacyWithoutCorpus &&
+        entry === "corpus" &&
+        error.code === "ENOENT"
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
   files.sort((left, right) => {
     const leftPath = relative(root, left);
