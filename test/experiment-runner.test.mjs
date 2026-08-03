@@ -84,6 +84,17 @@ function errorCode(code) {
   return (error) => error instanceof ExperimentRunnerError && error.code === code;
 }
 
+function groupBy(values, keyFor) {
+  const groups = new Map();
+  for (const value of values) {
+    const key = keyFor(value);
+    const group = groups.get(key);
+    if (group) group.push(value);
+    else groups.set(key, [value]);
+  }
+  return groups;
+}
+
 test("sealed manifests expand a stable ordered matrix before scheduling", async () => {
   const input = await manifest();
   const first = expandExperimentPlan(input);
@@ -119,7 +130,7 @@ test("direct Codex and Nelos receive equivalent declared inputs and budgets with
   const first = await runExperiment({ manifest: input, store: database, adapters: implementation, runId: "run:equivalence-one" });
   assert.equal(first.outcome, "succeeded");
   assert.equal(first.trialCount, 4);
-  const byReplicate = Map.groupBy(requests, ({ seed }) => seed);
+  const byReplicate = groupBy(requests, ({ seed }) => seed);
   for (const paired of byReplicate.values()) {
     assert.equal(paired.length, 2);
     assert.equal(paired[0].declaredInputsDigest, paired[1].declaredInputsDigest);
@@ -254,7 +265,7 @@ test("timeouts and retryable ambiguity preserve prior attempts while terminal ou
   });
   assert.equal(recovered.outcome, "succeeded");
   assert.equal(recovered.attempts.length, 8);
-  for (const attemptsForTrial of Map.groupBy(recovered.attempts, ({ trialId }) => trialId).values()) {
+  for (const attemptsForTrial of groupBy(recovered.attempts, ({ trialId }) => trialId).values()) {
     assert.deepEqual(attemptsForTrial.map(({ attempt, outcome }) => [attempt, outcome]), [[1, "inconclusive"], [2, "succeeded"]]);
     assert.notEqual(attemptsForTrial[0].bundleDigest, attemptsForTrial[1].bundleDigest);
   }
