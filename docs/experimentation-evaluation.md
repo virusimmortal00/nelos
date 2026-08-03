@@ -279,3 +279,37 @@ never silently analyzed as the requested candidate.
 6. No aggregate improvement masks a critical-stratum regression.
 7. Every reported decision can be recomputed from immutable attempt and grader
    manifests.
+
+## Deterministic reporting engine
+
+`src/experimentation-reporting/index.mjs` turns a sealed experiment, its
+digest-bound expanded plan, a sealed analysis policy, and the complete set of
+immutable attempt bundles into both a canonical machine report and a Markdown
+report. The analysis policy freezes each metric's category, direction,
+aggregation, denominator, missing-data rule, noninferiority and regression
+margins, multiplicity family, criticality, and task-to-stratum assignments.
+
+Attempt numbers must be contiguous for every planned trial. Duplicate trial or
+operation identities, altered bundle digests, missing trials, route or candidate
+provenance mismatches, and incompatible plan digests fail before aggregation.
+Retries and every started outcome remain in the accounting section even when a
+sealed metric denominator excludes invalid infrastructure. Timeout measurements
+may be retained at a declared limit and are marked censored; unavailable
+counters are never silently converted to zero unless the sealed policy says so.
+
+Comparisons use the task/seed/runtime pairing bound by the plan, aggregate
+repetitions inside clusters, calculate a deterministic cluster-bootstrap
+confidence interval and sign-flip p-value, report standardized effect size, and
+apply Holm correction within each declared multiplicity family. Decisions
+separately expose statistical significance, practical significance,
+noninferiority, regression, safety rejection, and inconclusive evidence.
+Critical-stratum regression, inadequate effective cluster sample size, asymmetric
+invalidity, contamination, route mismatch, and required missing evidence are
+explicit blockers.
+
+The standalone verifier accepts canonical JSON files and exactly regenerates
+the report before accepting its digest and decision:
+
+```sh
+node bin/nelos-verify-experiment-report accepted-input.json report.json
+```

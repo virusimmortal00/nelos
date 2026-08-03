@@ -2,17 +2,17 @@
 
 Status: correlated evidence collectors, append-only event ledger, task-web
 accounting, artifact privacy controls, provenance validation, evidence-health
-analysis, attempt-manifest verification, and the local resumable experiment
-runner are implemented; reporting operations and the fleet control plane remain
+analysis, attempt-manifest verification, the local resumable experiment runner,
+and deterministic reporting are implemented; the fleet control plane remains
 proposed.
 
 This document defines execution, evidence collection, reporting operations, and
 scale behavior for the [experimentation framework](experimentation-framework.md).
 
 These components consume the implemented v1 contract foundation. The evidence
-implementation is published from `nelos/experimentation-evidence`; later
-lifecycle records, the runner, query index, reporting operations, and fleet
-services described here remain proposed.
+implementation is published from `nelos/experimentation-evidence`; the runner
+and reporting engine are published from their corresponding package exports.
+Later lifecycle services and the fleet services described here remain proposed.
 
 ## Runner responsibilities
 

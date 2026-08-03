@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import { parseCanonicalJsonV1 } from "../src/experimentation-contract/index.mjs";
+import { verifyExperimentReport } from "../src/experimentation-reporting/index.mjs";
+const [inputPath, reportPath] = process.argv.slice(2);
+if (!inputPath || !reportPath) { process.stderr.write("usage: nelos-verify-experiment-report <accepted-input.json> <report.json>\n"); process.exitCode = 2; }
+else { try { const input = parseCanonicalJsonV1(await readFile(inputPath), { contractKind: "ExperimentReportInput", schemaVersion: 1 }); const report = parseCanonicalJsonV1(await readFile(reportPath), { contractKind: "ExperimentReport", schemaVersion: 1 }); process.stdout.write(`${JSON.stringify(verifyExperimentReport(input, report))}\n`); } catch (error) { process.stderr.write(`${JSON.stringify({ verified: false, code: error.code ?? "VERIFICATION_FAILED", message: error.message })}\n`); process.exitCode = 1; } }
