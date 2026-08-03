@@ -15,6 +15,9 @@ export {
   starterGraderBundle,
 } from "./grader.mjs";
 export {
+  CORPUS_DUPLICATE_METHOD,
+  CORPUS_DUPLICATE_TOOL_DIGEST,
+  analyzeCorpusDuplicates,
   analyzePartitionSimilarity,
   tokenJaccard,
   validateEvaluationPartitions,

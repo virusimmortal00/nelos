@@ -1,6 +1,11 @@
 import { canonicalDigest, reviseCorpusRelease } from "../experimentation-contract/index.mjs";
+import { analyzeCorpusDuplicates } from "./contamination.mjs";
 import { corpusFailure } from "./errors.mjs";
 import { validateTaskPackage } from "./package.mjs";
+
+function taskPath(memberIndex, field) {
+  return `/members/${memberIndex}/taskPackage/task/${field}`;
+}
 
 export function reviseCorpusFromPackages(previousRelease, {
   version,
@@ -11,33 +16,92 @@ export function reviseCorpusFromPackages(previousRelease, {
   if (!Array.isArray(members) || members.length === 0) {
     corpusFailure("INVALID_RELEASE_MEMBERS", "a successor release requires task package members", "/members");
   }
-  const active = members.map((member, index) => {
+  const admitted = members.map((member, index) => {
     validateTaskPackage(member?.taskPackage);
     if (member.strata === null || typeof member.strata !== "object") {
       corpusFailure("INVALID_RELEASE_MEMBERS", "each member requires declared strata", `/members/${index}/strata`);
     }
     return {
-      taskId: member.taskPackage.task.taskId,
-      revision: member.taskPackage.task.specRevision,
-      digest: member.taskPackage.task.digest,
-      assetDigests: member.taskPackage.assets.map((asset) => asset.digest).sort(),
-      strata: structuredClone(member.strata),
+      memberIndex: index,
+      taskPackage: member.taskPackage,
+      releaseTask: {
+        taskId: member.taskPackage.task.taskId,
+        revision: member.taskPackage.task.specRevision,
+        digest: member.taskPackage.task.digest,
+        assetDigests: member.taskPackage.assets.map((asset) => asset.digest).sort(),
+        strata: structuredClone(member.strata),
+      },
     };
-  }).sort((left, right) => left.taskId.localeCompare(right.taskId));
+  });
+  const active = admitted.map(({ releaseTask }) => releaseTask)
+    .sort((left, right) => left.taskId.localeCompare(right.taskId));
   const activeIds = new Set(active.map((entry) => entry.taskId));
   const previousById = new Map(previousRelease.tasks.map((entry) => [entry.taskId, entry]));
   const previousByDigest = new Map(previousRelease.tasks.map((entry) => [entry.digest, entry]));
-  const taskPackagesById = new Map(members.map(({ taskPackage }) => [taskPackage.task.taskId, taskPackage]));
-  const revisedIds = active.filter((entry) => {
-    const previous = previousById.get(entry.taskId);
-    const predecessorDigest = taskPackagesById.get(entry.taskId).task.previousDigest;
-    return (previous !== undefined && previous.digest !== entry.digest) ||
-      (predecessorDigest !== null && previousByDigest.has(predecessorDigest));
-  }).map((entry) => entry.taskId);
-  const addedIds = active.filter((entry) => (
-    !previousById.has(entry.taskId) &&
-    !revisedIds.includes(entry.taskId)
-  )).map((entry) => entry.taskId);
+  const revisedIds = [];
+  const addedIds = [];
+  const revisedPredecessors = new Set();
+  for (const { memberIndex, taskPackage } of admitted) {
+    const task = taskPackage.task;
+    const previous = previousById.get(task.taskId);
+    if (
+      previous?.digest === task.digest &&
+      previous.revision === task.specRevision
+    ) {
+      continue;
+    }
+    if (task.previousDigest === null) {
+      if (previous !== undefined) {
+        corpusFailure(
+          "INVALID_TASK_LINEAGE",
+          "changed task identity requires an exact predecessor revision",
+          taskPath(memberIndex, "previousDigest"),
+        );
+      }
+      addedIds.push(task.taskId);
+      continue;
+    }
+    const predecessor = previousByDigest.get(task.previousDigest);
+    if (predecessor === undefined) {
+      corpusFailure(
+        "INVALID_TASK_LINEAGE",
+        "task predecessor is not an active member of the prior corpus release",
+        taskPath(memberIndex, "previousDigest"),
+      );
+    }
+    if (task.specRevision !== predecessor.revision + 1) {
+      corpusFailure(
+        "INVALID_TASK_REVISION",
+        "task revision must advance exactly once from its matched predecessor",
+        taskPath(memberIndex, "specRevision"),
+      );
+    }
+    if (task.taskId === predecessor.taskId) {
+      corpusFailure(
+        "INVALID_TASK_REVISION",
+        "task revision must change semantic identity",
+        taskPath(memberIndex, "taskId"),
+      );
+    }
+    if (activeIds.has(predecessor.taskId)) {
+      corpusFailure(
+        "INVALID_TASK_LINEAGE",
+        "a replaced predecessor cannot remain active beside its successor",
+        taskPath(memberIndex, "previousDigest"),
+      );
+    }
+    if (revisedPredecessors.has(predecessor.taskId)) {
+      corpusFailure(
+        "INVALID_TASK_LINEAGE",
+        "one predecessor cannot produce multiple active successors",
+        taskPath(memberIndex, "previousDigest"),
+      );
+    }
+    revisedPredecessors.add(predecessor.taskId);
+    revisedIds.push(task.taskId);
+  }
+  revisedIds.sort();
+  addedIds.sort();
   const removedIds = previousRelease.tasks.map((entry) => entry.taskId).filter((taskId) => !activeIds.has(taskId)).sort();
   const previousExclusions = new Map(previousRelease.retainedExclusions.map((entry) => [entry.taskId, entry]));
   for (const taskId of removedIds) previousExclusions.set(taskId, {
@@ -88,5 +152,9 @@ export function reviseCorpusFromPackages(previousRelease, {
       ...previousRelease.provenance,
       sourceDigest: canonicalDigest(members.map(({ taskPackage }) => taskPackage.digest).sort()),
     },
+    duplicateAnalysis: analyzeCorpusDuplicates(
+      members.map(({ taskPackage }) => taskPackage),
+      previousRelease.duplicateAnalysis.nearThreshold,
+    ),
   });
 }
