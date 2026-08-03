@@ -133,11 +133,11 @@ never reported as a product regression or success.
 
 ### Fleet operations
 
-- Durable queue and fenced leases.
-- Capability admission, quotas, capacity, health, drain, and quarantine.
-- Deterministic sharding and verified merge.
-- Object storage/index backend, retention, access, and audit.
-- Backup, restore, report regeneration, and disaster-recovery exercises.
+- [x] Durable bounded queues, reservations, renewable fenced leases, and ambiguous-effect reconciliation.
+- [x] Exact capability admission, weighted fairness, quotas, capacity, health, drain, and quarantine.
+- [x] Deterministic disjoint sharding and provenance-verified merge.
+- [x] Replaceable immutable object storage and disposable derived-index backends.
+- [x] Backup, restore, event-chain and artifact-reachability verification, report regeneration, and disaster-recovery exercises.
 
 Exit: scale execution preserves local-run identities, evidence semantics, and
 reproducibility.

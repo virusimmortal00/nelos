@@ -319,14 +319,41 @@ Workers advertise exact runtime-lock digests, runtime class, platform,
 architecture, capabilities, network class, permission profile, and resource
 slots. Admission requires an exact match.
 
+The implemented `nelos/experiment-fleet` control plane persists its complete
+queue, reservation, lease, fence, worker, and health projection through a
+replaceable state backend. State changes are serialized and atomically saved.
+Jobs enter globally and per-tenant bounded queues; weighted dispatch remains
+subject to active-job and aggregate-resource quotas. The evidence sink can
+close dispatch admission without dropping queued work.
+
 Use weighted-fair bounded queues, per-tenant quotas, backpressure, and renewable
 fenced leases. Capacity is reserved before dispatch. Headless workers may offer
 multiple isolated slots; Desktop starts with one mutating slot.
+
+Every lease carries a per-job monotonic fence. A worker must present both its
+lease identity and fencing token before authorizing an effect, renewing, or
+committing. Loss or expiry immediately releases the reservation and rejects new
+effects. A possibly dispatched mutation moves the job to `reconciling`; only a
+recorded `committed`, `not-applied`, or `failed` reconciliation can finish or
+requeue it.
 
 Worker health is `ready`, `leased`, `draining`, or `quarantined`. Readiness
 requires identity verification, sufficient resources, clock health, clean state,
 and a synthetic probe. Desktop additionally requires its graphical session,
 signed bundle, exact plugin, and fresh-task discovery evidence.
+
+Headless admission accepts only non-mutating isolated slots. Desktop admission
+requires exactly one isolated mutating slot. Drain prevents new assignment;
+quarantine fences current ownership. Recovery from quarantine requires fresh
+identity, clock, clean-state, and synthetic-probe evidence.
+
+Shard manifests bind experiment, corpus, runtime policy, collector, grader, and
+plan digests. Merge is order-independent, sorts by trial identity, and rejects
+altered manifests, overlap, provenance mismatch, or incomplete plan coverage.
+
+Immutable fleet object storage writes the existing artifact or event bytes by
+content digest. Memory and filesystem backends implement the same put-if-absent
+contract, while query indexes remain disposable derived projections.
 
 ## Failure triage and disaster recovery
 
@@ -339,6 +366,12 @@ The control plane restores from the append-only event, command, lease, and
 artifact manifests. It never reconstructs committed side effects from memory.
 Backup and restore tests verify artifact reachability, event chains, lease
 fencing, and report recomputation.
+
+Restore invalidates live ownership without resetting fence counters. In-flight
+jobs enter reconciliation, formerly leased workers enter draining, and retry
+increments the preserved fence. Recovery verification checks the backup digest,
+contiguous writer chains, every referenced object, fence projection, and two
+identical report recomputations before declaring the snapshot usable.
 
 ## Operations invariants
 
