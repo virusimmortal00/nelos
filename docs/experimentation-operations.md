@@ -1,13 +1,17 @@
 # Experiment Runner, Telemetry, Provenance, and Operations
 
-Status: proposed architecture; runner and operations not yet implemented.
+Status: correlated evidence collectors, append-only event ledger, task-web
+accounting, artifact privacy controls, provenance validation, evidence-health
+analysis, and attempt-manifest verification implemented; the experiment runner,
+query index, reporting operations, and fleet control plane remain proposed.
 
 This document defines execution, evidence collection, reporting operations, and
 scale behavior for the [experimentation framework](experimentation-framework.md).
 
-These components consume the implemented v1 contract foundation, but the
-runner, later lifecycle records, telemetry collectors, artifact services, and
-reporting operations described here remain proposed.
+These components consume the implemented v1 contract foundation. The evidence
+implementation is published from `nelos/experimentation-evidence`; later
+lifecycle records, the runner, query index, reporting operations, and fleet
+services described here remain proposed.
 
 ## Runner responsibilities
 

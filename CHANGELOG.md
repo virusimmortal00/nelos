@@ -5,6 +5,39 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.8.0] - 2026-08-03
+
+### User-facing changes
+
+- Added correlated experiment evidence collectors, append-only stream ledgers,
+  complete task-web accounting, and reproducible attempt manifests.
+- Added atomic content-addressed artifact storage with classification,
+  redaction, access control, and retention policy enforcement.
+
+### Compatibility requirements
+
+- Evidence producers must emit the versioned measurement, operational, or
+  audit stream contracts and preserve every required correlation identity.
+- Attempt verification now fails closed on incomplete, altered, duplicated,
+  unauthorized, incompatible, or cross-run evidence.
+
+### Migrations
+
+- Experiment integrations should adopt the `nelos/experimentation-evidence`
+  export and store artifacts through the governed artifact interface.
+
+### Security fixes
+
+- Secret-bearing inline collector payloads are rejected, sensitive artifacts
+  are redacted or quarantined, and reads require an authorized classification.
+- Broken chains, missing terminals, sink loss, clock uncertainty, and excessive
+  observer overhead are surfaced as unhealthy evidence.
+
+### Known limitations
+
+- The evidence layer records and verifies attempts; the integrated resumable
+  runner and reporting surfaces remain follow-on milestones.
+
 ## [0.7.0] - 2026-08-03
 
 ### User-facing changes
