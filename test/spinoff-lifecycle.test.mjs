@@ -507,7 +507,7 @@ test("keep rejects an archive receipt without changing terminal state", async (t
   assert.equal(record.cleanupState, "pending");
 });
 
-test("cleanup waits for every required current spin-off acceptance", async (t) => {
+test("cleanup archives accepted siblings while unaccepted spin-offs remain pending", async (t) => {
   const first = workUnit();
   const second = workUnit({
     workUnitId: "member-b",
@@ -520,7 +520,7 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
       memberThreadId: "member-thread-b",
     },
   });
-  const { adapter } = await fixture(t, {
+  const { adapter, store } = await fixture(t, {
     units: [first, second],
     decisions: [acceptance(first)],
   });
@@ -529,7 +529,10 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
     queenThreadId: "queen",
     policy: "auto",
   });
-  assert.equal(result.state, "not-ready");
+  assert.equal(result.state, "effects-required");
+  assert.deepEqual(result.effects.map(({ threadId }) => threadId), [
+    "member-thread",
+  ]);
   assert.deepEqual(result.pending, [{
     workUnitId: "member-b",
     threadId: "member-thread-b",
@@ -537,6 +540,16 @@ test("cleanup waits for every required current spin-off acceptance", async (t) =
     model: "gpt-5.6-luna",
     reasoning: "high",
   }]);
+  const settled = await adapter.cleanup({
+    webId: "A1",
+    queenThreadId: "queen",
+    archiveReceipts: [archiveReceipt(result.effects[0])],
+  });
+  assert.equal(settled.state, "not-ready");
+  assert.deepEqual(settled.pending, result.pending);
+  assert.equal(settled.results[0].state, "archived");
+  const record = await store.read(spinoffWakeIdV1(completion()));
+  assert.equal(record.cleanupState, "archived");
 });
 
 test("cleanup excludes failed outcomes and units without archive capability", async (t) => {
