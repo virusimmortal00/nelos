@@ -5,6 +5,7 @@ import {
   PLANNING_LIFECYCLE_SCHEMA_VERSION,
 } from "./planning-lifecycle.mjs";
 import {
+  MAX_PLAN_BYTES,
   MAX_PLAN_SLICES,
   planWorkSlices,
   SLICE_PLAN_INPUT_SCHEMA,
@@ -22,7 +23,12 @@ export const EXCEPTION_REPLAN_TRIGGER_TYPES = Object.freeze([
 const MAX_TRIGGER_SUMMARY_CHARACTERS = 2_000;
 const MAX_TRIGGER_EVIDENCE = 8;
 const MAX_TRIGGER_EVIDENCE_CHARACTERS = 500;
-const MAX_REPLAN_CONTEXT_BYTES = 16_000;
+// One accepted plan may consume MAX_PLAN_BYTES. The remaining space covers
+// the bounded trigger at worst-case UTF-8 width, its slice-ID lists, policy,
+// and JSON framing. Keeping the next power-of-two ceiling makes the complete
+// maximum supported plan shape replannable without creating an unbounded
+// prompt surface.
+export const MAX_EXCEPTION_REPLAN_CONTEXT_BYTES = 2 * MAX_PLAN_BYTES;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const INPUT_FIELDS = new Set([
   "schemaVersion",
@@ -204,9 +210,12 @@ function lifecycleRequest(input, basePlan, trigger) {
     trigger,
     basePlan: base,
   });
-  if (Buffer.byteLength(context, "utf8") > MAX_REPLAN_CONTEXT_BYTES) {
+  if (
+    Buffer.byteLength(context, "utf8") >
+    MAX_EXCEPTION_REPLAN_CONTEXT_BYTES
+  ) {
     throw new Error(
-      `exception replanning context exceeds ${MAX_REPLAN_CONTEXT_BYTES} bytes`,
+      `exception replanning context exceeds ${MAX_EXCEPTION_REPLAN_CONTEXT_BYTES} bytes`,
     );
   }
   const scopedKey = `replan-${digest([

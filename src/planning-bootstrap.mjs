@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import {
+  MAX_PLAN_BYTES,
   MAX_PARALLEL_SLICES,
   SLICE_PLAN_SCHEMA_VERSION,
   planWorkSlices,
@@ -13,7 +14,7 @@ import { routeIntelligenceProfile } from "./intelligence-profile-router.mjs";
 
 export const PLANNING_BOOTSTRAP_SCHEMA_VERSION = 1;
 export const MAX_PLANNING_OBJECTIVE_CHARACTERS = 8_000;
-export const MAX_PLANNING_CONTEXT_CHARACTERS = 16_000;
+export const MAX_PLANNING_CONTEXT_CHARACTERS = 2 * MAX_PLAN_BYTES;
 export const MAX_PLANNING_RESPONSE_CHARACTERS = 96_000;
 
 export const PLANNER_TITLE = "Plan and classify the work";

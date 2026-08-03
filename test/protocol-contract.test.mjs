@@ -20,7 +20,10 @@ import {
 } from "../src/protocol-contract/index.mjs";
 import { PROTOCOL_MIGRATION_MAP_V1 } from "../src/protocol-contract/migration-map.mjs";
 import { listNelosMcpTools } from "../src/mcp-server.mjs";
-import { createPlanningBootstrapV1 } from "../src/planning-bootstrap.mjs";
+import {
+  MAX_PLANNING_CONTEXT_CHARACTERS,
+  createPlanningBootstrapV1,
+} from "../src/planning-bootstrap.mjs";
 import {
   deriveNextAction,
   derivePlanWaveActionV1,
@@ -652,7 +655,7 @@ test("compatibility and contract discriminators are correlated to value schemas"
   );
   const largePlannerBootstrap = createPlanningBootstrapV1({
     objective: "o".repeat(8_000),
-    context: "c".repeat(16_000),
+    context: "c".repeat(MAX_PLANNING_CONTEXT_CHARACTERS),
     maxParallel: 2,
     bootstrapId: "plan:aaaaaaaaaaaaaaaaaaaaaaaa",
   });
