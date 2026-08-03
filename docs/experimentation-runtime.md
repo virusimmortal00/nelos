@@ -1,6 +1,7 @@
 # Experiment Runtime Isolation and Version Locking
 
-Status: proposed architecture; v1 RuntimeLock contract implemented.
+Status: v1 RuntimeLock contract and headless worker lane implemented; dedicated
+Desktop execution remains proposed.
 
 This document defines the execution environments for the
 [experimentation framework](experimentation-framework.md). It separates routine
@@ -10,8 +11,10 @@ protection of the development Codex app a hard admission rule.
 The closed v1 `RuntimeLock` record and its identity, revision, lineage, digest,
 and lifecycle APIs are part of the implemented
 [contract foundation](experimentation-framework.md#implemented-contract-foundation).
-The headless and Desktop workers described here remain proposed execution
-systems.
+The headless worker admission and lifecycle API is implemented in
+`src/headless-experiment-runtime.mjs`. A deployment supplies an engine adapter
+for its OCI or disposable-VM infrastructure. The dedicated Desktop worker
+remains a proposed execution system.
 
 ## Runtime classes
 
@@ -50,6 +53,44 @@ execution may require fully blocked networking.
 After bounded output collection, terminate the owned process tree, remove
 secrets, verify artifacts, and destroy the worker. Cleanup failure quarantines
 the worker and invalidates reuse.
+
+### Implemented worker lane API
+
+`createHeadlessWorkerLane` prepares one attempt at a time beneath a canonical,
+non-developer lane root. It accepts only an active, digest-valid `headless-oci`
+`RuntimeLock`, a fenced lease, a supported `oci-container` or `disposable-vm`
+boundary, closed resource limits, an acquisition network policy, and optional
+short-lived acquisition credentials. The returned attempt exposes
+`acquire`, `execute`, `cancel`, `collectArtifacts`, and `cleanup`.
+
+The engine adapter is the infrastructure trust boundary. It implements
+`create`, `runPhase`, `inspect`, `cancelProcessGroup`, `destroy`, and
+`quarantine`. Creation and phase receipts must attest the exact canonical
+policy digest passed by the lane. Cancellation must echo the leased process
+group and fencing token, and cleanup succeeds only after a clean inspection and
+an explicit destruction receipt. Missing or mismatched attestations fail
+closed. Cleanup or contamination failures call `quarantine` and preserve the
+attempt boundary for investigation.
+
+The admitted policy pins the image digest and runtime-lock digest; requests an
+unprivileged UID/GID, private process namespace and group, read-only root,
+no-new-privileges, all capability drops, default seccomp, and declared PID,
+CPU, memory, disk, descriptor, phase-time, cleanup-time, and total-time limits.
+Only fresh attempt directories are mounted. Developer home/state, sessions,
+sockets, worktrees, mutable caches, credential stores, and container-engine
+sockets are forbidden mount classes.
+
+Acquisition receives its own `none` or HTTPS-host-allowlist policy. Credentials
+are audience-labelled files with an acquisition-only scope and expiry; the
+secret boundary is destroyed before execution. Execution receives only the
+network policy sealed in the `RuntimeLock`. An offline lock therefore has a
+digest-attested `none` policy, an empty credential list, and an environment
+without API credential variables. Untrusted repository workloads select
+`disposable-vm`; deployments that do not provide that boundary reject it.
+
+`resolveConfinedArtifact` accepts only existing relative output paths. It
+rejects absolute paths, traversal, missing paths, and symlinks whose canonical
+target escapes the attempt output root.
 
 ## Dedicated Desktop boundary
 

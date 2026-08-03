@@ -811,7 +811,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.experimentation-contracts",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs test/experimentation-corpus.test.mjs",
+      command: "node --test test/experimentation-contract-kernel.test.mjs test/experimentation-contract-experiment.test.mjs test/corpus-release-contract.test.mjs test/experimentation-task-contract.test.mjs test/experimentation-runtime-lock-contract.test.mjs test/experimentation-contract-export.test.mjs test/experimentation-contract-semver.test.mjs test/experimentation-corpus.test.mjs test/headless-experiment-runtime.test.mjs",
       source: "test/experimentation-contract-export.test.mjs",
     }),
     Object.freeze({
@@ -959,6 +959,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
         owned: Object.freeze([
+          "src/headless-experiment-runtime.mjs",
           "src/experimentation-contract/**",
           "src/experimentation-corpus/**",
         ]),
@@ -976,6 +977,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/experimentation-corpus.test.mjs",
           "test/experimentation-runtime-lock-contract.test.mjs",
           "test/experimentation-task-contract.test.mjs",
+          "test/headless-experiment-runtime.test.mjs",
           "test/fixtures/experimentation-contract/**",
           "test/fixtures/experimentation-corpus/**",
         ]),
