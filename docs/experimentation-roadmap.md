@@ -16,10 +16,11 @@ and invalid fixtures and are published through the identical 94-symbol
 `nelos/experimentation-contract` and
 `nelos/experimentation-contract/index.mjs` entry points.
 
-Milestone 1 remains open. `Trial`, `Attempt`, `Result`, `Event`, `Artifact`,
-`Grade`, and `Report`, migration cases, the failure and evidence-health model,
-corpus and grader workflows, both runtime implementations, and telemetry and
-provenance operations remain to be delivered in the dependency order below.
+Milestone 1 remains open. Telemetry envelopes, collectors, append-only storage,
+artifact controls, task-web accounting, evidence health, provenance validation,
+and attempt-manifest verification are complete. The remaining `Trial`,
+`Attempt`, `Result`, `Grade`, and `Report` lifecycle records, migration cases,
+and integrated runner/reporting work follow the dependency order below.
 
 ## Milestone 1: Contracts and Evidence
 
@@ -77,10 +78,15 @@ and cannot address the development Codex app.
 
 ### Telemetry and provenance
 
-- JSONL, app-server, and OpenTelemetry collectors.
-- Full task-web correlation and usage reconciliation.
-- Event chains, artifact manifests, redaction, retention, and evidence health.
-- Credit-rate-table derivation separated from observed billing.
+- Complete: Codex JSONL, app-server, OpenTelemetry, Nelos task-web, grader, and
+  runtime-resource collector contracts.
+- Complete: full task-web correlation, deduplication, outcome accounting, and
+  separate token, estimated-credit, observed-credit, and currency measures.
+- Complete: append-only stream-separated event chains, content-addressed
+  artifact manifests, redaction, access, retention, and evidence health.
+- Complete: immutable provenance validation and attempt-manifest recomputation
+  that rejects altered, missing, duplicated, unauthorized, incompatible, and
+  cross-run evidence.
 
 Exit: complete, partial, duplicated, reordered, interrupted, and missing streams
 are normalized or rejected without silently losing work.

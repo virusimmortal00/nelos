@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
     "name": "Bobby Sayers",
