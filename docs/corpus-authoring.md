@@ -17,8 +17,10 @@ future experiment runner.
    fixture, baseline, inputs, deterministic seed and clock, permissions, tools,
    network policy, environment, limits, output and artifact contracts, grader,
    rubric, oracle, visibility, and partial-credit policy.
-4. Call `createTaskPackage`. Package validation requires every referenced asset,
-   a host-only grader bundle, and grader-only rubric and oracle bytes.
+4. Move the reviewed task to `sealed`, then call `createTaskPackage`. Package
+   and grading admission reject draft, reviewed, retired, and invalidated tasks.
+   Validation also requires every referenced asset, a host-only grader bundle,
+   and grader-only rubric and oracle bytes.
 5. Review the candidate envelope. It must contain only candidate assets. Oracle,
    rubric, and grader implementation bytes never enter the candidate workspace.
 
@@ -27,8 +29,10 @@ a successor revision, predecessor digest, new task identity, and new package
 identity. This includes changes to inputs, permission, limit, fixture, output
 shape, grader, rubric, or oracle. The containing corpus must then receive a
 higher semantic version and revision. `reviseCorpusFromPackages` creates that
-lineage and retains the old task as an audited exclusion when its identity is
-replaced.
+lineage only when `previousDigest` names the exact active predecessor and
+`specRevision` advances once. It rejects jumps, forks, unmatched predecessors,
+and predecessors retained beside their replacements, then retains the old task
+as an audited exclusion.
 
 ## Grade a task
 
@@ -90,9 +94,14 @@ For a semantic change:
 1. revise the task and its package;
 2. increment the `CorpusRelease` semantic version and revision;
 3. record task additions, replacements, and exclusions in the changelog;
-4. regenerate duplicate analysis and contamination evidence;
+4. let `reviseCorpusFromPackages` deterministically recompute exact-prompt and
+   near-token duplicate groups for the complete active membership, then
+   regenerate cross-partition contamination evidence;
 5. review, seal, and publish through the contract lifecycle;
 6. update `corpus/starter/release-lock.json` only after reviewing the diff;
 7. run `npm run corpus:validate`, the corpus tests, and `npm test`.
 
 Never overwrite a published release or reuse its version for changed bytes.
+The exact comparison helper fails closed when membership would exceed its
+bounded five-million-pair analysis budget; shard curator analysis into a new
+reviewed workflow rather than retaining stale evidence.

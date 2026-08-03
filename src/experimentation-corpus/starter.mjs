@@ -11,6 +11,7 @@ import {
   transitionTask,
 } from "../experimentation-contract/index.mjs";
 import { createTaskPackage } from "./package.mjs";
+import { analyzeCorpusDuplicates } from "./contamination.mjs";
 import { starterGraderBundle } from "./grader.mjs";
 
 export const STARTER_TASK_FAMILIES = Object.freeze([
@@ -141,7 +142,7 @@ export function createStarterDevelopmentRelease() {
     cutoff: { createdAt: FIXED_CLOCK, sourceCutoffAt: "2026-07-31T00:00:00Z", policy: "strict" },
     provenance: { method: "authored", sourceUri: "urn:nelos:starter-corpus:1.0.0", sourceDigest: canonicalDigest(STARTER_TASK_FAMILIES), curators: ["team:evaluation"] },
     license: { spdxId: "MIT", textDigest: sha256Bytes(Buffer.from("MIT", "utf8")), attribution: "Nelos evaluation corpus contributors." },
-    duplicateAnalysis: { method: "unicode-token-jaccard-v1", toolDigest: canonicalDigest({ implementation: "nelos", version: 1 }), nearThreshold: 0.8, exactGroups: [], nearGroups: [] },
+    duplicateAnalysis: analyzeCorpusDuplicates(packages, 0.8),
     graderBundles: [{ graderBundleId: bundle.graderBundleId, version: bundle.version, digest: bundle.digest }],
     visibility: "development",
     retainedExclusions: [],

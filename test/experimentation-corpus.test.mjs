@@ -9,6 +9,7 @@ import {
   reviseTask,
   sealTask,
   sha256Bytes,
+  transitionTask,
 } from "../src/experimentation-contract/index.mjs";
 import {
   graderBundleForImplementationManifest,
@@ -20,10 +21,13 @@ import {
 import {
   CorpusError,
   STARTER_TASK_FAMILIES,
+  analyzeCorpusDuplicates,
   candidateTaskEnvelope,
   canonicalGradeBytes,
   createStarterDevelopmentRelease,
   createTaskPackage,
+  deriveTaskPackageDigest,
+  deriveTaskPackageId,
   gradeTaskAttempt,
   reviseCorpusFromPackages,
   validateEvaluationPartitions,
@@ -81,6 +85,20 @@ function independentTask(task, text) {
   };
   candidate.specRevision = 1;
   candidate.previousDigest = null;
+  candidate.taskId = deriveTaskIdentity(candidate);
+  candidate.digest = deriveTaskDigest(candidate);
+  return sealTask(candidate);
+}
+
+function taskPackageRecord(taskPackage, task) {
+  const candidate = { ...structuredClone(taskPackage), task };
+  candidate.packageId = deriveTaskPackageId(candidate);
+  candidate.digest = deriveTaskPackageDigest(candidate);
+  return candidate;
+}
+
+function resealedTask(task, changes) {
+  const candidate = { ...structuredClone(task), ...structuredClone(changes) };
   candidate.taskId = deriveTaskIdentity(candidate);
   candidate.digest = deriveTaskDigest(candidate);
   return sealTask(candidate);
@@ -251,6 +269,40 @@ test("task packages bind all candidate and hidden assets and expose no oracle by
   );
 });
 
+test("package and grading admission reject every non-sealed task lifecycle", () => {
+  const original = createStarterDevelopmentRelease().packages[0];
+  const draft = resealedTask(original.task, { state: "draft" });
+  const rejected = [
+    draft,
+    transitionTask(original.task, "retired"),
+    transitionTask(original.task, "invalidated"),
+  ];
+  for (const task of rejected) {
+    const taskPackage = taskPackageRecord(original, task);
+    assert.throws(
+      () => validateTaskPackage(taskPackage),
+      (error) => error instanceof CorpusError &&
+        error.code === "TASK_NOT_SEALED" &&
+        error.path === "/task/state",
+      task.state,
+    );
+  }
+  assert.throws(
+    () => gradeTaskAttempt({
+      taskPackage: taskPackageRecord(original, rejected.at(-1)),
+      submission: submission({}),
+      observation: {
+        attemptId: "attempt:invalidated-task",
+        termination: "exited",
+        exitCode: 0,
+        contaminated: false,
+      },
+      attestation,
+    }),
+    (error) => error instanceof CorpusError && error.code === "TASK_NOT_SEALED",
+  );
+});
+
 test("exact JSON grader packages reject incompatible oracle and output contracts", () => {
   const original = createStarterDevelopmentRelease().packages[0];
   const assets = original.assets.map((asset) => ({
@@ -315,6 +367,59 @@ test("every semantic task change creates a new immutable task and package identi
   assert.ok(successor.retainedExclusions.some((entry) => entry.taskId === original.task.taskId));
 });
 
+test("corpus revision rejects task revision jumps and unmatched predecessors", () => {
+  const starter = createStarterDevelopmentRelease();
+  const original = starter.packages[0];
+  const revision = reviseTask(original.task, {
+    permissions: { ...original.task.permissions, subprocess: false },
+  });
+  const strataByTask = new Map(
+    starter.release.tasks.map((entry) => [entry.taskId, entry.strata]),
+  );
+  const reviseWith = (taskPackage) => reviseCorpusFromPackages(starter.release, {
+    version: "1.1.0",
+    createdAt: "2026-08-02T00:00:00Z",
+    summary: "Attempt an invalid task revision.",
+    members: starter.packages.map((candidate) => ({
+      taskPackage: candidate === original ? taskPackage : candidate,
+      strata: strataByTask.get(candidate.task.taskId),
+    })),
+  });
+  const jumpedTask = resealedTask(revision, { specRevision: 3 });
+  const jumpedPackage = createTaskPackage({
+    task: jumpedTask,
+    assets: original.assets.map((asset) => ({
+      ...asset,
+      bytes: Buffer.from(asset.bytes, "base64"),
+    })),
+    graderBundle: original.graderBundle,
+  });
+  assert.throws(
+    () => reviseWith(jumpedPackage),
+    (error) => error instanceof CorpusError &&
+      error.code === "INVALID_TASK_REVISION" &&
+      error.path.endsWith("/specRevision"),
+  );
+
+  const unmatchedTask = resealedTask(revision, {
+    previousDigest: `sha256:${"f".repeat(64)}`,
+  });
+  const unmatchedPackage = createTaskPackage({
+    task: unmatchedTask,
+    assets: original.assets.map((asset) => ({
+      ...asset,
+      bytes: Buffer.from(asset.bytes, "base64"),
+    })),
+    graderBundle: original.graderBundle,
+  });
+  assert.throws(
+    () => reviseWith(unmatchedPackage),
+    (error) => error instanceof CorpusError &&
+      error.code === "INVALID_TASK_LINEAGE" &&
+      error.path.endsWith("/previousDigest"),
+  );
+});
+
 test("independent successor tasks are audited as additions, not revisions", () => {
   const starter = createStarterDevelopmentRelease();
   const original = starter.packages[0];
@@ -352,6 +457,72 @@ test("independent successor tasks are audited as additions, not revisions", () =
       kind === "task-revised" && taskIds.includes(addedPackage.task.taskId)
     )),
     false,
+  );
+});
+
+test("successor releases recompute exact and near duplicate analysis deterministically", () => {
+  const starter = createStarterDevelopmentRelease();
+  const original = starter.packages[0];
+  const duplicateTask = resealedTask(original.task, {
+    specRevision: 1,
+    previousDigest: null,
+    determinism: {
+      ...original.task.determinism,
+      seed: original.task.determinism.seed + 100,
+    },
+  });
+  const duplicatePackage = createTaskPackage({
+    task: duplicateTask,
+    assets: original.assets.map((asset) => ({
+      ...asset,
+      bytes: Buffer.from(asset.bytes, "base64"),
+    })),
+    graderBundle: original.graderBundle,
+  });
+  const nearTask = independentTask(
+    original.task,
+    `${original.task.prompt.text} Safely.`,
+  );
+  const nearPackage = createTaskPackage({
+    task: nearTask,
+    assets: original.assets.map((asset) => ({
+      ...asset,
+      bytes: Buffer.from(asset.bytes, "base64"),
+    })),
+    graderBundle: original.graderBundle,
+  });
+  const packages = [...starter.packages, duplicatePackage, nearPackage];
+  const strataByTask = new Map(
+    starter.release.tasks.map((entry) => [entry.taskId, entry.strata]),
+  );
+  const successor = reviseCorpusFromPackages(starter.release, {
+    version: "1.1.0",
+    createdAt: "2026-08-02T00:00:00Z",
+    summary: "Add a duplicate adversarial fixture.",
+    members: packages.map((taskPackage) => ({
+      taskPackage,
+      strata: strataByTask.get(
+        taskPackage === duplicatePackage || taskPackage === nearPackage
+          ? original.task.taskId
+          : taskPackage.task.taskId,
+      ),
+    })),
+  });
+  const exactGroup = successor.duplicateAnalysis.exactGroups.find(
+    ({ taskIds }) => taskIds.includes(duplicatePackage.task.taskId),
+  );
+  assert.deepEqual(
+    exactGroup?.taskIds,
+    [original.task.taskId, duplicatePackage.task.taskId].sort(),
+  );
+  const nearGroup = successor.duplicateAnalysis.nearGroups.find(
+    ({ taskIds }) => taskIds.includes(nearPackage.task.taskId),
+  );
+  assert.ok(nearGroup.taskIds.includes(original.task.taskId));
+  assert.ok(nearGroup.maximumSimilarity >= 0.8);
+  assert.deepEqual(
+    successor.duplicateAnalysis,
+    analyzeCorpusDuplicates([...packages].reverse(), 0.8),
   );
 });
 

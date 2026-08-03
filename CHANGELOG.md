@@ -5,6 +5,34 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.2] - 2026-08-03
+
+### User-facing changes
+
+- Governed corpus revisions now recompute deterministic exact-prompt and
+  near-token duplicate groups for the complete active membership.
+
+### Compatibility requirements
+
+- Task packages and grading admit only sealed tasks. Corpus successors require
+  an exact active predecessor, a single contiguous revision, replacement of
+  that predecessor, and one successor per predecessor.
+
+### Migrations
+
+- None. Rebuild any locally authored successor release so its duplicate
+  analysis and starter-corpus identities reflect the hardened admission rules.
+
+### Security fixes
+
+- Draft, retired, and invalidated tasks can no longer reach packaging or
+  grading, and forged revision jumps or stale duplicate evidence fail closed.
+
+### Known limitations
+
+- Near-duplicate analysis is deterministic token Jaccard evidence; semantic
+  similarity outside that declared method still requires curator review.
+
 ## [0.12.1] - 2026-08-03
 
 ### User-facing changes

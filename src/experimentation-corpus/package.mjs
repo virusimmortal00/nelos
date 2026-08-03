@@ -96,6 +96,13 @@ export function validateTaskPackage(value) {
   }
   if (value.schemaVersion !== 1) corpusFailure("UNSUPPORTED_SCHEMA_VERSION", "only package schema v1 is supported", "/schemaVersion");
   validateTask(value.task);
+  if (value.task.state !== "sealed") {
+    corpusFailure(
+      "TASK_NOT_SEALED",
+      "task packages admit only sealed task revisions",
+      "/task/state",
+    );
+  }
   if (!PACKAGE_ID.test(value.packageId) || value.packageId !== deriveTaskPackageId(value)) {
     corpusFailure("PACKAGE_IDENTITY_MISMATCH", "package identity does not match semantic contents", "/packageId");
   }
