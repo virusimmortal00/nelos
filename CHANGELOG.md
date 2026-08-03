@@ -5,6 +5,44 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.7.0] - 2026-08-03
+
+### User-facing changes
+
+- Added a hermetic headless worker lane with per-attempt filesystem, process,
+  resource, credential, network-phase, cancellation, artifact, and cleanup
+  isolation.
+- Added a fenced dedicated macOS Desktop worker contract with exact target
+  admission, signed golden-image lifecycle operations, quarantine, reimage,
+  rollback, and protected automation.
+
+### Compatibility requirements
+
+- Headless infrastructure adapters must attest the exact admitted worker and
+  phase policy digests and return fenced cancellation and destruction receipts.
+- Desktop lifecycle automation must run on a dedicated registered host, use the
+  protected default-branch driver, and match the exact lease, process, socket,
+  plugin lock, and signed golden image.
+
+### Migrations
+
+- Runtime-lane deployments must implement the documented headless engine or
+  dedicated Desktop adapter contracts before enabling experiments.
+
+### Security fixes
+
+- Developer homes, Codex state, credentials, sessions, sockets, worktrees, and
+  mutable caches are rejected from disposable headless attempts.
+- Desktop mutations fail closed on development-state reachability, target or
+  plugin drift, stale fencing, unexpected tasks, crash loops, and ambiguous
+  lifecycle receipts.
+
+### Known limitations
+
+- The repository ships admission and lifecycle contracts; operators still
+  provide and harden the underlying OCI, disposable-VM, or dedicated macOS
+  infrastructure.
+
 ## [0.6.2] - 2026-08-03
 
 ### User-facing changes
