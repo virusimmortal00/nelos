@@ -1067,6 +1067,14 @@ export class SpinoffLifecycleAdapterV1 {
       : pending.length > 0
       ? "not-ready"
       : "complete";
+    if (state === "complete" && scopedPlanRun !== null) {
+      scopedPlanRun = await this.#planRunStore.markWaveCleaned({
+        planRunId: waveScope.planRunId,
+        queenThreadId: identity.queenThreadId,
+        waveIndex: waveScope.waveIndex,
+        waveDigest: waveScope.waveDigest,
+      });
+    }
     let nextAction = null;
     if (
       state === "complete" &&

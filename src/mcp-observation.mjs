@@ -215,7 +215,8 @@ async function terminalNextAction(
       ({ waveIndex }) => waveIndex === lastVerifiedWave,
     );
     if (
-      verifiedWave?.members.some(({ lifecycle }) => lifecycle === "spinoff")
+      verifiedWave?.members.some(({ lifecycle }) => lifecycle === "spinoff") &&
+      !activeRun.cleanedWaveIndexes.includes(lastVerifiedWave)
     ) {
       return {
         schemaVersion: 1,
@@ -265,6 +266,10 @@ async function terminalNextAction(
         launchAuthorization,
       );
     }
+    return {
+      schemaVersion: 1,
+      kind: "complete",
+    };
   }
   return {
     schemaVersion: 1,

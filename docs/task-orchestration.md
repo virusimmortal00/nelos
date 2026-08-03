@@ -151,6 +151,11 @@ reuse of an `intentId` with different inputs.
    typed wave-bound receipt. Missing, negative, partial, stale, or mismatched
    evidence cannot produce `launch-wave`; planning a graph alone is never
    permission to create user-visible tasks.
+   After a dependency wave is accepted, its scoped cleanup persists a cleaned
+   wave index before requesting authorization for the next wave. The exact
+   authorization receipt is consumed by replaying that same
+   `nelos_spinoff_cleanup` call; ordinary multi-wave progress never requires
+   exception replanning or a replay of wave 1.
 2. **Prepare the intent before mutation.** Write `planned` with the desired
    title, target, route, queen, and work-unit provenance.
 3. **Claim creation once.** Move to `creating` under the existing queen/action

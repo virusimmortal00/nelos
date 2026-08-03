@@ -307,6 +307,7 @@ function validateRecord(value) {
     "cleanupIntended",
     "plan",
     "verifiedWaveIndexes",
+    "cleanedWaveIndexes",
     "webIdentity",
     "waves",
   ]);
@@ -476,6 +477,23 @@ function validateRecord(value) {
   ) {
     throw new Error("plan run verified wave indexes are invalid");
   }
+  const cleanedWaveIndexes = value.cleanedWaveIndexes ?? [];
+  if (
+    !Array.isArray(cleanedWaveIndexes) ||
+    cleanedWaveIndexes.length > verifiedWaveIndexes.length ||
+    new Set(cleanedWaveIndexes).size !== cleanedWaveIndexes.length ||
+    cleanedWaveIndexes.some(
+      (waveIndex, index) =>
+        !Number.isSafeInteger(waveIndex) ||
+        !verifiedWaveIndexes.includes(waveIndex) ||
+        !waves[waveIndex - 1]?.members.some(
+          ({ lifecycle }) => lifecycle === "spinoff",
+        ) ||
+        (index > 0 && cleanedWaveIndexes[index - 1] >= waveIndex),
+    )
+  ) {
+    throw new Error("plan run cleaned wave indexes are invalid");
+  }
   return {
     schemaVersion: PLAN_RUN_SCHEMA_VERSION,
     planRunId,
@@ -488,6 +506,7 @@ function validateRecord(value) {
     cleanupIntended,
     plan,
     verifiedWaveIndexes,
+    cleanedWaveIndexes,
     webIdentity: normalizedWebIdentity,
     waves,
   };
@@ -496,10 +515,12 @@ function validateRecord(value) {
 function samePlanRunIntent(left, right) {
   const {
     verifiedWaveIndexes: _leftProgress,
+    cleanedWaveIndexes: _leftCleanupProgress,
     ...leftIntent
   } = left;
   const {
     verifiedWaveIndexes: _rightProgress,
+    cleanedWaveIndexes: _rightCleanupProgress,
     ...rightIntent
   } = right;
   return JSON.stringify(leftIntent) === JSON.stringify(rightIntent);
@@ -580,6 +601,7 @@ export function createPlanRunV1(
     cleanupIntended,
     plan: structuredClone(plan),
     verifiedWaveIndexes: [],
+    cleanedWaveIndexes: [],
     webIdentity: normalizedWebIdentity,
     waves: plan.waves.map((wave) =>
       waveContract(wave, normalizedWebIdentity),
@@ -679,6 +701,7 @@ export class PlanRunStoreV1 {
         const adopted = {
           ...record,
           verifiedWaveIndexes: existing.verifiedWaveIndexes,
+          cleanedWaveIndexes: existing.cleanedWaveIndexes,
         };
         const source = `${JSON.stringify(adopted, null, 2)}\n`;
         if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {
@@ -773,6 +796,67 @@ export class PlanRunStoreV1 {
       const updated = validateRecord({
         ...record,
         verifiedWaveIndexes: [...record.verifiedWaveIndexes, waveIndex],
+      });
+      const source = `${JSON.stringify(updated, null, 2)}\n`;
+      if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {
+        throw new Error("plan run record is oversized");
+      }
+      await this.#fileSystem.mkdir(this.#directory, {
+        recursive: true,
+        mode: 0o700,
+      });
+      const target = this.#path(updated.planRunId);
+      const temporary =
+        `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;
+      try {
+        await this.#fileSystem.writeFile(temporary, source, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        await this.#fileSystem.rename(temporary, target);
+      } catch (error) {
+        await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
+        throw error;
+      }
+      return updated;
+    });
+  }
+
+  async markWaveCleaned({
+    planRunId,
+    queenThreadId: requestedQueenThreadId,
+    waveIndex,
+    waveDigest,
+  }) {
+    const normalizedPlanRunId = runId(planRunId);
+    return withPlanRunLock(normalizedPlanRunId, async () => {
+      const { record, wave } = await this.requireWave({
+        planRunId: normalizedPlanRunId,
+        queenThreadId: requestedQueenThreadId,
+        waveIndex,
+        waveDigest,
+      });
+      if (record.cleanedWaveIndexes.includes(waveIndex)) return record;
+      if (!record.verifiedWaveIndexes.includes(waveIndex)) {
+        throw new Error("plan run wave must be verified before cleanup");
+      }
+      if (!wave.members.some(({ lifecycle }) => lifecycle === "spinoff")) {
+        throw new Error("plan run wave has no spin-offs to clean");
+      }
+      const missingEarlierCleanup = record.waves
+        .filter(
+          (candidate) =>
+            candidate.waveIndex < waveIndex &&
+            record.verifiedWaveIndexes.includes(candidate.waveIndex) &&
+            candidate.members.some(({ lifecycle }) => lifecycle === "spinoff") &&
+            !record.cleanedWaveIndexes.includes(candidate.waveIndex),
+        );
+      if (missingEarlierCleanup.length > 0) {
+        throw new Error("plan run waves must clean in dependency order");
+      }
+      const updated = validateRecord({
+        ...record,
+        cleanedWaveIndexes: [...record.cleanedWaveIndexes, waveIndex],
       });
       const source = `${JSON.stringify(updated, null, 2)}\n`;
       if (Buffer.byteLength(source, "utf8") > MAX_RECORD_BYTES) {

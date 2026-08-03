@@ -148,6 +148,16 @@ test("verified wave progress is ordered, replay-safe, and durable across restart
     );
     assert.equal(created.cleanupIntended, false);
     assert.deepEqual(created.verifiedWaveIndexes, []);
+    assert.deepEqual(created.cleanedWaveIndexes, []);
+    await assert.rejects(
+      store.markWaveCleaned({
+        planRunId: created.planRunId,
+        queenThreadId: "queen-1",
+        waveIndex: 1,
+        waveDigest: created.waves[0].waveDigest,
+      }),
+      /verified before cleanup/u,
+    );
     await assert.rejects(
       store.markWaveVerified({
         planRunId: created.planRunId,
@@ -173,14 +183,29 @@ test("verified wave progress is ordered, replay-safe, and durable across restart
       }),
       first,
     );
-    const restarted = new PlanRunStoreV1({ directory });
+    const cleaned = await store.markWaveCleaned({
+      planRunId: created.planRunId,
+      queenThreadId: "queen-1",
+      waveIndex: 1,
+      waveDigest: created.waves[0].waveDigest,
+    });
+    assert.deepEqual(cleaned.cleanedWaveIndexes, [1]);
     assert.deepEqual(
-      (await restarted.listForWeb({
-        webId: "A1",
+      await store.markWaveCleaned({
+        planRunId: created.planRunId,
         queenThreadId: "queen-1",
-      }))[0].verifiedWaveIndexes,
-      [1],
+        waveIndex: 1,
+        waveDigest: created.waves[0].waveDigest,
+      }),
+      cleaned,
     );
+    const restarted = new PlanRunStoreV1({ directory });
+    const restartedRecord = (await restarted.listForWeb({
+      webId: "A1",
+      queenThreadId: "queen-1",
+    }))[0];
+    assert.deepEqual(restartedRecord.verifiedWaveIndexes, [1]);
+    assert.deepEqual(restartedRecord.cleanedWaveIndexes, [1]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

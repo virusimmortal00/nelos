@@ -90,6 +90,23 @@ async function fixture(
     legacyPreferencePath: join(directory, "preference.json"),
   });
   let ordinal = 0;
+  const effectivePlanRunStore = planRunStore === undefined
+    ? undefined
+    : {
+        ...planRunStore,
+        async markWaveCleaned(args) {
+          if (typeof planRunStore.markWaveCleaned === "function") {
+            return planRunStore.markWaveCleaned(args);
+          }
+          const { record } = await planRunStore.requireWave(args);
+          if (record.cleanedWaveIndexes.includes(args.waveIndex)) return record;
+          record.cleanedWaveIndexes = [
+            ...record.cleanedWaveIndexes,
+            args.waveIndex,
+          ];
+          return record;
+        },
+      };
   const adapter = new SpinoffLifecycleAdapterV1({
     store,
     configuration,
@@ -108,7 +125,9 @@ async function fixture(
         return decisions;
       },
     },
-    ...(planRunStore ? { planRunStore } : {}),
+    ...(effectivePlanRunStore
+      ? { planRunStore: effectivePlanRunStore }
+      : {}),
   });
   return {
     adapter,

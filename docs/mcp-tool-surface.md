@@ -422,6 +422,14 @@ future webs. Missing, rejected, stale, mismatched, failed, blocked, or
 cross-queen evidence remains cleanup `not-ready` and is never archived.
 Accepted siblings are independently eligible, so their exact archive effects
 can settle without waiting for unrelated pending evidence in the same wave.
+For a persisted multi-wave plan, terminal cleanup records the exact cleaned
+wave index in the plan run. If a dependent wave remains, cleanup returns its
+`authorization-required` action. Execute that action and replay the same
+`nelos_spinoff_cleanup` arguments with the exact `launchAuthorization` receipt;
+that is the canonical receipt consumer. After restart,
+`nelos_orchestrate_advance` consults the cleaned-wave record and returns the
+same next-wave boundary instead of re-emitting the completed cleanup. Stale,
+partial, wrong-wave, and wrong-digest authorization receipts still fail closed.
 
 A rejected exact-current decision changes the member to
 `correction-pending`. The next advance returns one turn-bound

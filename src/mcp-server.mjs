@@ -1170,7 +1170,9 @@ const TOOLS = [
       "an exact named candidate list. Remembering a policy globally requires " +
       "an explicit policy and userIntentConfirmed true. " +
       "Confirmed archives are returned as host-owned effects and become durable " +
-      "only after exact native receipts.",
+      "only after exact native receipts. Wave-scoped completion is persisted; " +
+      "replay this same tool with its exact launchAuthorization receipt to emit " +
+      "the next dependency wave.",
     inputSchema: SPINOFF_CLEANUP_INPUT_SCHEMA,
     annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
     async run(args, { lifecycleAdapter }) {
