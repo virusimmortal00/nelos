@@ -54,12 +54,23 @@ export function reviseCorpusFromPackages(previousRelease, {
       bytes: Buffer.from(asset.bytes, "base64").byteLength,
     });
   }
-  const bundles = new Map(previousRelease.graderBundles.map((bundle) => [bundle.graderBundleId, bundle]));
-  for (const { taskPackage } of members) bundles.set(taskPackage.graderBundle.graderBundleId, {
-    graderBundleId: taskPackage.graderBundle.graderBundleId,
-    version: taskPackage.graderBundle.version,
-    digest: taskPackage.graderBundle.digest,
-  });
+  const bundles = new Map();
+  for (let index = 0; index < members.length; index += 1) {
+    const { graderBundle } = members[index].taskPackage;
+    const existing = bundles.get(graderBundle.graderBundleId);
+    if (existing !== undefined && existing.digest !== graderBundle.digest) {
+      corpusFailure(
+        "GRADER_IDENTITY_COLLISION",
+        "one grader identity cannot reference multiple bundle digests",
+        `/members/${index}/taskPackage/graderBundle/digest`,
+      );
+    }
+    bundles.set(graderBundle.graderBundleId, {
+      graderBundleId: graderBundle.graderBundleId,
+      version: graderBundle.version,
+      digest: graderBundle.digest,
+    });
+  }
   const changelog = [
     ...(removedIds.length === 0 ? [] : [{ changeId: "change:task-excluded", kind: "task-excluded", summary: "Retain replaced task identities as audited exclusions.", taskIds: removedIds }]),
     ...(addedIds.length === 0 ? [] : [{ changeId: "change:task-added", kind: "task-added", summary: "Add governed task identities to the corpus.", taskIds: addedIds }]),

@@ -154,13 +154,39 @@ test("transitive grader dependency changes rotate every dependent identity and o
   );
 
   const strataByTask = new Map(starter.release.tasks.map((entry) => [entry.taskId, entry.strata]));
+  assert.throws(
+    () => reviseCorpusFromPackages(starter.release, {
+      version: "1.1.0",
+      createdAt: "2026-08-02T00:00:00Z",
+      summary: "Attempt a partial grader implementation rotation.",
+      members: starter.packages.map((taskPackage) => ({
+        taskPackage: taskPackage === original ? revisedPackage : taskPackage,
+        strata: strataByTask.get(taskPackage.task.taskId),
+      })),
+    }),
+    (error) => error instanceof CorpusError && error.code === "GRADER_IDENTITY_COLLISION",
+  );
+  const rotatedPackages = starter.packages.map((taskPackage) => {
+    if (taskPackage === original) return revisedPackage;
+    const task = reviseTask(taskPackage.task, {
+      grader: { ...taskPackage.task.grader, digest: changedBundle.digest },
+    });
+    return createTaskPackage({
+      task,
+      assets: taskPackage.assets.map((asset) => ({
+        ...asset,
+        bytes: Buffer.from(asset.bytes, "base64"),
+      })),
+      graderBundle: changedBundle,
+    });
+  });
   const revisedRelease = reviseCorpusFromPackages(starter.release, {
     version: "1.1.0",
     createdAt: "2026-08-02T00:00:00Z",
     summary: "Rotate the transitive grader implementation identity.",
-    members: starter.packages.map((taskPackage) => ({
-      taskPackage: taskPackage === original ? revisedPackage : taskPackage,
-      strata: strataByTask.get(taskPackage.task.taskId),
+    members: rotatedPackages.map((taskPackage, index) => ({
+      taskPackage,
+      strata: strataByTask.get(starter.packages[index].task.taskId),
     })),
   });
   assert.notEqual(revisedRelease.releaseId, starter.release.releaseId);
@@ -242,6 +268,12 @@ test("exact JSON grader packages reject incompatible oracle and output contracts
       outputs: original.task.outputs.map((output) => ({
         ...output,
         kind: output.required ? "text" : output.kind,
+      })),
+    }),
+    reviseTask(original.task, {
+      artifacts: original.task.artifacts.map((artifact, index) => ({
+        ...artifact,
+        required: index === 0,
       })),
     }),
   ]) {

@@ -125,16 +125,19 @@ export function validateTaskPackage(value) {
   if (value.task.grader.digest !== value.graderBundle.digest) {
     corpusFailure("GRADER_IDENTITY_MISMATCH", "task and package grader identities disagree", "/graderBundle/digest");
   }
+  const requiredOutputs = value.task.outputs.filter((output) => output.required);
   if (
     value.graderBundle.entrypoint === "exact-json-v1" &&
     (
       value.task.grader.oracle.kind !== "exact" ||
-      value.task.outputs.find((output) => output.required)?.kind !== "json"
+      requiredOutputs.length !== 1 ||
+      requiredOutputs[0].kind !== "json" ||
+      value.task.artifacts.some((artifact) => artifact.required)
     )
   ) {
     corpusFailure(
       "GRADER_CONTRACT_MISMATCH",
-      "exact JSON graders require an exact oracle and one required JSON output",
+      "exact JSON graders require an exact oracle, one required JSON output, and no required artifacts",
       "/task/grader/oracle/kind",
     );
   }
