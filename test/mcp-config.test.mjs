@@ -11,6 +11,7 @@ import { listNelosMcpTools } from "../src/mcp-server.mjs";
 import {
   MCP_CONFIG_FILENAME,
   MCP_PLUGIN_VERSION_ENV,
+  MCP_RELEASE_BUILD_IDENTITY_ENV,
   MCP_SERVER_CONFIG_KEY,
   buildMcpConfig,
   renderMcpConfig,
@@ -26,7 +27,7 @@ const packageMetadata = JSON.parse(
 
 test("checked-in .mcp.json is fresh for the current plugin version", async () => {
   const onDisk = await readFile(join(packageRoot, MCP_CONFIG_FILENAME), "utf8");
-  assert.equal(onDisk, renderMcpConfig(pluginMetadata.version));
+  assert.equal(onDisk, renderMcpConfig(pluginMetadata.version, pluginMetadata.releaseBuildIdentity));
 });
 
 test("plugin manifest, package metadata, and provenance cover the MCP surface", () => {
@@ -38,17 +39,23 @@ test("plugin manifest, package metadata, and provenance cover the MCP surface", 
 
 test("the generated launch form is the verified inline bootstrap", () => {
   const config = buildMcpConfig("1.2.3");
-  const server = config[MCP_SERVER_CONFIG_KEY];
+  const server = config.mcpServers[MCP_SERVER_CONFIG_KEY];
   // Pinned to verified codex-cli 0.144.6 behavior (docs/mcp-tool-surface.md):
   // no ${PLUGIN_ROOT} substitution and no plugin path environment variables
   // exist, so the only viable launch form is `node -e` plus a static env
   // version. Loosen only after the host retirement condition is met.
   assert.equal(server.command, "node");
   assert.equal(server.args[0], "-e");
-  assert.deepEqual(server.env, { [MCP_PLUGIN_VERSION_ENV]: "1.2.3" });
+  assert.deepEqual(server.env, {
+    [MCP_PLUGIN_VERSION_ENV]: "1.2.3",
+    [MCP_RELEASE_BUILD_IDENTITY_ENV]: "nelos-release-v1:1.2.3",
+  });
   assert.deepEqual(
-    buildMcpConfig("1.2.3+codex.20260725014918")[MCP_SERVER_CONFIG_KEY].env,
-    { [MCP_PLUGIN_VERSION_ENV]: "1.2.3+codex.20260725014918" },
+    buildMcpConfig("1.2.3+codex.20260725014918").mcpServers[MCP_SERVER_CONFIG_KEY].env,
+    {
+      [MCP_PLUGIN_VERSION_ENV]: "1.2.3+codex.20260725014918",
+      [MCP_RELEASE_BUILD_IDENTITY_ENV]: "nelos-release-v1:1.2.3+codex.20260725014918",
+    },
   );
   assert.ok(!server.args[1].includes("${"), "bootstrap must not rely on substitution");
   assert.ok(!server.args[1].includes("`"), "bootstrap must stay embeddable");
@@ -74,17 +81,24 @@ async function bootstrapFixture() {
   await cp(join(packageRoot, "assets"), join(cachedPlugin, "assets"), {
     recursive: true,
   });
+  await Promise.all([
+    cp(join(packageRoot, ".codex-plugin"), join(cachedPlugin, ".codex-plugin"), { recursive: true }),
+    cp(join(packageRoot, ".mcp.json"), join(cachedPlugin, ".mcp.json")),
+    cp(join(packageRoot, "package.json"), join(cachedPlugin, "package.json")),
+    cp(join(packageRoot, "distribution-provenance.json"), join(cachedPlugin, "distribution-provenance.json")),
+  ]);
   return home;
 }
 
 function runBootstrap({ home, version, requests }) {
-  const bootstrap = buildMcpConfig(version)[MCP_SERVER_CONFIG_KEY].args[1];
+  const bootstrap = buildMcpConfig(version).mcpServers[MCP_SERVER_CONFIG_KEY].args[1];
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["-e", bootstrap], {
       env: {
         PATH: process.env.PATH,
         HOME: home,
         [MCP_PLUGIN_VERSION_ENV]: version,
+        [MCP_RELEASE_BUILD_IDENTITY_ENV]: `nelos-release-v1:${version}`,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

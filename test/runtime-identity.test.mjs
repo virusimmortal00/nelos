@@ -41,14 +41,25 @@ async function writeDistribution(root, version, { provenance, ...overrides } = {
   );
   await writeFile(
     join(root, ".codex-plugin", "plugin.json"),
-    JSON.stringify({ name: "nelos", version: overrides.pluginVersion ?? version }),
+    JSON.stringify({
+      name: "nelos",
+      version: overrides.pluginVersion ?? version,
+      releaseBuildIdentity:
+        overrides.pluginBuildIdentity ?? `nelos-release-v1:${version}`,
+    }),
   );
   await writeFile(
     join(root, ".mcp.json"),
     JSON.stringify({
-      nelos: {
-        command: "node",
-        env: { NELOS_PLUGIN_VERSION: overrides.mcpVersion ?? version },
+      mcpServers: {
+        nelos: {
+          command: "node",
+          env: {
+            NELOS_PLUGIN_VERSION: overrides.mcpVersion ?? version,
+            NELOS_RELEASE_BUILD_IDENTITY:
+              overrides.mcpBuildIdentity ?? `nelos-release-v1:${version}`,
+          },
+        },
       },
     }),
   );
@@ -148,7 +159,7 @@ test("detects disagreement between each pair of on-disk sources", async () => {
   }
 });
 
-test("a missing optional source does not fail derivation", async () => {
+test("requires the plugin manifest for identity derivation", async () => {
   await withTempDir(async (dir) => {
     const root = join(dir, "dist");
     await mkdir(root, { recursive: true });
@@ -160,8 +171,11 @@ test("a missing optional source does not fail derivation", async () => {
       join(root, "distribution-provenance.json"),
       JSON.stringify(provenanceFor("1.2.3")),
     );
-    const identity = await deriveRuntimeIdentityV1({ moduleRoot: root });
-    assert.equal(identity.version, "1.2.3");
+    await assert.rejects(deriveRuntimeIdentityV1({ moduleRoot: root }), (error) => {
+      assert.equal(error.code, "IDENTITY_SOURCE_MISSING");
+      assert.match(error.message, /plugin\.json/);
+      return true;
+    });
   });
 });
 

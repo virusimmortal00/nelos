@@ -139,6 +139,12 @@ export async function deriveRuntimeIdentityV1({
       `package.json is missing under ${root}`,
     );
   }
+  if (!pluginManifest) {
+    throw new RuntimeIdentityError(
+      "IDENTITY_SOURCE_MISSING",
+      `.codex-plugin/plugin.json is missing under ${root}`,
+    );
+  }
   if (!provenanceRaw) {
     throw new RuntimeIdentityError(
       "IDENTITY_SOURCE_MISSING",
@@ -161,7 +167,7 @@ export async function deriveRuntimeIdentityV1({
     { source: ".codex-plugin/plugin.json", version: pluginManifest?.version ?? null },
     {
       source: ".mcp.json",
-      version: mcpConfig?.nelos?.env?.NELOS_PLUGIN_VERSION ?? null,
+      version: mcpConfig?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION ?? null,
     },
     { source: PROVENANCE_FILENAME, version: provenance.revision },
     ...(declaredVersion === null
@@ -180,6 +186,21 @@ export async function deriveRuntimeIdentityV1({
     );
   }
   const version = versions[0];
+
+  const embeddedBuildIdentity = pluginManifest.releaseBuildIdentity ?? null;
+  const mcpBuildIdentity =
+    mcpConfig?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY ?? null;
+  if (
+    typeof embeddedBuildIdentity !== "string" ||
+    !/^nelos-release-v1:\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/u.test(embeddedBuildIdentity) ||
+    embeddedBuildIdentity !== mcpBuildIdentity ||
+    embeddedBuildIdentity !== `nelos-release-v1:${version}`
+  ) {
+    throw new RuntimeIdentityError(
+      "IDENTITY_SOURCES_DISAGREE",
+      "embedded release-time build identity disagrees between .codex-plugin/plugin.json, .mcp.json, and the release version",
+    );
+  }
 
   // `cacheIdentity` is optional in the schema, but when present it must be the
   // canonical form for this exact version. `validateProvenance` already checks
@@ -210,8 +231,12 @@ export async function deriveRuntimeIdentityV1({
     skillIntegrity: provenance.skillIntegrity ?? null,
     cacheIdentity: provenance.cacheIdentity ?? expectedCacheIdentity,
     modulePath: root,
+    embeddedBuildIdentity,
   };
-  identity.buildIdentity = deriveBuildIdentityV1(identity);
+  identity.buildIdentity = deriveBuildIdentityV1({
+    ...identity,
+    releaseBuildIdentity: embeddedBuildIdentity,
+  });
   return Object.freeze(identity);
 }
 
