@@ -13,14 +13,14 @@ const codexAvailable = spawnSync("codex", ["--version"], {
   stdio: "ignore",
 }).status === 0;
 
-test("real Codex marketplace refresh loads 0.12.6 skills and MCP in a fresh process", {
+test("real Codex marketplace refresh loads 0.12.7 skills and MCP in a fresh process", {
   skip: codexAvailable ? false : "requires the Codex CLI",
   timeout: 600_000,
 }, async () => {
   const result = await verifyPluginMarketplaceUpgrade();
   assert.equal(result.verified, true);
   assert.equal(result.legacyVersion, "0.4.0");
-  assert.equal(result.candidateVersion, "0.12.6");
+  assert.equal(result.candidateVersion, "0.12.7");
   assert.equal(result.processRestarted, true);
   assert.equal(result.freshTaskVerified, true);
   assert.match(result.freshTaskId, /^[0-9a-f-]+$/u);
@@ -75,11 +75,11 @@ test("an old loaded worker survives cache replacement only for diagnostics and d
     const health = await resolveRuntimeHealthV1({
       loaded,
       findProvenance: async () => [{
-        path: join(root, "cache", "0.12.6", "distribution-provenance.json"),
+        path: join(root, "cache", "0.12.7", "distribution-provenance.json"),
         provenance: {
           schemaVersion: 1,
           distribution: "nelos",
-          revision: "0.12.6",
+          revision: "0.12.7",
           sourceRepository: "https://github.com/virusimmortal00/nelos.git",
           sourceRevision: "b".repeat(40),
           integrity: `sha256:${"2".repeat(64)}`,

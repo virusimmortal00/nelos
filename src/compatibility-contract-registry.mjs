@@ -1055,6 +1055,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "bin/nelos-title",
           "bin/nelos-uninstall-distribution",
           "scripts/build-release-artifacts.mjs",
+          "src/bundled-mcp-state.mjs",
           "src/exception-replanning.mjs",
           "src/execution-map.mjs",
           "src/execution-store.mjs",

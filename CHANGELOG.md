@@ -5,7 +5,7 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
-## [0.12.6] - 2026-08-04
+## [0.12.7] - 2026-08-04
 
 ### User-facing changes
 
@@ -36,7 +36,7 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Identity comparison uses the exact source revision and distribution
   integrity digest. A release built without a source revision can only report
   `degraded` for an exact-match check, never `healthy`.
-- Workers loaded from releases earlier than `0.12.6` do not derive a runtime
+- Workers loaded from releases earlier than `0.12.7` do not derive a runtime
   identity and cannot report their generation retroactively. Detecting a stale
   worker from one of those releases still requires restarting Codex.
 
@@ -48,6 +48,11 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 ### Security fixes
 
 - None.
+
+## [0.12.6] - 2026-08-04
+
+### User-facing changes
+
 - Added the API-controlled direct Codex repeat-arm canary with exact route,
   pricing, grading, and research-packet provenance.
 - Added bounded multi-turn Responses support with durable per-exchange receipts,
