@@ -19,8 +19,8 @@ export const CANARY_CEILINGS = Object.freeze({
   trials: 4,
   maxConcurrency: 1,
   maxAttempts: 1,
-  tokenBudgetPerTrial: 4000,
-  maxTotalTokens: 16000,
+  outputTokenBudgetPerTrial: 4000,
+  maxTotalOutputTokens: 16000,
   wallClockSecondsPerTrial: 180,
   maxTotalWallClockSeconds: 720,
   candidateNetworkRequestsPerTrial: 0,
@@ -28,11 +28,13 @@ export const CANARY_CEILINGS = Object.freeze({
   maxTotalProviderExecutions: 4,
   providerRetriesPerTrial: 0,
   maxTotalProviderRetries: 0,
-  providerRequestsPerTrial: 1,
-  maxTotalProviderRequests: 4,
+  providerRequestsPerTrial: 8,
+  maxTotalProviderRequests: 32,
   maxTotalCandidateNetworkRequests: 0,
-  maxEstimatedCostUsdPerTrial: 0.25,
-  maxTotalEstimatedCostUsd: 1,
+  maxEstimatedCostUsdPerTrial: 0.1875,
+  maxTotalEstimatedCostUsd: 0.75,
+  reservedPriorExposureUsd: 0.25,
+  pilotAggregateCostCeilingUsd: 1,
 });
 export const CONFIRMATORY_POWER_POLICY = Object.freeze({
   schemaVersion: 1,
@@ -80,7 +82,7 @@ function validateMeasuredRuntime(runtime) {
 }
 
 function candidate(candidateId, repeatArm, { sourceCommit, requestedModel }) {
-  return { candidateId, adapter: "direct-codex", source: { commit: sourceCommit, digest: canonicalDigest({ sourceCommit, adapter: "api-codex-receipt-v2" }) }, model: { ...requestedModel }, plugins: [], configuration: [{ name: "authentication", value: "runtime-api-key" }, { name: "developer-config", value: "absent" }, { name: "repeat-arm", value: repeatArm }, { name: "user-config", value: "ignored" }] };
+  return { candidateId, adapter: "direct-codex", source: { commit: sourceCommit, digest: canonicalDigest({ sourceCommit, adapter: "api-codex-receipt-v3" }) }, model: { ...requestedModel }, plugins: [], configuration: [{ name: "authentication", value: "runtime-api-key" }, { name: "developer-config", value: "absent" }, { name: "repeat-arm", value: repeatArm }, { name: "user-config", value: "ignored" }] };
 }
 
 function sealedCanarySchedule(manifest) {
@@ -112,7 +114,7 @@ export function createApiBaselineBundle({ mode = "canary", sourceCommit, request
     hypothesis: { statement: "Identical direct Codex API repeat arms have comparable strict-pass behavior under an explicit route.", primaryMetric: "strict_pass_rate", decisionRule: "noninferiority" },
     candidates: API_BASELINE_CANDIDATES.map((id, index) => candidate(id, index === 0 ? "a" : "b", { sourceCommit, requestedModel })), corpus: { releaseId: release.releaseId, digest: release.digest },
     design: { pairing: "task-seed", repetitions: 2, seedRoot: "nelos-api-canary-v2", seedSchedule: [{ replicate: 1, seed: "api-canary-block-ab" }, { replicate: 2, seed: "api-canary-block-ba" }], multiplicityFamily: "api-canary" },
-    limits: { wallClockSeconds: CANARY_CEILINGS.wallClockSecondsPerTrial, tokenBudget: CANARY_CEILINGS.tokenBudgetPerTrial, toolCalls: 50, diskBytes: 536870912, processes: 8, networkRequests: 0 },
+    limits: { wallClockSeconds: CANARY_CEILINGS.wallClockSecondsPerTrial, tokenBudget: CANARY_CEILINGS.outputTokenBudgetPerTrial, toolCalls: 50, diskBytes: 536870912, processes: 8, networkRequests: 0 },
     runtimeMatrix: [{ runtimeLockId: `runtime:${runtimeDigest.slice(7)}`, digest: runtimeDigest, backend: runtimeProvenance.backend, platform: runtimeProvenance.platform, eligibleCandidateIds: [...API_BASELINE_CANDIDATES], requiredCapabilities: ["git", "node"] }],
     graderBundle: { id: grader.graderBundleId, digest: grader.digest }, exclusions: [],
     metrics: { primary: { metricId: "strict_pass_rate", direction: "higher", aggregation: "rate" }, secondary: [{ metricId: "candidate_failure_rate", direction: "lower", aggregation: "rate" }, { metricId: "input_tokens", direction: "lower", aggregation: "median" }, { metricId: "output_tokens", direction: "lower", aggregation: "median" }, { metricId: "terminal_wall_ms", direction: "lower", aggregation: "median" }], minimumDetectableEffect: { metricId: "strict_pass_rate", absolute: 0.2, power: 0.8, alpha: 0.05 } },
@@ -120,7 +122,7 @@ export function createApiBaselineBundle({ mode = "canary", sourceCommit, request
   };
   experiment.experimentId = deriveExperimentIdentity(experiment); experiment.digest = deriveExperimentDigest(experiment); experiment = transitionExperiment(transitionExperiment(experiment, "reviewed"), "sealed");
   const root = new URL("..", import.meta.url).pathname;
-  const runnerManifest = { schemaVersion: 1, experiment, tasks, adapters: { "direct-codex": { command: [process.execPath, `${root}scripts/api-codex-adapter.mjs`], environment: {}, version: "api-codex-receipt-v2" }, nelos: { command: [process.execPath, `${root}scripts/test-support/fake-experiment-adapter.mjs`], environment: {}, version: "unused-v1" } }, policy: { maxConcurrency: 1, perAdapterConcurrency: { "direct-codex": 1, nelos: 1 }, leaseMs: 210000, timeoutMs: 180000, maxAttempts: 1 } };
+  const runnerManifest = { schemaVersion: 1, experiment, tasks, adapters: { "direct-codex": { command: [process.execPath, `${root}scripts/api-codex-adapter.mjs`], environment: {}, version: "api-codex-receipt-v3" }, nelos: { command: [process.execPath, `${root}scripts/test-support/fake-experiment-adapter.mjs`], environment: {}, version: "unused-v1" } }, policy: { maxConcurrency: 1, perAdapterConcurrency: { "direct-codex": 1, nelos: 1 }, leaseMs: 210000, timeoutMs: 180000, maxAttempts: 1 } };
   const executionSchedule = sealedCanarySchedule(runnerManifest);
   const identity = { phase: "api-controlled-canary", runIdPrefix: API_BASELINE_RUN_PREFIX, storeNamespace: "api-canary-store-v2", evidenceRootName: "api-canary-evidence-v2", reportKind: "api-canary-report-v2", requestedRoute: { modelId: requestedModel.id, modelRevision: requestedModel.revision, reasoningEffort: requestedModel.reasoningEffort }, runtimeProvenance, pricingSnapshot };
   const controls = { ceilings: CANARY_CEILINGS, sealedTrialCount: 4, expansion: "forbidden", confirmatoryAuthorization: "not-granted" };

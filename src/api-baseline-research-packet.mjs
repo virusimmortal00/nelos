@@ -20,7 +20,7 @@ function narrative(title, runId, finishedAt, sections) {
   return `# ${title}\n\nRun: ${runId}\nRecorded: ${finishedAt}\n\n${sections.map(([heading, text]) => `## ${heading}\n\n${text}`).join("\n\n")}\n`;
 }
 
-export async function writeApiBaselineResearchPacket({ store, bundle, runId, results, status, errorCode = null, startedAt, finishedAt }) {
+export async function writeApiBaselineResearchPacket({ store, bundle, runId, results, providerExchanges = [], status, errorCode = null, startedAt, finishedAt }) {
   const packetRoot = resolve(store, "research-packet");
   await mkdir(packetRoot, { mode: 0o700 });
   const distribution = JSON.parse(await readFile(new URL("../distribution-provenance.json", import.meta.url), "utf8"));
@@ -55,10 +55,13 @@ export async function writeApiBaselineResearchPacket({ store, bundle, runId, res
   };
   const arms = candidates.map(({ candidateId }) => armSummary(results, candidateId));
   const complete = status === "completed" && results.length === bundle.controls.sealedTrialCount;
+  const exchangeCostUsd = Number(providerExchanges.reduce((sum, exchange) => sum + Number(exchange.estimatedCostUsd ?? 0), 0).toFixed(12));
+  const exchangeOutputTokens = providerExchanges.reduce((sum, exchange) => sum + Number(exchange.usage?.outputTokens ?? 0), 0);
   const summary = {
     schemaVersion: 1, runId, status, startedAt, finishedAt, errorCode, bundleDigest: bundle.bundleDigest,
     trialCount: results.length, expectedTrialCount: bundle.controls.sealedTrialCount,
-    evidenceHealth: { complete, receiptCount: results.filter(({ artifacts }) => artifacts.some(({ id }) => id === "runtime-provider-receipt")).length, routeMatchedCount: results.filter(({ observedRoute }) => Object.entries(bundle.identity.requestedRoute).every(([field, value]) => observedRoute[field] === value)).length },
+    evidenceHealth: { complete, receiptCount: results.filter(({ artifacts }) => artifacts.some(({ id }) => id === "runtime-provider-receipt")).length, routeMatchedCount: results.filter(({ observedRoute }) => Object.entries(bundle.identity.requestedRoute).every(([field, value]) => observedRoute[field] === value)).length, completedProviderExchangeCount: providerExchanges.length },
+    exposure: { completedExchangeCostUsd: exchangeCostUsd, completedExchangeOutputTokens: exchangeOutputTokens, reservedPriorExposureUsd: bundle.controls.ceilings.reservedPriorExposureUsd, remainingRunCostCeilingUsd: bundle.controls.ceilings.maxTotalEstimatedCostUsd, pilotAggregateCostCeilingUsd: bundle.controls.ceilings.pilotAggregateCostCeilingUsd },
     derived: { arms, strictPassRiskDifferenceBMinusA: arms.length === 2 && arms.every(({ strictPassRate }) => strictPassRate !== null) ? arms[1].strictPassRate - arms[0].strictPassRate : null, uncertainty: "Per-arm Wilson 95% intervals are descriptive only; n=2 per arm does not authorize comparative inference." },
     exclusions: results.filter(({ outcome }) => outcome === "invalid" || outcome === "inconclusive").map(({ trialId, outcome }) => ({ trialId, reason: outcome })),
     missingTrials: bundle.controls.sealedTrialCount - results.length,
@@ -78,6 +81,7 @@ export async function writeApiBaselineResearchPacket({ store, bundle, runId, res
     ["protocol.json", canonicalBytes(protocol)],
     ["run-summary.json", canonicalBytes(summary)],
     ["trials.jsonl", Buffer.from(results.map((result) => JSON.stringify(result)).join("\n") + (results.length ? "\n" : ""), "utf8")],
+    ["provider-exchanges.jsonl", Buffer.from(providerExchanges.map((exchange) => JSON.stringify(exchange)).join("\n") + (providerExchanges.length ? "\n" : ""), "utf8")],
     ["claim-ledger.json", canonicalBytes(claimLedger)],
     ["anomalies.md", Buffer.from(narrative("Anomalies and operational incidents", runId, finishedAt, [["Automatically observed", anomalies.length ? anomalies.join("\n") : "No automated anomalies recorded."], ["Operator additions", "<!-- Record incidents, protocol deviations, exclusions, and aborted-run context here. Do not include credentials or hidden grader material. -->"]]), "utf8")],
     ["operator-notes.md", Buffer.from(narrative("Operator notes", runId, finishedAt, [["Contemporaneous observations", "<!-- Record observations made during the run. Separate facts from interpretation. -->"], ["Protocol deviations", "<!-- State none, or identify the exact deviation and affected trials. -->"]]), "utf8")],

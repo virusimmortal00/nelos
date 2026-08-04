@@ -15,7 +15,7 @@ import { startApiReceiptProxy } from "../src/api-baseline-receipt-proxy.mjs";
 import { writeApiBaselineResearchPacket } from "../src/api-baseline-research-packet.mjs";
 import { createSignedInPilotManifest } from "../scripts/build-signed-in-pilot.mjs";
 import { API_BASELINE_CANDIDATES, API_BASELINE_FAMILIES, API_BASELINE_RUN_PREFIX, CANARY_CEILINGS, createApiBaselineBundle, createAuthorizedConfirmatoryPlan, evaluateConfirmatoryAuthorization, measureRuntimeProvenance, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
-import { safeApiRuntimeError } from "../src/api-baseline-runtime.mjs";
+import { readApiProviderExchanges, recordApiProviderExchange, safeApiRuntimeError } from "../src/api-baseline-runtime.mjs";
 
 const executeFile = promisify(execFile);
 const executableBytes = Buffer.from("offline-fake-codex-executable-v2", "utf8");
@@ -33,7 +33,10 @@ function requestFor(input, ordinal = 0) {
 }
 
 function receipt(request, overrides = {}) {
-  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute, observedModelId: requestedModel.id, observedModelRevision: requestedModel.revision, forwardedReasoningEffort: requestedModel.reasoningEffort, forwardedServiceTier: "default" }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: 0.00013725, costStatus: "computed-from-snapshot", pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot), responseId: "resp_offline", requestId: "req_offline", usage: { inputTokens: 11, cachedInputTokens: 2, cacheWriteInputTokens: 1, outputTokens: 3, reasoningOutputTokens: 1, totalTokens: 14 } }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
+  const usage = { inputTokens: 11, cachedInputTokens: 2, cacheWriteInputTokens: 1, outputTokens: 3, reasoningOutputTokens: 1, totalTokens: 14 };
+  const material = { schemaVersion: 1, operationId: request.operationId, trialId: request.trialId, attempt: request.attempt, exchangeOrdinal: 1, requestId: "req_offline", responseId: "resp_offline", observedModelRevision: requestedModel.revision, serviceTier: "default", usage, estimatedCostUsd: 0.00013725, pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot) };
+  const exchange = { ...material, exchangeDigest: canonicalDigest(material) };
+  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute, observedModelId: requestedModel.id, observedModelRevision: requestedModel.revision, forwardedReasoningEffort: requestedModel.reasoningEffort, forwardedServiceTier: "default" }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, logicalTurnCount: 1, estimatedCostUsd: 0.00013725, costStatus: "computed-from-snapshot", pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot), exchanges: [exchange], usage: { ...usage } }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
 }
 
 function receiptProxy(request, value = () => receipt(request), observe = () => {}) {
@@ -124,8 +127,8 @@ test("runtime receipts independently bind route, provider counts, and replay con
   await assert.rejects(() => executeApiBaselineAttempt({ ...base, request: expired, claimOperation: async () => {} }), { code: "ATTEMPT_CONTROL_INVALID" });
 });
 
-test("localhost receipt proxy streams one exact Responses request and seals provider evidence", async (t) => {
-  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-"); let authorization; let upstreamBody;
+test("localhost receipt proxy forwards one exact Responses request and seals provider evidence", async (t) => {
+  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-"); let authorization; let upstreamBody; const recorded = [];
   const upstream = createServer(async (incoming, response) => {
     authorization = incoming.headers.authorization;
     const chunks = []; for await (const chunk of incoming) chunks.push(chunk); upstreamBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -136,12 +139,12 @@ test("localhost receipt proxy streams one exact Responses request and seals prov
   await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
   t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
   const address = upstream.address();
-  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
+  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, recordExchange: async (exchange) => recorded.push(exchange), upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
   const providerResponse = await fetch(`${proxy.baseUrl}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6-sol", reasoning: { effort: "medium" }, stream: true, input: "offline fixture" }) });
   assert.equal(providerResponse.status, 200); assert.match(await providerResponse.text(), /response\.completed/u);
   const sealed = await proxy.finish();
-  assert.equal(authorization, `Bearer ${key}`); assert.equal(upstreamBody.model, "gpt-5.6-sol"); assert.equal(upstreamBody.reasoning.effort, "medium"); assert.equal(upstreamBody.service_tier, "default");
-  assert.equal(sealed.provider.responseId, "resp_live_fake"); assert.equal(sealed.provider.requestId, "req_live_fake"); assert.equal(sealed.provider.usage.cachedInputTokens, 4); assert.equal(sealed.provider.usage.cacheWriteInputTokens, 3); assert.equal(sealed.route.observedModelRevision, "gpt-5.6-sol");
+  assert.equal(authorization, `Bearer ${key}`); assert.equal(upstreamBody.model, "gpt-5.6-sol"); assert.equal(upstreamBody.reasoning.effort, "medium"); assert.equal(upstreamBody.service_tier, "default"); assert.equal(upstreamBody.max_output_tokens, 4000);
+  assert.equal(sealed.provider.exchanges[0].responseId, "resp_live_fake"); assert.equal(sealed.provider.exchanges[0].requestId, "req_live_fake"); assert.equal(sealed.provider.usage.cachedInputTokens, 4); assert.equal(sealed.provider.usage.cacheWriteInputTokens, 3); assert.equal(sealed.route.observedModelRevision, "gpt-5.6-sol"); assert.deepEqual(recorded, sealed.provider.exchanges);
   assert.doesNotMatch(JSON.stringify(sealed), new RegExp(key, "u"));
 });
 
@@ -157,21 +160,23 @@ test("localhost receipt proxy fails closed on route substitution", async (t) => 
   await assert.rejects(() => proxy.finish(), { code: "PROXY_ROUTE_MISMATCH" });
 });
 
-test("localhost receipt proxy rejects a duplicate provider request", async (t) => {
+test("localhost receipt proxy admits bounded sequential turns and rejects the ninth", async (t) => {
   const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-");
+  let ordinal = 0;
   const upstream = createServer(async (incoming, response) => {
     for await (const _chunk of incoming) void _chunk;
-    response.writeHead(200, { "content-type": "application/json", "x-request-id": "req_once" });
-    response.end(JSON.stringify({ id: "resp_once", status: "completed", model: "gpt-5.6-sol", service_tier: "default", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }));
+    ordinal += 1;
+    response.writeHead(200, { "content-type": "application/json", "x-request-id": `req_${ordinal}` });
+    response.end(JSON.stringify({ id: `resp_${ordinal}`, status: "completed", model: "gpt-5.6-sol", service_tier: "default", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }));
   });
   await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
   t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
   const address = upstream.address();
   const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
   const options = { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6-sol", reasoning: { effort: "medium" } }) };
-  assert.equal((await fetch(`${proxy.baseUrl}/responses`, options)).status, 200);
+  for (let index = 0; index < 8; index += 1) assert.equal((await fetch(`${proxy.baseUrl}/responses`, options)).status, 200);
   assert.equal((await fetch(`${proxy.baseUrl}/responses`, options)).status, 409);
-  await assert.rejects(() => proxy.finish(), { code: "PROXY_MULTIPLE_REQUESTS" });
+  await assert.rejects(() => proxy.finish(), { code: "PROXY_REQUEST_LIMIT_EXCEEDED" });
 });
 
 test("localhost receipt proxy distinguishes a client that never sends a request", async () => {
@@ -180,16 +185,28 @@ test("localhost receipt proxy distinguishes a client that never sends a request"
   await assert.rejects(() => proxy.finish(), { code: "PROXY_REQUEST_NOT_OBSERVED" });
 });
 
+test("completed provider exchanges persist create-only without secret-bearing material", async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), "nelos-provider-exchanges-")); t.after(() => rm(root, { recursive: true, force: true }));
+  const exchange = receipt(requestFor(bundle())).provider.exchanges[0];
+  await recordApiProviderExchange(exchange, { ledgerRoot: root });
+  await assert.rejects(() => recordApiProviderExchange(exchange, { ledgerRoot: root }), { code: "PROVIDER_EXCHANGE_RECORD_FAILED" });
+  const retained = await readApiProviderExchanges({ ledgerRoot: root });
+  assert.deepEqual(retained, [exchange]); assert.doesNotMatch(JSON.stringify(retained), /OPENAI_API_KEY|authorization|sk-/iu);
+  const metadata = await stat(resolve(root, `${exchange.operationId.slice(3)}-01.json`)); assert.equal(metadata.mode & 0o777, 0o400);
+});
+
 test("research packets retain completed and aborted evidence without comparative promotion", async (t) => {
   const input = bundle();
   for (const [status, resultCount, errorCode] of [["completed", 4, null], ["aborted", 1, "ADAPTER_ATTEMPT_FAILED"]]) {
     const store = await mkdtemp(resolve(tmpdir(), `nelos-research-${status}-`)); t.after(() => rm(store, { recursive: true, force: true }));
     const results = Array.from({ length: resultCount }, (_, index) => ({ blockId: `block:${index}`, trialId: `trial:${index}`, candidateId: API_BASELINE_CANDIDATES[index % 2], outcome: "succeeded", observedRoute: { ...requestFor(input).requestedRoute }, output: { id: "result", digest: `sha256:${"a".repeat(64)}`, byteLength: 1 }, artifacts: [{ id: "runtime-provider-receipt", digest: `sha256:${"b".repeat(64)}`, byteLength: 1 }], measurements: [{ metricId: "strict_pass_rate", value: 1 }, { metricId: "estimated_cost_usd", value: 0.001 }] }));
-    await writeApiBaselineResearchPacket({ store, bundle: input, runId: `${API_BASELINE_RUN_PREFIX}${status}`, results, status, errorCode, startedAt: "2026-08-04T00:00:00.000Z", finishedAt: "2026-08-04T00:01:00.000Z" });
+    const exchange = receipt(requestFor(input)).provider.exchanges[0];
+    await writeApiBaselineResearchPacket({ store, bundle: input, runId: `${API_BASELINE_RUN_PREFIX}${status}`, results, providerExchanges: [exchange], status, errorCode, startedAt: "2026-08-04T00:00:00.000Z", finishedAt: "2026-08-04T00:01:00.000Z" });
     const summary = JSON.parse(await readFile(resolve(store, "research-packet", "run-summary.json"), "utf8"));
     const claims = JSON.parse(await readFile(resolve(store, "research-packet", "claim-ledger.json"), "utf8"));
     const protocol = JSON.parse(await readFile(resolve(store, "research-packet", "protocol.json"), "utf8"));
-    assert.equal(summary.status, status); assert.equal(summary.evidenceHealth.complete, status === "completed"); assert.equal(protocol.identities.pricingSnapshot.capturedAt, pricingSnapshot.capturedAt);
+    const exchanges = await readFile(resolve(store, "research-packet", "provider-exchanges.jsonl"), "utf8");
+    assert.equal(summary.status, status); assert.equal(summary.evidenceHealth.complete, status === "completed"); assert.equal(summary.evidenceHealth.completedProviderExchangeCount, 1); assert.equal(protocol.identities.pricingSnapshot.capturedAt, pricingSnapshot.capturedAt); assert.match(exchanges, /req_offline/u);
     assert.equal(claims.claims.find(({ claimId }) => claimId === "claim:comparative-performance").status, "untested");
     assert.deepEqual(claims.claims.find(({ claimId }) => claimId === "claim:comparative-performance").supportingRuns, []);
     assert.doesNotMatch(JSON.stringify({ summary, claims, protocol }), /OPENAI_API_KEY|sk-(?:proj|proxy|offline|fake)-/u);

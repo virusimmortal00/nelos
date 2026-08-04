@@ -70,7 +70,7 @@ export function validateAttemptControl(request, now = Date.now()) {
 function validateReceipt(receipt, { request, executableDigest, executableBytes }) {
   exact(receipt, ["schemaVersion", "operationId", "leaseId", "fencingToken", "attempt", "route", "provider", "executable"], "RUNTIME_RECEIPT_INVALID");
   exact(receipt.route, ["candidateId", "adapter", "modelId", "modelRevision", "reasoningEffort", "pluginDigest", "observedModelId", "observedModelRevision", "forwardedReasoningEffort", "forwardedServiceTier"], "RUNTIME_RECEIPT_INVALID");
-  exact(receipt.provider, ["executionCount", "retryCount", "requestCount", "estimatedCostUsd", "costStatus", "pricingSnapshotDigest", "responseId", "requestId", "usage"], "RUNTIME_RECEIPT_INVALID");
+  exact(receipt.provider, ["executionCount", "retryCount", "requestCount", "logicalTurnCount", "estimatedCostUsd", "costStatus", "pricingSnapshotDigest", "exchanges", "usage"], "RUNTIME_RECEIPT_INVALID");
   exact(receipt.provider.usage, ["inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"], "RUNTIME_RECEIPT_INVALID");
   exact(receipt.executable, ["digest", "byteLength"], "RUNTIME_RECEIPT_INVALID");
   if (receipt.schemaVersion !== 1 || receipt.operationId !== request.operationId || receipt.leaseId !== request.lease.leaseId || receipt.fencingToken !== request.lease.fencingToken || receipt.attempt !== request.attempt) fail("RUNTIME_RECEIPT_INVALID");
@@ -80,8 +80,21 @@ function validateReceipt(receipt, { request, executableDigest, executableBytes }
     || (receipt.route.observedModelRevision !== request.requestedRoute.modelId.slice("model:".length) && !receipt.route.observedModelRevision.startsWith(`${request.requestedRoute.modelId.slice("model:".length)}-`))) fail("RUNTIME_ROUTE_MISMATCH");
   if (receipt.executable.digest !== executableDigest || receipt.executable.byteLength !== executableBytes) fail("RUNTIME_PROVENANCE_MISMATCH");
   const ceiling = request.exposureCeilings;
-  if (receipt.provider.executionCount !== 1 || receipt.provider.executionCount > ceiling.providerExecutionsPerTrial || receipt.provider.retryCount !== 0 || receipt.provider.retryCount > ceiling.providerRetriesPerTrial || receipt.provider.requestCount !== 1 || receipt.provider.requestCount > ceiling.providerRequestsPerTrial
-    || receipt.provider.estimatedCostUsd !== expectedCost(receipt.provider.usage, request.pricingSnapshot) || receipt.provider.estimatedCostUsd > ceiling.maxEstimatedCostUsdPerTrial || receipt.provider.costStatus !== "computed-from-snapshot" || receipt.provider.pricingSnapshotDigest !== canonicalDigest(request.pricingSnapshot) || typeof receipt.provider.responseId !== "string" || receipt.provider.responseId.length === 0 || typeof receipt.provider.requestId !== "string" || receipt.provider.requestId.length === 0
+  if (!Array.isArray(receipt.provider.exchanges) || receipt.provider.exchanges.length === 0 || receipt.provider.exchanges.length !== receipt.provider.requestCount) fail("RUNTIME_RECEIPT_INVALID");
+  const aggregateUsage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
+  let aggregateCost = 0;
+  const requestIds = new Set(); const responseIds = new Set();
+  for (const [index, exchange] of receipt.provider.exchanges.entries()) {
+    exact(exchange, ["schemaVersion", "operationId", "trialId", "attempt", "exchangeOrdinal", "requestId", "responseId", "observedModelRevision", "serviceTier", "usage", "estimatedCostUsd", "pricingSnapshotDigest", "exchangeDigest"], "RUNTIME_RECEIPT_INVALID");
+    exact(exchange.usage, ["inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"], "RUNTIME_RECEIPT_INVALID");
+    const material = { ...exchange }; delete material.exchangeDigest;
+    if (exchange.schemaVersion !== 1 || exchange.operationId !== request.operationId || exchange.trialId !== request.trialId || exchange.attempt !== request.attempt || exchange.exchangeOrdinal !== index + 1 || exchange.observedModelRevision !== receipt.route.observedModelRevision || exchange.serviceTier !== "default" || exchange.pricingSnapshotDigest !== canonicalDigest(request.pricingSnapshot) || canonicalDigest(material) !== exchange.exchangeDigest || requestIds.has(exchange.requestId) || responseIds.has(exchange.responseId) || typeof exchange.requestId !== "string" || !exchange.requestId || typeof exchange.responseId !== "string" || !exchange.responseId || exchange.estimatedCostUsd !== expectedCost(exchange.usage, request.pricingSnapshot)) fail("RUNTIME_RECEIPT_INVALID");
+    requestIds.add(exchange.requestId); responseIds.add(exchange.responseId); aggregateCost += exchange.estimatedCostUsd;
+    for (const field of Object.keys(aggregateUsage)) aggregateUsage[field] += exchange.usage[field];
+  }
+  aggregateCost = Number(aggregateCost.toFixed(12));
+  if (receipt.provider.executionCount !== 1 || receipt.provider.executionCount > ceiling.providerExecutionsPerTrial || receipt.provider.retryCount !== 0 || receipt.provider.retryCount > ceiling.providerRetriesPerTrial || receipt.provider.requestCount > ceiling.providerRequestsPerTrial || receipt.provider.logicalTurnCount !== receipt.provider.requestCount
+    || receipt.provider.estimatedCostUsd !== aggregateCost || receipt.provider.estimatedCostUsd > ceiling.maxEstimatedCostUsdPerTrial || receipt.provider.costStatus !== "computed-from-snapshot" || receipt.provider.pricingSnapshotDigest !== canonicalDigest(request.pricingSnapshot) || Object.keys(aggregateUsage).some((field) => receipt.provider.usage[field] !== aggregateUsage[field]) || receipt.provider.usage.outputTokens > ceiling.outputTokenBudgetPerTrial
     || Object.values(receipt.provider.usage).some((value) => !Number.isSafeInteger(value) || value < 0) || receipt.provider.usage.cachedInputTokens + receipt.provider.usage.cacheWriteInputTokens > receipt.provider.usage.inputTokens || receipt.provider.usage.reasoningOutputTokens > receipt.provider.usage.outputTokens || receipt.provider.usage.totalTokens !== receipt.provider.usage.inputTokens + receipt.provider.usage.outputTokens) fail("PROVIDER_EXPOSURE_EXCEEDED");
   return receipt;
 }
@@ -95,11 +108,12 @@ export async function executeApiBaselineAttempt({
   executableResolver = resolveExecutable,
   executableReader = readFile,
   receiptProxyFactory = startApiReceiptProxy,
+  recordProviderExchange = async () => {},
   now = () => Date.now(),
 }) {
   validateAttemptControl(request, now());
   validatePricingSnapshot(request.pricingSnapshot, request);
-  if (canonicalDigest(request.exposureCeilings) !== canonicalDigest(CANARY_CEILINGS) || request.budget.tokenBudget > CANARY_CEILINGS.tokenBudgetPerTrial || request.budget.wallClockSeconds > CANARY_CEILINGS.wallClockSecondsPerTrial) fail("PROVIDER_EXPOSURE_EXCEEDED");
+  if (canonicalDigest(request.exposureCeilings) !== canonicalDigest(CANARY_CEILINGS) || request.budget.tokenBudget > CANARY_CEILINGS.outputTokenBudgetPerTrial || request.budget.wallClockSeconds > CANARY_CEILINGS.wallClockSecondsPerTrial) fail("PROVIDER_EXPOSURE_EXCEEDED");
   if (typeof claimOperation !== "function") fail("ATTEMPT_CONTROL_INVALID");
   await claimOperation(request);
   const sealed = packageFor(request.declaredInputs.taskId);
@@ -112,7 +126,7 @@ export async function executeApiBaselineAttempt({
     await stage(workspace, sealed);
     await processRunner("git", ["init", "-q"], { env, cwd: workspace, input: "", timeoutMs: 10000, outputPath: null });
     const outputPath = resolve(workspace, "result.json"); const model = request.requestedRoute.modelId.slice("model:".length);
-    const proxy = await receiptProxyFactory({ apiKey: env.OPENAI_API_KEY, request, executable: { digest: executableDigest, byteLength: executableBytes } });
+    const proxy = await receiptProxyFactory({ apiKey: env.OPENAI_API_KEY, request, executable: { digest: executableDigest, byteLength: executableBytes }, recordExchange: recordProviderExchange });
     const args = ["exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", workspace, "-m", model,
       "-c", `model_reasoning_effort=${JSON.stringify(request.requestedRoute.reasoningEffort)}`,
       "-c", `model_provider=${JSON.stringify("nelos_proxy")}`,

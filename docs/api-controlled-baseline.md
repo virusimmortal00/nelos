@@ -28,11 +28,13 @@ node scripts/build-api-baseline.mjs \
 ```
 
 The create-only bundle seals four trials, two blocks, AB/BA order, concurrency
-one, one attempt, 4,000 tokens and 180 seconds per trial, zero candidate network
-requests, one provider execution/request, zero provider retries, and maximum
-estimated exposure of USD 0.25 per trial / USD 1.00 total. Total token and wall
-ceilings are 16,000 tokens and 720 seconds. Editing any value breaks the bundle
-digest and validation.
+one, one attempt, 4,000 output tokens and 180 seconds per trial, zero candidate
+network requests, one provider execution, at most eight sequential logical
+Responses turns, zero transport retries, and maximum new estimated exposure of
+USD 0.1875 per trial / USD 0.75 total. The controls reserve USD 0.25 for the
+earlier calibration call, preserving the original USD 1.00 aggregate pilot
+ceiling. Total output-token and wall ceilings are 16,000 tokens and 720 seconds.
+Editing any value breaks the bundle digest and validation.
 
 The pricing snapshot is prospective run input, not a lookup performed after the
 results. It contains `schemaVersion`, `provider: "openai"`, an ISO `capturedAt`,
@@ -63,20 +65,24 @@ path or injected credential option, and the tests never read the real file.
 
 The adapter does not treat requested route fields as observations. It starts an
 ephemeral server bound only to `127.0.0.1`, configures a private Codex Responses
-provider to use it, and admits exactly one authenticated `POST /v1/responses`.
-The proxy checks the forwarded model and reasoning effort before sending the
-request to OpenAI. Codex provider and stream retries are both disabled.
+provider to use it, and admits at most eight sequential authenticated
+`POST /v1/responses` logical turns per trial. The proxy checks the forwarded
+model and reasoning effort before sending each request to OpenAI, rejects
+concurrent or ninth requests, and clamps `max_output_tokens` to the remaining
+per-trial output allowance. Codex provider and stream transport retries are both
+disabled; multiple logical turns are not counted as retries.
 
 A successful attempt requires a completed upstream response and a proxy-minted
 receipt containing the provider-observed model, forwarded reasoning effort,
-OpenAI request and response IDs, exact token usage, provider execution/request/
-retry counts, and the measured Codex executable digest. The receipt is retained
-as canonical, content-addressed JSON. Estimated cost is computed from exact
-usage and the dated OpenAI pricing snapshot sealed into the bundle; its source,
-capture time, model, currency, and per-million-token rates remain reproducible.
-The sealed USD limits remain hard exposure ceilings. Missing, duplicate,
-malformed, mismatched, incomplete, or
-over-ceiling exchanges fail closed.
+every OpenAI request and response ID, exact per-turn and aggregate token usage,
+provider execution/logical-turn/retry counts, and the measured Codex executable
+digest. Each completed exchange is first written to a create-only credential-free
+ledger, so its usage and cost evidence survives a later aborted trial. The final
+receipt is retained as canonical, content-addressed JSON. Estimated cost is
+computed per exchange from exact usage and the dated OpenAI pricing snapshot
+sealed into the bundle; its source, capture time, model, currency, and
+per-million-token rates remain reproducible. Missing, duplicate, malformed,
+mismatched, incomplete, or over-ceiling exchanges fail closed.
 
 Before credential loading, the adapter verifies the deterministic operation ID,
 lease ID, unexpired lease, attempt number, controller owner, and fencing token.
@@ -92,8 +98,9 @@ node scripts/run-api-baseline.mjs \
   --run-id run:api-baseline-canary-001
 ```
 
-The host proxy streams the provider response through without logging request or
-response bodies. It accepts the requested model name or a provider-returned
+The host proxy forwards the provider response only after the completed exchange
+has been validated and durably receipted, without logging request or response
+bodies. It accepts the requested model name or a provider-returned
 snapshot of that exact model family; any different observed model invalidates
 the attempt. No receipt is issued for a non-2xx or incomplete response.
 
@@ -101,8 +108,8 @@ the attempt. No receipt is issued for a non-2xx or incomplete response.
 
 Every completed or caught-aborted run creates `research-packet/` beneath the
 new run store. Its immutable manifest covers `protocol.json`, `run-summary.json`,
-`trials.jsonl`, `claim-ledger.json`, and short anomaly, operator-note, decision,
-design-decision, and limitation documents. The structured files retain exact
+`trials.jsonl`, `provider-exchanges.jsonl`, `claim-ledger.json`, and short anomaly,
+operator-note, decision, design-decision, and limitation documents. The structured files retain exact
 source, distribution, route, runtime, task, grader, prompt/configuration digest,
 schedule, seed, pricing, receipt, grading, usage, timing, failure, exclusion,
 and evidence-health identities without copying hidden grader material or request
