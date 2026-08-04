@@ -51,8 +51,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,6 +60,8 @@ jobs:
           node-version: 20
       - run: npm ci --ignore-scripts
       - name: Run credential-free contract and end-to-end fixtures
+        env:
+          NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
         shell: bash
         run: |
           set -euo pipefail
@@ -86,8 +86,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-${{ github.run_id }}-${{ github.run_attempt }}
-      HOME: ${{ runner.temp }}/nelos-home-${{ github.run_id }}-${{ github.run_attempt }}
       TASK_BUDGET: 1
       REPETITION_BUDGET: 1
     steps:
@@ -99,6 +97,9 @@ jobs:
           node-version: 20
       - run: npm ci --ignore-scripts
       - name: Run one-task one-repetition isolated smoke contract
+        env:
+          CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-${{ github.run_id }}-${{ github.run_attempt }}
+          HOME: ${{ runner.temp }}/nelos-home-${{ github.run_id }}-${{ github.run_attempt }}
         run: npm run experiment:ci -- --lane smoke --scenario success --out experiment-ci-evidence
       - name: Retain smoke evidence regardless of terminal outcome
         if: always()
@@ -117,16 +118,17 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3]
-    env:
-      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-regression-${{ matrix.shard }}-${{ github.run_id }}
-      HOME: ${{ runner.temp }}/nelos-home-regression-${{ matrix.shard }}-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: actions/setup-node@v7
         with: { node-version: 20 }
       - run: npm ci --ignore-scripts
-      - run: npm run experiment:ci -- --lane regression --shard-index ${{ matrix.shard }} --shard-count 4 --out experiment-ci-evidence
+      - name: Run deterministic regression shard
+        env:
+          CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-regression-${{ matrix.shard }}-${{ github.run_id }}
+          HOME: ${{ runner.temp }}/nelos-home-regression-${{ matrix.shard }}-${{ github.run_id }}
+        run: npm run experiment:ci -- --lane regression --shard-index ${{ matrix.shard }} --shard-count 4 --out experiment-ci-evidence
       - if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -143,16 +145,17 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
-    env:
-      CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-powered-${{ matrix.shard }}-${{ github.run_id }}
-      HOME: ${{ runner.temp }}/nelos-home-powered-${{ matrix.shard }}-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: actions/setup-node@v7
         with: { node-version: 20 }
       - run: npm ci --ignore-scripts
-      - run: npm run experiment:ci -- --lane powered --shard-index ${{ matrix.shard }} --shard-count 8 --out experiment-ci-evidence
+      - name: Run deterministic powered shard
+        env:
+          CODEX_HOME: ${{ runner.temp }}/nelos-codex-home-powered-${{ matrix.shard }}-${{ github.run_id }}
+          HOME: ${{ runner.temp }}/nelos-home-powered-${{ matrix.shard }}-${{ github.run_id }}
+        run: npm run experiment:ci -- --lane powered --shard-index ${{ matrix.shard }} --shard-count 8 --out experiment-ci-evidence
       - if: always()
         uses: actions/upload-artifact@v7
         with:
