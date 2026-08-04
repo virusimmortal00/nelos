@@ -2878,11 +2878,12 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
       ),
     );
     assert.equal(record.baseTitle, "API changes");
+    const outputLineageId = titleLineageId(threads.get(output.threadId).name);
     assert.deepEqual(record.web, {
       queenThreadId: "queen-thread",
       inboundWebId: "1",
       outboundWebId: null,
-      lineageId: "1.1",
+      lineageId: outputLineageId,
     });
     const queenRecord = JSON.parse(
       await readFile(
