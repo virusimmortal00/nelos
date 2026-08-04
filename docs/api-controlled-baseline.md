@@ -37,8 +37,11 @@ digest and validation.
 The pricing snapshot is prospective run input, not a lookup performed after the
 results. It contains `schemaVersion`, `provider: "openai"`, an ISO `capturedAt`,
 the official OpenAI `sourceUrl`, exact `modelId`, `currency: "USD"`, and the
-input, cached-input, and output USD rates per million tokens. Its digest is
-bound into every runtime receipt.
+standard-service short/long-context input, cached-input, cache-write, and output
+USD rates per million tokens plus the 272,000-token threshold. Its digest is
+bound into every runtime receipt. The proxy forces `service_tier` to `default`
+and records cache-write tokens separately so historical cost estimates cannot
+silently use Fast, Flex, or incomplete cache accounting.
 
 There is no direct `--mode confirmatory` builder. Confirmatory trial counts are
 fixed only after the offline power authorization described below.

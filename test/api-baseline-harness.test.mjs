@@ -22,7 +22,7 @@ const executableBytes = Buffer.from("offline-fake-codex-executable-v2", "utf8");
 const executablePath = "/offline/runtime/codex";
 const runtimeProvenance = await measureRuntimeProvenance({ executablePath, backend: "oci-headless", platform: "linux-arm64", read: async () => Buffer.from(executableBytes), resolvePath: async () => executablePath });
 const requestedModel = { id: "model:gpt-5.6-sol", revision: "gpt-5.6-sol", reasoningEffort: "medium" };
-const pricingSnapshot = { schemaVersion: 1, provider: "openai", capturedAt: "2026-08-04T00:00:00.000Z", sourceUrl: "https://openai.com/api/pricing/", modelId: requestedModel.id, currency: "USD", inputUsdPerMillionTokens: 1, cachedInputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 2 };
+const pricingSnapshot = { schemaVersion: 1, provider: "openai", capturedAt: "2026-08-04T00:00:00.000Z", sourceUrl: "https://developers.openai.com/api/docs/pricing", modelId: requestedModel.id, currency: "USD", serviceTier: "default", longContextThresholdTokens: 272000, inputUsdPerMillionTokens: 5, cachedInputUsdPerMillionTokens: 0.5, cacheWriteUsdPerMillionTokens: 6.25, outputUsdPerMillionTokens: 30, longContextInputUsdPerMillionTokens: 10, longContextCachedInputUsdPerMillionTokens: 1, longContextCacheWriteUsdPerMillionTokens: 12.5, longContextOutputUsdPerMillionTokens: 45 };
 const sourceCommit = "b".repeat(40);
 const bundle = () => createApiBaselineBundle({ sourceCommit, requestedModel, runtimeProvenance, pricingSnapshot });
 
@@ -33,7 +33,7 @@ function requestFor(input, ordinal = 0) {
 }
 
 function receipt(request, overrides = {}) {
-  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute, observedModelId: requestedModel.id, observedModelRevision: requestedModel.revision, forwardedReasoningEffort: requestedModel.reasoningEffort }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: 0.0000152, costStatus: "computed-from-snapshot", pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot), responseId: "resp_offline", requestId: "req_offline", usage: { inputTokens: 11, cachedInputTokens: 2, outputTokens: 3, reasoningOutputTokens: 1, totalTokens: 14 } }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
+  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute, observedModelId: requestedModel.id, observedModelRevision: requestedModel.revision, forwardedReasoningEffort: requestedModel.reasoningEffort, forwardedServiceTier: "default" }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: 0.00013725, costStatus: "computed-from-snapshot", pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot), responseId: "resp_offline", requestId: "req_offline", usage: { inputTokens: 11, cachedInputTokens: 2, cacheWriteInputTokens: 1, outputTokens: 3, reasoningOutputTokens: 1, totalTokens: 14 } }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
 }
 
 function receiptProxy(request, value = () => receipt(request), observe = () => {}) {
@@ -130,7 +130,7 @@ test("localhost receipt proxy streams one exact Responses request and seals prov
     const chunks = []; for await (const chunk of incoming) chunks.push(chunk); upstreamBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     response.writeHead(200, { "content-type": "text/event-stream", "x-request-id": "req_live_fake" });
     response.write(`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_live_fake", status: "in_progress", model: "gpt-5.6-sol" } })}\n\n`);
-    response.end(`data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_live_fake", status: "completed", model: "gpt-5.6-sol", usage: { input_tokens: 17, input_tokens_details: { cached_tokens: 4 }, output_tokens: 5, output_tokens_details: { reasoning_tokens: 2 }, total_tokens: 22 } } })}\n\ndata: [DONE]\n\n`);
+    response.end(`data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_live_fake", status: "completed", model: "gpt-5.6-sol", service_tier: "default", usage: { input_tokens: 17, input_tokens_details: { cached_tokens: 4, cache_write_tokens: 3 }, output_tokens: 5, output_tokens_details: { reasoning_tokens: 2 }, total_tokens: 22 } } })}\n\ndata: [DONE]\n\n`);
   });
   await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
   t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
@@ -139,8 +139,8 @@ test("localhost receipt proxy streams one exact Responses request and seals prov
   const providerResponse = await fetch(`${proxy.baseUrl}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6-sol", reasoning: { effort: "medium" }, stream: true, input: "offline fixture" }) });
   assert.equal(providerResponse.status, 200); assert.match(await providerResponse.text(), /response\.completed/u);
   const sealed = await proxy.finish();
-  assert.equal(authorization, `Bearer ${key}`); assert.equal(upstreamBody.model, "gpt-5.6-sol"); assert.equal(upstreamBody.reasoning.effort, "medium");
-  assert.equal(sealed.provider.responseId, "resp_live_fake"); assert.equal(sealed.provider.requestId, "req_live_fake"); assert.equal(sealed.provider.usage.cachedInputTokens, 4); assert.equal(sealed.route.observedModelRevision, "gpt-5.6-sol");
+  assert.equal(authorization, `Bearer ${key}`); assert.equal(upstreamBody.model, "gpt-5.6-sol"); assert.equal(upstreamBody.reasoning.effort, "medium"); assert.equal(upstreamBody.service_tier, "default");
+  assert.equal(sealed.provider.responseId, "resp_live_fake"); assert.equal(sealed.provider.requestId, "req_live_fake"); assert.equal(sealed.provider.usage.cachedInputTokens, 4); assert.equal(sealed.provider.usage.cacheWriteInputTokens, 3); assert.equal(sealed.route.observedModelRevision, "gpt-5.6-sol");
   assert.doesNotMatch(JSON.stringify(sealed), new RegExp(key, "u"));
 });
 
@@ -161,7 +161,7 @@ test("localhost receipt proxy rejects a duplicate provider request", async (t) =
   const upstream = createServer(async (incoming, response) => {
     for await (const _chunk of incoming) void _chunk;
     response.writeHead(200, { "content-type": "application/json", "x-request-id": "req_once" });
-    response.end(JSON.stringify({ id: "resp_once", status: "completed", model: "gpt-5.6-sol", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }));
+    response.end(JSON.stringify({ id: "resp_once", status: "completed", model: "gpt-5.6-sol", service_tier: "default", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }));
   });
   await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
   t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));

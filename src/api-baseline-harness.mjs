@@ -54,11 +54,11 @@ function exactObject(value, fields, code) {
 function digest(value) { return /^sha256:[0-9a-f]{64}$/u.test(value ?? ""); }
 
 function validatePricingSnapshot(snapshot, requestedModel) {
-  exactObject(snapshot, ["schemaVersion", "provider", "capturedAt", "sourceUrl", "modelId", "currency", "inputUsdPerMillionTokens", "cachedInputUsdPerMillionTokens", "outputUsdPerMillionTokens"], "INVALID_PRICING_SNAPSHOT");
+  exactObject(snapshot, ["schemaVersion", "provider", "capturedAt", "sourceUrl", "modelId", "currency", "serviceTier", "longContextThresholdTokens", "inputUsdPerMillionTokens", "cachedInputUsdPerMillionTokens", "cacheWriteUsdPerMillionTokens", "outputUsdPerMillionTokens", "longContextInputUsdPerMillionTokens", "longContextCachedInputUsdPerMillionTokens", "longContextCacheWriteUsdPerMillionTokens", "longContextOutputUsdPerMillionTokens"], "INVALID_PRICING_SNAPSHOT");
   const captured = Date.parse(snapshot.capturedAt);
-  if (snapshot.schemaVersion !== 1 || snapshot.provider !== "openai" || snapshot.modelId !== requestedModel.id || snapshot.currency !== "USD"
+  if (snapshot.schemaVersion !== 1 || snapshot.provider !== "openai" || snapshot.modelId !== requestedModel.id || snapshot.currency !== "USD" || snapshot.serviceTier !== "default" || snapshot.longContextThresholdTokens !== 272000
     || !Number.isFinite(captured) || new Date(captured).toISOString() !== snapshot.capturedAt || !/^https:\/\/(?:[^/]+\.)?openai\.com\//u.test(snapshot.sourceUrl)
-    || [snapshot.inputUsdPerMillionTokens, snapshot.cachedInputUsdPerMillionTokens, snapshot.outputUsdPerMillionTokens].some((value) => !Number.isFinite(value) || value < 0)) failure("INVALID_PRICING_SNAPSHOT");
+    || [snapshot.inputUsdPerMillionTokens, snapshot.cachedInputUsdPerMillionTokens, snapshot.cacheWriteUsdPerMillionTokens, snapshot.outputUsdPerMillionTokens, snapshot.longContextInputUsdPerMillionTokens, snapshot.longContextCachedInputUsdPerMillionTokens, snapshot.longContextCacheWriteUsdPerMillionTokens, snapshot.longContextOutputUsdPerMillionTokens].some((value) => !Number.isFinite(value) || value < 0)) failure("INVALID_PRICING_SNAPSHOT");
 }
 
 export async function measureRuntimeProvenance({ executablePath, backend, platform, expectedExecutableDigest = null, read = readFile, resolvePath = realpath }) {

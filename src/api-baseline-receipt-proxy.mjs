@@ -35,13 +35,19 @@ function publicUsage(usage) {
   const total = Number(usage.total_tokens);
   if (![input, output, total].every((value) => Number.isSafeInteger(value) && value >= 0)) fail("PROXY_RECEIPT_INCOMPLETE");
   const cached = Number(usage.input_tokens_details?.cached_tokens ?? 0);
+  const cacheWrite = Number(usage.input_tokens_details?.cache_write_tokens ?? 0);
   const reasoning = Number(usage.output_tokens_details?.reasoning_tokens ?? 0);
-  if (![cached, reasoning].every((value) => Number.isSafeInteger(value) && value >= 0) || cached > input || reasoning > output || total !== input + output) fail("PROXY_RECEIPT_INCOMPLETE");
-  return Object.freeze({ inputTokens: input, cachedInputTokens: cached, outputTokens: output, reasoningOutputTokens: reasoning, totalTokens: total });
+  if (![cached, cacheWrite, reasoning].every((value) => Number.isSafeInteger(value) && value >= 0) || cached + cacheWrite > input || reasoning > output || total !== input + output) fail("PROXY_RECEIPT_INCOMPLETE");
+  return Object.freeze({ inputTokens: input, cachedInputTokens: cached, cacheWriteInputTokens: cacheWrite, outputTokens: output, reasoningOutputTokens: reasoning, totalTokens: total });
 }
 function estimatedCost(usage, snapshot) {
-  const uncached = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
-  const value = (uncached * snapshot.inputUsdPerMillionTokens + usage.cachedInputTokens * snapshot.cachedInputUsdPerMillionTokens + usage.outputTokens * snapshot.outputUsdPerMillionTokens) / 1_000_000;
+  const long = usage.inputTokens > snapshot.longContextThresholdTokens;
+  const uncached = usage.inputTokens - usage.cachedInputTokens - usage.cacheWriteInputTokens;
+  const inputRate = long ? snapshot.longContextInputUsdPerMillionTokens : snapshot.inputUsdPerMillionTokens;
+  const cachedRate = long ? snapshot.longContextCachedInputUsdPerMillionTokens : snapshot.cachedInputUsdPerMillionTokens;
+  const writeRate = long ? snapshot.longContextCacheWriteUsdPerMillionTokens : snapshot.cacheWriteUsdPerMillionTokens;
+  const outputRate = long ? snapshot.longContextOutputUsdPerMillionTokens : snapshot.outputUsdPerMillionTokens;
+  const value = (uncached * inputRate + usage.cachedInputTokens * cachedRate + usage.cacheWriteInputTokens * writeRate + usage.outputTokens * outputRate) / 1_000_000;
   return Number(value.toFixed(12));
 }
 function parseSseChunk(state, chunk) {
@@ -107,12 +113,16 @@ export async function startApiReceiptProxy({ apiKey, request, executable, upstre
       const body = await readBounded(incoming);
       let payload; try { payload = JSON.parse(body.toString("utf8")); } catch { fail("PROXY_REQUEST_INVALID"); }
       if (payload.model !== requestedModel || payload.reasoning?.effort !== requestedEffort) fail("PROXY_ROUTE_MISMATCH");
+      if (payload.service_tier !== undefined && payload.service_tier !== "default") fail("PROXY_ROUTE_MISMATCH");
+      payload.service_tier = "default";
+      const forwardBody = Buffer.from(JSON.stringify(payload), "utf8");
+      if (forwardBody.byteLength > MAX_REQUEST_BYTES) fail("PROXY_REQUEST_TOO_LARGE");
       upstreamCount += 1;
       const target = new URL(`${upstream.pathname.replace(/\/$/u, "")}/v1/responses`, upstream);
       const state = { buffer: "", completed: null, responseBytes: 0, parseError: null };
       const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
       await new Promise((resolveForward, rejectForward) => {
-        const forwarded = transport(target, { method: "POST", headers: forwardedHeaders(incoming.headers, credential, body.byteLength) }, (provider) => {
+        const forwarded = transport(target, { method: "POST", headers: forwardedHeaders(incoming.headers, credential, forwardBody.byteLength) }, (provider) => {
           responseStatus = provider.statusCode ?? 0;
           requestId = typeof provider.headers["x-request-id"] === "string" ? provider.headers["x-request-id"] : null;
           downstream.writeHead(responseStatus, downstreamHeaders(provider.headers));
@@ -147,7 +157,7 @@ export async function startApiReceiptProxy({ apiKey, request, executable, upstre
         });
         activeUpstream = forwarded;
         forwarded.once("error", rejectForward);
-        forwarded.end(body);
+        forwarded.end(forwardBody);
       });
     } catch (error) {
       failureCode = error?.code ?? "PROXY_FORWARD_FAILED";
@@ -175,7 +185,7 @@ export async function startApiReceiptProxy({ apiKey, request, executable, upstre
       credential = "";
       if (failureCode) fail(failureCode);
       if (inboundCount !== 1 || upstreamCount !== 1) fail("PROXY_RECEIPT_INCOMPLETE");
-      if (!Number.isInteger(responseStatus) || responseStatus < 200 || responseStatus >= 300 || !completed || completed.status !== "completed" || !requestId) fail("PROXY_RECEIPT_INCOMPLETE");
+      if (!Number.isInteger(responseStatus) || responseStatus < 200 || responseStatus >= 300 || !completed || completed.status !== "completed" || completed.service_tier !== "default" || !requestId) fail("PROXY_RECEIPT_INCOMPLETE");
       if (!observedModelMatches(requestedModel, completed.model)) fail("PROXY_OBSERVED_MODEL_MISMATCH");
       const usage = publicUsage(completed.usage);
       const pricingSnapshotDigest = canonicalDigest(request.pricingSnapshot);
@@ -185,7 +195,7 @@ export async function startApiReceiptProxy({ apiKey, request, executable, upstre
         leaseId: request.lease.leaseId,
         fencingToken: request.lease.fencingToken,
         attempt: request.attempt,
-        route: Object.freeze({ ...request.requestedRoute, observedModelId: `model:${completed.model}`, observedModelRevision: completed.model, forwardedReasoningEffort: requestedEffort }),
+        route: Object.freeze({ ...request.requestedRoute, observedModelId: `model:${completed.model}`, observedModelRevision: completed.model, forwardedReasoningEffort: requestedEffort, forwardedServiceTier: "default" }),
         provider: Object.freeze({ executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: estimatedCost(usage, request.pricingSnapshot), costStatus: "computed-from-snapshot", pricingSnapshotDigest, responseId: completed.id, requestId, usage }),
         executable: Object.freeze({ digest: executable.digest, byteLength: executable.byteLength }),
       });
