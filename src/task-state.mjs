@@ -20,6 +20,7 @@ import {
   allocatePermanentWebId as allocatePermanentWebIdRecord,
   normalizeWebLineageState,
 } from "./task-web.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
 // This process cannot be replaced under its own PID. Cache both success and
@@ -65,7 +66,7 @@ async function writeRecord(directory, record) {
   const target = recordPath(directory, record.threadId);
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, target);
+  await commitRuntimeMutationV1(() => rename(temporary, target));
 }
 
 async function listRecords(directory) {
@@ -169,7 +170,7 @@ async function writeWebLineageState(state) {
   const target = webLineageStatePath();
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, target);
+  await commitRuntimeMutationV1(() => rename(temporary, target));
 }
 
 /** Must be called while holding withWebRegistryLock. */
@@ -272,6 +273,15 @@ async function withOwnedStateLock(lockName, callback, timeoutMs) {
 
 export function withWebRegistryLock(callback) {
   return withOwnedStateLock("webs", callback, 60_000);
+}
+
+/**
+ * Serialize cooperative MCP worker lease reconciliation across processes.
+ * Runtime leases intentionally share the protected Nelos state root with the
+ * durable registries, while their contents remain isolated in a subdirectory.
+ */
+export function withRuntimeWorkerRegistryLock(callback, timeoutMs = 10_000) {
+  return withOwnedStateLock("runtime-workers", callback, timeoutMs);
 }
 
 /**

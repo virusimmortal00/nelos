@@ -93,6 +93,21 @@ long-lived
 - `nelos_app_server_health` — reports content-free compatibility, version,
   connection, batch, poll, retry, and mutation-attempt telemetry. With
   `probe: true`, it performs only the initialization handshake;
+- `nelos_runtime_health` — reports whether the loaded worker is still the
+  installed plugin generation. A marketplace upgrade replaces the plugin cache
+  while an already-loaded worker keeps serving the JavaScript it imported at
+  startup, so this compares the boot-time identity against the currently
+  installed one and names a single recovery action. It is offline, read-only,
+  and deliberately still answerable after the backing cache path is deleted,
+  because that deletion is one of the conditions it reports. States are
+  combined with cooperative live-worker leases, so same-generation concurrency
+  remains valid and mixed generations fail closed. Call this tool before the
+  first stateful Nelos operation in each task and stop when `mutationAllowed`
+  is false. States are
+  `healthy`, `degraded`, `restart-required`, `ambiguous-install`, and
+  `integrity-failure`; `mutationAllowed` is enforced by the central mutation
+  fence. `verifyIntegrity: true` recomputes the distribution digest, which
+  walks the whole distribution and is therefore off by default;
 - `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
@@ -293,8 +308,10 @@ A repeat call reuses that identity and verifies the exact result before launch.
 Because no supported mechanism lets a bundled server reference its own files,
 `.mcp.json` launches `node -e` with a small generated bootstrap that:
 
-1. reads the release version from a static `env` value baked into `.mcp.json`
-   at generation time (checked against the plugin manifest by tests);
+1. reads the release version and an independent embedded release-build identity
+   from the static `mcpServers.nelos.env` block baked into `.mcp.json` at
+   generation time (both are checked against the required plugin manifest
+   before the server module is imported);
 2. resolves `~/.codex/plugins/cache/*/nelos/<version>/` — the marketplace
    segment is globbed so a differently named marketplace source cannot break
    resolution — and fails with a structured, actionable stderr diagnostic if

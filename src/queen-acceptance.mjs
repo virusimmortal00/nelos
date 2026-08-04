@@ -6,6 +6,7 @@ import { validateWorkUnitSpecV1 } from "./execution-store.mjs";
 import { taskStateDirectory, withQueenAcceptanceLock } from "./task-state.mjs";
 import { assertWebId } from "./task-web.mjs";
 import { validateResultEnvelopeV1 } from "./work-result.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 export const QUEEN_ACCEPTANCE_SCHEMA_VERSION = 1;
 export const WEB_READINESS_SCHEMA_VERSION = 1;
@@ -261,7 +262,9 @@ export class QueenAcceptanceStoreV1 {
             flag: "wx",
             mode: 0o600,
           });
-          await this.#fileSystem.rename(temporary, target);
+          await commitRuntimeMutationV1(() =>
+            this.#fileSystem.rename(temporary, target)
+          );
         } catch (error) {
           await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
           throw error;

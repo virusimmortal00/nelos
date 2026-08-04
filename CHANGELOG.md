@@ -5,6 +5,50 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.7] - 2026-08-04
+
+### User-facing changes
+
+- MCP workers now register PID-reuse-safe cooperative leases with exact runtime
+  identity, parent identity, bounded heartbeats, and lifecycle state. Legitimate
+  same-generation concurrency remains healthy; mixed live generations are
+  reported and fenced without process-name scanning or sibling termination.
+- MCP initialization and the task-management skill now require a read-only
+  runtime-health preflight before the first stateful operation. Owner clients
+  may request `config/mcpServer/reload` and verify their own children closed;
+  host-owned siblings still require a full Codex restart and fresh task.
+- This first release carrying worker leases cannot retroactively register
+  workers loaded from an earlier release. Perform one manual full Codex restart
+  after upgrading into this release.
+
+- Added `nelos_runtime_health`, a read-only tool that reports whether the
+  loaded Nelos worker is still the installed plugin generation. A marketplace
+  upgrade replaces the plugin cache while an already-loaded worker keeps
+  serving the JavaScript it imported at startup; this reports that condition
+  and names a single recovery action instead of leaving it undetectable.
+- Every worker now derives an immutable runtime identity at startup from
+  `package.json`, `.codex-plugin/plugin.json`, `.mcp.json`, and
+  `distribution-provenance.json`, and reports a disagreement between them
+  rather than trusting the self-reported MCP version.
+
+### Compatibility requirements
+
+- Identity comparison uses the exact source revision and distribution
+  integrity digest. A release built without a source revision can only report
+  `degraded` for an exact-match check, never `healthy`.
+- Workers loaded from releases earlier than `0.12.7` do not derive a runtime
+  identity and cannot report their generation retroactively. Detecting a stale
+  worker from one of those releases still requires restarting Codex.
+
+### Migrations
+
+- Stateful calls are now fenced by runtime identity and cooperative live-worker
+  generation. Existing persisted task/web data requires no migration.
+
+### Security fixes
+
+- None.
+
 ## [0.12.6] - 2026-08-04
 
 ### User-facing changes

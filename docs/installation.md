@@ -65,6 +65,21 @@ module even after the marketplace checkout and cache have changed. Quit and
 relaunch Codex after the install command succeeds, then create a new task. Do
 not use that task's pre-upgrade worker as verification evidence.
 
+From the first release with cooperative runtime leases onward, every MCP worker
+registers only its own PID, strong process-start identity, parent identity,
+exact loaded generation, and bounded heartbeat under protected Nelos state.
+Multiple tasks on the same exact generation are valid. `nelos_runtime_health`
+reports `restart-required` when live leases name mixed generations; it never
+scans or kills processes by name. Workers from releases predating this registry
+cannot self-register retroactively, so upgrading into this mechanism requires
+one manual full Codex restart and a fresh task.
+
+An app-server client may call `config/mcpServer/reload` only for a connection it
+owns and only when that method is supported, then must verify its old owned
+children closed. The installed plugin cannot authoritatively reap host-owned
+sibling connections. In every other case the exact recovery action remains:
+**Quit and relaunch Codex, then open a fresh task.**
+
 Each installed copy contains `distribution-provenance.json`. Its
 `sourceRepository`, 40-character `sourceRevision`, `sourceRevisionType`, `revision`,
 `cacheIdentity`, and `integrity` identify the repository commit, release/cache
@@ -72,17 +87,17 @@ key, and exact distributable bytes. A reproducible verification is:
 
 ```bash
 VERSION=$(node -p 'require(process.argv[1]).version' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.6/.codex-plugin/plugin.json")
-test "$VERSION" = "0.12.6"
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.7/.codex-plugin/plugin.json")
+test "$VERSION" = "0.12.7"
 node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1]));
   if (p.sourceRepository!=="https://github.com/virusimmortal00/nelos.git" ||
       !/^[a-f0-9]{40}$/.test(p.sourceRevision) ||
       p.cacheIdentity!==p.sourceRepository+"#nelos@"+p.revision)
     process.exit(1); console.log(JSON.stringify(p,null,2))' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.6/distribution-provenance.json"
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.7/distribution-provenance.json"
 SOURCE_REVISION=$(node -p \
   'JSON.parse(require("node:fs").readFileSync(process.argv[1])).sourceRevision' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.6/distribution-provenance.json")
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.7/distribution-provenance.json")
 MARKETPLACE="$HOME/.codex/plugins/marketplaces/nelos-marketplace"
 git -C "$MARKETPLACE" merge-base --is-ancestor "$SOURCE_REVISION" HEAD
 git -C "$MARKETPLACE" rev-parse HEAD

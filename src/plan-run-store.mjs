@@ -6,6 +6,7 @@ import {
   taskStateDirectory,
   withPlanRunLock,
 } from "./task-state.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 import {
   assertWebId,
   parentWebId,
@@ -764,7 +765,9 @@ export class PlanRunStoreV1 {
             flag: "wx",
             mode: 0o600,
           });
-          await this.#fileSystem.rename(temporary, target);
+          await commitRuntimeMutationV1(() =>
+            this.#fileSystem.rename(temporary, target)
+          );
         } catch (error) {
           await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
           throw error;
@@ -801,7 +804,9 @@ export class PlanRunStoreV1 {
         flag: "wx",
         mode: 0o600,
       });
-      await this.#fileSystem.rename(temporary, target);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, target)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       const raced = await this.read(record.planRunId);
@@ -863,7 +868,9 @@ export class PlanRunStoreV1 {
           flag: "wx",
           mode: 0o600,
         });
-        await this.#fileSystem.rename(temporary, target);
+        await commitRuntimeMutationV1(() =>
+          this.#fileSystem.rename(temporary, target)
+        );
       } catch (error) {
         await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
         throw error;
@@ -924,7 +931,9 @@ export class PlanRunStoreV1 {
           flag: "wx",
           mode: 0o600,
         });
-        await this.#fileSystem.rename(temporary, target);
+        await commitRuntimeMutationV1(() =>
+          this.#fileSystem.rename(temporary, target)
+        );
       } catch (error) {
         await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
         throw error;

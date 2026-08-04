@@ -90,10 +90,14 @@ export async function inspectBundledMcpState({
     }
     return reinstall();
   }
-  if (!Object.hasOwn(metadata ?? {}, server)) {
+  // Current generated plugin metadata uses the standard `mcpServers` wrapper.
+  // Retain the legacy direct map only for inspection of older installed
+  // releases during upgrade and rollback diagnostics.
+  const declarations = metadata?.mcpServers ?? metadata;
+  if (!Object.hasOwn(declarations ?? {}, server)) {
     return result("missing", selector, server, "bundled server declaration is missing");
   }
-  const descriptor = metadata[server];
+  const descriptor = declarations[server];
   if (
     !descriptor ||
     typeof descriptor !== "object" ||

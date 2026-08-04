@@ -99,6 +99,15 @@ import {
   NelosWebInspectorV1,
   WEB_INSPECTION_INPUT_SCHEMA,
 } from "./web-inspection.mjs";
+import {
+  deriveRuntimeIdentityV1,
+  resolveRuntimeHealthV1,
+} from "./runtime-identity.mjs";
+import {
+  RuntimeMutationBoundaryV1,
+  RuntimeMutationFenceError,
+} from "./runtime-mutation-fence.mjs";
+import { RuntimeWorkerRegistryV1 } from "./runtime-worker-registry.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -108,12 +117,20 @@ import {
 // bounded and read-only. Native mutations remain host-owned effects.
 
 export const MCP_SERVER_NAME = "nelos";
+// Sentinel used when no host supplied a version. It is not a release, so it is
+// excluded from the identity cross-check rather than compared against
+// package.json and reported as a disagreement.
+export const MCP_DEV_SERVER_VERSION = "0.0.0-dev";
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
   "2025-11-25",
   "2025-06-18",
 ]);
 export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
 export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
+export const MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
+export const MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS =
+  "Before the first stateful Nelos call in a task, call nelos_runtime_health. " +
+  "Continue only when mutationAllowed is true; otherwise perform the one recovery action it returns.";
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function isObject(value) {
@@ -978,6 +995,36 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_runtime_health",
+    description:
+      "Report whether this loaded Nelos worker is still the installed plugin " +
+      "generation. A marketplace upgrade can replace the plugin cache while " +
+      "this worker keeps serving the JavaScript it imported at startup; this " +
+      "tool compares the two and names the recovery action. Read-only, " +
+      "offline, and callable even after the backing cache path is deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        verifyIntegrity: {
+          type: "boolean",
+          description:
+            "Recompute the loaded distribution digest. Walks the whole " +
+            "distribution, so it is off by default.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    async run(args, { runtimeHealth }) {
+      return {
+        command: "runtime health",
+        health: await runtimeHealth({
+          verifyIntegrity: args.verifyIntegrity === true,
+        }),
+      };
+    },
+  },
+  {
     name: "nelos_intelligence_route",
     description:
       "Route a task shape to a reviewed model-and-reasoning profile, with " +
@@ -1296,6 +1343,11 @@ export function startNelosMcpServer({
   output = process.stdout,
   serverVersion = "0.0.0-dev",
   onExit = (code) => process.exit(code),
+  onLeaseRemove = async () => {},
+  shutdownTimeoutMs = MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  signalSource = process,
+  setShutdownTimer = setTimeout,
+  clearShutdownTimer = clearTimeout,
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
   queenDecisionAdapter = new McpQueenDecisionAdapterV1(),
@@ -1311,9 +1363,89 @@ export function startNelosMcpServer({
   }),
   launchBatchVerifier = verifyLaunchBatchV1,
   webInspector = new NelosWebInspectorV1(),
+  deriveRuntimeIdentity = deriveRuntimeIdentityV1,
+  resolveRuntimeHealth = resolveRuntimeHealthV1,
+  workerRegistry = new RuntimeWorkerRegistryV1(),
 } = {}) {
+  if (!Number.isFinite(shutdownTimeoutMs) || shutdownTimeoutMs < 0) {
+    throw new Error("shutdownTimeoutMs must be a non-negative finite number");
+  }
+  if (typeof onLeaseRemove !== "function") throw new Error("onLeaseRemove must be a function");
+  if (typeof onExit !== "function") throw new Error("onExit must be a function");
   let initialized = false;
   let negotiatedVersion = null;
+
+  // Derivation starts now, at bootstrap, rather than on first use: it must
+  // describe the distribution this worker actually imported. Reading it later
+  // would observe whatever release replaced the cache in the meantime, which is
+  // the exact condition this identity exists to detect. The promise is retained
+  // and never re-derived, and a failure is captured rather than thrown so a
+  // worker with incoherent sources can still report why.
+  const runtimeIdentityResult = Promise.resolve()
+    .then(() =>
+      deriveRuntimeIdentity({
+        declaredVersion:
+          serverVersion === MCP_DEV_SERVER_VERSION ? null : serverVersion,
+      }),
+    )
+    .then((identity) => ({ identity, error: null }))
+    .catch((error) => ({ identity: null, error }));
+  const runtimeIdentity = () => runtimeIdentityResult;
+  const workerLeaseResult = runtimeIdentityResult
+    .then(async ({ identity }) => {
+      // Identity failures are classified by resolveRuntimeHealth. Registry
+      // failure is distinct only after a coherent identity exists.
+      if (!identity) return { handle: null, error: null };
+      try {
+        return { handle: await workerRegistry.register(identity), error: null };
+      } catch (registryError) {
+        return { handle: null, error: registryError };
+      }
+    });
+  const runtimeHealth = async ({ verifyIntegrity = false } = {}) => {
+    const { identity, error } = await runtimeIdentity();
+    const base = await resolveRuntimeHealth({
+      loaded: identity,
+      identityError: error,
+      verifyIntegrity,
+    });
+    const lease = await workerLeaseResult;
+    let registry;
+    try {
+      registry = await workerRegistry.inspect();
+    } catch (registryError) {
+      registry = { state: "unavailable", mutationAllowed: false, detail: registryError.message };
+    }
+    if (!identity) return { ...base, registry };
+    if (lease.error || registry.state === "unavailable") {
+      return {
+        ...base,
+        state: base.mutationAllowed ? "integrity-failure" : base.state,
+        mutationAllowed: false,
+        registry: { ...registry, detail: lease.error?.message ?? registry.detail },
+        recovery: "Quit and relaunch Codex, then open a fresh task.",
+      };
+    }
+    if (registry.state === "mixed-generations") {
+      const activeVersions = [...new Set([
+        ...(base.activeVersions ?? []),
+        ...registry.activeGenerations.map(({ identity: active }) => active.version),
+      ])].sort();
+      return {
+        ...base,
+        state: "restart-required",
+        activeVersions,
+        mutationAllowed: false,
+        detail: "multiple live Nelos runtime generations share this protected state",
+        registry,
+        recovery: "Quit and relaunch Codex, then open a fresh task.",
+      };
+    }
+    return { ...base, registry };
+  };
+  const mutationBoundary = new RuntimeMutationBoundaryV1({
+    health: runtimeHealth,
+  });
 
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -1338,20 +1470,24 @@ export function startNelosMcpServer({
     let args;
     try {
       args = assertToolArguments(tool, params.arguments);
-      result = await tool.run(args, {
-        appServerBridge,
-        exceptionReplanning,
-        launchBatchVerifier,
-        orchestrationAdapter,
-        planningLifecycle,
-        planRunStore,
-        webRegistry,
-        joinAdapter,
-        queenDecisionAdapter,
-        lifecycleAdapter,
-        configuration,
-        webInspector,
-      });
+      result = await mutationBoundary.run(tool.annotations ?? READ_ONLY_ANNOTATIONS, () =>
+        tool.run(args, {
+          appServerBridge,
+          exceptionReplanning,
+          launchBatchVerifier,
+          orchestrationAdapter,
+          planningLifecycle,
+          planRunStore,
+          webRegistry,
+          joinAdapter,
+          queenDecisionAdapter,
+          lifecycleAdapter,
+          configuration,
+          webInspector,
+          runtimeIdentity,
+          runtimeHealth,
+        })
+      );
     } catch (error) {
       const body = { error: error.message };
       if (error instanceof PlanningLifecycleProtocolError) {
@@ -1361,6 +1497,15 @@ export function startNelosMcpServer({
         if (error.recoveryCommand !== null) {
           body.recoveryCommand = error.recoveryCommand;
         }
+      }
+      if (error instanceof RuntimeMutationFenceError) {
+        body.code = error.code;
+        body.state = error.state;
+        body.phase = error.phase;
+        body.loaded = error.loaded;
+        body.installed = error.installed;
+        body.installedIdentities = error.installedIdentities;
+        body.recoveryAction = error.recoveryAction;
       }
       return {
         content: [{ type: "text", text: JSON.stringify(body) }],
@@ -1412,6 +1557,10 @@ export function startNelosMcpServer({
       const selectedProtocolVersion = negotiatedProtocolVersion(
         params.protocolVersion,
       );
+      // Registration is part of bootstrap, not a background best effort. A
+      // failed registration remains diagnosable through runtime health and
+      // causes stateful calls to fail closed.
+      await workerLeaseResult;
       send({
         jsonrpc: "2.0",
         id,
@@ -1422,6 +1571,7 @@ export function startNelosMcpServer({
             resources: { listChanged: false, subscribe: false },
           },
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
+          instructions: MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS,
         },
       });
       negotiatedVersion = selectedProtocolVersion;
@@ -1540,11 +1690,13 @@ export function startNelosMcpServer({
 
   let buffer = Buffer.alloc(0);
   let discardingOversizedFrame = false;
-  let finished = false;
+  let shuttingDown = false;
+  let shutdownPromise = null;
   let processing = Promise.resolve();
   let waitProcessing = Promise.resolve();
 
   function scheduleError(code, message, id) {
+    if (shuttingDown) return;
     processing = processing
       .then(() => sendError(code, message, id))
       .catch(() => {
@@ -1553,6 +1705,7 @@ export function startNelosMcpServer({
   }
 
   function schedule(message) {
+    if (shuttingDown) return;
     // Responses are only relevant when the server has issued a request. Nelos
     // never does so, and JSON-RPC responses never receive responses themselves.
     if (!Object.hasOwn(message, "method")) return;
@@ -1623,20 +1776,54 @@ export function startNelosMcpServer({
     schedule(message);
   }
 
-  function finish(code) {
-    if (finished) return;
-    finished = true;
-    Promise.allSettled([processing, waitProcessing])
-      .then(() => appServerBridge.close?.())
-      .catch((error) => {
-        process.stderr.write(
-          `nelos-mcp: shutdown cleanup failed: ${error.message}\n`,
-        );
+  function shutdown(code = 0) {
+    if (shutdownPromise) return shutdownPromise;
+    shuttingDown = true;
+    input.pause?.();
+    input.removeListener?.("data", onInputData);
+    removeShutdownListeners();
+    const drainLease = workerLeaseResult.then(({ handle }) => handle?.drain?.());
+    const cleanup = Promise.allSettled([
+      drainLease,
+      processing,
+      waitProcessing,
+      // Stateful requests may now yield while their runtime generation is
+      // checked. Close the bridge only after that serialized request chain has
+      // drained; closing beside it can tear down an admitted in-flight call.
+      processing.then(() => appServerBridge.close?.()),
+      Promise.allSettled([
+        Promise.all([processing, drainLease])
+          .then(() => workerLeaseResult)
+          .then(({ handle }) => handle?.remove?.()),
+        Promise.resolve().then(() => onLeaseRemove()),
+      ]),
+    ]);
+    let timedOut = false;
+    let timer = null;
+    const boundedCleanup = new Promise((resolve) => {
+      timer = setShutdownTimer(() => {
+        timedOut = true;
+        resolve();
+      }, shutdownTimeoutMs);
+      cleanup.then(() => resolve());
+    });
+    shutdownPromise = boundedCleanup
+      .then(() => {
+        if (timer !== null) clearShutdownTimer(timer);
+        if (timedOut) {
+          process.stderr.write("nelos-mcp: shutdown timed out; forcing exit\n");
+        }
+        return onExit(code);
       })
-      .then(() => onExit(code));
+      .catch((error) => {
+        process.stderr.write(`nelos-mcp: shutdown cleanup failed: ${error.message}\n`);
+        return onExit(code || 1);
+      });
+    return shutdownPromise;
   }
 
-  input.on("data", (chunk) => {
+  const onInputData = (chunk) => {
+    if (shuttingDown) return;
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     buffer = buffer.length === 0 ? bytes : Buffer.concat([buffer, bytes]);
     let newline;
@@ -1656,17 +1843,45 @@ export function startNelosMcpServer({
       discardingOversizedFrame = true;
       scheduleError(-32600, `message exceeds ${MCP_MAX_MESSAGE_BYTES} bytes`);
     }
-  });
-  input.on("end", () => {
+  };
+  const onInputEnd = () => {
     if (!discardingOversizedFrame && buffer.length > 0) {
       scheduleError(-32700, "incomplete stdio frame");
     }
     buffer = Buffer.alloc(0);
     discardingOversizedFrame = false;
-    finish(0);
-  });
-  input.on("error", (error) => {
+    void shutdown(0);
+  };
+  const onInputError = (error) => {
     process.stderr.write(`nelos-mcp: input failed: ${error.message}\n`);
-    finish(1);
-  });
+    void shutdown(1);
+  };
+  const onOutputClose = () => void shutdown(0);
+  const onOutputError = (error) => {
+    process.stderr.write(`nelos-mcp: output failed: ${error.message}\n`);
+    void shutdown(1);
+  };
+  const signalHandlers = new Map([
+    ["SIGTERM", () => void shutdown(0)],
+    ["SIGINT", () => void shutdown(0)],
+    ["SIGHUP", () => void shutdown(0)],
+  ]);
+  function removeShutdownListeners() {
+    input.removeListener?.("end", onInputEnd);
+    input.removeListener?.("error", onInputError);
+    output.removeListener?.("close", onOutputClose);
+    output.removeListener?.("error", onOutputError);
+    for (const [signal, listener] of signalHandlers) {
+      signalSource?.removeListener?.(signal, listener);
+    }
+  }
+
+  input.on("data", onInputData);
+  input.on("end", onInputEnd);
+  input.on("error", onInputError);
+  output.on?.("close", onOutputClose);
+  output.on?.("error", onOutputError);
+  for (const [signal, listener] of signalHandlers) signalSource?.once?.(signal, listener);
+
+  return Object.freeze({ shutdown });
 }

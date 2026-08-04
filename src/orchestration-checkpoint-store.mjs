@@ -3,6 +3,7 @@ import * as defaultFileSystem from "node:fs/promises";
 import { join } from "node:path";
 
 import { taskStateDirectory } from "./task-state.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 export const ORCHESTRATION_CHECKPOINT_SCHEMA_VERSION = 1;
 export const MAX_CONSUMED_OBSERVATION_RECEIPTS = 1000;
@@ -222,7 +223,9 @@ export class OrchestrationCheckpointStoreV1 {
     const temporary = `${target}.${process.pid}.${this.#makeTemporaryId()}.tmp`;
     try {
       await this.#fileSystem.writeFile(temporary, source, { flag: "wx", mode: 0o600 });
-      await this.#fileSystem.rename(temporary, target);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, target)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       throw error;

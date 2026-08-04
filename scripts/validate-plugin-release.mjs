@@ -78,7 +78,7 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
   const candidateVersion = candidateManifest.version;
   for (const [label, version] of [
     ["package.json", packageMetadata.version],
-    [".mcp.json", mcp?.nelos?.env?.NELOS_PLUGIN_VERSION],
+    [".mcp.json", mcp?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
     ["distribution-provenance.json", provenance.revision],
   ]) {
     if (version !== candidateVersion) {

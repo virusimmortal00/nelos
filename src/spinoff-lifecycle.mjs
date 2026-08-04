@@ -17,6 +17,7 @@ import {
 import {
   missingPersistedDependencyIdsV1,
 } from "./plan-orchestration-bridge.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 export const SPINOFF_LIFECYCLE_SCHEMA_VERSION = 1;
 export const SPINOFF_CLEANUP_POLICIES = NELOS_CLEANUP_POLICIES;
@@ -405,7 +406,9 @@ export class SpinoffLifecycleStoreV1 {
         flag: "wx",
         mode: 0o600,
       });
-      await this.#fileSystem.rename(temporary, target);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, target)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       throw error;
@@ -439,7 +442,9 @@ export class SpinoffLifecycleStoreV1 {
       `${JSON.stringify({ schemaVersion: 1, policy }, null, 2)}\n`,
       { flag: "wx", mode: 0o600 },
     );
-    await this.#fileSystem.rename(temporary, target);
+    await commitRuntimeMutationV1(() =>
+      this.#fileSystem.rename(temporary, target)
+    );
     return policy;
   }
 }

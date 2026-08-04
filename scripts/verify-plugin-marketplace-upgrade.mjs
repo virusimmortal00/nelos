@@ -19,6 +19,10 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { openAppServerClient } from "../src/app-server-client.mjs";
+import {
+  RUNTIME_UPGRADE_MATRIX_V1,
+  RUNTIME_UPGRADE_RECOVERY_ACTION,
+} from "../src/runtime-lifecycle.mjs";
 
 import {
   DISTRIBUTION_ENTRIES,
@@ -172,7 +176,8 @@ async function freshProcessProbe({ installedPath, candidateRoot, expectedVersion
     const mcp = JSON.parse(readFileSync(join(root, ".mcp.json")));
     const provenance = JSON.parse(readFileSync(join(root, "distribution-provenance.json")));
     const expectedVersion = process.argv[3];
-    if (manifest.version !== expectedVersion || mcp.nelos.env.NELOS_PLUGIN_VERSION !== expectedVersion) throw new Error("fresh process loaded a stale version");
+    const configured = (mcp.mcpServers && mcp.mcpServers.nelos) || mcp.nelos;
+    if (manifest.version !== expectedVersion || !configured || configured.env.NELOS_PLUGIN_VERSION !== expectedVersion) throw new Error("fresh process loaded a stale version");
     if (expectedVersion !== "0.4.0") {
       if (!provenance.sourceRepository || !provenance.sourceRevision || !provenance.cacheIdentity) throw new Error("fresh process lacks provenance");
       const module = await import(pathToFileURL(join(root, "src/mcp-server.mjs")).href);
@@ -404,6 +409,12 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
       unrelatedDataPreserved: true,
       candidateIntegrity,
       cacheIdentity: pluginCacheIdentity({ version: candidateVersion }),
+      upgradeLifecycleMatrix: RUNTIME_UPGRADE_MATRIX_V1,
+      // This verifier owns the fresh app-server it starts, but no live server
+      // spans the fixture's cache replacement. Therefore reload is neither
+      // required nor falsely claimed; the tested transition is full restart.
+      hostReload: { attempted: false, reason: "no owned live MCP child across replacement" },
+      hostOwnedSiblingFallback: RUNTIME_UPGRADE_RECOVERY_ACTION,
     };
   } finally {
     if (server) await new Promise((accept) => server.close(accept));

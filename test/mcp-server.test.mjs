@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -55,6 +56,36 @@ const INITIALIZE = {
   method: "initialize",
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } },
 };
+
+const SOURCE_CHECKOUT_HEALTH = Object.freeze({
+  state: "degraded",
+  loaded: null,
+  installed: null,
+  activeVersions: [],
+  backingPathPresent: true,
+  mutationAllowed: true,
+  detail: "test source checkout",
+  recovery: "No action required for this source checkout.",
+});
+
+const TEST_WORKER_REGISTRY = Object.freeze({
+  async register() {
+    return Object.freeze({
+      workerId: "worker:test",
+      async drain() {},
+      async remove() {},
+    });
+  },
+  async inspect() {
+    return {
+      state: "single-generation",
+      mutationAllowed: true,
+      activeGenerations: [],
+      liveWorkerCount: 1,
+      recoveredWorkerIds: [],
+    };
+  },
+});
 
 function validPlan(sliceId = "explore") {
   return {
@@ -162,6 +193,10 @@ async function roundTrip(messages, options = {}) {
       currentThreadId: () => "queen-1",
       planRunStore,
       webRegistry,
+      workerRegistry: TEST_WORKER_REGISTRY,
+      ...(!options.deriveRuntimeIdentity && !options.resolveRuntimeHealth
+        ? { resolveRuntimeHealth: async () => SOURCE_CHECKOUT_HEALTH }
+        : {}),
       ...options,
     });
   });
@@ -188,6 +223,10 @@ async function rawRoundTrip(chunks, options = {}) {
       output,
       serverVersion: "0.0.0-test",
       onExit: (code) => resolve(code),
+      workerRegistry: TEST_WORKER_REGISTRY,
+      ...(!options.deriveRuntimeIdentity && !options.resolveRuntimeHealth
+        ? { resolveRuntimeHealth: async () => SOURCE_CHECKOUT_HEALTH }
+        : {}),
       ...options,
     });
   });
@@ -201,6 +240,95 @@ async function rawRoundTrip(chunks, options = {}) {
     .map((line) => JSON.parse(line));
   return { exitCode, responses };
 }
+
+async function flushWorker() {
+  for (let step = 0; step < 8; step += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+test("worker shutdown routes every transport and signal trigger through one cleanup path", async (t) => {
+  const triggers = [
+    ["stdin EOF", ({ input }) => input.end(), 0],
+    ["stdin error", ({ input }) => input.emit("error", new Error("read failed")), 1],
+    ["stdout closure", ({ output }) => output.emit("close"), 0],
+    ["stdout error", ({ output }) => output.emit("error", new Error("write failed")), 1],
+    ["SIGTERM", ({ signals }) => signals.emit("SIGTERM"), 0],
+    ["SIGINT", ({ signals }) => signals.emit("SIGINT"), 0],
+    ["SIGHUP", ({ signals }) => signals.emit("SIGHUP"), 0],
+  ];
+  for (const [name, trigger, expectedCode] of triggers) {
+    await t.test(name, async () => {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      const signals = new EventEmitter();
+      const exits = [];
+      let closes = 0;
+      let leases = 0;
+      const worker = startNelosMcpServer({
+        input,
+        output,
+        signalSource: signals,
+        onExit: (code) => exits.push(code),
+        onLeaseRemove: () => { leases += 1; },
+        workerRegistry: TEST_WORKER_REGISTRY,
+        appServerBridge: { close: () => { closes += 1; } },
+      });
+      trigger({ input, output, signals });
+      await worker.shutdown(expectedCode);
+      assert.deepEqual(exits, [expectedCode]);
+      assert.equal(closes, 1);
+      assert.equal(leases, 1);
+    });
+  }
+});
+
+test("worker shutdown is idempotent, bounded, and never signals siblings", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const signals = new EventEmitter();
+  let timeout;
+  let closeCalls = 0;
+  let leaseCalls = 0;
+  const exits = [];
+  const worker = startNelosMcpServer({
+    input,
+    output,
+    signalSource: signals,
+    shutdownTimeoutMs: 1,
+    setShutdownTimer: (callback) => { timeout = callback; return "timer"; },
+    clearShutdownTimer: () => {},
+    onExit: (code) => exits.push(code),
+    onLeaseRemove: () => { leaseCalls += 1; },
+    workerRegistry: TEST_WORKER_REGISTRY,
+    appServerBridge: {
+      close() { closeCalls += 1; },
+      waitForThreads: () => new Promise(() => {}),
+    },
+  });
+  input.write(`${JSON.stringify(INITIALIZE)}\n`);
+  input.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: "nelos_thread_wait", arguments: { targets: [{ threadId: "child" }] } },
+  })}\n`);
+  await flushWorker();
+  input.end();
+  signals.emit("SIGTERM");
+  await flushWorker();
+  assert.equal(closeCalls, 1);
+  assert.equal(leaseCalls, 1);
+  assert.deepEqual(exits, []);
+  timeout();
+  await flushWorker();
+  assert.deepEqual(exits, [0]);
+  assert.strictEqual(worker.shutdown(), worker.shutdown());
+  assert.equal(closeCalls, 1);
+  assert.equal(leaseCalls, 1);
+  // The worker owns only its own exit callback; no process/group kill hook exists.
+  assert.equal(signals.listenerCount("SIGTERM"), 0);
+});
 
 function toolBody(response) {
   assert.equal(response.error, undefined);
@@ -222,6 +350,8 @@ test("initialize returns the tools capability and server identity", async () => 
     name: "nelos",
     version: "0.0.0-test",
   });
+  assert.match(response.result.instructions, /nelos_runtime_health/u);
+  assert.match(response.result.instructions, /mutationAllowed/u);
 });
 
 test("initialize negotiates only supported protocol revisions", async () => {
@@ -340,6 +470,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
+      "nelos_runtime_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
       "nelos_intelligence_resolve_subagent",
@@ -361,6 +492,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
+      "nelos_runtime_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
       "nelos_intelligence_resolve_subagent",
@@ -3508,6 +3640,7 @@ test("a failed non-wait response does not poison later requests or waits", async
       output,
       serverVersion: "0.0.0-test",
       onExit: resolve,
+      workerRegistry: TEST_WORKER_REGISTRY,
       appServerBridge: {
         async waitForThreads() {
           waitCalls += 1;
@@ -4002,4 +4135,260 @@ test("bin/nelos-mcp serves the same surface over real stdio", async () => {
     lines[3].result.tools.map((tool) => tool.name),
     listNelosMcpTools().map((tool) => tool.name),
   );
+});
+
+test("nelos_runtime_health reports the loaded generation against the installed one", async () => {
+  const loaded = {
+    version: "0.5.1",
+    sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+    sourceRevision: "a".repeat(40),
+    sourceRevisionType: "git",
+    integrity: `sha256:${"1".repeat(64)}`,
+    skillIntegrity: null,
+    cacheIdentity: "https://github.com/virusimmortal00/nelos.git#nelos@0.5.1",
+    modulePath: "/nonexistent/nelos/0.5.1",
+    buildIdentity: "nelos-build:" + "0".repeat(32),
+  };
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    { deriveRuntimeIdentity: async () => loaded },
+  );
+  const body = JSON.parse(responses.at(-1).result.content[0].text);
+  assert.equal(responses.at(-1).result.isError, false);
+  assert.equal(body.command, "runtime health");
+  // The module path does not exist, which is exactly the post-upgrade shape.
+  assert.equal(body.health.backingPathPresent, false);
+  assert.equal(body.health.mutationAllowed, false);
+  assert.equal(body.health.loaded.version, "0.5.1");
+  assert.ok(body.health.recovery.length > 0);
+});
+
+test("nelos_runtime_health surfaces a failed derivation instead of throwing", async () => {
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        throw new Error("identity sources disagree on the loaded release");
+      },
+    },
+  );
+  const response = responses.at(-1);
+  // A worker that cannot identify itself must still answer the read-only tool.
+  assert.equal(response.result.isError, false);
+  const body = JSON.parse(response.result.content[0].text);
+  assert.equal(body.health.state, "integrity-failure");
+  assert.equal(body.health.mutationAllowed, false);
+  assert.match(body.health.detail, /disagree/);
+});
+
+test("nelos_runtime_health reports and fences mixed cooperative generations", async () => {
+  const loaded = {
+    version: "0.12.6",
+    sourceRevision: "b".repeat(40),
+    integrity: `sha256:${"2".repeat(64)}`,
+    buildIdentity: `nelos-build:${"b".repeat(32)}`,
+    modulePath: "/cache/nelos/0.12.6",
+  };
+  const workerRegistry = {
+    async register() { return { async drain() {}, async remove() {} }; },
+    async inspect() {
+      return {
+        state: "mixed-generations",
+        mutationAllowed: false,
+        liveWorkerCount: 2,
+        recoveredWorkerIds: [],
+        activeGenerations: [
+          { identity: { version: "0.12.5" }, workers: [{ workerId: "old" }] },
+          { identity: { version: "0.12.6" }, workers: [{ workerId: "new" }] },
+        ],
+      };
+    },
+  };
+  const responses = await roundTrip([
+    INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "nelos_runtime_health", arguments: {} } },
+  ], {
+    deriveRuntimeIdentity: async () => loaded,
+    resolveRuntimeHealth: async () => ({
+      state: "healthy",
+      loaded,
+      installed: loaded,
+      installedIdentities: [loaded],
+      activeVersions: ["0.12.6"],
+      backingPathPresent: true,
+      mutationAllowed: true,
+      recovery: "None required.",
+    }),
+    workerRegistry,
+  });
+  const body = toolBody(responses.at(-1)).body;
+  assert.equal(body.health.state, "restart-required");
+  assert.equal(body.health.mutationAllowed, false);
+  assert.deepEqual(body.health.activeVersions, ["0.12.5", "0.12.6"]);
+  assert.equal(body.health.recovery, "Quit and relaunch Codex, then open a fresh task.");
+});
+
+test("runtime admission fences stateful and destructive tools from annotations while diagnostics remain available", async () => {
+  const loaded = {
+    version: "0.12.5",
+    sourceRevision: "a".repeat(40),
+    integrity: `sha256:${"1".repeat(64)}`,
+    buildIdentity: `nelos-build:${"a".repeat(32)}`,
+    modulePath: "/cache/nelos/0.12.5",
+  };
+  const installed = {
+    version: "0.12.6",
+    sourceRevision: "b".repeat(40),
+    integrity: `sha256:${"2".repeat(64)}`,
+    buildIdentity: `nelos-build:${"b".repeat(32)}`,
+    modulePath: "/cache/nelos/0.12.6",
+  };
+  const stale = {
+    state: "restart-required",
+    loaded,
+    installed,
+    installedIdentities: [installed],
+    mutationAllowed: false,
+    detail: "the authoritative installed generation changed",
+    recovery: "Quit and relaunch Codex, then open a fresh task.",
+  };
+  const integrityChecks = [];
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan: validPlan(), queenThreadId: "queen-1" },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_reset",
+          arguments: {
+            key: "spinoffs.cleanup_policy",
+            userIntentConfirmed: true,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_route",
+          arguments: { taskShape: "everyday", launchSurface: "durable-task" },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => loaded,
+      resolveRuntimeHealth: async ({ verifyIntegrity }) => {
+        integrityChecks.push(verifyIntegrity);
+        return stale;
+      },
+    },
+  );
+
+  for (const response of responses.slice(1, 3)) {
+    const { body, isError } = toolBody(response);
+    assert.equal(isError, true);
+    assert.equal(body.code, "STALE_RUNTIME");
+    assert.equal(body.phase, "admission");
+    assert.deepEqual(body.loaded, loaded);
+    assert.deepEqual(body.installed, installed);
+    assert.deepEqual(body.installedIdentities, [installed]);
+    assert.equal(body.recoveryAction, stale.recovery);
+  }
+  assert.equal(toolBody(responses[3]).isError, false);
+  assert.equal(toolBody(responses[4]).isError, false);
+  assert.deepEqual(integrityChecks, [true, true, false]);
+});
+
+test("runtime identity is derived once, at bootstrap, not per call", async () => {
+  let derivations = 0;
+  await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        derivations += 1;
+        return {
+          version: "1.0.0",
+          sourceRevision: null,
+          integrity: null,
+          cacheIdentity: null,
+          modulePath: "/nonexistent",
+          buildIdentity: "nelos-build:" + "0".repeat(32),
+        };
+      },
+    },
+  );
+  // Re-deriving later would read whatever release replaced the cache, which is
+  // the condition the identity exists to detect.
+  assert.equal(derivations, 1);
+});
+
+test("a failed identity derivation does not affect other tools", async () => {
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_route",
+          arguments: { taskShape: "everyday", launchSurface: "durable-task" },
+        },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        throw new Error("identity sources disagree on the loaded release");
+      },
+    },
+  );
+  assert.equal(responses.at(-1).result.isError, false);
 });
