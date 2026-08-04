@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   allocateWebId,
+  allocatePermanentWebId,
   assertWebId,
   parseWebTitle,
   renderPersistedDurableChildTitle,
@@ -14,11 +15,11 @@ import {
 test("web titles render queen, spinoff, and nested queen roles", () => {
   assert.equal(
     renderWebTitle({ baseTitle: "Release planning", outboundWebId: "A1" }),
-    "👑 A1 · Release planning",
+    "👑A1 · Release planning",
   );
   assert.equal(
-    renderWebTitle({ baseTitle: "API changes", inboundWebId: "A1" }),
-    "🕷️ A1 · API changes",
+    renderWebTitle({ baseTitle: "API changes", inboundWebId: "A1", lineageId: "A1.1" }),
+    "🕷️A1.1 · API changes",
   );
   assert.equal(
     renderWebTitle({
@@ -26,7 +27,7 @@ test("web titles render queen, spinoff, and nested queen roles", () => {
       inboundWebId: "A1",
       outboundWebId: "A1.1",
     }),
-    "👑 A1.1 🕷️ A1 · Contract tests",
+    "👑A1.1 · Contract tests",
   );
 });
 
@@ -44,7 +45,7 @@ test("web title parsing makes rendering idempotent", () => {
       inboundWebId: "B2",
       outboundWebId: "B2.1",
     }),
-    title,
+    "👑B2.1 · Documentation",
   );
 });
 
@@ -61,12 +62,12 @@ test("crown and web markers share one idempotent topology-preserving grammar", (
       baseTitle: title,
       outboundWebId: "B2.1",
     }),
-    "👑 B2.1 · Documentation",
+    "👑B2.1 · Documentation",
   );
 });
 
 test("legacy outer crowns normalize after web markers without duplication", () => {
-  const canonical = "👑 A1.1 🕷️ A1 · Documentation";
+  const canonical = "👑A1.1 · Documentation";
   for (const legacy of [
     "👑 · 🕸️ a1 🕷️ a1.1 · Documentation",
     "🕸️ a1 🕷️ a1.1 · 👑 · Documentation",
@@ -97,7 +98,7 @@ test("outbound web responsibility remains crown-first deterministically", () => 
       outboundWebId: "A1.1",
       queenMarked: true,
     }),
-    "👑 A1.1 🕷️ A1 · Documentation",
+    "👑A1.1 · Documentation",
   );
   assert.equal(
     renderWebTitle({
@@ -106,7 +107,7 @@ test("outbound web responsibility remains crown-first deterministically", () => 
       outboundWebId: "A1.1",
       queenMarked: false,
     }),
-    "👑 A1.1 🕷️ A1 · Documentation",
+    "👑A1.1 · Documentation",
   );
   assert.throws(
     () => renderWebTitle({ baseTitle: "Documentation", queenMarked: "true" }),
@@ -181,14 +182,14 @@ test("lowercase web IDs normalize without duplicating title markers", () => {
       inboundWebId: "a1",
       outboundWebId: "a1.1",
     }),
-    "👑 A1.1 🕷️ A1 · Documentation",
+    "👑A1.1 · Documentation",
   );
 });
 
 test("web IDs are compact and validated", () => {
   assert.equal(assertWebId(" a1.2 "), "A1.2");
-  for (const invalid of ["A0", "A", "AA", "A1.0", "web-1"]) {
-    assert.throws(() => assertWebId(invalid), /web ID must look like A1 or A1\.1/);
+  for (const invalid of ["0", "AA.0", "A1.0", "web-1"]) {
+    assert.throws(() => assertWebId(invalid), /compact uppercase lineage/);
   }
 });
 
@@ -199,7 +200,7 @@ test("web allocation avoids active IDs and nests beneath inbound webs", () => {
     { inboundWebId: null, outboundWebId: "A2", archivedAt: "2026-01-01" },
   ];
 
-  assert.equal(allocateWebId(records), "A2");
+  assert.equal(allocateWebId(records), "A3");
   assert.equal(allocateWebId(records, "A1"), "A1.2");
 });
 
@@ -233,18 +234,42 @@ test("settled but unarchived queens keep normalized web IDs reserved", () => {
 test("persisted queen and durable child titles converge without duplicate markers", () => {
   assert.equal(
     renderPersistedQueenWebTitle("👑 · 🕷️ a1 · Release", "A1"),
-    "👑 A1 · Release",
+    "👑A1 · Release",
   );
   assert.equal(
     renderPersistedDurableChildTitle(
       "🕸️ a1 🕷️ a1.1 👑 · Nested delivery",
-      "A1",
+      "A1.1",
     ),
-    "👑 A1.1 🕷️ A1 · Nested delivery",
+    "👑A1.1 · Nested delivery",
   );
   assert.equal(
-    renderPersistedDurableChildTitle("👑 · Nested delivery", "A1"),
-    "👑 🕷️ A1 · Nested delivery",
+    renderPersistedDurableChildTitle("👑 · Nested delivery", "A1.2"),
+    "👑A1.2 · Nested delivery",
+  );
+});
+
+test("permanent allocation seeds historical IDs, never reuses archives, and replays exact assignments", () => {
+  const records = [
+    { outboundWebId: "B7", archivedAt: "2026-01-01" },
+    { lineageId: "B7.3", archivedAt: "2026-01-01" },
+  ];
+  const root = allocatePermanentWebId(null, records, {
+    allocationKey: "queen:new",
+    parentWebId: null,
+  });
+  assert.equal(root.webId, "B8");
+  const child = allocatePermanentWebId(root.state, records, {
+    allocationKey: "member:new",
+    parentWebId: "B7",
+  });
+  assert.equal(child.webId, "B7.4");
+  assert.deepEqual(
+    allocatePermanentWebId(child.state, records, {
+      allocationKey: "member:new",
+      parentWebId: "B7",
+    }),
+    { state: child.state, webId: "B7.4", reused: true },
   );
 });
 

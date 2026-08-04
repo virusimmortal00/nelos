@@ -1,8 +1,12 @@
-const WEB_ID_PATTERN = /^[A-Z][1-9]\d*(?:\.[1-9]\d*)*$/;
+const TOP_LEVEL_HEX_PATTERN = /^[1-9A-F][0-9A-F]*$/;
+const LEGACY_TOP_LEVEL_PATTERN = /^[A-Z][1-9]\d*$/;
+const WEB_ID_PATTERN = /^(?:[1-9A-F][0-9A-F]*|[A-Z][1-9]\d*)(?:\.[1-9]\d*)*$/;
 const LEGACY_INBOUND_MARKER = "🕸️";
 const MEMBER_MARKER = "🕷️";
 const QUEEN_MARKER = "👑";
-const WEB_ID_SOURCE = "([A-Za-z][1-9]\\d*(?:\\.[1-9]\\d*)*)";
+const WEB_ID_SOURCE = "((?:[1-9A-Fa-f][0-9A-Fa-f]*|[A-Za-z][1-9]\\d*)(?:\\.[1-9]\\d*)*)";
+const COMPACT_QUEEN_PATTERN = new RegExp(`^${QUEEN_MARKER}${WEB_ID_SOURCE}\\s*`, "u");
+const COMPACT_MEMBER_PATTERN = new RegExp(`^${MEMBER_MARKER}${WEB_ID_SOURCE}\\s*`, "u");
 const QUEEN_MARKER_PATTERN = new RegExp(
   `^${QUEEN_MARKER}(?:\\s*·)?\\s*`,
   "u",
@@ -52,10 +56,21 @@ export function nativeTitleMatchesRequested(requestedTitle, observedTitle) {
 
 export function assertWebId(webId) {
   const normalized = String(webId || "").trim().toUpperCase();
-  if (!WEB_ID_PATTERN.test(normalized)) {
-    throw new Error("web ID must look like A1 or A1.1");
+  const topLevel = normalized.split(".", 1)[0];
+  if (
+    !WEB_ID_PATTERN.test(normalized) ||
+    (TOP_LEVEL_HEX_PATTERN.test(topLevel) &&
+      !Number.isSafeInteger(Number.parseInt(topLevel, 16)))
+  ) {
+    throw new Error("web ID must be a compact uppercase lineage such as B8 or B8.1");
   }
   return normalized;
+}
+
+export function parentWebId(webId) {
+  const normalized = assertWebId(webId);
+  const segments = normalized.split(".");
+  return segments.length === 1 ? null : segments.slice(0, -1).join(".");
 }
 
 function consumeQueenMarkers(title) {
@@ -77,18 +92,33 @@ function parseTitleMarkers(title) {
   let outboundWebId = null;
   let queenMarked = false;
   let legacySpiderOnlyWebId = null;
+  let lineageId = null;
 
-  const canonicalQueen = remaining.match(QUEEN_WITH_WEB_PATTERN);
-  if (canonicalQueen) {
+  const compactQueen = remaining.match(COMPACT_QUEEN_PATTERN);
+  const compactMember = compactQueen ? null : remaining.match(COMPACT_MEMBER_PATTERN);
+  if (compactQueen) {
+    queenMarked = true;
+    lineageId = assertWebId(compactQueen[1]);
+    outboundWebId = lineageId;
+    inboundWebId = parentWebId(lineageId);
+    remaining = remaining.slice(compactQueen[0].length);
+  } else if (compactMember) {
+    lineageId = assertWebId(compactMember[1]);
+    inboundWebId = parentWebId(lineageId) ?? lineageId;
+    remaining = remaining.slice(compactMember[0].length);
+  } else {
+    const canonicalQueen = remaining.match(QUEEN_WITH_WEB_PATTERN);
+    if (canonicalQueen) {
     queenMarked = true;
     outboundWebId = assertWebId(canonicalQueen[1]);
+    lineageId = outboundWebId;
     remaining = remaining.slice(canonicalQueen[0].length);
     const inboundMember = remaining.match(MEMBER_PATTERN);
     if (inboundMember) {
       inboundWebId = assertWebId(inboundMember[1]);
       remaining = remaining.slice(inboundMember[0].length);
     }
-  } else {
+    } else {
     const outerQueen = consumeQueenMarkers(remaining);
     queenMarked = outerQueen.queenMarked;
     remaining = outerQueen.remaining;
@@ -96,6 +126,7 @@ function parseTitleMarkers(title) {
     const legacyInbound = remaining.match(LEGACY_INBOUND_PATTERN);
     if (legacyInbound) {
       inboundWebId = assertWebId(legacyInbound[1]);
+      lineageId = inboundWebId;
       remaining = remaining.slice(legacyInbound[0].length);
       const legacyOutbound = remaining.match(MEMBER_PATTERN);
       if (legacyOutbound) {
@@ -117,15 +148,19 @@ function parseTitleMarkers(title) {
         ) {
           queenMarked = true;
           outboundWebId = webId;
+          lineageId = webId;
           remaining = legacyInnerQueen.remaining;
         } else if (outerQueen.queenMarked) {
           inboundWebId = webId;
+          lineageId = webId;
         } else {
           inboundWebId = webId;
           legacySpiderOnlyWebId = webId;
+          lineageId = webId;
         }
       }
     }
+  }
   }
 
   if (inboundWebId || outboundWebId || queenMarked) {
@@ -142,6 +177,7 @@ function parseTitleMarkers(title) {
     outboundWebId,
     queenMarked,
     legacySpiderOnlyWebId,
+    lineageId,
   };
 }
 
@@ -153,6 +189,10 @@ export function parseWebTitle(title) {
     outboundWebId: parsed.outboundWebId,
     queenMarked: parsed.queenMarked,
   };
+}
+
+export function titleLineageId(title) {
+  return parseTitleMarkers(title).lineageId;
 }
 
 export function resolveQueenMarked({
@@ -178,33 +218,34 @@ function renderTitleMarkers({
   baseTitle,
   inboundWebId = null,
   outboundWebId = null,
+  lineageId = null,
   queenMarked = false,
 }) {
   const normalizedBaseTitle = baseTitle.trim();
   if (!normalizedBaseTitle) throw new Error("task title must not be empty");
 
-  const markers = [];
   if (queenMarked || outboundWebId) {
-    markers.push(
-      outboundWebId
-        ? `${QUEEN_MARKER} ${assertWebId(outboundWebId)}`
-        : QUEEN_MARKER,
-    );
-    if (inboundWebId) {
-      markers.push(`${MEMBER_MARKER} ${assertWebId(inboundWebId)}`);
-    }
-  } else if (inboundWebId) {
-    markers.push(`${MEMBER_MARKER} ${assertWebId(inboundWebId)}`);
+    const marker = outboundWebId
+      ? `${QUEEN_MARKER}${assertWebId(outboundWebId)}`
+      : QUEEN_MARKER;
+    return `${marker} · ${normalizedBaseTitle}`;
   }
-  return markers.length > 0
-    ? `${markers.join(" ")} · ${normalizedBaseTitle}`
-    : normalizedBaseTitle;
+  if (inboundWebId) {
+    const memberLineage = assertWebId(lineageId ?? inboundWebId);
+    const expectedParent = parentWebId(memberLineage);
+    if (expectedParent !== null && expectedParent !== assertWebId(inboundWebId)) {
+      throw new Error("member lineage conflicts with its parent web identity");
+    }
+    return `${MEMBER_MARKER}${memberLineage} · ${normalizedBaseTitle}`;
+  }
+  return normalizedBaseTitle;
 }
 
 export function renderWebTitle({
   baseTitle,
   inboundWebId = null,
   outboundWebId = null,
+  lineageId = null,
   queenMarked,
 }) {
   if (queenMarked !== undefined && typeof queenMarked !== "boolean") {
@@ -215,6 +256,7 @@ export function renderWebTitle({
     baseTitle: parsed.baseTitle,
     inboundWebId,
     outboundWebId,
+    lineageId,
     queenMarked: queenMarked ?? parsed.queenMarked,
   });
 }
@@ -233,7 +275,8 @@ export function renderQueenTitle(title) {
       ? null
       : parsed.inboundWebId,
     outboundWebId:
-      parsed.outboundWebId ?? parsed.legacySpiderOnlyWebId,
+      parsed.outboundWebId ?? parsed.legacySpiderOnlyWebId ??
+      (parsed.queenMarked ? parsed.lineageId : null),
     queenMarked: true,
   });
 }
@@ -247,11 +290,7 @@ function assertMatchingMarker(actual, expected, label) {
 }
 
 /**
- * Decorate the current queen with one already-chosen legacy web identity.
- *
- * Allocation intentionally does not live here. The compatibility registry may
- * supply today's A1-style identity; permanent hexadecimal allocation and
- * migration are owned by GitHub issue #23.
+ * Decorate the current queen with one permanent compact web identity.
  */
 export function renderPersistedQueenWebTitle(title, webId) {
   const normalizedWebId = assertWebId(webId);
@@ -282,62 +321,180 @@ export function renderPersistedQueenWebTitle(title, webId) {
  * marker. A conflicting inbound marker is lineage evidence, not a rename hint.
  */
 export function renderPersistedDurableChildTitle(title, webId) {
-  const normalizedWebId = assertWebId(webId);
+  const normalizedLineageId = assertWebId(webId);
+  const normalizedWebId = parentWebId(normalizedLineageId) ?? normalizedLineageId;
   const parsed = parseTitleMarkers(title);
   if (!parsed.baseTitle) {
     throw new Error("durable child title must include visible text");
   }
-  assertMatchingMarker(parsed.inboundWebId, normalizedWebId, "child inbound marker");
+  if (
+    parsed.inboundWebId &&
+    parsed.inboundWebId !== normalizedWebId &&
+    parsed.inboundWebId !== normalizedLineageId
+  ) {
+    assertMatchingMarker(parsed.inboundWebId, normalizedWebId, "child inbound marker");
+  }
   return renderTitleMarkers({
     baseTitle: parsed.baseTitle,
     inboundWebId: normalizedWebId,
-    outboundWebId: parsed.outboundWebId,
+    lineageId: normalizedLineageId,
+    outboundWebId: parsed.queenMarked ? normalizedLineageId : null,
     queenMarked: parsed.queenMarked,
   });
 }
 
-export function allocateWebId(records, inboundWebId = null) {
-  const used = new Set();
-  // A compact ID is presentation, not lifecycle, state. Every unarchived
-  // reference reserves its web and ancestors; a settled turn does not release it.
-  for (const record of records.filter((candidate) => !candidate.archivedAt)) {
-    for (const webId of [record.inboundWebId, record.outboundWebId]) {
-      if (!webId) continue;
-      let normalizedWebId;
-      try {
-        normalizedWebId = assertWebId(webId);
-      } catch {
-        // Invalid legacy metadata cannot safely reserve a valid compact ID.
-        continue;
-      }
-      const segments = normalizedWebId.split(".");
+export const WEB_LINEAGE_STATE_SCHEMA_VERSION = 1;
+
+function legacyTopLevelOrdinal(value) {
+  const match = value.match(/^([A-Z])([1-9]\d*)$/u);
+  if (!match) return 0;
+  const letter = match[1].charCodeAt(0) - 65;
+  const number = Number(match[2]);
+  if (!Number.isSafeInteger(number)) return 0;
+  return number <= 9
+    ? letter * 9 + number
+    : 26 * 9 + (number - 10) * 26 + letter + 1;
+}
+
+function topLevelOrdinal(webId) {
+  const top = assertWebId(webId).split(".", 1)[0];
+  if (TOP_LEVEL_HEX_PATTERN.test(top)) return Number.parseInt(top, 16);
+  return legacyTopLevelOrdinal(top);
+}
+
+function recognizedIds(records, assignments = {}) {
+  const ids = new Set();
+  const add = (candidate) => {
+    if (!candidate) return;
+    try {
+      const normalized = assertWebId(candidate);
+      const segments = normalized.split(".");
       for (let length = 1; length <= segments.length; length += 1) {
-        used.add(segments.slice(0, length).join("."));
+        ids.add(segments.slice(0, length).join("."));
       }
+    } catch {
+      // Unrecognized legacy text cannot safely influence the allocator.
+    }
+  };
+  for (const record of records ?? []) {
+    add(record?.inboundWebId);
+    add(record?.outboundWebId);
+    add(record?.lineageId);
+    add(record?.web?.inboundWebId);
+    add(record?.web?.outboundWebId);
+    add(record?.web?.lineageId);
+    add(titleLineageId(record?.renderedTitle ?? record?.title ?? ""));
+  }
+  Object.values(assignments).forEach(add);
+  return ids;
+}
+
+export function normalizeWebLineageState(value, records = []) {
+  const source = value ?? {};
+  if (
+    source === null ||
+    typeof source !== "object" ||
+    Array.isArray(source) ||
+    Object.keys(source).some(
+      (field) => !["schemaVersion", "topLevelHighWater", "childHighWater", "assignments"].includes(field),
+    ) ||
+    (source.schemaVersion !== undefined && source.schemaVersion !== 1)
+  ) {
+    throw new Error("web lineage allocation state is invalid");
+  }
+  const assignments = { ...(source.assignments ?? {}) };
+  const forbiddenAssignmentKeys = new Set(["__proto__", "prototype", "constructor"]);
+  if (
+    Object.keys(assignments).length > 100_000 ||
+    Object.entries(assignments).some(([key, webId]) =>
+      typeof key !== "string" || key.length === 0 || key.length > 512 ||
+      forbiddenAssignmentKeys.has(key) ||
+      assertWebId(webId) !== webId)
+  ) {
+    throw new Error("web lineage assignments are invalid");
+  }
+  const ids = recognizedIds(records, assignments);
+  let topLevelHighWater = source.topLevelHighWater ?? 0;
+  if (!Number.isSafeInteger(topLevelHighWater) || topLevelHighWater < 0) {
+    throw new Error("web lineage top-level high-water mark is invalid");
+  }
+  const childHighWater = { ...(source.childHighWater ?? {}) };
+  for (const [parent, highWater] of Object.entries(childHighWater)) {
+    if (
+      assertWebId(parent) !== parent ||
+      !Number.isSafeInteger(highWater) ||
+      highWater < 0
+    ) {
+      throw new Error("web lineage child high-water marks are invalid");
     }
   }
-
-  if (inboundWebId) {
-    const parentWebId = assertWebId(inboundWebId);
-    for (let suffix = 1; suffix < Number.MAX_SAFE_INTEGER; suffix += 1) {
-      const candidate = `${parentWebId}.${suffix}`;
-      if (!used.has(candidate)) return candidate;
+  for (const id of ids) {
+    topLevelHighWater = Math.max(topLevelHighWater, topLevelOrdinal(id));
+    const parent = parentWebId(id);
+    if (parent !== null) {
+      const suffix = Number(id.slice(parent.length + 1));
+      childHighWater[parent] = Math.max(childHighWater[parent] ?? 0, suffix);
     }
   }
+  return {
+    schemaVersion: WEB_LINEAGE_STATE_SCHEMA_VERSION,
+    topLevelHighWater,
+    childHighWater,
+    assignments,
+  };
+}
 
-  for (let letter = 0; letter < 26; letter += 1) {
-    for (let digit = 1; digit <= 9; digit += 1) {
-      const candidate = `${String.fromCharCode(65 + letter)}${digit}`;
-      if (!used.has(candidate)) return candidate;
-    }
+export function allocatePermanentWebId(
+  state,
+  records,
+  { allocationKey, parentWebId: requestedParent = null },
+) {
+  if (
+    typeof allocationKey !== "string" ||
+    allocationKey.length === 0 ||
+    allocationKey.length > 512 ||
+    ["__proto__", "prototype", "constructor"].includes(allocationKey) ||
+    /[\u0000-\u001f\u007f]/u.test(allocationKey)
+  ) {
+    throw new Error("web lineage allocation key is invalid");
   }
-
-  for (let number = 10; number < Number.MAX_SAFE_INTEGER; number += 1) {
-    for (let letter = 0; letter < 26; letter += 1) {
-      const candidate = `${String.fromCharCode(65 + letter)}${number}`;
-      if (!used.has(candidate)) return candidate;
+  const normalized = normalizeWebLineageState(state, records);
+  const existing = normalized.assignments[allocationKey];
+  if (existing) {
+    const expectedParent = requestedParent === null ? null : assertWebId(requestedParent);
+    if (parentWebId(existing) !== expectedParent) {
+      throw new Error("web lineage allocation key conflicts with its persisted parent");
     }
+    return { state: normalized, webId: existing, reused: true };
   }
+  const used = recognizedIds(records, normalized.assignments);
+  let webId;
+  if (requestedParent !== null) {
+    const parent = assertWebId(requestedParent);
+    let suffix = normalized.childHighWater[parent] ?? 0;
+    do {
+      suffix += 1;
+      if (!Number.isSafeInteger(suffix)) throw new Error("no child web IDs are available");
+      webId = `${parent}.${suffix}`;
+    } while (used.has(webId));
+    normalized.childHighWater[parent] = suffix;
+  } else {
+    let counter = normalized.topLevelHighWater;
+    do {
+      counter += 1;
+      if (!Number.isSafeInteger(counter)) throw new Error("no top-level web IDs are available");
+      webId = counter.toString(16).toUpperCase();
+    } while (used.has(webId));
+    normalized.topLevelHighWater = counter;
+  }
+  normalized.assignments[allocationKey] = webId;
+  return { state: normalized, webId, reused: false };
+}
 
-  throw new Error("no web IDs are available");
+/** Compatibility-only in-memory allocation. Durable callers persist the state. */
+export function allocateWebId(records, inboundWebId = null) {
+  return allocatePermanentWebId(null, records, {
+    allocationKey: `ephemeral:${records?.length ?? 0}:${inboundWebId ?? "root"}`,
+    parentWebId: inboundWebId,
+  }).webId;
 }

@@ -5,6 +5,33 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.4] - 2026-08-03
+
+### User-facing changes
+
+- Queen and durable spinoff titles now use permanent compact hexadecimal
+  lineage such as `👑B8`, `🕷️B8.1`, and `👑B8.1` for a nested queen.
+
+### Compatibility requirements
+
+- Legacy spaced and dual-marker titles remain readable and normalize during
+  authorized synchronization; joined-subagent title behavior is unchanged.
+
+### Migrations
+
+- The first allocation seeds atomic top-level and per-parent high-water marks
+  from all recognized historical web and task records without renumbering them.
+
+### Security fixes
+
+- Archived, concurrent, interrupted, and replayed allocations can no longer
+  duplicate or reuse a top-level or child lineage ID.
+
+### Known limitations
+
+- Compact IDs are machine-local human-facing labels; native Codex thread IDs
+  remain the authoritative global identity.
+
 ## [0.12.3] - 2026-08-03
 
 ### User-facing changes

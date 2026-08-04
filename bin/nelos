@@ -14,8 +14,9 @@ import {
   renderWebTitle,
   resolveThreadId,
 } from "../src/app-server-client.mjs";
-import { resolveQueenMarked } from "../src/task-web.mjs";
+import { resolveQueenMarked, titleLineageId } from "../src/task-web.mjs";
 import {
+  allocatePermanentWebId,
   listTaskRegistryRecords as listRegistryRecords,
   listWebRecords,
   patchTaskRegistryRecord as patchRegistryRecord,
@@ -1385,6 +1386,7 @@ function webMetadata(record) {
     queenThreadId: record.queenThreadId ?? null,
     inboundWebId: record.inboundWebId ?? null,
     outboundWebId: record.outboundWebId ?? null,
+    lineageId: record.lineageId ?? null,
   };
 }
 
@@ -1439,9 +1441,12 @@ async function beginWeb(
     const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
     const inboundWebId = current?.inboundWebId || parsedInboundWebId || null;
     const existingOutboundWebId =
-      current?.outboundWebId || parsedOutboundWebId || null;
+      current?.outboundWebId || current?.lineageId || parsedOutboundWebId || null;
     const outboundWebId =
-      existingOutboundWebId || allocateWebId(await listWebRecords(), inboundWebId);
+      existingOutboundWebId || await allocatePermanentWebId({
+        allocationKey: `queen:${threadId}:${stored?.archivedAt ?? "active"}`,
+        parentWebId: inboundWebId,
+      });
     const priorQueenMarked = resolveQueenMarked({
       requestedTitle,
       liveTitle:
@@ -1452,6 +1457,7 @@ async function beginWeb(
       baseTitle,
       inboundWebId,
       outboundWebId,
+      lineageId: outboundWebId,
       queenMarked: true,
     });
 
@@ -1462,6 +1468,7 @@ async function beginWeb(
       baseTitle,
       inboundWebId,
       outboundWebId,
+      lineageId: outboundWebId,
       queenMarked: true,
       queenThreadId: current?.queenThreadId ?? null,
       renderedTitle,
@@ -1533,6 +1540,15 @@ async function joinWeb(
     if (!baseTitle) throw new Error("web join requires --title when the task has no title");
     const parsedOutboundWebId = stored?.archivedAt ? null : parsed.outboundWebId;
     const outboundWebId = current?.outboundWebId || parsedOutboundWebId || null;
+    const observedLineageId = stored?.archivedAt
+      ? null
+      : current?.lineageId || titleLineageId(
+          liveResult?.thread?.name || liveResult?.thread?.preview || requestedTitle || "",
+        );
+    const lineageId = outboundWebId || observedLineageId || await allocatePermanentWebId({
+      allocationKey: `member:${threadId}:${inboundWebId}`,
+      parentWebId: inboundWebId,
+    });
     const queenMarked = resolveQueenMarked({
       requestedTitle,
       liveTitle:
@@ -1540,10 +1556,12 @@ async function joinWeb(
       webRecord: current,
       outboundWebId,
     });
+    const effectiveOutboundWebId = outboundWebId || (queenMarked ? lineageId : null);
     const renderedTitle = renderWebTitle({
       baseTitle,
       inboundWebId,
-      outboundWebId,
+      outboundWebId: effectiveOutboundWebId,
+      lineageId,
       queenMarked,
     });
 
@@ -1553,7 +1571,8 @@ async function joinWeb(
       threadId,
       baseTitle,
       inboundWebId,
-      outboundWebId,
+      outboundWebId: effectiveOutboundWebId,
+      lineageId,
       queenMarked,
       queenThreadId: queenThreadId || current?.queenThreadId || null,
       renderedTitle,
@@ -1773,9 +1792,8 @@ async function runStart(
   assertNoPositionals(options);
   const resolvedInput = input || (await resolveStartInput(options));
   const baseTitle = parseWebTitle(resolvedInput.title).baseTitle;
-  const renderedTitle = spinoff
-    ? renderWebTitle({ baseTitle, inboundWebId: spinoff.webId })
-    : resolvedInput.title;
+  let renderedTitle = resolvedInput.title;
+  let lineageId = null;
   const { approvalPolicy, permissions, polling, sandbox } =
     configuration || resolveStartConfiguration(options);
   if (!permissionProfileValidated) {
@@ -1802,6 +1820,18 @@ async function runStart(
     if (!threadId) throw new Error("thread/start returned no task ID");
     startedThread = threadResult.thread;
 
+    if (spinoff) {
+      lineageId = await withWebRegistryLock(() => allocatePermanentWebId({
+        allocationKey: `member:${threadId}:${spinoff.webId}`,
+        parentWebId: spinoff.webId,
+      }));
+      renderedTitle = renderWebTitle({
+        baseTitle,
+        inboundWebId: spinoff.webId,
+        lineageId,
+      });
+    }
+
     await setAndVerifyTitle(client, threadId, renderedTitle);
 
     await writeRegistryRecord({
@@ -1818,6 +1848,7 @@ async function runStart(
             queenThreadId: spinoff.queenThreadId,
             inboundWebId: spinoff.webId,
             outboundWebId: null,
+            lineageId,
           }
         : null,
     });
@@ -1829,6 +1860,7 @@ async function runStart(
         baseTitle,
         inboundWebId: spinoff.webId,
         outboundWebId: null,
+        lineageId,
         queenThreadId: spinoff.queenThreadId,
         renderedTitle,
         createdAt: timestamp,
@@ -2143,7 +2175,7 @@ async function runWeb(options, client) {
       webId: result.webId,
       inboundWebId: result.inboundWebId,
       reused: result.reused,
-      webMemberTitlePrefix: `🕷️ ${result.webId} ·`,
+      webMemberTitlePrefix: `🕷️${result.webId}.<child> ·`,
       joinCommand:
         `nelos web join --id ${result.webId} --title <TITLE> ` +
         `--queen-thread-id ${threadId}` +
@@ -2522,6 +2554,7 @@ async function runTitle(options, client) {
               baseTitle: parsedTitle.baseTitle,
               inboundWebId: activeWebRecord.inboundWebId,
               outboundWebId: activeWebRecord.outboundWebId,
+              lineageId: activeWebRecord.lineageId,
               queenMarked,
             })
           : queenMarked

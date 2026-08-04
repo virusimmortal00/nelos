@@ -409,7 +409,7 @@ test("durable plan runs persist one web identity and decorated settled titles", 
     assert.deepEqual(first.webIdentity, webIdentity());
     assert.equal(
       first.waves[0].members[0].title,
-      "🕷️ A1 · Research the boundary",
+      "🕷️A1.1 · Research the boundary",
     );
 
     await assert.rejects(
@@ -450,7 +450,7 @@ test("legacy plan runs adopt a web identity without renumbering existing markers
     assert.equal(upgraded.webIdentity.webId, "A1");
     assert.equal(
       upgraded.waves[0].members[0].title,
-      "🕷️ A1 · Research the boundary",
+      "🕷️A1.1 · Research the boundary",
     );
     assert.deepEqual(await store.read(upgraded.planRunId), upgraded);
   } finally {

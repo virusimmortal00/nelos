@@ -123,7 +123,7 @@ The launch intent should persist at least:
   "intentId": "launch:A1:api:r1:a1",
   "queenThreadId": "queen-task-id",
   "workUnitId": "api",
-  "requestedTitle": "🕷️ A1 · API changes",
+  "requestedTitle": "🕷️B8.1 · API changes",
   "promptDigest": "sha256:...",
   "target": {},
   "nativeTask": {},
@@ -172,12 +172,13 @@ reuse of an `intentId` with different inputs.
    - An ambiguous timeout moves the intent to `attention`; never create a
      replacement until native reconciliation proves that the first create did
      not commit.
-5. **Persist one web identity, then settle queen and spinoff titles.** For a
+5. **Persist permanent lineage, then settle queen and spinoff titles.** For a
    durable plan, Nelos reuses the queen's existing legacy web record or marked
    title, or allocates through that compatibility registry once. The web ID,
-   exact queen title, and every durable member's decorated title are persisted
-   in the plan-run contract before launch. Conflicting record, title, or
-   plan-run identities fail closed rather than overwriting lineage.
+   exact queen title, and every durable member's monotonically allocated child
+   title are persisted in the plan-run contract before launch. Conflicting
+   record, title, or plan-run identities fail closed rather than overwriting
+   lineage.
 
    The planner reads the current queen title twice and returns one deterministic
    host-owned `native-set-title` effect when the persisted queen title is not

@@ -24,12 +24,13 @@ queen and spinoff describe its web roles, not its thread topology.
 
 ## Title Grammar
 
-Top-level web IDs use an uppercase letter and a digit. Titles lead with the
-task's visible role:
+Top-level web IDs are a persistent monotonic counter rendered as uppercase
+hexadecimal without leading zeroes. Decimal suffixes identify children. The
+role emoji is the identifier prefix, followed by one title separator:
 
 ```text
-👑 WEB_ID · queen title
-🕷️ WEB_ID · spin-off title
+👑B8 · queen title
+🕷️B8.1 · spin-off title
 ```
 
 The first character is therefore enough to distinguish queens from spin-offs.
@@ -37,22 +38,23 @@ A standalone queen may omit the web ID until it owns a web:
 
 ```text
 👑 · Standalone queen
-👑 A1 · Root queen
-🕷️ A1 · First spin-off
-🕷️ A1 · Second spin-off
+👑B8 · Root queen
+🕷️B8.1 · First spin-off
+🕷️B8.2 · Second spin-off
 ```
 
 A spinoff can also become queen of a nested web. Nelos allocates a
-hierarchical web ID and retains both roles in its title:
+hierarchical lineage ID. The hierarchy itself retains the parent relationship,
+so the title still needs only one role marker:
 
 ```text
-👑 A1 · Root queen
-👑 A1.1 🕷️ A1 · Spin-off queen
-🕷️ A1.1 · Nested spin-off
+👑B8 · Root queen
+👑B8.2 · Spin-off queen
+🕷️B8.2.1 · Nested spin-off
 ```
 
-For a nested queen, the leading crown and outbound ID remain first; the spider
-and parent-web ID retain its spin-off lineage. Existing titles using the legacy
+For a nested queen, the suffix retains its inbound lineage. Existing titles
+using the legacy spaced role markers or
 `🕸️ inbound`, `🕷️ outbound`, trailing-crown grammar remain readable and
 normalize to the role-first form on the next authorized title synchronization.
 Web IDs are compact visual labels, not substitutes for stable task IDs.
@@ -138,15 +140,12 @@ web, and `web join` reuses matching inbound membership. Allocation and
 membership are stored under the user's `nelos/webs` state directory so
 nested webs do not depend on parsing sidebar titles as their source of truth.
 
-The MCP plan-run path uses that registry only as a compatibility source for one
-persisted queen web identity; it does not introduce a second allocator. Legacy
-records and marked titles remain readable and keep their IDs. Permanent
-uppercase-hexadecimal allocation, atomic high-water persistence, historical
-seeding, and monotonic child suffixes belong to
-[GitHub issue #23](https://github.com/virusimmortal00/nelos/issues/23). The
-current registry still reserves an allocated ID until host-observed archival,
-as described below. That migration must preserve recognized historical lineage
-without destructive renumbering.
+The CLI and MCP plan-run path share one atomic allocator persisted as
+`web-lineage.json` beside the web registry. Migration seeds its top-level and
+per-parent high-water marks from every recognized historical record, including
+archived records, before the next allocation. Allocation keys make interrupted
+and concurrent replays idempotent. Legacy records and marked titles remain
+readable and keep their IDs without destructive renumbering.
 
 Socket-backed `web begin` returns a verified `liveTitle`. Registry-only setup
 returns an unverified `renderedTitle` that must be synchronized through the
@@ -205,9 +204,7 @@ set the decorated title there instead.
 
 Web title markers represent durable web lineage and persist for the task's
 lifetime.
-A web ID becomes reusable only after its queen and every task carrying that ID
-or a descendant ID are observed archived through `nelos archive` or a
-host-provided lifecycle observation. Until then its compact ID remains reserved;
-the local cache never releases it based on a manually asserted archive. Sidebar
-activity state, rather than removal of the marker, indicates whether a member is
-currently running.
+Allocated top-level and child IDs are never reused, including after archival.
+Archival changes lifecycle state only; it never lowers a high-water mark or
+removes an allocation-key assignment. Sidebar activity state, rather than
+removal of the marker, indicates whether a member is currently running.

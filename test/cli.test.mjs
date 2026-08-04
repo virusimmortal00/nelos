@@ -220,7 +220,7 @@ test("worktree launch binds a durable work unit and reports integration readines
   await writeFile(
     specPath,
     `${JSON.stringify({
-      webId: "A1",
+      webId: "1",
       queenThreadId: queen.id,
       workUnitId: "api",
       specRevision: 1,
@@ -2038,15 +2038,15 @@ test("web begin and join render nested queen relationships", async () => {
     );
     assert.equal(queenResult.status, 0, queenResult.stderr);
     const queenOutput = JSON.parse(queenResult.stdout);
-    assert.equal(queenOutput.webId, "A1");
-    assert.equal(queenOutput.webMemberTitlePrefix, "🕷️ A1 ·");
+    assert.equal(queenOutput.webId, "1");
+    assert.equal(queenOutput.webMemberTitlePrefix, "🕷️1.<child> ·");
     assert.match(
       queenOutput.joinCommand,
       /--queen-thread-id queen-thread$/,
     );
     assert.equal(
       threads.get("queen-thread").name,
-      "👑 A1 · Release planning",
+      "👑1 · Release planning",
     );
     const queenWebRecord = JSON.parse(
       await readFile(
@@ -2063,7 +2063,7 @@ test("web begin and join render nested queen relationships", async () => {
         "web",
         "join",
         "--id",
-        "A1",
+        "1",
         "--title",
         "API changes",
         "--queen-thread-id",
@@ -2082,7 +2082,7 @@ test("web begin and join render nested queen relationships", async () => {
     assert.equal(JSON.parse(joinResult.stdout).queenThreadId, "queen-thread");
     assert.equal(
       threads.get("member-thread").name,
-      "👑 🕷️ A1 · API changes",
+      "👑1.1 · API changes",
     );
     const joinedWebRecord = JSON.parse(
       await readFile(
@@ -2102,10 +2102,10 @@ test("web begin and join render nested queen relationships", async () => {
       },
     );
     assert.equal(nestedResult.status, 0, nestedResult.stderr);
-    assert.equal(JSON.parse(nestedResult.stdout).webId, "A1.1");
+    assert.equal(JSON.parse(nestedResult.stdout).webId, "1.1");
     assert.equal(
       threads.get("member-thread").name,
-      "👑 A1.1 🕷️ A1 · API changes",
+      "👑1.1 · API changes",
     );
     const nestedRecordPath = join(
       stateHome,
@@ -2142,7 +2142,7 @@ test("web begin and join render nested queen relationships", async () => {
     assert.equal(titleResult.status, 0, titleResult.stderr);
     assert.equal(
       threads.get("member-thread").name,
-      "👑 A1.1 🕷️ A1 · API implementation",
+      "👑1.1 · API implementation",
     );
     const mainTitleRecord = JSON.parse(
       await readFile(
@@ -2175,7 +2175,7 @@ test("web begin and join render nested queen relationships", async () => {
     );
     assert.equal(
       threads.get("member-thread").name,
-      "👑 A1.1 🕷️ A1 · API delivery",
+      "👑1.1 · API delivery",
     );
     const compatibilityTitleRecord = JSON.parse(
       await readFile(
@@ -2421,8 +2421,8 @@ test("registry-only web setup supports desktop-native task creation without a so
     );
     assert.equal(queenResult.status, 0, queenResult.stderr);
     const queen = JSON.parse(queenResult.stdout);
-    assert.equal(queen.webId, "A1");
-    assert.equal(queen.renderedTitle, "👑 A1 · Desktop queen");
+    assert.equal(queen.webId, "1");
+    assert.equal(queen.renderedTitle, "👑1 · Desktop queen");
     assert.equal(queen.baseTitle, "Desktop queen");
     assert.equal(queen.queenMarked, true);
     assert.equal(queen.titleVerified, false);
@@ -2435,7 +2435,7 @@ test("registry-only web setup supports desktop-native task creation without a so
         "web",
         "join",
         "--id",
-        "A1",
+        "1",
         "--title",
         "Desktop member",
         "--queen-thread-id",
@@ -2451,7 +2451,7 @@ test("registry-only web setup supports desktop-native task creation without a so
     );
     assert.equal(memberResult.status, 0, memberResult.stderr);
     const member = JSON.parse(memberResult.stdout);
-    assert.equal(member.renderedTitle, "🕷️ A1 · Desktop member");
+    assert.equal(member.renderedTitle, "🕷️1.1 · Desktop member");
     assert.equal(member.queenThreadId, "native-queen");
     assert.equal(member.titleVerified, false);
 
@@ -2461,7 +2461,8 @@ test("registry-only web setup supports desktop-native task creation without a so
         "utf8",
       ),
     );
-    assert.equal(stored.inboundWebId, "A1");
+    assert.equal(stored.inboundWebId, "1");
+    assert.equal(stored.lineageId, "1.1");
     assert.equal(stored.queenThreadId, "native-queen");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -2754,7 +2755,7 @@ test("a revived archived task allocates a fresh web ID", async () => {
       );
     const first = await begin("old-thread");
     assert.equal(first.status, 0, first.stderr);
-    assert.equal(JSON.parse(first.stdout).webId, "A1");
+    assert.equal(JSON.parse(first.stdout).webId, "1");
 
     const oldRecordPath = join(
       stateHome,
@@ -2770,12 +2771,12 @@ test("a revived archived task allocates a fresh web ID", async () => {
 
     const replacement = await begin("new-thread");
     assert.equal(replacement.status, 0, replacement.stderr);
-    assert.equal(JSON.parse(replacement.stdout).webId, "A1");
+    assert.equal(JSON.parse(replacement.stdout).webId, "2");
 
     const revived = await begin("old-thread");
     assert.equal(revived.status, 0, revived.stderr);
-    assert.equal(JSON.parse(revived.stdout).webId, "A2");
-    assert.equal(threads.get("old-thread").name, "👑 A2 · Old queen");
+    assert.equal(JSON.parse(revived.stdout).webId, "3");
+    assert.equal(threads.get("old-thread").name, "👑3 · Old queen");
   } finally {
     await server.close();
     await rm(root, { recursive: true, force: true });
@@ -2843,16 +2844,16 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
     assert.equal(second.status, 0, second.stderr);
     assert.equal(
       threads.get("queen-thread").name,
-      "👑 A1 · Release planning",
+      "👑1 · Release planning",
     );
     assert.deepEqual(
       [threads.get("spinoff-1").name, threads.get("spinoff-2").name].sort(),
-      ["🕷️ A1 · API changes", "🕷️ A1 · Documentation"].sort(),
+      ["🕷️1.1 · API changes", "🕷️1.2 · Documentation"].sort(),
     );
 
     const output = JSON.parse(first.stdout);
     assert.equal(output.command, "spinoff");
-    assert.equal(output.spinoff.webId, "A1");
+    assert.equal(output.spinoff.webId, "1");
     assert.equal(output.latestTurn.id, output.turnId);
     assert.equal(output.latestTurn.status, "inProgress");
     assert.deepEqual(output.status, { type: "active", activeFlags: [] });
@@ -2869,8 +2870,9 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
     assert.equal(record.baseTitle, "API changes");
     assert.deepEqual(record.web, {
       queenThreadId: "queen-thread",
-      inboundWebId: "A1",
+      inboundWebId: "1",
       outboundWebId: null,
+      lineageId: "1.1",
     });
     const queenRecord = JSON.parse(
       await readFile(
@@ -2943,19 +2945,19 @@ test("a spinoff can become queen of a nested web", async () => {
     assert.equal(nested.status, 0, nested.stderr);
     assert.equal(
       threads.get("queen-thread").name,
-      "👑 A1 · Release planning",
+      "👑1 · Release planning",
     );
     assert.equal(
       threads.get("spinoff-1").name,
-      "👑 A1.1 🕷️ A1 · API changes",
+      "👑1.1 · API changes",
     );
-    assert.equal(threads.get("spinoff-2").name, "🕷️ A1.1 · Contract tests");
+    assert.equal(threads.get("spinoff-2").name, "🕷️1.1.1 · Contract tests");
 
     const output = JSON.parse(nested.stdout);
     assert.deepEqual(output.spinoff, {
       queenThreadId: "spinoff-1",
-      queenTitle: "👑 A1.1 🕷️ A1 · API changes",
-      webId: "A1.1",
+      queenTitle: "👑1.1 · API changes",
+      webId: "1.1",
     });
     const nestedQueenWeb = JSON.parse(
       await readFile(
@@ -2971,14 +2973,16 @@ test("a spinoff can become queen of a nested web", async () => {
     );
     const expectedNestedQueenWeb = {
       queenThreadId: "queen-thread",
-      inboundWebId: "A1",
-      outboundWebId: "A1.1",
+      inboundWebId: "1",
+      outboundWebId: "1.1",
+      lineageId: "1.1",
     };
     assert.deepEqual(
       {
         queenThreadId: nestedQueenWeb.queenThreadId,
         inboundWebId: nestedQueenWeb.inboundWebId,
         outboundWebId: nestedQueenWeb.outboundWebId,
+        lineageId: nestedQueenWeb.lineageId,
       },
       expectedNestedQueenWeb,
     );

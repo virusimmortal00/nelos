@@ -371,7 +371,7 @@ test("web inspection validates identity and page bounds before reading state", a
       },
       { appServerBridge, webRegistry: persistedWebRegistry },
     ),
-    /web ID must look like/,
+    /compact uppercase lineage/,
   );
   await assert.rejects(
     inspector.inspect(

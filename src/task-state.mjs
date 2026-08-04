@@ -16,6 +16,10 @@ import {
   processMayOwnLease,
   readProcessIdentity,
 } from "./process-liveness.mjs";
+import {
+  allocatePermanentWebId as allocatePermanentWebIdRecord,
+  normalizeWebLineageState,
+} from "./task-web.mjs";
 
 const PRE_QUEEN_THREAD_ID_FIELD = "coordinatorThreadId";
 // This process cannot be replaced under its own PID. Cache both success and
@@ -37,6 +41,10 @@ function taskRegistryDirectory() {
 
 function webRegistryDirectory() {
   return join(taskStateDirectory(), "webs");
+}
+
+function webLineageStatePath() {
+  return join(taskStateDirectory(), "web-lineage.json");
 }
 
 function recordPath(directory, threadId) {
@@ -145,6 +153,38 @@ export async function patchWebRecord(threadId, patch) {
 
 export async function listWebRecords() {
   return (await listRecords(webRegistryDirectory())).map(normalizeQueenThreadId);
+}
+
+async function readWebLineageState() {
+  try {
+    return JSON.parse(await readFile(webLineageStatePath(), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw new Error(`failed to read web lineage allocation state: ${error.message}`);
+  }
+}
+
+async function writeWebLineageState(state) {
+  await mkdir(taskStateDirectory(), { recursive: true, mode: 0o700 });
+  const target = webLineageStatePath();
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  await rename(temporary, target);
+}
+
+/** Must be called while holding withWebRegistryLock. */
+export async function allocatePermanentWebId({ allocationKey, parentWebId = null }) {
+  const records = [
+    ...(await listWebRecords()),
+    ...(await listTaskRegistryRecords()),
+  ];
+  const current = normalizeWebLineageState(await readWebLineageState(), records);
+  const allocation = allocatePermanentWebIdRecord(current, records, {
+    allocationKey,
+    parentWebId,
+  });
+  await writeWebLineageState(allocation.state);
+  return allocation.webId;
 }
 
 async function moveStaleLock(lockPath) {
