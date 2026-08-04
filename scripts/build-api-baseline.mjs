@@ -4,10 +4,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { canonicalBytes } from "../src/experimentation-contract/index.mjs";
-import { createApiBaselineBundle, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
+import { createApiBaselineBundle, measureRuntimeProvenance, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
 
 function argumentsOf(argv) {
-  const allowed = new Set(["mode", "out", "source-commit", "model-id", "model-revision", "reasoning-effort", "runtime-version", "runtime-digest", "backend", "platform"]);
+  const allowed = new Set(["mode", "out", "source-commit", "model-id", "model-revision", "reasoning-effort", "runtime-executable", "expected-runtime-digest", "backend", "platform"]);
   const result = {};
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
@@ -19,11 +19,14 @@ function argumentsOf(argv) {
 
 const options = argumentsOf(process.argv.slice(2));
 const out = resolve(options.out ?? `api-baseline-${options.mode ?? "canary"}.json`);
+if ((options.mode ?? "canary") !== "canary") throw new Error("CONFIRMATORY_POWER_AUTHORIZATION_REQUIRED");
+if (!options["runtime-executable"]) throw new Error("runtime-executable is required");
+const runtimeProvenance = await measureRuntimeProvenance({ executablePath: resolve(options["runtime-executable"]), backend: options.backend ?? "dedicated-desktop", platform: options.platform ?? "macos-arm64", expectedExecutableDigest: options["expected-runtime-digest"] ?? null });
 const bundle = createApiBaselineBundle({
-  mode: options.mode ?? "canary",
+  mode: "canary",
   sourceCommit: options["source-commit"],
   requestedModel: { id: options["model-id"], revision: options["model-revision"], reasoningEffort: options["reasoning-effort"] },
-  runtime: { backend: options.backend ?? "oci-headless", platform: options.platform ?? "linux-arm64", runtimeVersion: options["runtime-version"], runtimeDigest: options["runtime-digest"] },
+  runtimeProvenance,
 });
 validateApiBaselineBundle(bundle);
 await mkdir(dirname(out), { recursive: true, mode: 0o700 });

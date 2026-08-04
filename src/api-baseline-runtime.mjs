@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -15,7 +15,7 @@ export class ApiCredentialError extends Error {
   }
 }
 
-const SAFE_RUNTIME_ERRORS = new Set(["UNKNOWN_SEALED_TASK", "SEALED_REQUEST_MISMATCH", "ROUTE_CONTROL_REQUIRED", "UNAPPROVED_CREDENTIAL_PATH", "API_CREDENTIAL_UNAVAILABLE", "API_CREDENTIAL_PERMISSIONS_UNSAFE", "API_CREDENTIAL_NOT_GIT_EXCLUDED", "API_CREDENTIAL_DECLARATION_INVALID", "API_CODEX_PROCESS_FAILED"]);
+const SAFE_RUNTIME_ERRORS = new Set(["UNKNOWN_SEALED_TASK", "SEALED_REQUEST_MISMATCH", "ROUTE_CONTROL_REQUIRED", "UNAPPROVED_CREDENTIAL_PATH", "API_CREDENTIAL_UNAVAILABLE", "API_CREDENTIAL_PERMISSIONS_UNSAFE", "API_CREDENTIAL_NOT_GIT_EXCLUDED", "API_CREDENTIAL_DECLARATION_INVALID", "API_CODEX_PROCESS_FAILED", "ATTEMPT_CONTROL_INVALID", "ATTEMPT_REPLAY_REJECTED", "RUNTIME_PROVENANCE_MISMATCH", "RUNTIME_RECEIPT_MISSING", "RUNTIME_RECEIPT_INVALID", "RUNTIME_ROUTE_MISMATCH", "PROVIDER_EXPOSURE_EXCEEDED"]);
 export function safeApiRuntimeError(error) { return SAFE_RUNTIME_ERRORS.has(error?.code) ? error.code : "API_BASELINE_ADAPTER_FAILED"; }
 
 function reject(code) { throw new ApiCredentialError(code); }
@@ -40,7 +40,7 @@ export async function readApprovedApiKey({ keyFile = APPROVED_API_KEY_FILE, git 
   return value;
 }
 
-export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE, execute }) {
+export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE, loadCredential = () => readApprovedApiKey({ keyFile }), execute }) {
   if (typeof execute !== "function") throw new TypeError("execute callback is required");
   const root = await mkdtemp(resolve(tmpdir(), "nelos-api-baseline-attempt-"));
   const home = resolve(root, "home");
@@ -49,7 +49,7 @@ export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE
   await Promise.all([home, workspace, temporary].map((path) => mkdir(path, { mode: 0o700 })));
   let apiKey;
   try {
-    apiKey = await readApprovedApiKey({ keyFile });
+    apiKey = await loadCredential();
     const env = Object.freeze({
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       LANG: "C.UTF-8",
@@ -66,4 +66,26 @@ export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE
     apiKey = undefined;
     await rm(root, { recursive: true, force: true });
   }
+}
+
+export async function resolveExecutable(command, pathValue = process.env.PATH ?? "/usr/bin:/bin") {
+  if (command.includes("/")) return realpath(command);
+  for (const directory of pathValue.split(":")) {
+    if (!directory.startsWith("/")) continue;
+    try {
+      const candidate = await realpath(resolve(directory, command));
+      const metadata = await stat(candidate);
+      if (metadata.isFile() && (metadata.mode & 0o111) !== 0) return candidate;
+    } catch (error) { if (!["ENOENT", "EACCES", "ENOTDIR"].includes(error.code)) throw error; }
+  }
+  reject("API_CODEX_PROCESS_FAILED");
+}
+
+export async function claimApiOperation(request, { ledgerRoot }) {
+  if (typeof ledgerRoot !== "string" || !ledgerRoot.startsWith("/")) reject("ATTEMPT_CONTROL_INVALID");
+  await mkdir(ledgerRoot, { recursive: true, mode: 0o700 });
+  const path = resolve(ledgerRoot, request.operationId.slice(3));
+  let handle;
+  try { handle = await open(path, "wx", 0o400); } catch (error) { if (error.code === "EEXIST") reject("ATTEMPT_REPLAY_REJECTED"); throw error; }
+  try { await handle.writeFile(JSON.stringify({ operationId: request.operationId, trialId: request.trialId, attempt: request.attempt, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken })); await handle.sync(); } finally { await handle.close(); }
 }

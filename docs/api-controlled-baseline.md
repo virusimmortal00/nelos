@@ -1,90 +1,100 @@
 # API-controlled repeat-arm baseline
 
-This harness is a separate experiment phase from the signed-in product-default
-pilot. It has distinct `run:api-baseline-*` IDs, store directories, evidence
-roots, report kind, explicit model route, and runtime provenance. Both arms run
-the same direct Codex API adapter with no Nelos candidate, plugins, developer
-configuration, or inherited user configuration.
+This phase is separate from the signed-in product-default pilot. Its canary is
+deliberately tiny: exactly four API trials, consisting of two identical direct
+Codex repeat arms in two predetermined blocks. Block one is AB and block two is
+BA. The builder includes one sealed starter task only; it cannot multiply the
+canary across the five confirmatory strata.
 
-## Build and inspect a sealed bundle
+## Build the four-trial canary
 
-Build either the 20-trial canary (two pairs in each of five strata) or the
-100-trial confirmatory baseline (ten pairs in each stratum):
+The runtime executable is measured from its real immutable bytes. An optional
+expected digest is a comparison assertion, not provenance supplied by the
+caller; a mismatch stops construction.
 
 ```sh
 node scripts/build-api-baseline.mjs \
   --mode canary \
-  --out /secure/operator/api-baseline-canary.json \
+  --out /secure/operator/api-canary.json \
   --source-commit 0123456789012345678901234567890123456789 \
   --model-id model:gpt-5.6-sol-2026-07-15 \
   --model-revision 2026-07-15 \
   --reasoning-effort medium \
-  --runtime-version codex-api-runtime-v1 \
-  --runtime-digest sha256:0123456789012345678901234567890123456789012345678901234567890123
+  --runtime-executable /immutable/runtime/bin/codex \
+  --expected-runtime-digest sha256:0123456789012345678901234567890123456789012345678901234567890123 \
+  --backend dedicated-desktop \
+  --platform macos-arm64
 ```
 
-The builder writes with create-only semantics. The bundle seals the full
-task/seed schedule, runner expansion digest, trial IDs, AB/BA order, ceilings,
-route, runtime provenance, and power policy. Rebuild to a new path for the
-confirmatory phase with `--mode confirmatory`; never edit a built bundle.
+The create-only bundle seals four trials, two blocks, AB/BA order, concurrency
+one, one attempt, 4,000 tokens and 180 seconds per trial, zero candidate network
+requests, one provider execution/request, zero provider retries, and maximum
+estimated exposure of USD 0.25 per trial / USD 1.00 total. Total token and wall
+ceilings are 16,000 tokens and 720 seconds. Editing any value breaks the bundle
+digest and validation.
 
-## Credential boundary
+There is no direct `--mode confirmatory` builder. Confirmatory trial counts are
+fixed only after the offline power authorization described below.
 
-The only approved credential source is
-`/Users/bobby.sayers/src/nelos/.env.local`, containing one
-`OPENAI_API_KEY=...` declaration. Before reading it, the adapter requires a
-regular file with no group/world permission bits and proves that Git ignores it.
-The value is injected only into the Codex child environment. It is never placed
-in the bundle, command arguments, adapter declaration, retained output,
-telemetry, or error details.
+## Credential and disposable-attempt boundary
 
-Each attempt receives a newly created home, Codex home, XDG directories,
-temporary directory, and workspace. Only generated sealed task inputs are
-staged. The parent environment, repository files, `.git`, `.codex`, rules,
-developer configuration, and repository secrets are not copied. The entire
-attempt root and child environment disappear in the `finally` boundary.
+Production reads only `/Users/bobby.sayers/src/nelos/.env.local`. Before reading,
+it requires owner-only permissions, current-user ownership, and a successful
+Git-ignore check. The value enters only the disposable Codex child environment;
+it is absent from argv, bundles, requested/observed route records, logs,
+telemetry, reports, evidence, artifacts, and error text. Fresh home, Codex home,
+XDG, temporary, and workspace directories are removed in `finally`.
 
-Verify immediately before a run:
+Tests use an explicit dependency-injection seam with a generated synthetic key
+and fake Codex process. Production's executable script does not expose a key
+path or injected credential option, and the tests never read the real file.
 
-```sh
-stat -f '%Sp %Lp %N' /Users/bobby.sayers/src/nelos/.env.local
-git -C /Users/bobby.sayers/src/nelos check-ignore -v .env.local
-```
+## Receipt and replay requirements
 
-## Execute without expansion
+The adapter does not treat requested route fields as observations. A successful
+attempt requires exactly one independently parsed `api.runtime_receipt` event
+containing the observed model ID, revision, reasoning effort, provider execution
+count, retry count, request count, estimated cost, and executable byte digest.
+Missing, duplicate, malformed, mismatched, or over-ceiling receipts fail closed.
 
-Use a new, nonexistent store directory and an API-only run ID:
+Before credential loading, the adapter verifies the deterministic operation ID,
+lease ID, unexpired lease, attempt number, controller owner, and fencing token.
+It then claims the operation in a create-only ledger. Replaying the same
+operation is rejected before another provider execution.
+
+Run into a new store and API-canary run namespace only:
 
 ```sh
 node scripts/run-api-baseline.mjs \
-  --bundle /secure/operator/api-baseline-canary.json \
-  --store /secure/operator/api-baseline-canary-store \
+  --bundle /secure/operator/api-canary.json \
+  --store /secure/operator/api-canary-store \
   --run-id run:api-baseline-canary-001
 ```
 
-The controller validates the bundle and follows only the sealed trial order. It
-refuses a non-API run ID, an existing store, an added trial, a route mismatch,
-candidate network access, more than one provider execution per trial, or any changed ceiling. Do not run the
-API bundle with the signed-in pilot scripts or share its store/evidence/report
-paths with that pilot.
+The current raw Codex command must emit the receipt contract above through an
+admitted runtime wrapper/provider integration. If it cannot, the canary is
+inconclusive and makes no confirmatory authorization claim.
 
-## Power decision
+## Offline confirmatory authorization
 
-The confirmatory policy predeclares strict pass rate as the primary endpoint,
-candidate failure rate as a safety endpoint, absolute MDE 0.20, alpha 0.05,
-target power 0.80, and task-level paired clustering. A decision is unavailable
-until every critical stratum has at least ten complete AB pairs. Repeats are
-clustered within task and never counted as independent tasks.
+Power evidence is reduced at the paired task-cluster level. Repeated seeds or
+blocks for one task are averaged within that task and count as one independent
+sample. Applicable variance evidence may come from the signed-in repeat-arm
+pilot and the four-trial API canary. The sealed policy uses paired strict-pass
+risk difference, absolute MDE 0.20, alpha 0.05, target power 0.80, and a hard
+floor of ten independent paired tasks in every critical stratum.
 
-After reducing retained run records to the documented observation shape
-(`stratum`, `blockId`, `candidateId`, and `trialId`), check that a decision is
-permitted:
+Evidence rows use normalized repeat-arm labels `a` and `b` (not phase-specific
+candidate IDs) with `phase`, `stratum`, `taskId`, `blockId`, and binary `value`.
 
 ```sh
 node scripts/decide-api-baseline.mjs \
-  --bundle /secure/operator/api-baseline-confirmatory.json \
-  --observations /secure/operator/api-baseline-observations.json
+  --bundle /secure/operator/api-canary.json \
+  --observations /secure/operator/paired-task-variance-evidence.json
 ```
 
-This gate reports readiness and the sealed endpoints; it rejects rather than
-extrapolates when any critical stratum has fewer than ten complete pairs.
+If any stratum lacks the larger of the power-derived count and ten independent
+paired tasks, the result is `no-go`, `zeroFurtherCalls` is true, and no
+confirmatory plan can be created. An authorized result seals exact independent
+task IDs, AB/BA allocation, trial count, and exposure ceilings into a separate
+confirmatory plan; it never reuses repeated seeds as independent clusters.
