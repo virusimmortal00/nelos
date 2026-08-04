@@ -76,7 +76,7 @@ test("offline injected sentinel and fake Codex leave every prohibited sink clean
     request,
     loadCredential: async () => sentinel,
     claimOperation: async () => {},
-    executableResolver: async () => executablePath,
+    executableResolver: async (sealedPath) => { assert.equal(sealedPath, executablePath); return executablePath; },
     executableReader: async () => Buffer.from(executableBytes),
     receiptProxyFactory: receiptProxy(request, () => receipt(request), ({ apiKey }) => { proxyCredentialObserved = apiKey === sentinel; }),
     processRunner: async (command, args, options) => {
@@ -227,6 +227,8 @@ test("power authorization counts independent paired tasks, not repeated seeds", 
   assert.equal(authorization.status, "authorized"); assert.equal(authorization.strata.every(({ independentPairedTasks, authorizedTasks }) => independentPairedTasks === 10 && authorizedTasks === 10), true);
   const taskIdsByStratum = Object.fromEntries(API_BASELINE_FAMILIES.map((stratum) => [stratum, Array.from({ length: 10 }, (_, index) => `task:${stratum}:${index}`)]));
   const plan = createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum }); assert.equal(plan.ceilings.trials, 100); assert.equal(plan.blocks.length, 50);
+  const expanded = structuredClone(taskIdsByStratum); expanded[API_BASELINE_FAMILIES[0]].push(`task:${API_BASELINE_FAMILIES[0]}:extra`);
+  assert.throws(() => createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum: expanded }), { code: "CONFIRMATORY_AUTHORIZED_TASK_COUNT_MISMATCH" });
 });
 
 test("Nelos candidates and sealed canary expansion remain rejected", () => {

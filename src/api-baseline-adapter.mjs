@@ -118,7 +118,7 @@ export async function executeApiBaselineAttempt({
   await claimOperation(request);
   const sealed = packageFor(request.declaredInputs.taskId);
   if (sealed.task.digest !== request.declaredInputs.taskDigest || request.budget.networkRequests !== 0 || request.exposureCeilings.candidateNetworkRequestsPerTrial !== 0) fail("SEALED_REQUEST_MISMATCH");
-  const executablePath = await executableResolver("codex");
+  const executablePath = await executableResolver(request.runtimeProvenance.executablePath);
   const executable = await executableReader(executablePath); const executableDigest = sha256Bytes(executable); const executableBytes = executable.byteLength;
   const provenanceMaterial = { ...request.runtimeProvenance }; delete provenanceMaterial.receiptDigest;
   if (canonicalDigest(provenanceMaterial) !== request.runtimeProvenance.receiptDigest || request.runtimeProvenance.executablePath !== executablePath || request.runtimeProvenance.executableDigest !== executableDigest || request.runtimeProvenance.byteLength !== executableBytes) fail("RUNTIME_PROVENANCE_MISMATCH");

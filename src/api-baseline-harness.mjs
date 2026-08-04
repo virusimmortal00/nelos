@@ -190,7 +190,7 @@ export function createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStrat
   const allTaskIds = new Set();
   for (const result of authorization.strata) {
     const taskIds = taskIdsByStratum?.[result.stratum];
-    if (!Array.isArray(taskIds) || new Set(taskIds).size !== taskIds.length || taskIds.length < result.authorizedTasks) failure("CONFIRMATORY_INDEPENDENT_TASK_FLOOR_UNMET");
+    if (!Array.isArray(taskIds) || new Set(taskIds).size !== taskIds.length || taskIds.length !== result.authorizedTasks) failure("CONFIRMATORY_AUTHORIZED_TASK_COUNT_MISMATCH");
     taskIds.forEach((taskId, index) => { if (typeof taskId !== "string" || taskId.length === 0 || allTaskIds.has(taskId)) failure("CONFIRMATORY_INDEPENDENT_TASK_FLOOR_UNMET"); allTaskIds.add(taskId); blocks.push({ stratum: result.stratum, taskId, candidateOrder: index % 2 === 0 ? [...API_BASELINE_CANDIDATES] : [...API_BASELINE_CANDIDATES].reverse() }); });
   }
   const trials = blocks.length * 2;
