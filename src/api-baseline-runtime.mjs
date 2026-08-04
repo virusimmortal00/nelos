@@ -44,9 +44,11 @@ export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE
   if (typeof execute !== "function") throw new TypeError("execute callback is required");
   const root = await mkdtemp(resolve(tmpdir(), "nelos-api-baseline-attempt-"));
   const home = resolve(root, "home");
+  const codexHome = resolve(home, ".codex");
   const workspace = resolve(root, "workspace");
   const temporary = resolve(root, "tmp");
   await Promise.all([home, workspace, temporary].map((path) => mkdir(path, { mode: 0o700 })));
+  await mkdir(codexHome, { mode: 0o700 });
   let apiKey;
   try {
     apiKey = await loadCredential();
@@ -54,7 +56,7 @@ export async function withDisposableApiAttempt({ keyFile = APPROVED_API_KEY_FILE
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       LANG: "C.UTF-8",
       HOME: home,
-      CODEX_HOME: resolve(home, ".codex"),
+      CODEX_HOME: codexHome,
       XDG_CACHE_HOME: resolve(home, ".cache"),
       XDG_CONFIG_HOME: resolve(home, ".config"),
       XDG_DATA_HOME: resolve(home, ".local", "share"),

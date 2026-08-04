@@ -68,7 +68,7 @@ test("runtime provenance is measured from bytes and rejects caller digest claims
 
 test("offline injected sentinel and fake Codex leave every prohibited sink clean", async () => {
   const sentinel = ["sk", "offline", randomUUID().replaceAll("-", "")].join("-");
-  const input = bundle(); const request = requestFor(input); const processCaptures = []; let credentialObserved = false; let proxyCredentialObserved = false; let attemptRoot;
+  const input = bundle(); const request = requestFor(input); const processCaptures = []; let credentialObserved = false; let proxyCredentialObserved = false; let codexHomeObserved = false; let attemptRoot;
   const response = await executeApiBaselineAttempt({
     request,
     loadCredential: async () => sentinel,
@@ -81,11 +81,12 @@ test("offline injected sentinel and fake Codex leave every prohibited sink clean
       attemptRoot = options.cwd.split("/workspace")[0];
       if (command === "git") return { code: 0, timedOut: false, stdout: "", stderr: "" };
       credentialObserved = options.env.OPENAI_API_KEY === sentinel;
+      codexHomeObserved = (await stat(options.env.CODEX_HOME)).isDirectory();
       await writeFile(options.outputPath, JSON.stringify({ answer: "localized-repair:verified", family: "localized-repair" }));
       return { code: 0, timedOut: false, stdout: `${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 11, output_tokens: 3 } })}\n`, stderr: `untrusted provider text ${sentinel}` };
     },
   });
-  assert.equal(credentialObserved, true); assert.equal(proxyCredentialObserved, true);
+  assert.equal(credentialObserved, true); assert.equal(proxyCredentialObserved, true); assert.equal(codexHomeObserved, true);
   await assert.rejects(() => stat(attemptRoot), { code: "ENOENT" });
   const { stdout: tracked } = await executeFile("git", ["ls-files"], { cwd: new URL("..", import.meta.url).pathname });
   const trackedText = (await Promise.all(tracked.trim().split("\n").map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8").catch(() => "")))).join("\n");
