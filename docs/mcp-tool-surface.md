@@ -304,8 +304,10 @@ A repeat call reuses that identity and verifies the exact result before launch.
 Because no supported mechanism lets a bundled server reference its own files,
 `.mcp.json` launches `node -e` with a small generated bootstrap that:
 
-1. reads the release version from a static `env` value baked into `.mcp.json`
-   at generation time (checked against the plugin manifest by tests);
+1. reads the release version and an independent embedded release-build identity
+   from the static `mcpServers.nelos.env` block baked into `.mcp.json` at
+   generation time (both are checked against the required plugin manifest
+   before the server module is imported);
 2. resolves `~/.codex/plugins/cache/*/nelos/<version>/` — the marketplace
    segment is globbed so a differently named marketplace source cannot break
    resolution — and fails with a structured, actionable stderr diagnostic if
