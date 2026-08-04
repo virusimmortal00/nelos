@@ -13,9 +13,14 @@ function options(argv) { const value = {}; for (let index = 0; index < argv.leng
 function invoke(command, args, request, ledgerRoot) {
   return new Promise((resolveRun, reject) => {
     const child = spawn(command, args, { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C.UTF-8", NELOS_API_OPERATION_LEDGER: ledgerRoot }, stdio: ["pipe", "pipe", "pipe"] });
-    const stdout = []; child.stdout.on("data", (chunk) => stdout.push(chunk));
+    const stdout = []; const stderr = []; let stderrBytes = 0; child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => { stderrBytes += chunk.byteLength; if (stderrBytes <= 1024 * 1024) stderr.push(chunk); });
     child.once("error", () => reject(new Error("ADAPTER_LAUNCH_FAILED")));
-    child.once("close", (code) => code === 0 ? resolveRun(JSON.parse(Buffer.concat(stdout).toString("utf8"))) : reject(new Error("ADAPTER_ATTEMPT_FAILED")));
+    child.once("close", (code) => {
+      if (code === 0) return resolveRun(JSON.parse(Buffer.concat(stdout).toString("utf8")));
+      const safeCodes = Buffer.concat(stderr).toString("utf8").split(/\r?\n/u).flatMap((line) => { try { const value = JSON.parse(line); return /^[A-Z][A-Z0-9_]+$/u.test(value?.error) ? [value.error] : []; } catch { return []; } });
+      reject(new Error(safeCodes.length === 1 ? safeCodes[0] : "ADAPTER_ATTEMPT_FAILED"));
+    });
     child.stdin.end(canonicalBytes(request));
   });
 }

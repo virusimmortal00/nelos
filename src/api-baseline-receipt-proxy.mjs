@@ -184,8 +184,12 @@ export async function startApiReceiptProxy({ apiKey, request, executable, upstre
       await new Promise((resolveClose) => server.close(resolveClose));
       credential = "";
       if (failureCode) fail(failureCode);
-      if (inboundCount !== 1 || upstreamCount !== 1) fail("PROXY_RECEIPT_INCOMPLETE");
-      if (!Number.isInteger(responseStatus) || responseStatus < 200 || responseStatus >= 300 || !completed || completed.status !== "completed" || completed.service_tier !== "default" || !requestId) fail("PROXY_RECEIPT_INCOMPLETE");
+      if (inboundCount === 0) fail("PROXY_REQUEST_NOT_OBSERVED");
+      if (inboundCount !== 1) fail("PROXY_MULTIPLE_REQUESTS");
+      if (upstreamCount === 0) fail("PROXY_UPSTREAM_NOT_OBSERVED");
+      if (upstreamCount !== 1) fail("PROXY_MULTIPLE_REQUESTS");
+      if (!Number.isInteger(responseStatus) || responseStatus < 200 || responseStatus >= 300) fail("PROXY_UPSTREAM_REJECTED");
+      if (!completed || completed.status !== "completed" || completed.service_tier !== "default" || !requestId) fail("PROXY_RECEIPT_INCOMPLETE");
       if (!observedModelMatches(requestedModel, completed.model)) fail("PROXY_OBSERVED_MODEL_MISMATCH");
       const usage = publicUsage(completed.usage);
       const pricingSnapshotDigest = canonicalDigest(request.pricingSnapshot);

@@ -173,6 +173,12 @@ test("localhost receipt proxy rejects a duplicate provider request", async (t) =
   await assert.rejects(() => proxy.finish(), { code: "PROXY_MULTIPLE_REQUESTS" });
 });
 
+test("localhost receipt proxy distinguishes a client that never sends a request", async () => {
+  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-");
+  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength } });
+  await assert.rejects(() => proxy.finish(), { code: "PROXY_REQUEST_NOT_OBSERVED" });
+});
+
 test("research packets retain completed and aborted evidence without comparative promotion", async (t) => {
   const input = bundle();
   for (const [status, resultCount, errorCode] of [["completed", 4, null], ["aborted", 1, "ADAPTER_ATTEMPT_FAILED"]]) {
