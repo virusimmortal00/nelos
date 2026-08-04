@@ -22,5 +22,7 @@
     "worktree integration",
     "intelligence route",
     "intelligence verify"
-  ]
+  ],
+  "sourceRevision": "97cea25a5079e44c8eccd498d2eb5b1f9a84e4a9",
+  "sourceRevisionType": "git"
 }
