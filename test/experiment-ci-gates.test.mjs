@@ -73,8 +73,11 @@ test("end-to-end offline fixtures cover terminal semantics and deterministic reg
 test("workflow family retains every terminal class and fences Desktop to labeled macOS workers", async () => {
   const workflow = await readFile(new URL("../.github/workflows/experiment-ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /runs-on: \[self-hosted, macOS, nelos-dedicated-desktop\]/u);
-  assert.match(workflow, /NODE_OPTIONS: --require=.\/scripts\/offline-network-blocker\.cjs/u);
   const workflowLines = workflow.split("\n");
+  const offlineBlockerIndex = workflowLines.findIndex((line) => line.includes("NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs"));
+  assert.notEqual(offlineBlockerIndex, -1);
+  assert.equal(workflowLines[offlineBlockerIndex], "          NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs");
+  assert.equal(workflowLines.slice(0, offlineBlockerIndex).findLast((line) => /^ {0,8}\S/u.test(line)), "        env:");
   const runnerTempLines = workflowLines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) => line.includes("runner.temp"));

@@ -51,8 +51,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,6 +60,8 @@ jobs:
           node-version: 20
       - run: npm ci --ignore-scripts
       - name: Run credential-free contract and end-to-end fixtures
+        env:
+          NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
         shell: bash
         run: |
           set -euo pipefail
