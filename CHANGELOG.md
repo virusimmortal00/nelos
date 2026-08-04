@@ -5,6 +5,38 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.5] - 2026-08-03
+
+### User-facing changes
+
+- Added an isolated signed-in Codex pilot harness with bounded execution,
+  correlated telemetry, and sealed report verification for confirmatory
+  experiment calibration.
+- Clarified the starter corpus candidate contract so every task family defines
+  the exact deterministic transformation expected by its hidden grader.
+
+### Compatibility requirements
+
+- The recorded signed-in calibration uses Codex CLI `0.146.0` inside a
+  dedicated unmounted ARM64 Linux VM; API-controlled comparisons remain a
+  separate follow-up phase.
+
+### Migrations
+
+- None. The regenerated starter corpus release has new content-addressed task,
+  package, and release identities.
+
+### Security fixes
+
+- Pilot attempts use fresh homes and workspaces with no development-state
+  mounts, and retain fail-closed route, evidence, and contamination checks.
+
+### Known limitations
+
+- The 20-trial signed-in run calibrates the harness only. Fixed arm order and
+  two replicates are insufficient for confirmatory product or efficiency
+  claims; the next design must counterbalance order and increase sample size.
+
 ## [0.12.4] - 2026-08-03
 
 ### User-facing changes

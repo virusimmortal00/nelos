@@ -8,14 +8,14 @@ const codexAvailable = spawnSync("codex", ["--version"], {
   stdio: "ignore",
 }).status === 0;
 
-test("real Codex marketplace refresh loads 0.12.4 skills and MCP in a fresh process", {
+test("real Codex marketplace refresh loads 0.12.5 skills and MCP in a fresh process", {
   skip: codexAvailable ? false : "requires the Codex CLI",
   timeout: 600_000,
 }, async () => {
   const result = await verifyPluginMarketplaceUpgrade();
   assert.equal(result.verified, true);
   assert.equal(result.legacyVersion, "0.4.0");
-  assert.equal(result.candidateVersion, "0.12.4");
+  assert.equal(result.candidateVersion, "0.12.5");
   assert.equal(result.processRestarted, true);
   assert.equal(result.freshTaskVerified, true);
   assert.match(result.freshTaskId, /^[0-9a-f-]+$/u);
