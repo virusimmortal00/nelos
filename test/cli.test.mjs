@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { readProcessIdentity } from "../src/process-liveness.mjs";
+import { parseWebTitle, titleLineageId } from "../src/task-web.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 import { startMockAppServer } from "./support/mock-app-server.mjs";
 
@@ -2846,9 +2847,18 @@ test("spinoff marks the queen and reuses its web for durable tasks", async () =>
       threads.get("queen-thread").name,
       "👑1 · Release planning",
     );
+    const concurrentTitleText = [
+      threads.get("spinoff-1").name,
+      threads.get("spinoff-2").name,
+    ];
+    const concurrentTitles = concurrentTitleText.map(parseWebTitle);
     assert.deepEqual(
-      [threads.get("spinoff-1").name, threads.get("spinoff-2").name].sort(),
-      ["🕷️1.1 · API changes", "🕷️1.2 · Documentation"].sort(),
+      concurrentTitleText.map(titleLineageId).sort(),
+      ["1.1", "1.2"],
+    );
+    assert.deepEqual(
+      concurrentTitles.map(({ baseTitle }) => baseTitle).sort(),
+      ["API changes", "Documentation"].sort(),
     );
 
     const output = JSON.parse(first.stdout);
