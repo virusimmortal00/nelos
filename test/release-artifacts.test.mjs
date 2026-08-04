@@ -33,9 +33,7 @@ function coherentFixture(version = "1.2.3+codex.20260728120000") {
     tag: `v${version}`,
     packageMetadata: { name: "nelos", version },
     pluginMetadata: { version },
-    mcpMetadata: {
-      nelos: { env: { NELOS_PLUGIN_VERSION: version } },
-    },
+    mcpMetadata: { mcpServers: { nelos: { env: { NELOS_PLUGIN_VERSION: version } } } },
     provenance: {
       revision: version,
       integrity: "sha256:fixture",
@@ -83,7 +81,7 @@ test("release coherence requires every version and provenance surface", () => {
   for (const mutate of [
     (candidate) => { candidate.pluginMetadata.version = "9.9.9"; },
     (candidate) => {
-      candidate.mcpMetadata.nelos.env.NELOS_PLUGIN_VERSION = "9.9.9";
+      candidate.mcpMetadata.mcpServers.nelos.env.NELOS_PLUGIN_VERSION = "9.9.9";
     },
     (candidate) => { candidate.provenance.revision = "9.9.9"; },
     (candidate) => { candidate.lockMetadata.version = "9.9.9"; },

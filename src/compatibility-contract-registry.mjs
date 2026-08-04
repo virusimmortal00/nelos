@@ -1086,6 +1086,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "src/vendor/smol-toml-1.6.0.cjs",
           "scripts/collect-compatibility-evidence.mjs",
           "scripts/dev-mcp-app-ui.mjs",
+          "scripts/generate-mcp-config.mjs",
           "scripts/mcp-app-fixture-server.mjs",
           "scripts/offline-network-blocker.cjs",
           "scripts/run-required-compatibility.mjs",

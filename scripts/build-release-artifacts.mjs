@@ -97,7 +97,7 @@ export function validateVersionCoherence({
   assertReleaseTag(tag, version);
   const surfaces = [
     [".codex-plugin/plugin.json", pluginMetadata?.version],
-    [".mcp.json", mcpMetadata?.nelos?.env?.NELOS_PLUGIN_VERSION],
+    [".mcp.json", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
     ["distribution-provenance.json", provenance?.revision],
     ["package-lock.json", lockMetadata?.version],
     ["package-lock.json root package", lockMetadata?.packages?.[""]?.version],

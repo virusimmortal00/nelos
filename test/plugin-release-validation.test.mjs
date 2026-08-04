@@ -70,7 +70,7 @@ test("provenance-only source revision changes are validated from Git", async () 
     await writeJson(join(root, ".codex-plugin", "plugin.json"), { version });
     await writeJson(join(root, "package.json"), { version });
     await writeJson(join(root, ".mcp.json"), {
-      nelos: { env: { NELOS_PLUGIN_VERSION: version } },
+      mcpServers: { nelos: { env: { NELOS_PLUGIN_VERSION: version } } },
     });
     await writeJson(provenancePath, {
       revision: version,
