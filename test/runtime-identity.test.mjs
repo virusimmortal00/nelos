@@ -322,6 +322,8 @@ test("reports ambiguous-install across multiple marketplaces", async () => {
     const health = await resolveRuntimeHealthV1({ loaded, codexHome });
     assert.equal(health.state, "ambiguous-install");
     assert.equal(health.mutationAllowed, false);
+    assert.equal(health.installed, null);
+    assert.equal(health.installedIdentities.length, 2);
     assert.match(health.recovery, /exactly one/);
   });
 });

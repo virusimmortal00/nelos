@@ -57,6 +57,17 @@ const INITIALIZE = {
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } },
 };
 
+const SOURCE_CHECKOUT_HEALTH = Object.freeze({
+  state: "degraded",
+  loaded: null,
+  installed: null,
+  activeVersions: [],
+  backingPathPresent: true,
+  mutationAllowed: true,
+  detail: "test source checkout",
+  recovery: "No action required for this source checkout.",
+});
+
 function validPlan(sliceId = "explore") {
   return {
     schemaVersion: 1,
@@ -163,6 +174,9 @@ async function roundTrip(messages, options = {}) {
       currentThreadId: () => "queen-1",
       planRunStore,
       webRegistry,
+      ...(!options.deriveRuntimeIdentity && !options.resolveRuntimeHealth
+        ? { resolveRuntimeHealth: async () => SOURCE_CHECKOUT_HEALTH }
+        : {}),
       ...options,
     });
   });
@@ -189,6 +203,9 @@ async function rawRoundTrip(chunks, options = {}) {
       output,
       serverVersion: "0.0.0-test",
       onExit: (code) => resolve(code),
+      ...(!options.deriveRuntimeIdentity && !options.resolveRuntimeHealth
+        ? { resolveRuntimeHealth: async () => SOURCE_CHECKOUT_HEALTH }
+        : {}),
       ...options,
     });
   });
@@ -4151,6 +4168,95 @@ test("nelos_runtime_health surfaces a failed derivation instead of throwing", as
   assert.equal(body.health.state, "integrity-failure");
   assert.equal(body.health.mutationAllowed, false);
   assert.match(body.health.detail, /disagree/);
+});
+
+test("runtime admission fences stateful and destructive tools from annotations while diagnostics remain available", async () => {
+  const loaded = {
+    version: "0.12.5",
+    sourceRevision: "a".repeat(40),
+    integrity: `sha256:${"1".repeat(64)}`,
+    buildIdentity: `nelos-build:${"a".repeat(32)}`,
+    modulePath: "/cache/nelos/0.12.5",
+  };
+  const installed = {
+    version: "0.12.6",
+    sourceRevision: "b".repeat(40),
+    integrity: `sha256:${"2".repeat(64)}`,
+    buildIdentity: `nelos-build:${"b".repeat(32)}`,
+    modulePath: "/cache/nelos/0.12.6",
+  };
+  const stale = {
+    state: "restart-required",
+    loaded,
+    installed,
+    installedIdentities: [installed],
+    mutationAllowed: false,
+    detail: "the authoritative installed generation changed",
+    recovery: "Quit and relaunch Codex, then open a fresh task.",
+  };
+  const integrityChecks = [];
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_plan_slices",
+          arguments: { plan: validPlan(), queenThreadId: "queen-1" },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "nelos_config_reset",
+          arguments: {
+            key: "spinoffs.cleanup_policy",
+            userIntentConfirmed: true,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_route",
+          arguments: { taskShape: "everyday", launchSurface: "durable-task" },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => loaded,
+      resolveRuntimeHealth: async ({ verifyIntegrity }) => {
+        integrityChecks.push(verifyIntegrity);
+        return stale;
+      },
+    },
+  );
+
+  for (const response of responses.slice(1, 3)) {
+    const { body, isError } = toolBody(response);
+    assert.equal(isError, true);
+    assert.equal(body.code, "STALE_RUNTIME");
+    assert.equal(body.phase, "admission");
+    assert.deepEqual(body.loaded, loaded);
+    assert.deepEqual(body.installed, installed);
+    assert.deepEqual(body.installedIdentities, [installed]);
+    assert.equal(body.recoveryAction, stale.recovery);
+  }
+  assert.equal(toolBody(responses[3]).isError, false);
+  assert.equal(toolBody(responses[4]).isError, false);
+  assert.deepEqual(integrityChecks, [true, true, false]);
 });
 
 test("runtime identity is derived once, at bootstrap, not per call", async () => {

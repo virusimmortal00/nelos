@@ -103,6 +103,10 @@ import {
   deriveRuntimeIdentityV1,
   resolveRuntimeHealthV1,
 } from "./runtime-identity.mjs";
+import {
+  RuntimeMutationBoundaryV1,
+  RuntimeMutationFenceError,
+} from "./runtime-mutation-fence.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -1007,13 +1011,10 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: READ_ONLY_ANNOTATIONS,
-    async run(args, { runtimeIdentity }) {
-      const { identity, error } = await runtimeIdentity();
+    async run(args, { runtimeHealth }) {
       return {
         command: "runtime health",
-        health: await resolveRuntimeHealthV1({
-          loaded: identity,
-          identityError: error,
+        health: await runtimeHealth({
           verifyIntegrity: args.verifyIntegrity === true,
         }),
       };
@@ -1359,6 +1360,7 @@ export function startNelosMcpServer({
   launchBatchVerifier = verifyLaunchBatchV1,
   webInspector = new NelosWebInspectorV1(),
   deriveRuntimeIdentity = deriveRuntimeIdentityV1,
+  resolveRuntimeHealth = resolveRuntimeHealthV1,
 } = {}) {
   if (!Number.isFinite(shutdownTimeoutMs) || shutdownTimeoutMs < 0) {
     throw new Error("shutdownTimeoutMs must be a non-negative finite number");
@@ -1384,6 +1386,17 @@ export function startNelosMcpServer({
     .then((identity) => ({ identity, error: null }))
     .catch((error) => ({ identity: null, error }));
   const runtimeIdentity = () => runtimeIdentityResult;
+  const runtimeHealth = async ({ verifyIntegrity = false } = {}) => {
+    const { identity, error } = await runtimeIdentity();
+    return resolveRuntimeHealth({
+      loaded: identity,
+      identityError: error,
+      verifyIntegrity,
+    });
+  };
+  const mutationBoundary = new RuntimeMutationBoundaryV1({
+    health: runtimeHealth,
+  });
 
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -1408,21 +1421,24 @@ export function startNelosMcpServer({
     let args;
     try {
       args = assertToolArguments(tool, params.arguments);
-      result = await tool.run(args, {
-        appServerBridge,
-        exceptionReplanning,
-        launchBatchVerifier,
-        orchestrationAdapter,
-        planningLifecycle,
-        planRunStore,
-        webRegistry,
-        joinAdapter,
-        queenDecisionAdapter,
-        lifecycleAdapter,
-        configuration,
-        webInspector,
-        runtimeIdentity,
-      });
+      result = await mutationBoundary.run(tool.annotations ?? READ_ONLY_ANNOTATIONS, () =>
+        tool.run(args, {
+          appServerBridge,
+          exceptionReplanning,
+          launchBatchVerifier,
+          orchestrationAdapter,
+          planningLifecycle,
+          planRunStore,
+          webRegistry,
+          joinAdapter,
+          queenDecisionAdapter,
+          lifecycleAdapter,
+          configuration,
+          webInspector,
+          runtimeIdentity,
+          runtimeHealth,
+        })
+      );
     } catch (error) {
       const body = { error: error.message };
       if (error instanceof PlanningLifecycleProtocolError) {
@@ -1432,6 +1448,15 @@ export function startNelosMcpServer({
         if (error.recoveryCommand !== null) {
           body.recoveryCommand = error.recoveryCommand;
         }
+      }
+      if (error instanceof RuntimeMutationFenceError) {
+        body.code = error.code;
+        body.state = error.state;
+        body.phase = error.phase;
+        body.loaded = error.loaded;
+        body.installed = error.installed;
+        body.installedIdentities = error.installedIdentities;
+        body.recoveryAction = error.recoveryAction;
       }
       return {
         content: [{ type: "text", text: JSON.stringify(body) }],
@@ -1706,7 +1731,10 @@ export function startNelosMcpServer({
     const cleanup = Promise.allSettled([
       processing,
       waitProcessing,
-      Promise.resolve().then(() => appServerBridge.close?.()),
+      // Stateful requests may now yield while their runtime generation is
+      // checked. Close the bridge only after that serialized request chain has
+      // drained; closing beside it can tear down an admitted in-flight call.
+      processing.then(() => appServerBridge.close?.()),
       Promise.resolve().then(() => onLeaseRemove()),
     ]);
     let timedOut = false;

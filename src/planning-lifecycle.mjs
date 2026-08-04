@@ -27,6 +27,7 @@ import {
   taskStateDirectory,
   withPlanningLifecycleLock,
 } from "./task-state.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 export const PLANNING_LIFECYCLE_SCHEMA_VERSION = 1;
 export const PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION = 1;
@@ -506,7 +507,9 @@ export class PlanningLifecycleStoreV1 {
         flag: "wx",
         mode: 0o600,
       });
-      await this.#fileSystem.rename(temporary, target);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, target)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       throw error;

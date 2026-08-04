@@ -309,12 +309,29 @@ export async function resolveInstalledIdentityV1({
     return { identity: null, ambiguous: false, detail: error.message };
   }
   if (!matches || matches.length === 0) {
-    return { identity: null, ambiguous: false, detail: null };
+    return { identity: null, identities: [], ambiguous: false, detail: null };
   }
+  const identities = matches
+    .filter(({ provenance }) => provenance)
+    .map(({ provenance, path }) => {
+      const identity = {
+        version: provenance.revision,
+        sourceRepository: provenance.sourceRepository ?? SOURCE_REPOSITORY,
+        sourceRevision: provenance.sourceRevision ?? null,
+        sourceRevisionType: provenance.sourceRevisionType ?? null,
+        integrity: provenance.integrity ?? null,
+        skillIntegrity: provenance.skillIntegrity ?? null,
+        cacheIdentity: provenance.cacheIdentity ?? null,
+        modulePath: dirname(path),
+      };
+      identity.buildIdentity = deriveBuildIdentityV1(identity);
+      return Object.freeze(identity);
+    });
   const selected = selectPluginProvenance(matches);
   if (!selected || selected.installed === "ambiguous") {
     return {
       identity: null,
+      identities,
       ambiguous: true,
       detail: selected?.error ?? "multiple installed Nelos plugins",
     };
@@ -322,24 +339,17 @@ export async function resolveInstalledIdentityV1({
   if (!selected.provenance) {
     return {
       identity: null,
+      identities: [],
       ambiguous: false,
       detail: selected.error ?? `unreadable provenance at ${selected.path}`,
     };
   }
-  const { provenance } = selected;
-  const identity = {
-    version: provenance.revision,
-    sourceRepository: provenance.sourceRepository ?? SOURCE_REPOSITORY,
-    sourceRevision: provenance.sourceRevision ?? null,
-    sourceRevisionType: provenance.sourceRevisionType ?? null,
-    integrity: provenance.integrity ?? null,
-    skillIntegrity: provenance.skillIntegrity ?? null,
-    cacheIdentity: provenance.cacheIdentity ?? null,
-    modulePath: dirname(selected.path),
-  };
-  identity.buildIdentity = deriveBuildIdentityV1(identity);
+  const identity = identities.find(({ modulePath }) =>
+    modulePath === dirname(selected.path)
+  );
   return {
-    identity: Object.freeze(identity),
+    identity,
+    identities: [identity],
     ambiguous: false,
     detail: null,
     activeVersions: [
@@ -375,6 +385,7 @@ export async function resolveRuntimeHealthV1({
       state: "integrity-failure",
       loaded: null,
       installed: null,
+      installedIdentities: [],
       activeVersions: [],
       backingPathPresent: false,
       mutationAllowed: false,
@@ -385,10 +396,16 @@ export async function resolveRuntimeHealthV1({
     };
   }
 
-  const backingPathPresent = await pathExists(loaded.modulePath);
-
+  let backingPathPresent = false;
   let integrityDetail = null;
   let integrityFailed = false;
+  try {
+    backingPathPresent = await pathExists(loaded.modulePath);
+  } catch (error) {
+    integrityFailed = true;
+    integrityDetail =
+      `the loaded distribution path could not be verified: ${error.message}`;
+  }
   if (verifyIntegrity && backingPathPresent && loaded.integrity) {
     try {
       const recomputed = await computeIntegrity(loaded.modulePath, {
@@ -411,6 +428,7 @@ export async function resolveRuntimeHealthV1({
     findProvenance,
   });
   const installed = installedResult.identity;
+  const installedIdentities = installedResult.identities ?? [];
   const activeVersions = [
     ...new Set([
       loaded.version,
@@ -477,6 +495,13 @@ export async function resolveRuntimeHealthV1({
           modulePath: installed.modulePath,
         }
       : null,
+    installedIdentities: installedIdentities.map((identity) => ({
+      version: identity.version,
+      sourceRevision: identity.sourceRevision,
+      integrity: identity.integrity,
+      buildIdentity: identity.buildIdentity,
+      modulePath: identity.modulePath,
+    })),
     activeVersions,
     backingPathPresent,
     mutationAllowed: MUTABLE_STATES.has(state),

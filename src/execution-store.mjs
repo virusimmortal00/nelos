@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { taskStateDirectory } from "./task-state.mjs";
 import { assertWebId } from "./task-web.mjs";
 import { normalizeNativeLaunchV1 } from "./launch-contract.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 export const EXECUTION_STORE_SCHEMA_VERSION = 1;
 export const WORK_UNIT_SPEC_SCHEMA_VERSION = 1;
@@ -610,7 +611,9 @@ export class ExecutionStoreV1 {
         flag: "wx",
         mode: 0o600,
       });
-      await this.#fileSystem.rename(temporary, target);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, target)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       throw error;

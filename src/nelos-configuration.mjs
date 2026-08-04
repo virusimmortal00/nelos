@@ -9,6 +9,7 @@ import {
   taskStateDirectory,
   withNelosConfigurationLock,
 } from "./task-state.mjs";
+import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
 
 const require = createRequire(import.meta.url);
 const { parse: parseToml } = require("./vendor/smol-toml-1.6.0.cjs");
@@ -322,7 +323,9 @@ export class NelosConfigStoreV1 {
         flag: "wx",
         mode: 0o600,
       });
-      await this.#fileSystem.rename(temporary, this.#path);
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rename(temporary, this.#path)
+      );
     } catch (error) {
       await this.#fileSystem.rm(temporary, { force: true }).catch(() => {});
       throw error;
@@ -433,7 +436,9 @@ export class NelosConfigurationV1 {
       );
       if (!legacy.exists) return this.#response(lockedCurrent);
       const migrated = await this.#store.setCleanupPolicy(legacy.policy);
-      await this.#fileSystem.rm(this.#legacyPreferencePath, { force: true });
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rm(this.#legacyPreferencePath, { force: true })
+      );
       return this.#response(migrated, {
         performed: true,
         from: "legacy-preference",
@@ -452,7 +457,9 @@ export class NelosConfigurationV1 {
     }
     return this.#withLock(async () => {
       const current = await this.#store.setCleanupPolicy(value);
-      await this.#fileSystem.rm(this.#legacyPreferencePath, { force: true });
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rm(this.#legacyPreferencePath, { force: true })
+      );
       return this.#response(current);
     });
   }
@@ -468,7 +475,9 @@ export class NelosConfigurationV1 {
     }
     return this.#withLock(async () => {
       const current = await this.#store.resetCleanupPolicy();
-      await this.#fileSystem.rm(this.#legacyPreferencePath, { force: true });
+      await commitRuntimeMutationV1(() =>
+        this.#fileSystem.rm(this.#legacyPreferencePath, { force: true })
+      );
       return this.#response(current);
     });
   }
