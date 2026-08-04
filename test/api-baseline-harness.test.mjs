@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
 import { canonicalDigest, sha256Bytes } from "../src/experimentation-contract/index.mjs";
 import { expandExperimentPlan } from "../src/experiment-runner.mjs";
 import { executeApiBaselineAttempt } from "../src/api-baseline-adapter.mjs";
+import { startApiReceiptProxy } from "../src/api-baseline-receipt-proxy.mjs";
+import { writeApiBaselineResearchPacket } from "../src/api-baseline-research-packet.mjs";
 import { createSignedInPilotManifest } from "../scripts/build-signed-in-pilot.mjs";
 import { API_BASELINE_CANDIDATES, API_BASELINE_FAMILIES, API_BASELINE_RUN_PREFIX, CANARY_CEILINGS, createApiBaselineBundle, createAuthorizedConfirmatoryPlan, evaluateConfirmatoryAuthorization, measureRuntimeProvenance, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
 import { safeApiRuntimeError } from "../src/api-baseline-runtime.mjs";
@@ -16,18 +21,26 @@ const executeFile = promisify(execFile);
 const executableBytes = Buffer.from("offline-fake-codex-executable-v2", "utf8");
 const executablePath = "/offline/runtime/codex";
 const runtimeProvenance = await measureRuntimeProvenance({ executablePath, backend: "oci-headless", platform: "linux-arm64", read: async () => Buffer.from(executableBytes), resolvePath: async () => executablePath });
-const requestedModel = { id: "model:gpt-5.6-sol-2026-07-15", revision: "2026-07-15", reasoningEffort: "medium" };
+const requestedModel = { id: "model:gpt-5.6-sol", revision: "gpt-5.6-sol", reasoningEffort: "medium" };
+const pricingSnapshot = { schemaVersion: 1, provider: "openai", capturedAt: "2026-08-04T00:00:00.000Z", sourceUrl: "https://openai.com/api/pricing/", modelId: requestedModel.id, currency: "USD", inputUsdPerMillionTokens: 1, cachedInputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 2 };
 const sourceCommit = "b".repeat(40);
-const bundle = () => createApiBaselineBundle({ sourceCommit, requestedModel, runtimeProvenance });
+const bundle = () => createApiBaselineBundle({ sourceCommit, requestedModel, runtimeProvenance, pricingSnapshot });
 
 function requestFor(input, ordinal = 0) {
   const trial = expandExperimentPlan(input.runnerManifest).trials.find(({ trialId }) => trialId === input.executionSchedule.blocks.flatMap(({ trialIds }) => trialIds)[ordinal]);
   const runId = `${API_BASELINE_RUN_PREFIX}test`; const attempt = 1; const operationId = `op:${canonicalDigest({ runId, trialId: trial.trialId, attempt }).slice(7)}`; const leaseId = `lease:${operationId.slice(3)}`;
-  return { schemaVersion: 1, runId, runGeneration: 1, trialId: trial.trialId, attempt, operationId, lease: { leaseId, owner: `controller:${runId}`, fencingToken: canonicalDigest({ runId, trialId: trial.trialId, attempt, operationId, leaseId }), acquiredAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, seed: trial.seed, componentSeeds: trial.componentSeeds, declaredInputs: trial.declaredInputs, declaredInputsDigest: trial.declaredInputsDigest, budget: trial.budget, requestedRoute: { candidateId: trial.candidateId, adapter: trial.adapter, modelId: trial.candidateProvenance.model.id, modelRevision: trial.candidateProvenance.model.revision, reasoningEffort: trial.candidateProvenance.model.reasoningEffort, pluginDigest: canonicalDigest(trial.candidateProvenance.plugins) }, runtimeProvenance: input.identity.runtimeProvenance, exposureCeilings: input.controls.ceilings };
+  return { schemaVersion: 1, runId, runGeneration: 1, trialId: trial.trialId, attempt, operationId, lease: { leaseId, owner: `controller:${runId}`, fencingToken: canonicalDigest({ runId, trialId: trial.trialId, attempt, operationId, leaseId }), acquiredAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() }, seed: trial.seed, componentSeeds: trial.componentSeeds, declaredInputs: trial.declaredInputs, declaredInputsDigest: trial.declaredInputsDigest, budget: trial.budget, requestedRoute: { candidateId: trial.candidateId, adapter: trial.adapter, modelId: trial.candidateProvenance.model.id, modelRevision: trial.candidateProvenance.model.revision, reasoningEffort: trial.candidateProvenance.model.reasoningEffort, pluginDigest: canonicalDigest(trial.candidateProvenance.plugins) }, runtimeProvenance: input.identity.runtimeProvenance, pricingSnapshot: input.identity.pricingSnapshot, exposureCeilings: input.controls.ceilings };
 }
 
 function receipt(request, overrides = {}) {
-  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: 0.01 }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
+  return { schemaVersion: 1, operationId: request.operationId, leaseId: request.lease.leaseId, fencingToken: request.lease.fencingToken, attempt: request.attempt, route: { ...request.requestedRoute, observedModelId: requestedModel.id, observedModelRevision: requestedModel.revision, forwardedReasoningEffort: requestedModel.reasoningEffort }, provider: { executionCount: 1, retryCount: 0, requestCount: 1, estimatedCostUsd: 0.0000152, costStatus: "computed-from-snapshot", pricingSnapshotDigest: canonicalDigest(request.pricingSnapshot), responseId: "resp_offline", requestId: "req_offline", usage: { inputTokens: 11, cachedInputTokens: 2, outputTokens: 3, reasoningOutputTokens: 1, totalTokens: 14 } }, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, ...overrides };
+}
+
+function receiptProxy(request, value = () => receipt(request), observe = () => {}) {
+  return async (options) => {
+    observe(options);
+    return { baseUrl: "http://127.0.0.1:12345/v1", abort: async () => {}, finish: async () => value() };
+  };
 }
 
 test("canary is exactly four trials in predetermined opposite AB/BA blocks", () => {
@@ -36,7 +49,7 @@ test("canary is exactly four trials in predetermined opposite AB/BA blocks", () 
   assert.deepEqual(input.executionSchedule.blocks.map(({ candidateOrder }) => candidateOrder), [[...API_BASELINE_CANDIDATES], [...API_BASELINE_CANDIDATES].reverse()]);
   assert.deepEqual(input.controls.ceilings, CANARY_CEILINGS);
   assert.equal(input.runnerManifest.policy.maxConcurrency, 1); assert.equal(input.runnerManifest.policy.maxAttempts, 1); assert.equal(input.controls.confirmatoryAuthorization, "not-granted");
-  assert.throws(() => createApiBaselineBundle({ mode: "confirmatory", sourceCommit, requestedModel, runtimeProvenance }), { code: "CONFIRMATORY_POWER_AUTHORIZATION_REQUIRED" });
+  assert.throws(() => createApiBaselineBundle({ mode: "confirmatory", sourceCommit, requestedModel, runtimeProvenance, pricingSnapshot }), { code: "CONFIRMATORY_POWER_AUTHORIZATION_REQUIRED" });
 });
 
 test("API canary identities and route remain separate from the signed-in pilot", () => {
@@ -55,23 +68,24 @@ test("runtime provenance is measured from bytes and rejects caller digest claims
 
 test("offline injected sentinel and fake Codex leave every prohibited sink clean", async () => {
   const sentinel = ["sk", "offline", randomUUID().replaceAll("-", "")].join("-");
-  const input = bundle(); const request = requestFor(input); const processCaptures = []; let credentialObserved = false; let attemptRoot;
+  const input = bundle(); const request = requestFor(input); const processCaptures = []; let credentialObserved = false; let proxyCredentialObserved = false; let attemptRoot;
   const response = await executeApiBaselineAttempt({
     request,
     loadCredential: async () => sentinel,
     claimOperation: async () => {},
     executableResolver: async () => executablePath,
     executableReader: async () => Buffer.from(executableBytes),
+    receiptProxyFactory: receiptProxy(request, () => receipt(request), ({ apiKey }) => { proxyCredentialObserved = apiKey === sentinel; }),
     processRunner: async (command, args, options) => {
       processCaptures.push({ command, args, environmentNames: Object.keys(options.env).sort(), stdoutDigest: command === "git" ? null : "captured-by-digest", stderrDigest: command === "git" ? null : "captured-by-digest" });
       attemptRoot = options.cwd.split("/workspace")[0];
       if (command === "git") return { code: 0, timedOut: false, stdout: "", stderr: "" };
       credentialObserved = options.env.OPENAI_API_KEY === sentinel;
       await writeFile(options.outputPath, JSON.stringify({ answer: "localized-repair:verified", family: "localized-repair" }));
-      return { code: 0, timedOut: false, stdout: `${JSON.stringify({ type: "api.runtime_receipt", receipt: receipt(request) })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 11, output_tokens: 3 } })}\n`, stderr: `untrusted provider text ${sentinel}` };
+      return { code: 0, timedOut: false, stdout: `${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 11, output_tokens: 3 } })}\n`, stderr: `untrusted provider text ${sentinel}` };
     },
   });
-  assert.equal(credentialObserved, true);
+  assert.equal(credentialObserved, true); assert.equal(proxyCredentialObserved, true);
   await assert.rejects(() => stat(attemptRoot), { code: "ENOENT" });
   const { stdout: tracked } = await executeFile("git", ["ls-files"], { cwd: new URL("..", import.meta.url).pathname });
   const trackedText = (await Promise.all(tracked.trim().split("\n").map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8").catch(() => "")))).join("\n");
@@ -93,19 +107,86 @@ test("offline injected sentinel and fake Codex leave every prohibited sink clean
 
 test("runtime receipts independently bind route, provider counts, and replay controls", async () => {
   const input = bundle(); const request = requestFor(input); const claims = new Set();
-  const base = { request, loadCredential: async () => ["sk", "fake", "1234567890123456"].join("-"), executableResolver: async () => executablePath, executableReader: async () => Buffer.from(executableBytes), claimOperation: async (value) => { if (claims.has(value.operationId)) throw Object.assign(new Error("ATTEMPT_REPLAY_REJECTED"), { code: "ATTEMPT_REPLAY_REJECTED" }); claims.add(value.operationId); }, processRunner: async (command, args, options) => { if (command === "git") return { code: 0, stdout: "", stderr: "" }; await writeFile(options.outputPath, "{}"); return { code: 0, stdout: `${JSON.stringify({ type: "api.runtime_receipt", receipt: receipt(request) })}\n`, stderr: "" }; } };
+  const base = { request, loadCredential: async () => ["sk", "fake", "1234567890123456"].join("-"), executableResolver: async () => executablePath, executableReader: async () => Buffer.from(executableBytes), receiptProxyFactory: receiptProxy(request), claimOperation: async (value) => { if (claims.has(value.operationId)) throw Object.assign(new Error("ATTEMPT_REPLAY_REJECTED"), { code: "ATTEMPT_REPLAY_REJECTED" }); claims.add(value.operationId); }, processRunner: async (command, args, options) => { if (command === "git") return { code: 0, stdout: "", stderr: "" }; await writeFile(options.outputPath, "{}"); return { code: 0, stdout: "", stderr: "" }; } };
   const result = await executeApiBaselineAttempt(base); assert.equal(result.observedRoute.modelRevision, requestedModel.revision); assert.equal(result.measurements.find(({ metricId }) => metricId === "provider_retries").value, 0);
+  assert.equal(result.observedRoute.observedModelRevision, requestedModel.revision); assert.deepEqual(result.artifacts.map(({ id }) => id), ["runtime-provider-receipt", "machine-grade"]);
   await assert.rejects(() => executeApiBaselineAttempt(base), { code: "ATTEMPT_REPLAY_REJECTED" });
-  const missing = { ...base, claimOperation: async () => {}, processRunner: async (command, args, options) => { if (command === "git") return { code: 0, stdout: "", stderr: "" }; await writeFile(options.outputPath, "{}"); return { code: 0, stdout: "{}\n", stderr: "" }; } };
-  await assert.rejects(() => executeApiBaselineAttempt(missing), { code: "RUNTIME_RECEIPT_MISSING" });
-  const mismatched = { ...base, claimOperation: async () => {}, processRunner: async (command, args, options) => { if (command === "git") return { code: 0, stdout: "", stderr: "" }; await writeFile(options.outputPath, "{}"); const bad = receipt(request); bad.route.modelRevision = "wrong"; return { code: 0, stdout: `${JSON.stringify({ type: "api.runtime_receipt", receipt: bad })}\n`, stderr: "" }; } };
+  const missing = { ...base, claimOperation: async () => {}, receiptProxyFactory: receiptProxy(request, () => { throw Object.assign(new Error("PROXY_RECEIPT_INCOMPLETE"), { code: "PROXY_RECEIPT_INCOMPLETE" }); }) };
+  await assert.rejects(() => executeApiBaselineAttempt(missing), { code: "PROXY_RECEIPT_INCOMPLETE" });
+  const mismatched = { ...base, claimOperation: async () => {}, receiptProxyFactory: receiptProxy(request, () => { const bad = receipt(request); bad.route.modelRevision = "wrong"; return bad; }) };
   await assert.rejects(() => executeApiBaselineAttempt(mismatched), { code: "RUNTIME_ROUTE_MISMATCH" });
-  const overCeiling = { ...base, claimOperation: async () => {}, processRunner: async (command, args, options) => { if (command === "git") return { code: 0, stdout: "", stderr: "" }; await writeFile(options.outputPath, "{}"); const over = receipt(request); over.provider.retryCount = 1; return { code: 0, stdout: `${JSON.stringify({ type: "api.runtime_receipt", receipt: over })}\n`, stderr: "" }; } };
+  const overCeiling = { ...base, claimOperation: async () => {}, receiptProxyFactory: receiptProxy(request, () => { const over = receipt(request); over.provider.retryCount = 1; return over; }) };
   await assert.rejects(() => executeApiBaselineAttempt(overCeiling), { code: "PROVIDER_EXPOSURE_EXCEEDED" });
   const wrongBytes = { ...base, claimOperation: async () => {}, executableReader: async () => Buffer.from("different executable") };
   await assert.rejects(() => executeApiBaselineAttempt(wrongBytes), { code: "RUNTIME_PROVENANCE_MISMATCH" });
   const expired = structuredClone(request); expired.lease.expiresAt = new Date(Date.now() - 1).toISOString();
   await assert.rejects(() => executeApiBaselineAttempt({ ...base, request: expired, claimOperation: async () => {} }), { code: "ATTEMPT_CONTROL_INVALID" });
+});
+
+test("localhost receipt proxy streams one exact Responses request and seals provider evidence", async (t) => {
+  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-"); let authorization; let upstreamBody;
+  const upstream = createServer(async (incoming, response) => {
+    authorization = incoming.headers.authorization;
+    const chunks = []; for await (const chunk of incoming) chunks.push(chunk); upstreamBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    response.writeHead(200, { "content-type": "text/event-stream", "x-request-id": "req_live_fake" });
+    response.write(`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_live_fake", status: "in_progress", model: "gpt-5.6-sol" } })}\n\n`);
+    response.end(`data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_live_fake", status: "completed", model: "gpt-5.6-sol", usage: { input_tokens: 17, input_tokens_details: { cached_tokens: 4 }, output_tokens: 5, output_tokens_details: { reasoning_tokens: 2 }, total_tokens: 22 } } })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
+  t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
+  const address = upstream.address();
+  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
+  const providerResponse = await fetch(`${proxy.baseUrl}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6-sol", reasoning: { effort: "medium" }, stream: true, input: "offline fixture" }) });
+  assert.equal(providerResponse.status, 200); assert.match(await providerResponse.text(), /response\.completed/u);
+  const sealed = await proxy.finish();
+  assert.equal(authorization, `Bearer ${key}`); assert.equal(upstreamBody.model, "gpt-5.6-sol"); assert.equal(upstreamBody.reasoning.effort, "medium");
+  assert.equal(sealed.provider.responseId, "resp_live_fake"); assert.equal(sealed.provider.requestId, "req_live_fake"); assert.equal(sealed.provider.usage.cachedInputTokens, 4); assert.equal(sealed.route.observedModelRevision, "gpt-5.6-sol");
+  assert.doesNotMatch(JSON.stringify(sealed), new RegExp(key, "u"));
+});
+
+test("localhost receipt proxy fails closed on route substitution", async (t) => {
+  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-");
+  const upstream = createServer((_incoming, response) => response.end());
+  await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
+  t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
+  const address = upstream.address();
+  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
+  const rejected = await fetch(`${proxy.baseUrl}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "substituted-model", reasoning: { effort: "medium" }, stream: true }) });
+  assert.equal(rejected.status, 400);
+  await assert.rejects(() => proxy.finish(), { code: "PROXY_ROUTE_MISMATCH" });
+});
+
+test("localhost receipt proxy rejects a duplicate provider request", async (t) => {
+  const input = bundle(); const request = requestFor(input); const key = ["sk", "proxy", "1234567890123456"].join("-");
+  const upstream = createServer(async (incoming, response) => {
+    for await (const _chunk of incoming) void _chunk;
+    response.writeHead(200, { "content-type": "application/json", "x-request-id": "req_once" });
+    response.end(JSON.stringify({ id: "resp_once", status: "completed", model: "gpt-5.6-sol", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }));
+  });
+  await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
+  t.after(() => new Promise((resolveClose) => upstream.close(resolveClose)));
+  const address = upstream.address();
+  const proxy = await startApiReceiptProxy({ apiKey: key, request, executable: { digest: sha256Bytes(executableBytes), byteLength: executableBytes.byteLength }, upstreamBaseUrl: `http://127.0.0.1:${address.port}` });
+  const options = { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6-sol", reasoning: { effort: "medium" } }) };
+  assert.equal((await fetch(`${proxy.baseUrl}/responses`, options)).status, 200);
+  assert.equal((await fetch(`${proxy.baseUrl}/responses`, options)).status, 409);
+  await assert.rejects(() => proxy.finish(), { code: "PROXY_MULTIPLE_REQUESTS" });
+});
+
+test("research packets retain completed and aborted evidence without comparative promotion", async (t) => {
+  const input = bundle();
+  for (const [status, resultCount, errorCode] of [["completed", 4, null], ["aborted", 1, "ADAPTER_ATTEMPT_FAILED"]]) {
+    const store = await mkdtemp(resolve(tmpdir(), `nelos-research-${status}-`)); t.after(() => rm(store, { recursive: true, force: true }));
+    const results = Array.from({ length: resultCount }, (_, index) => ({ blockId: `block:${index}`, trialId: `trial:${index}`, candidateId: API_BASELINE_CANDIDATES[index % 2], outcome: "succeeded", observedRoute: { ...requestFor(input).requestedRoute }, output: { id: "result", digest: `sha256:${"a".repeat(64)}`, byteLength: 1 }, artifacts: [{ id: "runtime-provider-receipt", digest: `sha256:${"b".repeat(64)}`, byteLength: 1 }], measurements: [{ metricId: "strict_pass_rate", value: 1 }, { metricId: "estimated_cost_usd", value: 0.001 }] }));
+    await writeApiBaselineResearchPacket({ store, bundle: input, runId: `${API_BASELINE_RUN_PREFIX}${status}`, results, status, errorCode, startedAt: "2026-08-04T00:00:00.000Z", finishedAt: "2026-08-04T00:01:00.000Z" });
+    const summary = JSON.parse(await readFile(resolve(store, "research-packet", "run-summary.json"), "utf8"));
+    const claims = JSON.parse(await readFile(resolve(store, "research-packet", "claim-ledger.json"), "utf8"));
+    const protocol = JSON.parse(await readFile(resolve(store, "research-packet", "protocol.json"), "utf8"));
+    assert.equal(summary.status, status); assert.equal(summary.evidenceHealth.complete, status === "completed"); assert.equal(protocol.identities.pricingSnapshot.capturedAt, pricingSnapshot.capturedAt);
+    assert.equal(claims.claims.find(({ claimId }) => claimId === "claim:comparative-performance").status, "untested");
+    assert.deepEqual(claims.claims.find(({ claimId }) => claimId === "claim:comparative-performance").supportingRuns, []);
+    assert.doesNotMatch(JSON.stringify({ summary, claims, protocol }), /OPENAI_API_KEY|sk-(?:proj|proxy|offline|fake)-/u);
+  }
 });
 
 function evidenceFor(stratum, taskId, blockId, phase = "signed-in-pilot") {

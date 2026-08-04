@@ -53,6 +53,14 @@ function exactObject(value, fields, code) {
 }
 function digest(value) { return /^sha256:[0-9a-f]{64}$/u.test(value ?? ""); }
 
+function validatePricingSnapshot(snapshot, requestedModel) {
+  exactObject(snapshot, ["schemaVersion", "provider", "capturedAt", "sourceUrl", "modelId", "currency", "inputUsdPerMillionTokens", "cachedInputUsdPerMillionTokens", "outputUsdPerMillionTokens"], "INVALID_PRICING_SNAPSHOT");
+  const captured = Date.parse(snapshot.capturedAt);
+  if (snapshot.schemaVersion !== 1 || snapshot.provider !== "openai" || snapshot.modelId !== requestedModel.id || snapshot.currency !== "USD"
+    || !Number.isFinite(captured) || new Date(captured).toISOString() !== snapshot.capturedAt || !/^https:\/\/(?:[^/]+\.)?openai\.com\//u.test(snapshot.sourceUrl)
+    || [snapshot.inputUsdPerMillionTokens, snapshot.cachedInputUsdPerMillionTokens, snapshot.outputUsdPerMillionTokens].some((value) => !Number.isFinite(value) || value < 0)) failure("INVALID_PRICING_SNAPSHOT");
+}
+
 export async function measureRuntimeProvenance({ executablePath, backend, platform, expectedExecutableDigest = null, read = readFile, resolvePath = realpath }) {
   if (typeof executablePath !== "string" || !executablePath.startsWith("/")) failure("INVALID_RUNTIME_EXECUTABLE");
   const measuredPath = await resolvePath(executablePath);
@@ -87,11 +95,12 @@ function sealedCanarySchedule(manifest) {
   return Object.freeze({ ...unsigned, scheduleDigest: canonicalDigest(unsigned) });
 }
 
-export function createApiBaselineBundle({ mode = "canary", sourceCommit, requestedModel, runtimeProvenance }) {
+export function createApiBaselineBundle({ mode = "canary", sourceCommit, requestedModel, runtimeProvenance, pricingSnapshot }) {
   if (mode !== "canary") failure("CONFIRMATORY_POWER_AUTHORIZATION_REQUIRED");
   if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? "")) failure("INVALID_SOURCE_COMMIT");
   exactObject(requestedModel, ["id", "revision", "reasoningEffort"], "INVALID_REQUESTED_ROUTE");
   if (!/^model:[A-Za-z0-9._-]+$/u.test(requestedModel.id) || requestedModel.id === "model:product-default" || requestedModel.revision === "unavailable") failure("INVALID_REQUESTED_ROUTE");
+  validatePricingSnapshot(pricingSnapshot, requestedModel);
   validateMeasuredRuntime(runtimeProvenance);
   const { release } = createStarterDevelopmentRelease();
   const tasks = [createStarterTaskPackage(CANARY_FAMILY).task];
@@ -113,7 +122,7 @@ export function createApiBaselineBundle({ mode = "canary", sourceCommit, request
   const root = new URL("..", import.meta.url).pathname;
   const runnerManifest = { schemaVersion: 1, experiment, tasks, adapters: { "direct-codex": { command: [process.execPath, `${root}scripts/api-codex-adapter.mjs`], environment: {}, version: "api-codex-receipt-v2" }, nelos: { command: [process.execPath, `${root}scripts/test-support/fake-experiment-adapter.mjs`], environment: {}, version: "unused-v1" } }, policy: { maxConcurrency: 1, perAdapterConcurrency: { "direct-codex": 1, nelos: 1 }, leaseMs: 210000, timeoutMs: 180000, maxAttempts: 1 } };
   const executionSchedule = sealedCanarySchedule(runnerManifest);
-  const identity = { phase: "api-controlled-canary", runIdPrefix: API_BASELINE_RUN_PREFIX, storeNamespace: "api-canary-store-v2", evidenceRootName: "api-canary-evidence-v2", reportKind: "api-canary-report-v2", requestedRoute: { modelId: requestedModel.id, modelRevision: requestedModel.revision, reasoningEffort: requestedModel.reasoningEffort }, runtimeProvenance };
+  const identity = { phase: "api-controlled-canary", runIdPrefix: API_BASELINE_RUN_PREFIX, storeNamespace: "api-canary-store-v2", evidenceRootName: "api-canary-evidence-v2", reportKind: "api-canary-report-v2", requestedRoute: { modelId: requestedModel.id, modelRevision: requestedModel.revision, reasoningEffort: requestedModel.reasoningEffort }, runtimeProvenance, pricingSnapshot };
   const controls = { ceilings: CANARY_CEILINGS, sealedTrialCount: 4, expansion: "forbidden", confirmatoryAuthorization: "not-granted" };
   const unsigned = { schemaVersion: 2, identity, runnerManifest, executionSchedule, controls };
   return Object.freeze({ ...unsigned, bundleDigest: canonicalDigest(unsigned) });
@@ -126,6 +135,7 @@ export function validateApiBaselineBundle(bundle) {
   const material = { ...bundle }; delete material.bundleDigest;
   if (bundle.schemaVersion !== 2 || canonicalDigest(material) !== bundle.bundleDigest) failure("ALTERED_API_BASELINE_BUNDLE");
   validateRunnerManifest(bundle.runnerManifest); validateMeasuredRuntime(bundle.identity.runtimeProvenance);
+  validatePricingSnapshot(bundle.identity.pricingSnapshot, bundle.runnerManifest.experiment.candidates[0].model);
   if (bundle.runnerManifest.tasks.length !== 1 || bundle.identity.phase !== "api-controlled-canary" || bundle.identity.runIdPrefix !== API_BASELINE_RUN_PREFIX) failure("CANARY_SCOPE_VIOLATION");
   const armMaterial = candidates.map((entry) => ({ ...entry, candidateId: "candidate:repeat", configuration: entry.configuration.map((item) => item.name === "repeat-arm" ? { ...item, value: "repeat" } : item) }));
   if (canonicalDigest(armMaterial[0]) !== canonicalDigest(armMaterial[1])) failure("NONIDENTICAL_API_BASELINE_ARMS");

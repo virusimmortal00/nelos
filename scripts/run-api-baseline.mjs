@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 
 import { canonicalBytes, canonicalDigest } from "../src/experimentation-contract/index.mjs";
 import { API_BASELINE_RUN_PREFIX, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
+import { writeApiBaselineResearchPacket } from "../src/api-baseline-research-packet.mjs";
 import { expandExperimentPlan } from "../src/experiment-runner.mjs";
 
 function options(argv) { const value = {}; for (let index = 0; index < argv.length; index += 2) value[argv[index]?.slice(2)] = argv[index + 1]; return value; }
@@ -29,22 +30,32 @@ const byId = new Map(plan.trials.map((trial) => [trial.trialId, trial]));
 const declaration = bundle.runnerManifest.adapters["direct-codex"];
 const results = [];
 const operationLedger = resolve(store, "operations");
-for (const block of bundle.executionSchedule.blocks) {
-  for (const trialId of block.trialIds) {
-    if (results.length >= bundle.controls.sealedTrialCount) throw new Error("SEALED_PLAN_EXPANSION_REJECTED");
-    const trial = byId.get(trialId); const attempt = 1; const operationId = `op:${canonicalDigest({ runId: input["run-id"], trialId, attempt }).slice(7)}`; const leaseId = `lease:${operationId.slice(3)}`;
-    const requestedRoute = { candidateId: trial.candidateId, adapter: trial.adapter, modelId: trial.candidateProvenance.model.id, modelRevision: trial.candidateProvenance.model.revision, reasoningEffort: trial.candidateProvenance.model.reasoningEffort, pluginDigest: canonicalDigest(trial.candidateProvenance.plugins) };
-    const request = { schemaVersion: 1, runId: input["run-id"], runGeneration: 1, trialId, attempt, operationId, lease: { leaseId, owner: `controller:${input["run-id"]}`, fencingToken: canonicalDigest({ runId: input["run-id"], trialId, attempt, operationId, leaseId }), acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + bundle.runnerManifest.policy.leaseMs).toISOString() }, seed: trial.seed, componentSeeds: trial.componentSeeds, declaredInputs: trial.declaredInputs, declaredInputsDigest: trial.declaredInputsDigest, budget: trial.budget, requestedRoute, runtimeProvenance: bundle.identity.runtimeProvenance, exposureCeilings: bundle.controls.ceilings };
-    const response = await invoke(declaration.command[0], declaration.command.slice(1), request, operationLedger);
-    const metrics = Object.fromEntries(response.measurements.map(({ metricId, value }) => [metricId, value]));
-    if (response.operationId !== operationId || canonicalDigest(response.observedRoute) !== canonicalDigest(requestedRoute) || metrics.provider_executions !== 1 || metrics.provider_retries !== 0 || metrics.provider_requests > bundle.controls.ceilings.providerRequestsPerTrial || metrics.estimated_cost_usd > bundle.controls.ceilings.maxEstimatedCostUsdPerTrial) throw new Error("ATTEMPT_CONTROL_VIOLATION");
-    results.push({ blockId: block.blockId, trialId, candidateId: trial.candidateId, outcome: response.outcome, output: response.outputs[0], measurements: response.measurements });
-    await writeFile(resolve(store, `${String(results.length).padStart(3, "0")}-${trialId.slice(-16)}.json`), canonicalBytes(results.at(-1)), { mode: 0o400, flag: "wx" });
+const startedAt = new Date().toISOString(); let finishedAt; let summary; let terminalError = null; let status = "aborted";
+try {
+  for (const block of bundle.executionSchedule.blocks) {
+    for (const trialId of block.trialIds) {
+      if (results.length >= bundle.controls.sealedTrialCount) throw new Error("SEALED_PLAN_EXPANSION_REJECTED");
+      const trial = byId.get(trialId); const attempt = 1; const operationId = `op:${canonicalDigest({ runId: input["run-id"], trialId, attempt }).slice(7)}`; const leaseId = `lease:${operationId.slice(3)}`;
+      const requestedRoute = { candidateId: trial.candidateId, adapter: trial.adapter, modelId: trial.candidateProvenance.model.id, modelRevision: trial.candidateProvenance.model.revision, reasoningEffort: trial.candidateProvenance.model.reasoningEffort, pluginDigest: canonicalDigest(trial.candidateProvenance.plugins) };
+      const request = { schemaVersion: 1, runId: input["run-id"], runGeneration: 1, trialId, attempt, operationId, lease: { leaseId, owner: `controller:${input["run-id"]}`, fencingToken: canonicalDigest({ runId: input["run-id"], trialId, attempt, operationId, leaseId }), acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + bundle.runnerManifest.policy.leaseMs).toISOString() }, seed: trial.seed, componentSeeds: trial.componentSeeds, declaredInputs: trial.declaredInputs, declaredInputsDigest: trial.declaredInputsDigest, budget: trial.budget, requestedRoute, runtimeProvenance: bundle.identity.runtimeProvenance, pricingSnapshot: bundle.identity.pricingSnapshot, exposureCeilings: bundle.controls.ceilings };
+      const response = await invoke(declaration.command[0], declaration.command.slice(1), request, operationLedger);
+      const metrics = Object.fromEntries(response.measurements.map(({ metricId, value }) => [metricId, value]));
+      const routeMatches = Object.entries(requestedRoute).every(([field, value]) => response.observedRoute?.[field] === value);
+      const observedCost = metrics.estimated_cost_usd;
+      if (response.operationId !== operationId || !routeMatches || metrics.provider_executions !== 1 || metrics.provider_retries !== 0 || metrics.provider_requests > bundle.controls.ceilings.providerRequestsPerTrial || !Number.isFinite(observedCost) || observedCost > bundle.controls.ceilings.maxEstimatedCostUsdPerTrial) throw new Error("ATTEMPT_CONTROL_VIOLATION");
+      results.push({ blockId: block.blockId, trialId, candidateId: trial.candidateId, outcome: response.outcome, observedRoute: response.observedRoute, output: response.outputs[0], artifacts: response.artifacts, measurements: response.measurements });
+      await writeFile(resolve(store, `${String(results.length).padStart(3, "0")}-${trialId.slice(-16)}.json`), canonicalBytes(results.at(-1)), { mode: 0o400, flag: "wx" });
+    }
   }
-}
-if (results.length !== bundle.controls.sealedTrialCount) throw new Error("SEALED_PLAN_INCOMPLETE");
-const totals = results.flatMap(({ measurements }) => measurements).reduce((value, { metricId, value: measurement }) => { value[metricId] = (value[metricId] ?? 0) + measurement; return value; }, {});
-if ((totals.provider_executions ?? 0) > bundle.controls.ceilings.maxTotalProviderExecutions || (totals.provider_retries ?? 0) > bundle.controls.ceilings.maxTotalProviderRetries || (totals.provider_requests ?? 0) > bundle.controls.ceilings.maxTotalProviderRequests || (totals.estimated_cost_usd ?? 0) > bundle.controls.ceilings.maxTotalEstimatedCostUsd) throw new Error("TOTAL_EXPOSURE_CEILING_EXCEEDED");
-const summary = { schemaVersion: 1, runId: input["run-id"], bundleDigest: bundle.bundleDigest, scheduleDigest: bundle.executionSchedule.scheduleDigest, trialCount: results.length, resultDigest: canonicalDigest(results) };
-await writeFile(resolve(store, "api-baseline-run.json"), canonicalBytes(summary), { mode: 0o400, flag: "wx" });
+  if (results.length !== bundle.controls.sealedTrialCount) throw new Error("SEALED_PLAN_INCOMPLETE");
+  const totals = results.flatMap(({ measurements }) => measurements).reduce((value, { metricId, value: measurement }) => { if (Number.isFinite(measurement)) value[metricId] = (value[metricId] ?? 0) + measurement; return value; }, {});
+  if ((totals.provider_executions ?? 0) > bundle.controls.ceilings.maxTotalProviderExecutions || (totals.provider_retries ?? 0) > bundle.controls.ceilings.maxTotalProviderRetries || (totals.provider_requests ?? 0) > bundle.controls.ceilings.maxTotalProviderRequests || (totals.estimated_cost_usd ?? 0) > bundle.controls.ceilings.maxTotalEstimatedCostUsd) throw new Error("TOTAL_EXPOSURE_CEILING_EXCEEDED");
+  summary = { schemaVersion: 1, runId: input["run-id"], bundleDigest: bundle.bundleDigest, scheduleDigest: bundle.executionSchedule.scheduleDigest, trialCount: results.length, resultDigest: canonicalDigest(results) };
+  await writeFile(resolve(store, "api-baseline-run.json"), canonicalBytes(summary), { mode: 0o400, flag: "wx" });
+  status = "completed";
+} catch (error) { terminalError = error; }
+finishedAt = new Date().toISOString();
+const errorCode = terminalError && /^[A-Z][A-Z0-9_]+$/u.test(terminalError.message) ? terminalError.message : terminalError ? "API_BASELINE_RUN_ABORTED" : null;
+try { await writeApiBaselineResearchPacket({ store, bundle, runId: input["run-id"], results, status, errorCode, startedAt, finishedAt }); } catch (error) { terminalError ??= error; }
+if (terminalError) throw terminalError;
 process.stdout.write(`${JSON.stringify(summary)}\n`);

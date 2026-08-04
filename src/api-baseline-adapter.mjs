@@ -4,14 +4,23 @@ import { resolve } from "node:path";
 
 import { canonicalBytes, canonicalDigest, sha256Bytes } from "./experimentation-contract/index.mjs";
 import { candidateTaskEnvelope, createStarterTaskPackage, gradeTaskAttempt, STARTER_TASK_FAMILIES } from "./experimentation-corpus/index.mjs";
-import { parseCodexJsonl } from "./signed-in-pilot-telemetry.mjs";
 import { resolveExecutable, withDisposableApiAttempt } from "./api-baseline-runtime.mjs";
 import { CANARY_CEILINGS } from "./api-baseline-harness.mjs";
+import { startApiReceiptProxy } from "./api-baseline-receipt-proxy.mjs";
 
 const MAX_CAPTURE_BYTES = 16 * 1024 * 1024;
 function fail(code) { throw Object.assign(new Error(code), { code }); }
 function exact(value, fields, code) {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("|") !== [...fields].sort().join("|")) fail(code);
+}
+function expectedCost(usage, snapshot) {
+  const uncached = usage.inputTokens - usage.cachedInputTokens;
+  return Number(((uncached * snapshot.inputUsdPerMillionTokens + usage.cachedInputTokens * snapshot.cachedInputUsdPerMillionTokens + usage.outputTokens * snapshot.outputUsdPerMillionTokens) / 1_000_000).toFixed(12));
+}
+function validatePricingSnapshot(snapshot, request) {
+  exact(snapshot, ["schemaVersion", "provider", "capturedAt", "sourceUrl", "modelId", "currency", "inputUsdPerMillionTokens", "cachedInputUsdPerMillionTokens", "outputUsdPerMillionTokens"], "ATTEMPT_CONTROL_INVALID");
+  if (snapshot.schemaVersion !== 1 || snapshot.provider !== "openai" || snapshot.modelId !== request.requestedRoute.modelId || snapshot.currency !== "USD" || !Number.isFinite(Date.parse(snapshot.capturedAt)) || !/^https:\/\/(?:[^/]+\.)?openai\.com\//u.test(snapshot.sourceUrl)
+    || [snapshot.inputUsdPerMillionTokens, snapshot.cachedInputUsdPerMillionTokens, snapshot.outputUsdPerMillionTokens].some((value) => !Number.isFinite(value) || value < 0)) fail("ATTEMPT_CONTROL_INVALID");
 }
 
 function packageFor(taskId) {
@@ -53,27 +62,22 @@ export function validateAttemptControl(request, now = Date.now()) {
   return { expectedOperation, expectedLeaseId, expectedFence };
 }
 
-export function parseRuntimeProviderReceipt(stdout) {
-  const receipts = [];
-  for (const line of stdout.split(/\r?\n/u)) {
-    if (!line.trim()) continue;
-    let event; try { event = JSON.parse(line); } catch { continue; }
-    if (event.type === "api.runtime_receipt") receipts.push(event.receipt);
-  }
-  if (receipts.length !== 1) fail("RUNTIME_RECEIPT_MISSING");
-  return receipts[0];
-}
-
 function validateReceipt(receipt, { request, executableDigest, executableBytes }) {
   exact(receipt, ["schemaVersion", "operationId", "leaseId", "fencingToken", "attempt", "route", "provider", "executable"], "RUNTIME_RECEIPT_INVALID");
-  exact(receipt.route, ["candidateId", "adapter", "modelId", "modelRevision", "reasoningEffort", "pluginDigest"], "RUNTIME_RECEIPT_INVALID");
-  exact(receipt.provider, ["executionCount", "retryCount", "requestCount", "estimatedCostUsd"], "RUNTIME_RECEIPT_INVALID");
+  exact(receipt.route, ["candidateId", "adapter", "modelId", "modelRevision", "reasoningEffort", "pluginDigest", "observedModelId", "observedModelRevision", "forwardedReasoningEffort"], "RUNTIME_RECEIPT_INVALID");
+  exact(receipt.provider, ["executionCount", "retryCount", "requestCount", "estimatedCostUsd", "costStatus", "pricingSnapshotDigest", "responseId", "requestId", "usage"], "RUNTIME_RECEIPT_INVALID");
+  exact(receipt.provider.usage, ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"], "RUNTIME_RECEIPT_INVALID");
   exact(receipt.executable, ["digest", "byteLength"], "RUNTIME_RECEIPT_INVALID");
   if (receipt.schemaVersion !== 1 || receipt.operationId !== request.operationId || receipt.leaseId !== request.lease.leaseId || receipt.fencingToken !== request.lease.fencingToken || receipt.attempt !== request.attempt) fail("RUNTIME_RECEIPT_INVALID");
-  if (canonicalDigest(receipt.route) !== canonicalDigest(request.requestedRoute)) fail("RUNTIME_ROUTE_MISMATCH");
+  if (Object.entries(request.requestedRoute).some(([field, value]) => receipt.route[field] !== value)
+    || receipt.route.forwardedReasoningEffort !== request.requestedRoute.reasoningEffort
+    || receipt.route.observedModelId !== `model:${receipt.route.observedModelRevision}`
+    || (receipt.route.observedModelRevision !== request.requestedRoute.modelId.slice("model:".length) && !receipt.route.observedModelRevision.startsWith(`${request.requestedRoute.modelId.slice("model:".length)}-`))) fail("RUNTIME_ROUTE_MISMATCH");
   if (receipt.executable.digest !== executableDigest || receipt.executable.byteLength !== executableBytes) fail("RUNTIME_PROVENANCE_MISMATCH");
   const ceiling = request.exposureCeilings;
-  if (receipt.provider.executionCount !== 1 || receipt.provider.executionCount > ceiling.providerExecutionsPerTrial || receipt.provider.retryCount > ceiling.providerRetriesPerTrial || receipt.provider.requestCount > ceiling.providerRequestsPerTrial || receipt.provider.estimatedCostUsd > ceiling.maxEstimatedCostUsdPerTrial) fail("PROVIDER_EXPOSURE_EXCEEDED");
+  if (receipt.provider.executionCount !== 1 || receipt.provider.executionCount > ceiling.providerExecutionsPerTrial || receipt.provider.retryCount !== 0 || receipt.provider.retryCount > ceiling.providerRetriesPerTrial || receipt.provider.requestCount !== 1 || receipt.provider.requestCount > ceiling.providerRequestsPerTrial
+    || receipt.provider.estimatedCostUsd !== expectedCost(receipt.provider.usage, request.pricingSnapshot) || receipt.provider.estimatedCostUsd > ceiling.maxEstimatedCostUsdPerTrial || receipt.provider.costStatus !== "computed-from-snapshot" || receipt.provider.pricingSnapshotDigest !== canonicalDigest(request.pricingSnapshot) || typeof receipt.provider.responseId !== "string" || receipt.provider.responseId.length === 0 || typeof receipt.provider.requestId !== "string" || receipt.provider.requestId.length === 0
+    || Object.values(receipt.provider.usage).some((value) => !Number.isSafeInteger(value) || value < 0) || receipt.provider.usage.cachedInputTokens > receipt.provider.usage.inputTokens || receipt.provider.usage.reasoningOutputTokens > receipt.provider.usage.outputTokens || receipt.provider.usage.totalTokens !== receipt.provider.usage.inputTokens + receipt.provider.usage.outputTokens) fail("PROVIDER_EXPOSURE_EXCEEDED");
   return receipt;
 }
 
@@ -85,9 +89,11 @@ export async function executeApiBaselineAttempt({
   attemptBoundary = withDisposableApiAttempt,
   executableResolver = resolveExecutable,
   executableReader = readFile,
+  receiptProxyFactory = startApiReceiptProxy,
   now = () => Date.now(),
 }) {
   validateAttemptControl(request, now());
+  validatePricingSnapshot(request.pricingSnapshot, request);
   if (canonicalDigest(request.exposureCeilings) !== canonicalDigest(CANARY_CEILINGS) || request.budget.tokenBudget > CANARY_CEILINGS.tokenBudgetPerTrial || request.budget.wallClockSeconds > CANARY_CEILINGS.wallClockSecondsPerTrial) fail("PROVIDER_EXPOSURE_EXCEEDED");
   if (typeof claimOperation !== "function") fail("ATTEMPT_CONTROL_INVALID");
   await claimOperation(request);
@@ -101,14 +107,30 @@ export async function executeApiBaselineAttempt({
     await stage(workspace, sealed);
     await processRunner("git", ["init", "-q"], { env, cwd: workspace, input: "", timeoutMs: 10000, outputPath: null });
     const outputPath = resolve(workspace, "result.json"); const model = request.requestedRoute.modelId.slice("model:".length);
-    const args = ["exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", workspace, "-m", model, "-c", `model_reasoning_effort=\"${request.requestedRoute.reasoningEffort}\"`, "--output-schema", resolve(workspace, "output-schema.json"), "-o", outputPath, "-"];
+    const proxy = await receiptProxyFactory({ apiKey: env.OPENAI_API_KEY, request, executable: { digest: executableDigest, byteLength: executableBytes } });
+    const args = ["exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", workspace, "-m", model,
+      "-c", `model_reasoning_effort=${JSON.stringify(request.requestedRoute.reasoningEffort)}`,
+      "-c", `model_provider=${JSON.stringify("nelos_proxy")}`,
+      "-c", `model_providers.nelos_proxy.name=${JSON.stringify("Nelos receipt proxy")}`,
+      "-c", `model_providers.nelos_proxy.base_url=${JSON.stringify(proxy.baseUrl)}`,
+      "-c", `model_providers.nelos_proxy.env_key=${JSON.stringify("OPENAI_API_KEY")}`,
+      "-c", `model_providers.nelos_proxy.wire_api=${JSON.stringify("responses")}`,
+      "-c", "model_providers.nelos_proxy.request_max_retries=0",
+      "-c", "model_providers.nelos_proxy.stream_max_retries=0",
+      "-c", "model_providers.nelos_proxy.supports_websockets=false",
+      "--output-schema", resolve(workspace, "output-schema.json"), "-o", outputPath, "-"];
     const started = now();
-    const result = await processRunner(executablePath, args, { env, cwd: workspace, input: await readFile(resolve(workspace, "task-prompt.txt")), timeoutMs: request.budget.wallClockSeconds * 1000, outputPath, request });
-    const receipt = validateReceipt(parseRuntimeProviderReceipt(result.stdout), { request, executableDigest, executableBytes });
+    let result; let unvalidatedReceipt;
+    try {
+      result = await processRunner(executablePath, args, { env, cwd: workspace, input: await readFile(resolve(workspace, "task-prompt.txt")), timeoutMs: request.budget.wallClockSeconds * 1000, outputPath, request });
+      unvalidatedReceipt = await proxy.finish();
+    } catch (error) { await proxy.abort?.().catch(() => {}); throw error; }
+    const receipt = validateReceipt(unvalidatedReceipt, { request, executableDigest, executableBytes });
     let value = {}; try { value = JSON.parse(await readFile(outputPath, "utf8")); } catch {}
     const output = canonicalBytes(value);
     const grade = gradeTaskAttempt({ taskPackage: sealed, submission: { outputs: [{ id: "result", encoding: "base64", bytes: output.toString("base64") }] }, observation: { attemptId: `${request.operationId}:candidate`, contaminated: false, termination: result.timedOut ? "timeout" : "exited", exitCode: result.code ?? 1 }, attestation: { issuer: "nelos-host-runtime", candidateEnvironmentId: `disposable:${request.trialId}:${request.attempt}`, graderEnvironmentId: "host-grader:api-baseline" } });
-    const events = parseCodexJsonl(result.stdout);
-    return { outcome: result.code === 0 ? "succeeded" : "failed", observedRoute: { ...receipt.route }, operationId: receipt.operationId, outputs: [{ id: "result", digest: sha256Bytes(output), byteLength: output.byteLength }], artifacts: [], measurements: [{ metricId: "strict_pass_rate", value: grade.strictPass ? 1 : 0 }, { metricId: "candidate_failure_rate", value: result.code === 0 ? 0 : 1 }, { metricId: "terminal_wall_ms", value: now() - started }, { metricId: "input_tokens", value: events.inputTokens }, { metricId: "output_tokens", value: events.outputTokens }, { metricId: "provider_executions", value: receipt.provider.executionCount }, { metricId: "provider_retries", value: receipt.provider.retryCount }, { metricId: "provider_requests", value: receipt.provider.requestCount }, { metricId: "estimated_cost_usd", value: receipt.provider.estimatedCostUsd }, { metricId: "runtime_receipt_digest_numeric", value: Number.parseInt(canonicalDigest(receipt).slice(7, 19), 16) }], evidenceComplete: true, retryable: false };
+    const receiptBytes = canonicalBytes(receipt);
+    const gradeBytes = canonicalBytes(grade);
+    return { outcome: result.code === 0 ? "succeeded" : "failed", observedRoute: { ...receipt.route }, operationId: receipt.operationId, outputs: [{ id: "result", digest: sha256Bytes(output), byteLength: output.byteLength }], artifacts: [{ id: "runtime-provider-receipt", mediaType: "application/json", encoding: "base64", bytes: receiptBytes.toString("base64"), digest: sha256Bytes(receiptBytes), byteLength: receiptBytes.byteLength }, { id: "machine-grade", mediaType: "application/json", encoding: "base64", bytes: gradeBytes.toString("base64"), digest: sha256Bytes(gradeBytes), byteLength: gradeBytes.byteLength }], measurements: [{ metricId: "strict_pass_rate", value: grade.strictPass ? 1 : 0 }, { metricId: "candidate_failure_rate", value: result.code === 0 ? 0 : 1 }, { metricId: "terminal_wall_ms", value: now() - started }, { metricId: "input_tokens", value: receipt.provider.usage.inputTokens }, { metricId: "cached_input_tokens", value: receipt.provider.usage.cachedInputTokens }, { metricId: "output_tokens", value: receipt.provider.usage.outputTokens }, { metricId: "reasoning_output_tokens", value: receipt.provider.usage.reasoningOutputTokens }, { metricId: "total_tokens", value: receipt.provider.usage.totalTokens }, { metricId: "provider_executions", value: receipt.provider.executionCount }, { metricId: "provider_retries", value: receipt.provider.retryCount }, { metricId: "provider_requests", value: receipt.provider.requestCount }, { metricId: "estimated_cost_usd", value: receipt.provider.estimatedCostUsd }, { metricId: "runtime_receipt_digest_numeric", value: Number.parseInt(canonicalDigest(receipt).slice(7, 19), 16) }], evidenceComplete: true, retryable: false };
   } });
 }

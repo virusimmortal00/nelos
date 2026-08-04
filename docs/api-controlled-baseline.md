@@ -17,13 +17,14 @@ node scripts/build-api-baseline.mjs \
   --mode canary \
   --out /secure/operator/api-canary.json \
   --source-commit 0123456789012345678901234567890123456789 \
-  --model-id model:gpt-5.6-sol-2026-07-15 \
-  --model-revision 2026-07-15 \
+  --model-id model:gpt-5.6-sol \
+  --model-revision gpt-5.6-sol \
   --reasoning-effort medium \
   --runtime-executable /immutable/runtime/bin/codex \
   --expected-runtime-digest sha256:0123456789012345678901234567890123456789012345678901234567890123 \
   --backend dedicated-desktop \
-  --platform macos-arm64
+  --platform macos-arm64 \
+  --pricing-snapshot /secure/operator/openai-pricing-2026-08-04.json
 ```
 
 The create-only bundle seals four trials, two blocks, AB/BA order, concurrency
@@ -33,6 +34,12 @@ estimated exposure of USD 0.25 per trial / USD 1.00 total. Total token and wall
 ceilings are 16,000 tokens and 720 seconds. Editing any value breaks the bundle
 digest and validation.
 
+The pricing snapshot is prospective run input, not a lookup performed after the
+results. It contains `schemaVersion`, `provider: "openai"`, an ISO `capturedAt`,
+the official OpenAI `sourceUrl`, exact `modelId`, `currency: "USD"`, and the
+input, cached-input, and output USD rates per million tokens. Its digest is
+bound into every runtime receipt.
+
 There is no direct `--mode confirmatory` builder. Confirmatory trial counts are
 fixed only after the offline power authorization described below.
 
@@ -40,8 +47,8 @@ fixed only after the offline power authorization described below.
 
 Production reads only `/Users/bobby.sayers/src/nelos/.env.local`. Before reading,
 it requires owner-only permissions, current-user ownership, and a successful
-Git-ignore check. The value enters only the disposable Codex child environment;
-it is absent from argv, bundles, requested/observed route records, logs,
+Git-ignore check. The value enters only the disposable Codex child environment
+and its loopback receipt proxy; it is absent from argv, bundles, requested/observed route records, logs,
 telemetry, reports, evidence, artifacts, and error text. Fresh home, Codex home,
 XDG, temporary, and workspace directories are removed in `finally`.
 
@@ -51,11 +58,22 @@ path or injected credential option, and the tests never read the real file.
 
 ## Receipt and replay requirements
 
-The adapter does not treat requested route fields as observations. A successful
-attempt requires exactly one independently parsed `api.runtime_receipt` event
-containing the observed model ID, revision, reasoning effort, provider execution
-count, retry count, request count, estimated cost, and executable byte digest.
-Missing, duplicate, malformed, mismatched, or over-ceiling receipts fail closed.
+The adapter does not treat requested route fields as observations. It starts an
+ephemeral server bound only to `127.0.0.1`, configures a private Codex Responses
+provider to use it, and admits exactly one authenticated `POST /v1/responses`.
+The proxy checks the forwarded model and reasoning effort before sending the
+request to OpenAI. Codex provider and stream retries are both disabled.
+
+A successful attempt requires a completed upstream response and a proxy-minted
+receipt containing the provider-observed model, forwarded reasoning effort,
+OpenAI request and response IDs, exact token usage, provider execution/request/
+retry counts, and the measured Codex executable digest. The receipt is retained
+as canonical, content-addressed JSON. Estimated cost is computed from exact
+usage and the dated OpenAI pricing snapshot sealed into the bundle; its source,
+capture time, model, currency, and per-million-token rates remain reproducible.
+The sealed USD limits remain hard exposure ceilings. Missing, duplicate,
+malformed, mismatched, incomplete, or
+over-ceiling exchanges fail closed.
 
 Before credential loading, the adapter verifies the deterministic operation ID,
 lease ID, unexpired lease, attempt number, controller owner, and fencing token.
@@ -71,9 +89,28 @@ node scripts/run-api-baseline.mjs \
   --run-id run:api-baseline-canary-001
 ```
 
-The current raw Codex command must emit the receipt contract above through an
-admitted runtime wrapper/provider integration. If it cannot, the canary is
-inconclusive and makes no confirmatory authorization claim.
+The host proxy streams the provider response through without logging request or
+response bodies. It accepts the requested model name or a provider-returned
+snapshot of that exact model family; any different observed model invalidates
+the attempt. No receipt is issued for a non-2xx or incomplete response.
+
+## Research packet
+
+Every completed or caught-aborted run creates `research-packet/` beneath the
+new run store. Its immutable manifest covers `protocol.json`, `run-summary.json`,
+`trials.jsonl`, `claim-ledger.json`, and short anomaly, operator-note, decision,
+design-decision, and limitation documents. The structured files retain exact
+source, distribution, route, runtime, task, grader, prompt/configuration digest,
+schedule, seed, pricing, receipt, grading, usage, timing, failure, exclusion,
+and evidence-health identities without copying hidden grader material or request
+bodies.
+
+The initial ledger contains one methodology-only instrumentation claim and one
+explicitly untested comparative claim. A four-trial repeat-arm canary can make
+the former preliminary when evidence is complete; it can never support or
+promote the comparative claim. Operator templates ask for contemporaneous
+incidents, deviations, alternative explanations, the post-result decision, and
+prospective changes before the next phase.
 
 ## Offline confirmatory authorization
 
