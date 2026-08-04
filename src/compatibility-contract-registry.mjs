@@ -1018,6 +1018,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "docs/experimentation-operations.md",
           "docs/experimentation-roadmap.md",
           "docs/experimentation-runtime.md",
+          "docs/issue-51-signed-in-pilot-result.md",
           "docs/signed-in-pilot.md",
         ]),
         upstreamDocumentation: Object.freeze([]),

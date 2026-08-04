@@ -73,6 +73,6 @@ node bin/nelos-verify-experiment-report \
   /secure/pilot/report/report.json
 ```
 
-The final report is expected to be inconclusive: identical repeat arms provide calibration, not a practical-benefit claim, and the synthetic sample is intentionally smaller than a confirmatory design. Missing subscription billing, currency cost, standard-credit conversion, and VM network-byte attribution must remain visible rather than being estimated as zero.
+The final report is a calibration disposition, not a practical-benefit claim. `inconclusive` means the repeat sample is underpowered; `regression` between identical arms means variance or ordering effects reject the proposed confirmatory design. Missing subscription billing, currency cost, standard-credit conversion, and VM network-byte attribution must remain visible rather than being estimated as zero.
 
 After this pilot, provision a separate API project key for the route-controlled study. Only after product-default and route-controlled calibration should issue #51 proceed to the direct-versus-Nelos task-web comparison with full web accounting.
