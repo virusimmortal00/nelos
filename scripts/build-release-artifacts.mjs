@@ -95,16 +95,19 @@ export function validateVersionCoherence({
 }) {
   const version = packageMetadata?.version;
   assertReleaseTag(tag, version);
+  const releaseBuildIdentity = `nelos-release-v1:${version}`;
   const surfaces = [
-    [".codex-plugin/plugin.json", pluginMetadata?.version],
-    [".mcp.json", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
-    ["distribution-provenance.json", provenance?.revision],
-    ["package-lock.json", lockMetadata?.version],
-    ["package-lock.json root package", lockMetadata?.packages?.[""]?.version],
+    [".codex-plugin/plugin.json", pluginMetadata?.version, version],
+    [".mcp.json", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION, version],
+    ["distribution-provenance.json", provenance?.revision, version],
+    ["package-lock.json", lockMetadata?.version, version],
+    ["package-lock.json root package", lockMetadata?.packages?.[""]?.version, version],
+    [".codex-plugin/plugin.json release build identity", pluginMetadata?.releaseBuildIdentity, releaseBuildIdentity],
+    [".mcp.json release build identity", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY, releaseBuildIdentity],
   ];
-  for (const [label, candidate] of surfaces) {
-    if (candidate !== version) {
-      fail(`${label} version ${candidate} does not match ${version}`);
+  for (const [label, candidate, expected] of surfaces) {
+    if (candidate !== expected) {
+      fail(`${label} value ${candidate} does not match ${expected}`);
     }
   }
   if (provenance?.integrity !== actualIntegrity) {
