@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -201,6 +202,92 @@ async function rawRoundTrip(chunks, options = {}) {
     .map((line) => JSON.parse(line));
   return { exitCode, responses };
 }
+
+async function flushWorker() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+test("worker shutdown routes every transport and signal trigger through one cleanup path", async (t) => {
+  const triggers = [
+    ["stdin EOF", ({ input }) => input.end(), 0],
+    ["stdin error", ({ input }) => input.emit("error", new Error("read failed")), 1],
+    ["stdout closure", ({ output }) => output.emit("close"), 0],
+    ["stdout error", ({ output }) => output.emit("error", new Error("write failed")), 1],
+    ["SIGTERM", ({ signals }) => signals.emit("SIGTERM"), 0],
+    ["SIGINT", ({ signals }) => signals.emit("SIGINT"), 0],
+    ["SIGHUP", ({ signals }) => signals.emit("SIGHUP"), 0],
+  ];
+  for (const [name, trigger, expectedCode] of triggers) {
+    await t.test(name, async () => {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      const signals = new EventEmitter();
+      const exits = [];
+      let closes = 0;
+      let leases = 0;
+      startNelosMcpServer({
+        input,
+        output,
+        signalSource: signals,
+        onExit: (code) => exits.push(code),
+        onLeaseRemove: () => { leases += 1; },
+        appServerBridge: { close: () => { closes += 1; } },
+      });
+      trigger({ input, output, signals });
+      await flushWorker();
+      assert.deepEqual(exits, [expectedCode]);
+      assert.equal(closes, 1);
+      assert.equal(leases, 1);
+    });
+  }
+});
+
+test("worker shutdown is idempotent, bounded, and never signals siblings", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const signals = new EventEmitter();
+  let timeout;
+  let closeCalls = 0;
+  let leaseCalls = 0;
+  const exits = [];
+  const worker = startNelosMcpServer({
+    input,
+    output,
+    signalSource: signals,
+    shutdownTimeoutMs: 1,
+    setShutdownTimer: (callback) => { timeout = callback; return "timer"; },
+    clearShutdownTimer: () => {},
+    onExit: (code) => exits.push(code),
+    onLeaseRemove: () => { leaseCalls += 1; },
+    appServerBridge: {
+      close() { closeCalls += 1; },
+      waitForThreads: () => new Promise(() => {}),
+    },
+  });
+  input.write(`${JSON.stringify(INITIALIZE)}\n`);
+  input.write(`${JSON.stringify({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: "nelos_thread_wait", arguments: { targets: [{ threadId: "child" }] } },
+  })}\n`);
+  await flushWorker();
+  input.end();
+  signals.emit("SIGTERM");
+  await flushWorker();
+  assert.equal(closeCalls, 1);
+  assert.equal(leaseCalls, 1);
+  assert.deepEqual(exits, []);
+  timeout();
+  await flushWorker();
+  assert.deepEqual(exits, [0]);
+  assert.strictEqual(worker.shutdown(), worker.shutdown());
+  assert.equal(closeCalls, 1);
+  assert.equal(leaseCalls, 1);
+  // The worker owns only its own exit callback; no process/group kill hook exists.
+  assert.equal(signals.listenerCount("SIGTERM"), 0);
+});
 
 function toolBody(response) {
   assert.equal(response.error, undefined);

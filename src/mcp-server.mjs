@@ -122,6 +122,7 @@ export const MCP_SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
 ]);
 export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
 export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
+export const MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function isObject(value) {
@@ -1337,6 +1338,11 @@ export function startNelosMcpServer({
   output = process.stdout,
   serverVersion = "0.0.0-dev",
   onExit = (code) => process.exit(code),
+  onLeaseRemove = async () => {},
+  shutdownTimeoutMs = MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  signalSource = process,
+  setShutdownTimer = setTimeout,
+  clearShutdownTimer = clearTimeout,
   orchestrationAdapter = new McpOrchestrationAdapterV1(),
   joinAdapter = new McpJoinAdapterV1(),
   queenDecisionAdapter = new McpQueenDecisionAdapterV1(),
@@ -1354,6 +1360,11 @@ export function startNelosMcpServer({
   webInspector = new NelosWebInspectorV1(),
   deriveRuntimeIdentity = deriveRuntimeIdentityV1,
 } = {}) {
+  if (!Number.isFinite(shutdownTimeoutMs) || shutdownTimeoutMs < 0) {
+    throw new Error("shutdownTimeoutMs must be a non-negative finite number");
+  }
+  if (typeof onLeaseRemove !== "function") throw new Error("onLeaseRemove must be a function");
+  if (typeof onExit !== "function") throw new Error("onExit must be a function");
   let initialized = false;
   let negotiatedVersion = null;
 
@@ -1600,11 +1611,13 @@ export function startNelosMcpServer({
 
   let buffer = Buffer.alloc(0);
   let discardingOversizedFrame = false;
-  let finished = false;
+  let shuttingDown = false;
+  let shutdownPromise = null;
   let processing = Promise.resolve();
   let waitProcessing = Promise.resolve();
 
   function scheduleError(code, message, id) {
+    if (shuttingDown) return;
     processing = processing
       .then(() => sendError(code, message, id))
       .catch(() => {
@@ -1613,6 +1626,7 @@ export function startNelosMcpServer({
   }
 
   function schedule(message) {
+    if (shuttingDown) return;
     // Responses are only relevant when the server has issued a request. Nelos
     // never does so, and JSON-RPC responses never receive responses themselves.
     if (!Object.hasOwn(message, "method")) return;
@@ -1683,20 +1697,44 @@ export function startNelosMcpServer({
     schedule(message);
   }
 
-  function finish(code) {
-    if (finished) return;
-    finished = true;
-    Promise.allSettled([processing, waitProcessing])
-      .then(() => appServerBridge.close?.())
-      .catch((error) => {
-        process.stderr.write(
-          `nelos-mcp: shutdown cleanup failed: ${error.message}\n`,
-        );
+  function shutdown(code = 0) {
+    if (shutdownPromise) return shutdownPromise;
+    shuttingDown = true;
+    input.pause?.();
+    input.removeListener?.("data", onInputData);
+    removeShutdownListeners();
+    const cleanup = Promise.allSettled([
+      processing,
+      waitProcessing,
+      Promise.resolve().then(() => appServerBridge.close?.()),
+      Promise.resolve().then(() => onLeaseRemove()),
+    ]);
+    let timedOut = false;
+    let timer = null;
+    const boundedCleanup = new Promise((resolve) => {
+      timer = setShutdownTimer(() => {
+        timedOut = true;
+        resolve();
+      }, shutdownTimeoutMs);
+      cleanup.then(() => resolve());
+    });
+    shutdownPromise = boundedCleanup
+      .then(() => {
+        if (timer !== null) clearShutdownTimer(timer);
+        if (timedOut) {
+          process.stderr.write("nelos-mcp: shutdown timed out; forcing exit\n");
+        }
+        return onExit(code);
       })
-      .then(() => onExit(code));
+      .catch((error) => {
+        process.stderr.write(`nelos-mcp: shutdown cleanup failed: ${error.message}\n`);
+        return onExit(code || 1);
+      });
+    return shutdownPromise;
   }
 
-  input.on("data", (chunk) => {
+  const onInputData = (chunk) => {
+    if (shuttingDown) return;
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     buffer = buffer.length === 0 ? bytes : Buffer.concat([buffer, bytes]);
     let newline;
@@ -1716,17 +1754,45 @@ export function startNelosMcpServer({
       discardingOversizedFrame = true;
       scheduleError(-32600, `message exceeds ${MCP_MAX_MESSAGE_BYTES} bytes`);
     }
-  });
-  input.on("end", () => {
+  };
+  const onInputEnd = () => {
     if (!discardingOversizedFrame && buffer.length > 0) {
       scheduleError(-32700, "incomplete stdio frame");
     }
     buffer = Buffer.alloc(0);
     discardingOversizedFrame = false;
-    finish(0);
-  });
-  input.on("error", (error) => {
+    void shutdown(0);
+  };
+  const onInputError = (error) => {
     process.stderr.write(`nelos-mcp: input failed: ${error.message}\n`);
-    finish(1);
-  });
+    void shutdown(1);
+  };
+  const onOutputClose = () => void shutdown(0);
+  const onOutputError = (error) => {
+    process.stderr.write(`nelos-mcp: output failed: ${error.message}\n`);
+    void shutdown(1);
+  };
+  const signalHandlers = new Map([
+    ["SIGTERM", () => void shutdown(0)],
+    ["SIGINT", () => void shutdown(0)],
+    ["SIGHUP", () => void shutdown(0)],
+  ]);
+  function removeShutdownListeners() {
+    input.removeListener?.("end", onInputEnd);
+    input.removeListener?.("error", onInputError);
+    output.removeListener?.("close", onOutputClose);
+    output.removeListener?.("error", onOutputError);
+    for (const [signal, listener] of signalHandlers) {
+      signalSource?.removeListener?.(signal, listener);
+    }
+  }
+
+  input.on("data", onInputData);
+  input.on("end", onInputEnd);
+  input.on("error", onInputError);
+  output.on?.("close", onOutputClose);
+  output.on?.("error", onOutputError);
+  for (const [signal, listener] of signalHandlers) signalSource?.once?.(signal, listener);
+
+  return Object.freeze({ shutdown });
 }
