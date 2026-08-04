@@ -39,7 +39,7 @@ function taskAsset(family, suffix, audience, value, mediaType = "application/jso
 
 function baseTask(family, assets, graderBundle) {
   const bySuffix = Object.fromEntries(assets.map((asset) => [asset.assetId.split(":").at(-1), sha256Bytes(asset.bytes)]));
-  const promptText = `Complete the sealed ${family.label} fixture and return the required canonical JSON result.`;
+  const promptText = `Complete the sealed ${family.label} fixture and return the required canonical JSON result. Under starter-v1, copy the fixture family into the family field and set answer to the family followed by :verified.`;
   const candidate = {
     schemaVersion: 1,
     taskId: `task:${"0".repeat(64)}`,
