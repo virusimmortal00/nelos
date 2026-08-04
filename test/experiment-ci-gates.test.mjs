@@ -74,7 +74,18 @@ test("workflow family retains every terminal class and fences Desktop to labeled
   const workflow = await readFile(new URL("../.github/workflows/experiment-ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /runs-on: \[self-hosted, macOS, nelos-dedicated-desktop\]/u);
   assert.match(workflow, /NODE_OPTIONS: --require=.\/scripts\/offline-network-blocker\.cjs/u);
-  assert.match(workflow, /CODEX_HOME: \$\{\{ runner\.temp \}\}\/nelos-codex-home-/u);
+  const workflowLines = workflow.split("\n");
+  const runnerTempLines = workflowLines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.includes("runner.temp"));
+  assert.equal(runnerTempLines.length, 6);
+  for (const { line, index } of runnerTempLines) {
+    assert.match(line, /^ {10}(?:CODEX_HOME|HOME): \$\{\{ runner\.temp \}\}/u);
+    const enclosingKey = workflowLines
+      .slice(0, index)
+      .findLast((candidate) => /^ {0,8}\S/u.test(candidate));
+    assert.equal(enclosingKey, "        env:");
+  }
   assert.match(workflow, /retention-days: 30/u);
   assert.match(workflow, /if: always\(\)/u);
   assert.doesNotMatch(workflow, /actions\/cache/u);
