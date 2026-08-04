@@ -138,6 +138,7 @@ async function main() {
               baseTitle: parsedTitle.baseTitle,
               inboundWebId: activeWebRecord.inboundWebId,
               outboundWebId: activeWebRecord.outboundWebId,
+              lineageId: activeWebRecord.lineageId,
               queenMarked,
             })
           : queenMarked

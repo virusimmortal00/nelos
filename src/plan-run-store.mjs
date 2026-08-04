@@ -8,9 +8,11 @@ import {
 } from "./task-state.mjs";
 import {
   assertWebId,
+  parentWebId,
   parseWebTitle,
   renderPersistedDurableChildTitle,
   renderPersistedQueenWebTitle,
+  titleLineageId,
 } from "./task-web.mjs";
 
 export const PLAN_RUN_SCHEMA_VERSION = 1;
@@ -131,7 +133,7 @@ export function planRunLaunchActionIdV1({
   return `plan-launch:${normalizedPlanRunId.slice(4)}:${waveIndex}:${sliceId}`;
 }
 
-function waveContract(wave, persistedWebIdentity) {
+function waveContract(wave, persistedWebIdentity, lineageIdsBySlice = {}) {
   const members = wave.slices.map((slice) => ({
     sliceId: slice.id,
     lifecycle: slice.lifecycle,
@@ -139,7 +141,7 @@ function waveContract(wave, persistedWebIdentity) {
       slice.lifecycle === "spinoff" && persistedWebIdentity
         ? renderPersistedDurableChildTitle(
             slice.title,
-            persistedWebIdentity.webId,
+            lineageIdsBySlice[slice.id] ?? persistedWebIdentity.webId,
           )
         : slice.title,
     model: slice.route.launch.nativeTask.model,
@@ -154,6 +156,42 @@ function waveContract(wave, persistedWebIdentity) {
     }),
     members,
   };
+}
+
+function resolveLineageIds(plan, persistedWebIdentity, requested = {}, parentPlanRun = null) {
+  if (persistedWebIdentity === null) return {};
+  if (!requested || typeof requested !== "object" || Array.isArray(requested)) {
+    throw new Error("plan run lineage allocation must be an object");
+  }
+  const inherited = {};
+  for (const wave of parentPlanRun?.waves ?? []) {
+    for (const member of wave.members) {
+      if (member.lifecycle === "spinoff") {
+        const lineageId = titleLineageId(member.title);
+        if (lineageId && parentWebId(lineageId) === persistedWebIdentity.webId) {
+          inherited[member.sliceId] = lineageId;
+        }
+      }
+    }
+  }
+  const normalized = {};
+  let fallback = 0;
+  for (const wave of plan.waves) {
+    for (const slice of wave.slices) {
+      if (slice.lifecycle !== "spinoff") continue;
+      let lineageId = requested[slice.id] ?? inherited[slice.id] ?? null;
+      if (lineageId === null) {
+        fallback += 1;
+        lineageId = `${persistedWebIdentity.webId}.${fallback}`;
+      }
+      lineageId = assertWebId(lineageId);
+      if (parentWebId(lineageId) !== persistedWebIdentity.webId) {
+        throw new Error("plan run member lineage conflicts with its queen web identity");
+      }
+      normalized[slice.id] = lineageId;
+    }
+  }
+  return normalized;
 }
 
 function legacyRecordCanAdoptWebIdentity(legacy, current) {
@@ -234,11 +272,11 @@ function sameCanonicalWaveContract(left, right, persistedWebIdentity) {
     return (
       renderPersistedDurableChildTitle(
         leftMember.title,
-        persistedWebIdentity.webId,
+        titleLineageId(rightMember.title) ?? persistedWebIdentity.webId,
       ) ===
       renderPersistedDurableChildTitle(
         rightMember.title,
-        persistedWebIdentity.webId,
+        titleLineageId(rightMember.title) ?? persistedWebIdentity.webId,
       )
     );
   });
@@ -284,7 +322,7 @@ function legacyRecordCanAdoptTitleGrammar(legacy, current) {
       return (
         renderPersistedDurableChildTitle(
           legacyMember.title,
-          legacy.webIdentity.webId,
+          titleLineageId(currentMember.title) ?? legacy.webIdentity.webId,
         ) === currentMember.title
       );
     });
@@ -445,6 +483,11 @@ function validateRecord(value) {
       members,
     };
   });
+  const persistedLineageIds = Object.fromEntries(
+    waves.flatMap(({ members }) => members
+      .filter(({ lifecycle }) => lifecycle === "spinoff")
+      .map((member) => [member.sliceId, titleLineageId(member.title)])),
+  );
   if (
     plan !== null &&
     (
@@ -453,7 +496,7 @@ function validateRecord(value) {
       plan.waves.some(
         (wave, index) =>
           !sameCanonicalWaveContract(
-            waveContract(wave, normalizedWebIdentity),
+            waveContract(wave, normalizedWebIdentity, persistedLineageIds),
             waves[index],
             normalizedWebIdentity,
           ),
@@ -541,6 +584,7 @@ export function createPlanRunV1(
     sourceId: requestedSourceId,
     parentPlanRun = null,
     webIdentity: requestedWebIdentity = parentPlanRun?.webIdentity ?? null,
+    lineageIdsBySlice: requestedLineageIds = {},
     cleanupIntended = parentPlanRun?.cleanupIntended ?? true,
   },
 ) {
@@ -573,6 +617,12 @@ export function createPlanRunV1(
     requestedWebIdentity,
     normalizedQueenThreadId,
   );
+  const normalizedLineageIds = resolveLineageIds(
+    plan,
+    normalizedWebIdentity,
+    requestedLineageIds,
+    parentPlanRun,
+  );
   if (
     parentPlanRun?.webIdentity &&
     JSON.stringify(parentPlanRun.webIdentity) !==
@@ -604,7 +654,7 @@ export function createPlanRunV1(
     cleanedWaveIndexes: [],
     webIdentity: normalizedWebIdentity,
     waves: plan.waves.map((wave) =>
-      waveContract(wave, normalizedWebIdentity),
+      waveContract(wave, normalizedWebIdentity, normalizedLineageIds),
     ),
   });
 }

@@ -2845,9 +2845,9 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
   assert.deepEqual(body.queenTitleSync, {
     schemaVersion: 1,
     threadId: "queen-1",
-    webId: "A1",
+    webId: "1",
     previousTitle: "Release",
-    title: "👑 A1 · Release",
+    title: "👑1 · Release",
     changed: true,
     verified: false,
   });
@@ -2856,7 +2856,7 @@ test("nelos_plan_slices returns a host-owned queen-title effect before a spinoff
     kind: "native-set-title",
     actionId: `plan-title:${body.planRun.planRunId.slice(4)}:queen`,
     threadId: "queen-1",
-    title: "👑 A1 · Release",
+    title: "👑1 · Release",
     verify: true,
     after: "repeat-plan-slices",
   });
@@ -2896,7 +2896,7 @@ test("nelos_plan_slices requests launch authorization after the host-owned title
           return {
             schemaVersion: 1,
             threadId: "queen-1",
-            title: "👑 A1 · Release",
+            title: "👑A1 · Release",
             status: "idle",
           };
         },
@@ -2963,12 +2963,12 @@ test("replayed durable planning reuses one identity and one queen-title effect",
   const firstBody = toolBody(first).body;
   const replayBody = toolBody(replay).body;
   assert.equal(writes, 2);
-  assert.equal(firstBody.planRun.webIdentity.webId, "A1");
-  assert.equal(replayBody.planRun.webIdentity.webId, "A1");
+  assert.equal(firstBody.planRun.webIdentity.webId, "1");
+  assert.equal(replayBody.planRun.webIdentity.webId, "1");
   assert.deepEqual(replayBody.nextAction, firstBody.nextAction);
   assert.equal(
     replayBody.planRun.waves[0].members[0].title,
-    "🕷️ A1 · Explore",
+    "🕷️1.1 · Explore",
   );
 });
 
@@ -3049,7 +3049,7 @@ test("an archived queen allocates a fresh web instead of trusting its stale titl
   const { isError, body } = toolBody(response);
   assert.equal(isError, false);
   assert.equal(body.planRun.webIdentity.webId, "A2");
-  assert.equal(body.queenTitleSync.title, "👑 A2 · Release");
+  assert.equal(body.queenTitleSync.title, "👑A2 · Release");
   assert.equal(records.get("queen-1").outboundWebId, "A2");
   assert.equal(records.get("queen-1").archivedAt, null);
 });

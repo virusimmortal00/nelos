@@ -40,8 +40,9 @@ long-lived
   contains at least one spinoff, it requires the explicit queen task ID, reads
   that task, and preserves any
   inbound and outbound web lineage, renders the canonical crown-first
-  `👑 WEB_ID · base title`, and verifies the persisted title. Durable spin-offs
-  use `🕷️ WEB_ID · base title`. When synchronization is needed it returns a host-owned native title
+  `👑B8 · base title`, and verifies the persisted title. Durable spin-offs use
+  permanent child titles such as `🕷️B8.1 · base title`. When synchronization
+  is needed it returns a host-owned native title
   effect; a repeated call verifies the persisted title before returning a
   launch-authorization proposal. Legacy outer-crown forms are normalized. A subagent-only plan
   does not start the bridge;

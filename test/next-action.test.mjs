@@ -240,7 +240,7 @@ test("launch contracts distinguish joined subagents from durable spinoffs", () =
       },
     ],
   );
-  assert.equal(members[1].title, "🕷️ A1 · Implement");
+  assert.equal(members[1].title, "🕷️A1.1 · Implement");
   assert.equal(
     members[0].orchestration.tool,
     "nelos_orchestrate_create",

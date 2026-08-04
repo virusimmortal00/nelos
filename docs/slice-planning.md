@@ -90,9 +90,11 @@ wrong-title, or wrong-route member blocks the entire batch before wait, read,
 or acceptance.
 
 For a plan containing durable spinoffs, the plan run also persists one
-queen-owned compact web identity. The queen and every spinoff title are rendered
-from that identity before a wave is returned. Replays reuse the same identity
-and exact titles; conflicting persisted or observed identities fail closed.
+queen-owned compact web identity. Every spinoff also receives a permanent
+monotonic child suffix, so the queen renders as `👑B8` and direct members as
+`🕷️B8.1`, `🕷️B8.2`, and so on. Those exact titles are persisted before a wave
+is returned. Replays reuse the same identities and exact titles; conflicting
+persisted or observed identities fail closed.
 
 Each web-backed `launch-wave` member carries an exact
 `nelos_orchestrate_create` preparation call. The queen must execute that call

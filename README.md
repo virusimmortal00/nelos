@@ -51,7 +51,8 @@ Codex app-server child process for native task control.
    decomposition.
 3. **Your original task becomes the queen.** It stays right where it is as the
    coordinator. When the plan uses durable spinoffs, its title receives the 👑
-   marker and a web ID; each spinoff receives 🕷️ and that same ID.
+   marker and a permanent web ID; each spinoff receives 🕷️ and a monotonic
+   child suffix under that ID.
 4. **The orchestrator chooses the workers—not just their prompts.** A plan may
    use only joined Codex subagents for bounded work, durable spinoff tasks for
    work that should remain independently visible and steerable, or a mix of
@@ -71,13 +72,13 @@ durable spinoffs. Nelos does not copy one setting to every worker:
 
 | Task | Kind | Model / reasoning | Example state |
 | --- | --- | --- | --- |
-| 👑 `B1 · Add Codex functionality checker` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
+| 👑`B8 · Add Codex functionality checker` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
 | `Plan and classify the work` | Dedicated planning subagent | **Sol / medium** | Complete — plan accepted |
 | `Inspect the existing plugin surface` | Joined subagent — not shown in the sidebar | **Terra / low** | Running in Wave 1 |
-| 🕷️ `B1 · Collect exact open source evidence` | Durable spinoff | **Luna / low** | Running in Wave 1 |
-| 🕷️ `B1 · Collect bounded documentation evidence` | Durable spinoff | **Terra / medium** | Running in Wave 1 |
-| 🕷️ `B1 · Build the offline deterministic gate` | Durable spinoff | **Sol / high** | Running in Wave 1 |
-| 🕷️ `B1 · Define compatibility contracts` | Durable spinoff | **Terra / high** | Running in Wave 1 |
+| 🕷️`B8.1 · Collect exact open source evidence` | Durable spinoff | **Luna / low** | Running in Wave 1 |
+| 🕷️`B8.2 · Collect bounded documentation evidence` | Durable spinoff | **Terra / medium** | Running in Wave 1 |
+| 🕷️`B8.3 · Build the offline deterministic gate` | Durable spinoff | **Sol / high** | Running in Wave 1 |
+| 🕷️`B8.4 · Define compatibility contracts` | Durable spinoff | **Terra / high** | Running in Wave 1 |
 
 One objective now uses seven different model/reasoning combinations. Nelos puts
 deeper intelligence where judgment matters, uses faster profiles for bounded or

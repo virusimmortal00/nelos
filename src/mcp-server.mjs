@@ -80,6 +80,7 @@ import {
   refreshExecutionMapStatusV1,
 } from "./execution-map.mjs";
 import {
+  allocatePermanentWebId,
   listWebRecords,
   readWebRecord,
   withWebRegistryLock,
@@ -87,8 +88,10 @@ import {
 } from "./task-state.mjs";
 import {
   allocateWebId,
+  parentWebId,
   parseWebTitle,
   renderPersistedQueenWebTitle,
+  titleLineageId,
 } from "./task-web.mjs";
 import { workUnitFromPlanSliceV1 } from "./plan-orchestration-bridge.mjs";
 import { workUnitDefinitionV1 } from "./execution-store.mjs";
@@ -156,6 +159,7 @@ const CONFIGURATION_KEY_SCHEMA = Object.freeze({
 });
 
 const DEFAULT_WEB_REGISTRY = Object.freeze({
+  allocate: allocatePermanentWebId,
   withLock: withWebRegistryLock,
   read: readWebRecord,
   list: listWebRecords,
@@ -320,10 +324,15 @@ async function plannedSlicesOutput(
         plannedWebId ??
         recordedWebId ??
         (revivingArchivedQueen ? null : parsed.outboundWebId) ??
-        allocateWebId(
-          await webRegistry.list(),
-          revivingArchivedQueen ? null : parsed.inboundWebId,
-        );
+        (webRegistry.allocate
+          ? await webRegistry.allocate({
+              allocationKey: `queen:${candidate.planRunId}:${revivingArchivedQueen ? stored.archivedAt : "active"}`,
+              parentWebId: revivingArchivedQueen ? null : parsed.inboundWebId,
+            })
+          : allocateWebId(
+              await webRegistry.list(),
+              revivingArchivedQueen ? null : parsed.inboundWebId,
+            ));
       const queenTitle =
         persistedWebIdentity?.queenTitle ??
         renderPersistedQueenWebTitle(
@@ -360,6 +369,7 @@ async function plannedSlicesOutput(
           baseTitle: parsedQueenTitle.baseTitle,
           inboundWebId: parsedQueenTitle.inboundWebId,
           outboundWebId: webId,
+          lineageId: webId,
           queenThreadId: current?.queenThreadId ?? null,
           queenMarked: true,
           renderedTitle: queenTitle,
@@ -371,12 +381,55 @@ async function plannedSlicesOutput(
       return normalized;
     });
   }
+  const lineageIdsBySlice = {};
+  for (const prior of [parentPlanRun, existing]) {
+    for (const wave of prior?.waves ?? []) {
+      for (const member of wave.members) {
+        if (member.lifecycle === "spinoff") {
+          const lineageId = titleLineageId(member.title);
+          if (
+            lineageId &&
+            parentWebId(lineageId) === persistedWebIdentity?.webId
+          ) {
+            lineageIdsBySlice[member.sliceId] = lineageId;
+          }
+        }
+      }
+    }
+  }
+  if (plan.summary.spinoffs > 0) {
+    const allocationCandidate = createPlanRunV1(plan, {
+      queenThreadId,
+      sourceId,
+      parentPlanRun,
+      webIdentity: persistedWebIdentity,
+      cleanupIntended,
+    });
+    await webRegistry.withLock(async () => {
+      const records = await webRegistry.list();
+      const provisional = [];
+      for (const wave of plan.waves) {
+        for (const slice of wave.slices) {
+          if (slice.lifecycle !== "spinoff" || lineageIdsBySlice[slice.id]) continue;
+          const lineageId = webRegistry.allocate
+            ? await webRegistry.allocate({
+                allocationKey: `plan:${allocationCandidate.planRunId}:slice:${slice.id}`,
+                parentWebId: persistedWebIdentity.webId,
+              })
+            : allocateWebId([...records, ...provisional], persistedWebIdentity.webId);
+          lineageIdsBySlice[slice.id] = lineageId;
+          provisional.push({ lineageId });
+        }
+      }
+    });
+  }
   const planRun = await planRunStore.create(
     createPlanRunV1(plan, {
       queenThreadId,
       sourceId,
       parentPlanRun,
       webIdentity: persistedWebIdentity,
+      lineageIdsBySlice,
       cleanupIntended,
     }),
   );
