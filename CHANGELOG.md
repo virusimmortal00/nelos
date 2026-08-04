@@ -5,6 +5,38 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.6] - 2026-08-04
+
+### User-facing changes
+
+- Added `nelos_runtime_health`, a read-only tool that reports whether the
+  loaded Nelos worker is still the installed plugin generation. A marketplace
+  upgrade replaces the plugin cache while an already-loaded worker keeps
+  serving the JavaScript it imported at startup; this reports that condition
+  and names a single recovery action instead of leaving it undetectable.
+- Every worker now derives an immutable runtime identity at startup from
+  `package.json`, `.codex-plugin/plugin.json`, `.mcp.json`, and
+  `distribution-provenance.json`, and reports a disagreement between them
+  rather than trusting the self-reported MCP version.
+
+### Compatibility requirements
+
+- Identity comparison uses the exact source revision and distribution
+  integrity digest. A release built without a source revision can only report
+  `degraded` for an exact-match check, never `healthy`.
+- Workers loaded from releases earlier than `0.12.6` do not derive a runtime
+  identity and cannot report their generation retroactively. Detecting a stale
+  worker from one of those releases still requires restarting Codex.
+
+### Migrations
+
+- None. `nelos_runtime_health` is additive and no existing tool changes
+  behavior; `mutationAllowed` is reported but not yet enforced.
+
+### Security fixes
+
+- None.
+
 ## [0.12.5] - 2026-08-03
 
 ### User-facing changes

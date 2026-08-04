@@ -340,6 +340,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
+      "nelos_runtime_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
       "nelos_intelligence_resolve_subagent",
@@ -361,6 +362,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_web_inspect",
       "nelos_thread_wait",
       "nelos_app_server_health",
+      "nelos_runtime_health",
       "nelos_intelligence_route",
       "nelos_intelligence_verify",
       "nelos_intelligence_resolve_subagent",
@@ -4002,4 +4004,124 @@ test("bin/nelos-mcp serves the same surface over real stdio", async () => {
     lines[3].result.tools.map((tool) => tool.name),
     listNelosMcpTools().map((tool) => tool.name),
   );
+});
+
+test("nelos_runtime_health reports the loaded generation against the installed one", async () => {
+  const loaded = {
+    version: "0.5.1",
+    sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+    sourceRevision: "a".repeat(40),
+    sourceRevisionType: "git",
+    integrity: `sha256:${"1".repeat(64)}`,
+    skillIntegrity: null,
+    cacheIdentity: "https://github.com/virusimmortal00/nelos.git#nelos@0.5.1",
+    modulePath: "/nonexistent/nelos/0.5.1",
+    buildIdentity: "nelos-build:" + "0".repeat(32),
+  };
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    { deriveRuntimeIdentity: async () => loaded },
+  );
+  const body = JSON.parse(responses.at(-1).result.content[0].text);
+  assert.equal(responses.at(-1).result.isError, false);
+  assert.equal(body.command, "runtime health");
+  // The module path does not exist, which is exactly the post-upgrade shape.
+  assert.equal(body.health.backingPathPresent, false);
+  assert.equal(body.health.mutationAllowed, false);
+  assert.equal(body.health.loaded.version, "0.5.1");
+  assert.ok(body.health.recovery.length > 0);
+});
+
+test("nelos_runtime_health surfaces a failed derivation instead of throwing", async () => {
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        throw new Error("identity sources disagree on the loaded release");
+      },
+    },
+  );
+  const response = responses.at(-1);
+  // A worker that cannot identify itself must still answer the read-only tool.
+  assert.equal(response.result.isError, false);
+  const body = JSON.parse(response.result.content[0].text);
+  assert.equal(body.health.state, "integrity-failure");
+  assert.equal(body.health.mutationAllowed, false);
+  assert.match(body.health.detail, /disagree/);
+});
+
+test("runtime identity is derived once, at bootstrap, not per call", async () => {
+  let derivations = 0;
+  await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "nelos_runtime_health", arguments: {} },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        derivations += 1;
+        return {
+          version: "1.0.0",
+          sourceRevision: null,
+          integrity: null,
+          cacheIdentity: null,
+          modulePath: "/nonexistent",
+          buildIdentity: "nelos-build:" + "0".repeat(32),
+        };
+      },
+    },
+  );
+  // Re-deriving later would read whatever release replaced the cache, which is
+  // the condition the identity exists to detect.
+  assert.equal(derivations, 1);
+});
+
+test("a failed identity derivation does not affect other tools", async () => {
+  const responses = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_intelligence_route",
+          arguments: { taskShape: "everyday", launchSurface: "durable-task" },
+        },
+      },
+    ],
+    {
+      deriveRuntimeIdentity: async () => {
+        throw new Error("identity sources disagree on the loaded release");
+      },
+    },
+  );
+  assert.equal(responses.at(-1).result.isError, false);
 });

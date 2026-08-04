@@ -99,6 +99,10 @@ import {
   NelosWebInspectorV1,
   WEB_INSPECTION_INPUT_SCHEMA,
 } from "./web-inspection.mjs";
+import {
+  deriveRuntimeIdentityV1,
+  resolveRuntimeHealthV1,
+} from "./runtime-identity.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -108,6 +112,10 @@ import {
 // bounded and read-only. Native mutations remain host-owned effects.
 
 export const MCP_SERVER_NAME = "nelos";
+// Sentinel used when no host supplied a version. It is not a release, so it is
+// excluded from the identity cross-check rather than compared against
+// package.json and reported as a disagreement.
+export const MCP_DEV_SERVER_VERSION = "0.0.0-dev";
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
   "2025-11-25",
   "2025-06-18",
@@ -978,6 +986,39 @@ const TOOLS = [
     },
   },
   {
+    name: "nelos_runtime_health",
+    description:
+      "Report whether this loaded Nelos worker is still the installed plugin " +
+      "generation. A marketplace upgrade can replace the plugin cache while " +
+      "this worker keeps serving the JavaScript it imported at startup; this " +
+      "tool compares the two and names the recovery action. Read-only, " +
+      "offline, and callable even after the backing cache path is deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        verifyIntegrity: {
+          type: "boolean",
+          description:
+            "Recompute the loaded distribution digest. Walks the whole " +
+            "distribution, so it is off by default.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    async run(args, { runtimeIdentity }) {
+      const { identity, error } = await runtimeIdentity();
+      return {
+        command: "runtime health",
+        health: await resolveRuntimeHealthV1({
+          loaded: identity,
+          identityError: error,
+          verifyIntegrity: args.verifyIntegrity === true,
+        }),
+      };
+    },
+  },
+  {
     name: "nelos_intelligence_route",
     description:
       "Route a task shape to a reviewed model-and-reasoning profile, with " +
@@ -1311,9 +1352,27 @@ export function startNelosMcpServer({
   }),
   launchBatchVerifier = verifyLaunchBatchV1,
   webInspector = new NelosWebInspectorV1(),
+  deriveRuntimeIdentity = deriveRuntimeIdentityV1,
 } = {}) {
   let initialized = false;
   let negotiatedVersion = null;
+
+  // Derivation starts now, at bootstrap, rather than on first use: it must
+  // describe the distribution this worker actually imported. Reading it later
+  // would observe whatever release replaced the cache in the meantime, which is
+  // the exact condition this identity exists to detect. The promise is retained
+  // and never re-derived, and a failure is captured rather than thrown so a
+  // worker with incoherent sources can still report why.
+  const runtimeIdentityResult = Promise.resolve()
+    .then(() =>
+      deriveRuntimeIdentity({
+        declaredVersion:
+          serverVersion === MCP_DEV_SERVER_VERSION ? null : serverVersion,
+      }),
+    )
+    .then((identity) => ({ identity, error: null }))
+    .catch((error) => ({ identity: null, error }));
+  const runtimeIdentity = () => runtimeIdentityResult;
 
   function send(payload) {
     output.write(JSON.stringify(payload) + "\n");
@@ -1351,6 +1410,7 @@ export function startNelosMcpServer({
         lifecycleAdapter,
         configuration,
         webInspector,
+        runtimeIdentity,
       });
     } catch (error) {
       const body = { error: error.message };

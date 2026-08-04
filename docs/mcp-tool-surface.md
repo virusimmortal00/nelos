@@ -93,6 +93,17 @@ long-lived
 - `nelos_app_server_health` — reports content-free compatibility, version,
   connection, batch, poll, retry, and mutation-attempt telemetry. With
   `probe: true`, it performs only the initialization handshake;
+- `nelos_runtime_health` — reports whether the loaded worker is still the
+  installed plugin generation. A marketplace upgrade replaces the plugin cache
+  while an already-loaded worker keeps serving the JavaScript it imported at
+  startup, so this compares the boot-time identity against the currently
+  installed one and names a single recovery action. It is offline, read-only,
+  and deliberately still answerable after the backing cache path is deleted,
+  because that deletion is one of the conditions it reports. States are
+  `healthy`, `degraded`, `restart-required`, `ambiguous-install`, and
+  `integrity-failure`; `mutationAllowed` is the field a future mutation fence
+  consumes. `verifyIntegrity: true` recomputes the distribution digest, which
+  walks the whole distribution and is therefore off by default;
 - `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
