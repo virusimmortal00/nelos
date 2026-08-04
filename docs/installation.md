@@ -72,17 +72,17 @@ key, and exact distributable bytes. A reproducible verification is:
 
 ```bash
 VERSION=$(node -p 'require(process.argv[1]).version' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.2/.codex-plugin/plugin.json")
-test "$VERSION" = "0.12.2"
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.3/.codex-plugin/plugin.json")
+test "$VERSION" = "0.12.3"
 node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1]));
   if (p.sourceRepository!=="https://github.com/virusimmortal00/nelos.git" ||
       !/^[a-f0-9]{40}$/.test(p.sourceRevision) ||
       p.cacheIdentity!==p.sourceRepository+"#nelos@"+p.revision)
     process.exit(1); console.log(JSON.stringify(p,null,2))' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.2/distribution-provenance.json"
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.3/distribution-provenance.json"
 SOURCE_REVISION=$(node -p \
   'JSON.parse(require("node:fs").readFileSync(process.argv[1])).sourceRevision' \
-  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.2/distribution-provenance.json")
+  "$HOME/.codex/plugins/cache/nelos-marketplace/nelos/0.12.3/distribution-provenance.json")
 MARKETPLACE="$HOME/.codex/plugins/marketplaces/nelos-marketplace"
 git -C "$MARKETPLACE" merge-base --is-ancestor "$SOURCE_REVISION" HEAD
 git -C "$MARKETPLACE" rev-parse HEAD

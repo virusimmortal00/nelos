@@ -209,6 +209,15 @@ The worker verifies the lock before attaching secrets or writable storage.
 Missing identities, unknown fields, digest mismatch, duplicate cached plugin
 copies, unsupported Codex builds, or incompatible evidence fail closed.
 
+The public `nelos/runtime-lock-admission` module implements that ordering. Its
+pre-attachment observation is a closed record of the exact source, platform,
+toolchain, Codex build, protocol fixture, permissions, signer identities, and
+plugin inventory. Admission requires a recursively frozen active lock; a
+shallow-frozen record with mutable nested identity is rejected. Only after a
+content-addressed admission receipt exists may the candidate controller create
+a fresh home, install the exact artifact, re-observe the installed inventory,
+and attach secret references or a writable workspace.
+
 ## Plugin-version experiments
 
 Each plugin candidate is built once from an exact source commit. The build emits
@@ -219,6 +228,12 @@ a new Codex home.
 Baseline trials use the same runtime and task contract with `plugin: null`.
 They do not reuse a home from a plugin trial. Version A and version B never share
 a writable plugin cache.
+
+The candidate controller caches a verified artifact only by its locked package
+digest. Every baseline, A, and B candidate still receives disjoint Codex-home,
+plugin-state, and workspace roots; reuse or path overlap fails before install
+or attachment. Post-install discovery must report exactly one copy whose full
+plugin material matches the immutable build.
 
 The effective plugin inventory is captured after installation and compared with
 the lock. More than one installed or cached copy that could satisfy the same
@@ -286,6 +301,12 @@ An upgrade:
 
 Images and installed artifacts are not mutated in use. Rollback selects the
 previous immutable lock after checking persisted-state compatibility.
+
+Promotion is represented by a sealed approval bound to the immediate lock
+revision, the exact new artifact, passed headless and dedicated-Desktop canary
+evidence, and persisted-state compatibility. Rollback likewise names the exact
+immediate predecessor and records compatibility evidence; neither workflow can
+substitute another lock digest or a canary from another runtime.
 
 ## Runtime invariants
 
