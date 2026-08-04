@@ -5,6 +5,35 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.6] - 2026-08-04
+
+### User-facing changes
+
+- Added the API-controlled direct Codex repeat-arm canary with exact route,
+  pricing, grading, and research-packet provenance.
+- Added bounded multi-turn Responses support with durable per-exchange receipts,
+  zero transport retries, and fail-closed output, request, and cost ceilings.
+
+### Compatibility requirements
+
+- The API pilot is bound to Codex CLI `0.146.0`, `gpt-5.6-sol`, medium
+  reasoning, and the standard/default OpenAI service tier.
+
+### Migrations
+
+- None. API canary bundles and run stores use a new versioned identity and must
+  be created fresh.
+
+### Security fixes
+
+- Provider exchanges are persisted before completion reaches Codex and retain
+  no credentials, authorization headers, request bodies, or hidden grader data.
+
+### Known limitations
+
+- The four-trial repeat-arm canary validates instrumentation only; it does not
+  authorize a comparative performance claim or a confirmatory study.
+
 ## [0.12.5] - 2026-08-03
 
 ### User-facing changes
