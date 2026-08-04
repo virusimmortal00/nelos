@@ -5,6 +5,36 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.3] - 2026-08-03
+
+### User-facing changes
+
+- Added public fail-closed RuntimeLock admission, isolated candidate
+  preparation, and content-addressed upgrade and rollback approvals.
+
+### Compatibility requirements
+
+- Admission requires an exact recursively immutable active lock, supported
+  Codex build, trusted signer identities, immutable references, and one exact
+  plugin copy before secrets or writable workspaces can attach.
+
+### Migrations
+
+- None. Existing RuntimeLock v1 fixtures remain valid; callers adopting the
+  admission controller must supply closed pre-attachment observations and
+  fresh disjoint writable roots.
+
+### Security fixes
+
+- Shallow-frozen locks, mutable references, identity drift, missing or
+  duplicate plugin copies, shared candidate state, cross-lock canaries, and
+  incompatible rollback state now fail closed.
+
+### Known limitations
+
+- Artifact acquisition and platform-specific attachment remain adapter-owned;
+  adapters must return the exact closed receipts verified by the controller.
+
 ## [0.12.2] - 2026-08-03
 
 ### User-facing changes

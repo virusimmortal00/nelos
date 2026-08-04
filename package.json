@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {
@@ -35,6 +35,7 @@
     "./headless-experiment-runtime": "./src/headless-experiment-runtime.mjs",
     "./experiment-runner": "./src/experiment-runner.mjs",
     "./experiment-fleet": "./src/experiment-fleet.mjs",
+    "./runtime-lock-admission": "./src/runtime-lock-admission.mjs",
     "./experimentation-reporting": "./src/experimentation-reporting/index.mjs",
     "./dedicated-desktop-runtime": "./src/dedicated-desktop-runtime.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"

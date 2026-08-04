@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "admission": [
+    { "name": "valid", "expected": "runtime-admission" },
+    { "name": "drifted", "expected": "IDENTITY_MISMATCH" },
+    { "name": "duplicated", "expected": "DUPLICATE_PLUGIN_COPY" },
+    { "name": "missing", "expected": "MISSING_PLUGIN_COPY" },
+    { "name": "unsupported", "expected": "UNSUPPORTED_CODEX_BUILD" }
+  ],
+  "workflows": [
+    { "name": "upgrade", "expected": "runtime-promotion-approved" },
+    { "name": "rollback", "expected": "runtime-rollback-approved" }
+  ]
+}
