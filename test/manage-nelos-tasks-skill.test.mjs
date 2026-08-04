@@ -83,7 +83,7 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /never use the CLI as fallback/i);
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
-  assert.ok(skill.length < 7_300, "agent-facing skill should remain compact");
+  assert.ok(skill.length < 7_700, "agent-facing skill should remain compact");
   assert.ok(skill.split("\n").length < 120, "agent-facing skill should be scannable");
 });
 

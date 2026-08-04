@@ -276,6 +276,15 @@ export function withWebRegistryLock(callback) {
 }
 
 /**
+ * Serialize cooperative MCP worker lease reconciliation across processes.
+ * Runtime leases intentionally share the protected Nelos state root with the
+ * durable registries, while their contents remain isolated in a subdirectory.
+ */
+export function withRuntimeWorkerRegistryLock(callback, timeoutMs = 10_000) {
+  return withOwnedStateLock("runtime-workers", callback, timeoutMs);
+}
+
+/**
  * Serialize one machine-local Nelos configuration transaction across MCP
  * processes without placing a filesystem path in the lock namespace.
  */

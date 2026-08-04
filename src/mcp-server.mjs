@@ -107,6 +107,7 @@ import {
   RuntimeMutationBoundaryV1,
   RuntimeMutationFenceError,
 } from "./runtime-mutation-fence.mjs";
+import { RuntimeWorkerRegistryV1 } from "./runtime-worker-registry.mjs";
 
 // MCP tool surface for the marketplace plugin; scope and trust model are
 // specified in docs/mcp-tool-surface.md. Transport is
@@ -127,6 +128,9 @@ export const MCP_SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
 export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
 export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
 export const MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
+export const MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS =
+  "Before the first stateful Nelos call in a task, call nelos_runtime_health. " +
+  "Continue only when mutationAllowed is true; otherwise perform the one recovery action it returns.";
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function isObject(value) {
@@ -1361,6 +1365,7 @@ export function startNelosMcpServer({
   webInspector = new NelosWebInspectorV1(),
   deriveRuntimeIdentity = deriveRuntimeIdentityV1,
   resolveRuntimeHealth = resolveRuntimeHealthV1,
+  workerRegistry = new RuntimeWorkerRegistryV1(),
 } = {}) {
   if (!Number.isFinite(shutdownTimeoutMs) || shutdownTimeoutMs < 0) {
     throw new Error("shutdownTimeoutMs must be a non-negative finite number");
@@ -1386,13 +1391,57 @@ export function startNelosMcpServer({
     .then((identity) => ({ identity, error: null }))
     .catch((error) => ({ identity: null, error }));
   const runtimeIdentity = () => runtimeIdentityResult;
+  const workerLeaseResult = runtimeIdentityResult
+    .then(async ({ identity }) => {
+      // Identity failures are classified by resolveRuntimeHealth. Registry
+      // failure is distinct only after a coherent identity exists.
+      if (!identity) return { handle: null, error: null };
+      try {
+        return { handle: await workerRegistry.register(identity), error: null };
+      } catch (registryError) {
+        return { handle: null, error: registryError };
+      }
+    });
   const runtimeHealth = async ({ verifyIntegrity = false } = {}) => {
     const { identity, error } = await runtimeIdentity();
-    return resolveRuntimeHealth({
+    const base = await resolveRuntimeHealth({
       loaded: identity,
       identityError: error,
       verifyIntegrity,
     });
+    const lease = await workerLeaseResult;
+    let registry;
+    try {
+      registry = await workerRegistry.inspect();
+    } catch (registryError) {
+      registry = { state: "unavailable", mutationAllowed: false, detail: registryError.message };
+    }
+    if (!identity) return { ...base, registry };
+    if (lease.error || registry.state === "unavailable") {
+      return {
+        ...base,
+        state: base.mutationAllowed ? "integrity-failure" : base.state,
+        mutationAllowed: false,
+        registry: { ...registry, detail: lease.error?.message ?? registry.detail },
+        recovery: "Quit and relaunch Codex, then open a fresh task.",
+      };
+    }
+    if (registry.state === "mixed-generations") {
+      const activeVersions = [...new Set([
+        ...(base.activeVersions ?? []),
+        ...registry.activeGenerations.map(({ identity: active }) => active.version),
+      ])].sort();
+      return {
+        ...base,
+        state: "restart-required",
+        activeVersions,
+        mutationAllowed: false,
+        detail: "multiple live Nelos runtime generations share this protected state",
+        registry,
+        recovery: "Quit and relaunch Codex, then open a fresh task.",
+      };
+    }
+    return { ...base, registry };
   };
   const mutationBoundary = new RuntimeMutationBoundaryV1({
     health: runtimeHealth,
@@ -1508,6 +1557,10 @@ export function startNelosMcpServer({
       const selectedProtocolVersion = negotiatedProtocolVersion(
         params.protocolVersion,
       );
+      // Registration is part of bootstrap, not a background best effort. A
+      // failed registration remains diagnosable through runtime health and
+      // causes stateful calls to fail closed.
+      await workerLeaseResult;
       send({
         jsonrpc: "2.0",
         id,
@@ -1518,6 +1571,7 @@ export function startNelosMcpServer({
             resources: { listChanged: false, subscribe: false },
           },
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
+          instructions: MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS,
         },
       });
       negotiatedVersion = selectedProtocolVersion;
@@ -1728,14 +1782,21 @@ export function startNelosMcpServer({
     input.pause?.();
     input.removeListener?.("data", onInputData);
     removeShutdownListeners();
+    const drainLease = workerLeaseResult.then(({ handle }) => handle?.drain?.());
     const cleanup = Promise.allSettled([
+      drainLease,
       processing,
       waitProcessing,
       // Stateful requests may now yield while their runtime generation is
       // checked. Close the bridge only after that serialized request chain has
       // drained; closing beside it can tear down an admitted in-flight call.
       processing.then(() => appServerBridge.close?.()),
-      Promise.resolve().then(() => onLeaseRemove()),
+      Promise.allSettled([
+        Promise.all([processing, drainLease])
+          .then(() => workerLeaseResult)
+          .then(({ handle }) => handle?.remove?.()),
+        Promise.resolve().then(() => onLeaseRemove()),
+      ]),
     ]);
     let timedOut = false;
     let timer = null;

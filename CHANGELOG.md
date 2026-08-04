@@ -9,6 +9,18 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### User-facing changes
 
+- MCP workers now register PID-reuse-safe cooperative leases with exact runtime
+  identity, parent identity, bounded heartbeats, and lifecycle state. Legitimate
+  same-generation concurrency remains healthy; mixed live generations are
+  reported and fenced without process-name scanning or sibling termination.
+- MCP initialization and the task-management skill now require a read-only
+  runtime-health preflight before the first stateful operation. Owner clients
+  may request `config/mcpServer/reload` and verify their own children closed;
+  host-owned siblings still require a full Codex restart and fresh task.
+- This first release carrying worker leases cannot retroactively register
+  workers loaded from an earlier release. Perform one manual full Codex restart
+  after upgrading into this release.
+
 - Added `nelos_runtime_health`, a read-only tool that reports whether the
   loaded Nelos worker is still the installed plugin generation. A marketplace
   upgrade replaces the plugin cache while an already-loaded worker keeps
@@ -30,8 +42,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### Migrations
 
-- None. `nelos_runtime_health` is additive and no existing tool changes
-  behavior; `mutationAllowed` is reported but not yet enforced.
+- Stateful calls are now fenced by runtime identity and cooperative live-worker
+  generation. Existing persisted task/web data requires no migration.
 
 ### Security fixes
 

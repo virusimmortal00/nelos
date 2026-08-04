@@ -100,9 +100,13 @@ long-lived
   installed one and names a single recovery action. It is offline, read-only,
   and deliberately still answerable after the backing cache path is deleted,
   because that deletion is one of the conditions it reports. States are
+  combined with cooperative live-worker leases, so same-generation concurrency
+  remains valid and mixed generations fail closed. Call this tool before the
+  first stateful Nelos operation in each task and stop when `mutationAllowed`
+  is false. States are
   `healthy`, `degraded`, `restart-required`, `ambiguous-install`, and
-  `integrity-failure`; `mutationAllowed` is the field a future mutation fence
-  consumes. `verifyIntegrity: true` recomputes the distribution digest, which
+  `integrity-failure`; `mutationAllowed` is enforced by the central mutation
+  fence. `verifyIntegrity: true` recomputes the distribution digest, which
   walks the whole distribution and is therefore off by default;
 - `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);

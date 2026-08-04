@@ -36,6 +36,8 @@
     "./experiment-runner": "./src/experiment-runner.mjs",
     "./experiment-fleet": "./src/experiment-fleet.mjs",
     "./runtime-lock-admission": "./src/runtime-lock-admission.mjs",
+    "./runtime-worker-registry": "./src/runtime-worker-registry.mjs",
+    "./runtime-lifecycle": "./src/runtime-lifecycle.mjs",
     "./experimentation-reporting": "./src/experimentation-reporting/index.mjs",
     "./dedicated-desktop-runtime": "./src/dedicated-desktop-runtime.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"

@@ -65,6 +65,21 @@ module even after the marketplace checkout and cache have changed. Quit and
 relaunch Codex after the install command succeeds, then create a new task. Do
 not use that task's pre-upgrade worker as verification evidence.
 
+From the first release with cooperative runtime leases onward, every MCP worker
+registers only its own PID, strong process-start identity, parent identity,
+exact loaded generation, and bounded heartbeat under protected Nelos state.
+Multiple tasks on the same exact generation are valid. `nelos_runtime_health`
+reports `restart-required` when live leases name mixed generations; it never
+scans or kills processes by name. Workers from releases predating this registry
+cannot self-register retroactively, so upgrading into this mechanism requires
+one manual full Codex restart and a fresh task.
+
+An app-server client may call `config/mcpServer/reload` only for a connection it
+owns and only when that method is supported, then must verify its old owned
+children closed. The installed plugin cannot authoritatively reap host-owned
+sibling connections. In every other case the exact recovery action remains:
+**Quit and relaunch Codex, then open a fresh task.**
+
 Each installed copy contains `distribution-provenance.json`. Its
 `sourceRepository`, 40-character `sourceRevision`, `sourceRevisionType`, `revision`,
 `cacheIdentity`, and `integrity` identify the repository commit, release/cache

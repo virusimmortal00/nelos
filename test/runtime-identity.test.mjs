@@ -294,6 +294,26 @@ test("reports restart-required when a newer generation is installed", async () =
   });
 });
 
+test("a compatible rollback is healthy when loaded and installed exact identity agree", async () => {
+  await withTempDir(async (dir) => {
+    const root = await writeDistribution(join(dir, "dist"), "0.12.5", {
+      provenance: provenanceFor("0.12.5", {
+        sourceRevision: REVISION_A,
+        integrity: INTEGRITY_A,
+      }),
+    });
+    const codexHome = join(dir, "codex");
+    await writeInstalledPlugin(codexHome, "market", "0.12.5", {
+      sourceRevision: REVISION_A,
+      integrity: INTEGRITY_A,
+    });
+    const loaded = await deriveRuntimeIdentityV1({ moduleRoot: root });
+    const health = await resolveRuntimeHealthV1({ loaded, codexHome });
+    assert.equal(health.state, "healthy");
+    assert.equal(health.mutationAllowed, true);
+  });
+});
+
 test("stays callable after the loaded cache path is deleted", async () => {
   await withTempDir(async (dir) => {
     const root = await writeDistribution(join(dir, "dist"), "0.5.1");
