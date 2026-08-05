@@ -13,6 +13,7 @@ import { expandExperimentPlan } from "../src/experiment-runner.mjs";
 import { executeApiBaselineAttempt } from "../src/api-baseline-adapter.mjs";
 import { startApiReceiptProxy } from "../src/api-baseline-receipt-proxy.mjs";
 import { writeApiBaselineResearchPacket } from "../src/api-baseline-research-packet.mjs";
+import { normalizeApiBaselineVarianceEvidence } from "../src/api-baseline-variance-evidence.mjs";
 import { createSignedInPilotManifest } from "../scripts/build-signed-in-pilot.mjs";
 import { API_BASELINE_CANDIDATES, API_BASELINE_FAMILIES, API_BASELINE_RUN_PREFIX, CANARY_CEILINGS, createApiBaselineBundle, createAuthorizedConfirmatoryPlan, evaluateConfirmatoryAuthorization, measureRuntimeProvenance, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
 import { readApiProviderExchanges, recordApiProviderExchange, safeApiRuntimeError } from "../src/api-baseline-runtime.mjs";
@@ -229,6 +230,33 @@ test("power authorization counts independent paired tasks, not repeated seeds", 
   const plan = createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum }); assert.equal(plan.ceilings.trials, 100); assert.equal(plan.blocks.length, 50);
   const expanded = structuredClone(taskIdsByStratum); expanded[API_BASELINE_FAMILIES[0]].push(`task:${API_BASELINE_FAMILIES[0]}:extra`);
   assert.throws(() => createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum: expanded }), { code: "CONFIRMATORY_AUTHORIZED_TASK_COUNT_MISMATCH" });
+});
+
+test("retained signed-in and API evidence normalize into paired task clusters", () => {
+  const api = bundle(); const taskId = api.runnerManifest.tasks[0].taskId;
+  const signedCandidates = [
+    { candidateId: "candidate:signed-repeat-a", configuration: [{ name: "repeat-arm", value: "a" }] },
+    { candidateId: "candidate:signed-repeat-b", configuration: [{ name: "repeat-arm", value: "b" }] },
+  ];
+  const signedTrials = signedCandidates.map(({ candidateId }, index) => ({ trialId: `trial:signed:${index}`, taskId, candidateId, seed: "signed-block-one", replicate: 1 }));
+  const signedInInput = {
+    schemaVersion: 1,
+    experiment: { candidates: signedCandidates },
+    plan: { trials: signedTrials },
+    analysisPolicy: { stratumAssignments: [{ taskId, strata: ["localized-repair"] }] },
+    attempts: signedTrials.map((trial) => ({ trialId: trial.trialId, candidateId: trial.candidateId, authoritative: true, evidenceComplete: true, routeMatch: true, measurements: [{ metricId: "strict_pass_rate", value: 1 }] })),
+  };
+  const apiResults = api.executionSchedule.blocks.flatMap((block) => block.trialIds.map((trialId, index) => ({
+    trialId, blockId: block.blockId, candidateId: block.candidateOrder[index], observedRoute: { ...api.identity.requestedRoute }, artifacts: [{ id: "runtime-provider-receipt" }], measurements: [{ metricId: "strict_pass_rate", value: 1 }],
+  })));
+  const observations = normalizeApiBaselineVarianceEvidence({ signedInInput, apiBundle: api, apiResults });
+  assert.equal(observations.length, 6); assert.deepEqual([...new Set(observations.map(({ phase }) => phase))], ["api-canary", "signed-in-pilot"]);
+  const decision = evaluateConfirmatoryAuthorization({ varianceEvidence: observations });
+  assert.equal(decision.status, "no-go"); assert.equal(decision.decision, "inconclusive-insufficient-independent-task-clusters"); assert.equal(decision.zeroFurtherCalls, true);
+  assert.equal(decision.strata.find(({ stratum }) => stratum === "localized-repair").independentPairedTasks, 1);
+  assert.equal(decision.strata.filter(({ stratum }) => stratum !== "localized-repair").every(({ independentPairedTasks }) => independentPairedTasks === 0), true);
+  const mismatched = structuredClone(apiResults); mismatched[0].observedRoute.modelRevision = "substituted";
+  assert.throws(() => normalizeApiBaselineVarianceEvidence({ signedInInput, apiBundle: api, apiResults: mismatched }), { code: "INVALID_API_VARIANCE_ROUTE" });
 });
 
 test("Nelos candidates and sealed canary expansion remain rejected", () => {
