@@ -5,6 +5,31 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.8] - 2026-08-04
+
+### User-facing changes
+
+- Added a create-only offline reducer that independently verifies the signed-in
+  pilot report and normalizes it with the API canary's sealed trial evidence for
+  the paired task-level confirmatory power gate.
+- The power decision CLI can now retain its exact authorization or no-go result
+  as an immutable operator artifact.
+
+### Compatibility requirements
+
+- Confirmatory authorization still requires both eligible calibration phases
+  and the independently powered task floor in every critical stratum. Repeated
+  blocks for one task never count as independent tasks.
+
+### Migrations
+
+- None. Existing experiment stores and research packets remain unchanged.
+
+### Security fixes
+
+- The reducer fails closed on altered signed-in reports, incomplete API trial
+  sets, missing provider receipts, duplicate observations, and route mismatch.
+
 ## [0.12.7] - 2026-08-04
 
 ### User-facing changes

@@ -133,11 +133,26 @@ floor of ten independent paired tasks in every critical stratum.
 
 Evidence rows use normalized repeat-arm labels `a` and `b` (not phase-specific
 candidate IDs) with `phase`, `stratum`, `taskId`, `blockId`, and binary `value`.
+Build those rows directly from the independently verified signed-in report input
+and the API canary's sealed bundle and research-packet trials. The reducer
+re-verifies the signed-in report, validates the API bundle, requires every
+scheduled API trial and provider receipt, rejects route substitutions, clusters
+repeat blocks within their task, and writes the observation array create-only:
+
+```sh
+node scripts/build-api-baseline-variance-evidence.mjs \
+  --signed-in-input /secure/pilot/report/accepted-input.json \
+  --signed-in-report /secure/pilot/report/report.json \
+  --api-bundle /secure/operator/api-canary.json \
+  --api-trials /secure/operator/api-canary-store/research-packet/trials.jsonl \
+  --out /secure/operator/paired-task-variance-evidence.json
+```
 
 ```sh
 node scripts/decide-api-baseline.mjs \
   --bundle /secure/operator/api-canary.json \
-  --observations /secure/operator/paired-task-variance-evidence.json
+  --observations /secure/operator/paired-task-variance-evidence.json \
+  --out /secure/operator/confirmatory-authorization.json
 ```
 
 If any stratum lacks the larger of the power-derived count and ten independent
