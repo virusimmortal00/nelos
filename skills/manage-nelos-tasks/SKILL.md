@@ -29,8 +29,8 @@ classify them in the queen. Execute only its returned action, then
 call again with the unchanged request, returned `bootstrapId`, and exact native
 receipt. Never substitute an agent path for a task ID.
 
-Reject invalid identity, parent, route, or result-turn evidence. Render
-maps from top-level `structuredContent`; reserve `structuredContent.protocol.result` for nonvisual handling.
+Reject invalid identity, parent, route, or result-turn evidence. Render maps from top-level `structuredContent`; reserve `structuredContent.protocol.result` for nonvisual handling. Ordinary maps omit archived members.
+Only when the user asks for historical web members, call `nelos_execution_map_history` with the exact web and queen IDs; never make full history routine.
 
 ## Follow the One Desktop Path
 

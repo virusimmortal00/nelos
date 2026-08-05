@@ -205,6 +205,8 @@ function verifyResource() {
   assert.match(content?.text ?? "", /Waiting for task state/u);
   assert.match(content?.text ?? "", /--archived/u);
   assert.match(content?.text ?? "", /className = "member-heading"/u);
+  assert.match(content?.text ?? "", /document\.createElement\("details"\)/u);
+  assert.match(content?.text ?? "", /Archived history/u);
   assert.match(content?.text ?? "", /"Sub-agent"/u);
   assert.match(content?.text ?? "", /prefers-reduced-motion: reduce/u);
   assert.match(content?.text ?? "", /@keyframes status-pulse/u);

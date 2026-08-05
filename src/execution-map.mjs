@@ -4,10 +4,11 @@ import {
   MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1,
   PROTOCOL_ACTION_SCHEMA_V1,
 } from "./protocol-contract/index.mjs";
+import { assertWebId, titleLineageId } from "./task-web.mjs";
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v8.html";
+  "ui://nelos/execution-map-v9.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
 
@@ -23,7 +24,26 @@ export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
   "nelos_spinoff_complete",
   "nelos_spinoff_cleanup",
   "nelos_execution_map_refresh",
+  "nelos_execution_map_history",
 ]));
+
+const EXECUTION_MAP_PHASE_SCHEMA = Object.freeze({
+  enum: [
+    "planning",
+    "planned",
+    "authorization-required",
+    "launch-pending",
+    "unknown",
+    "running",
+    "created",
+    "archiving",
+    "archived",
+    "kept",
+    "complete",
+    "accepted",
+    "attention",
+  ],
+});
 
 const MEMBER_SCHEMA = Object.freeze({
   type: "object",
@@ -33,23 +53,7 @@ const MEMBER_SCHEMA = Object.freeze({
     lifecycle: { enum: ["spinoff", "subagent"] },
     model: { type: "string" },
     reasoning: { type: "string" },
-    status: {
-      enum: [
-        "planning",
-        "planned",
-        "authorization-required",
-        "launch-pending",
-        "unknown",
-        "running",
-        "created",
-        "archiving",
-        "archived",
-        "kept",
-        "complete",
-        "accepted",
-        "attention",
-      ],
-    },
+    status: EXECUTION_MAP_PHASE_SCHEMA,
     threadId: {
       anyOf: [{ type: "string" }, { type: "null" }],
     },
@@ -149,9 +153,48 @@ const REFRESH_RESULT_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+export const EXECUTION_MAP_HISTORY_INPUT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    schemaVersion: { const: EXECUTION_MAP_SCHEMA_VERSION },
+    webId: {
+      type: "string",
+      pattern:
+        "^(?:[1-9A-Fa-f][0-9A-Fa-f]*|[A-Za-z][1-9]\\d*)(?:\\.[1-9]\\d*)*$",
+    },
+    queenThreadId: { type: "string", minLength: 1, maxLength: 256 },
+  },
+  required: ["schemaVersion", "webId", "queenThreadId"],
+  additionalProperties: false,
+});
+
+const HISTORY_RESULT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    command: { const: "execution map history" },
+    webId: { type: "string" },
+    queenThreadId: { type: "string" },
+    phase: EXECUTION_MAP_PHASE_SCHEMA,
+    task: { type: "string" },
+    members: { type: "array", items: MEMBER_SCHEMA },
+  },
+  required: [
+    "command",
+    "webId",
+    "queenThreadId",
+    "phase",
+    "task",
+    "members",
+  ],
+  additionalProperties: false,
+});
+
 function protocolResultSchemaV1(toolName) {
   if (toolName === "nelos_execution_map_refresh") {
     return REFRESH_RESULT_SCHEMA;
+  }
+  if (toolName === "nelos_execution_map_history") {
+    return HISTORY_RESULT_SCHEMA;
   }
   return MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[toolName] ??
     ACTION_RESULT_SCHEMA;
@@ -173,23 +216,7 @@ function protocolSchemaV1(toolName) {
 const EXECUTION_MAP_PROPERTIES = Object.freeze({
   schemaVersion: { const: EXECUTION_MAP_SCHEMA_VERSION },
   view: { const: "execution-map" },
-  phase: {
-    enum: [
-      "planning",
-      "planned",
-      "authorization-required",
-      "launch-pending",
-      "unknown",
-      "running",
-      "created",
-      "archiving",
-      "archived",
-      "kept",
-      "complete",
-      "accepted",
-      "attention",
-    ],
-  },
+  phase: EXECUTION_MAP_PHASE_SCHEMA,
   task: { type: "string" },
   summary: {
     type: "object",
@@ -400,9 +427,30 @@ function executionMap({ phase, task, members }) {
   };
 }
 
+function withoutArchivedMembers(map) {
+  const members = map.members.filter(({ status }) => status !== "archived");
+  if (members.length === map.members.length) return map;
+  return executionMap({
+    phase: aggregatePhase(members),
+    task: map.task,
+    members,
+  });
+}
+
+function visibleExecutionMapResponse(response) {
+  if (!response) return response;
+  const { protocol, ...map } = response;
+  return { ...withoutArchivedMembers(map), protocol };
+}
+
 function plannedMap(result, args) {
   const plan = result?.plan;
   if (!plan || !Array.isArray(plan.waves)) return null;
+  const persistedTitles = new Map(
+    (result?.planRun?.waves ?? []).flatMap((wave) =>
+      (wave.members ?? []).map((member) => [member.sliceId, member.title])
+    ),
+  );
   const phase =
     result?.nextAction?.kind === "authorization-required"
       ? "authorization-required"
@@ -412,7 +460,10 @@ function plannedMap(result, args) {
   const members = plan.waves.flatMap((wave) =>
     wave.slices.map((slice) => ({
       id: text(slice.id, `wave-${wave.index}`),
-      task: text(slice.title, slice.objective),
+      task: text(
+        persistedTitles.get(slice.id),
+        text(slice.title, slice.objective),
+      ),
       lifecycle: slice.lifecycle === "spinoff" ? "spinoff" : "subagent",
       ...route(slice.route?.launch?.nativeTask),
       status: phase,
@@ -664,6 +715,20 @@ function completionMap(args) {
   });
 }
 
+function historyMap(result) {
+  if (
+    result?.command !== "execution map history" ||
+    !Array.isArray(result.members)
+  ) {
+    return null;
+  }
+  return executionMap({
+    phase: result.phase,
+    task: result.task,
+    members: result.members,
+  });
+}
+
 const STATUS_RANK = Object.freeze({
   planning: 0,
   planned: 1,
@@ -682,7 +747,11 @@ const STATUS_RANK = Object.freeze({
 
 function aggregatePhase(members) {
   if (members.length === 0) return "complete";
-  const statuses = members.map(({ status }) => status);
+  const currentMembers = members.filter(
+    ({ status }) => !["archived", "kept"].includes(status),
+  );
+  const statuses = (currentMembers.length > 0 ? currentMembers : members)
+    .map(({ status }) => status);
   if (statuses.includes("archiving")) return "archiving";
   if (statuses.every((status) => status === "archived")) return "archived";
   if (statuses.every((status) => status === "kept")) return "kept";
@@ -767,9 +836,15 @@ function mergeMaps(
         (STATUS_RANK[prior.status] ?? -1)
       ? candidate.status
       : prior.status;
+    const priorLineageId = safeTitleLineageId(prior.task);
+    const candidateLineageId = safeTitleLineageId(candidate.task);
+    const task = candidate.task === candidate.id ||
+        (priorLineageId !== null && candidateLineageId === null)
+      ? prior.task
+      : candidate.task;
     members.set(candidate.id, {
       ...prior,
-      task: candidate.task === candidate.id ? prior.task : candidate.task,
+      task,
       lifecycle: prior.lifecycle,
       model: candidate.model === "host-default" ? prior.model : candidate.model,
       reasoning: candidate.reasoning === "host-default"
@@ -791,7 +866,16 @@ function mergeMaps(
   };
 }
 
+function safeTitleLineageId(title) {
+  try {
+    return titleLineageId(title);
+  } catch {
+    return null;
+  }
+}
+
 function observationMap(toolName, args, result) {
+  if (toolName === "nelos_execution_map_history") return historyMap(result);
   const planned = plannedMap(result, args);
   if (planned) return planned;
   if (toolName === "nelos_execution_map_refresh") return refreshedMap(result);
@@ -810,13 +894,66 @@ export function executionMapForToolResultV1(toolName, args, result) {
   if (!EXECUTION_MAP_TOOL_NAMES.has(toolName)) return null;
   const map = observationMap(toolName, args, result);
   if (!map) return null;
-  return {
+  const response = {
     ...map,
     protocol: {
       schemaVersion: 1,
       tool: toolName,
       result: structuredClone(result),
     },
+  };
+  return toolName === "nelos_execution_map_history"
+    ? response
+    : visibleExecutionMapResponse(response);
+}
+
+function validateHistoryInput(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error("execution-map history input must be an object");
+  }
+  const fields = ["schemaVersion", "webId", "queenThreadId"];
+  const unknown = Object.keys(args).find((field) => !fields.includes(field));
+  if (unknown) {
+    throw new Error(`execution-map history contains unknown field: ${unknown}`);
+  }
+  if (args.schemaVersion !== EXECUTION_MAP_SCHEMA_VERSION) {
+    throw new Error(
+      `execution-map history schemaVersion must be ${EXECUTION_MAP_SCHEMA_VERSION}`,
+    );
+  }
+  const webId = assertWebId(args.webId);
+  if (
+    typeof args.queenThreadId !== "string" ||
+    !args.queenThreadId.trim() ||
+    args.queenThreadId.length > 256
+  ) {
+    throw new Error("execution-map history queenThreadId is invalid");
+  }
+  return { webId, queenThreadId: args.queenThreadId };
+}
+
+export async function readExecutionMapHistoryV1(args, { webRegistry } = {}) {
+  const request = validateHistoryInput(args);
+  if (typeof webRegistry?.read !== "function") {
+    throw new Error("execution-map history requires a web registry");
+  }
+  const record = await webRegistry.read(request.queenThreadId);
+  if (record?.outboundWebId !== request.webId) {
+    throw new Error("execution-map history identity is not persisted");
+  }
+  const projection = record.executionMapProjection;
+  const members = Array.isArray(projection?.members)
+    ? structuredClone(projection.members)
+    : [];
+  return {
+    command: "execution map history",
+    webId: request.webId,
+    queenThreadId: request.queenThreadId,
+    phase: members.length > 0
+      ? aggregatePhase(members)
+      : "complete",
+    task: text(projection?.task, `Task web ${request.webId}`),
+    members,
   };
 }
 
@@ -857,10 +994,18 @@ export async function projectExecutionMapForToolResultV1(
   result,
   { webRegistry } = {},
 ) {
-  const currentResponse = executionMapForToolResultV1(toolName, args, result);
-  if (!currentResponse || !webRegistry) return currentResponse;
+  const visibleResponse = executionMapForToolResultV1(toolName, args, result);
+  if (!visibleResponse || toolName === "nelos_execution_map_history") {
+    return visibleResponse;
+  }
+  const currentMap = observationMap(toolName, args, result);
+  const currentResponse = {
+    ...currentMap,
+    protocol: visibleResponse.protocol,
+  };
+  if (!webRegistry) return visibleResponse;
   const identity = await projectionIdentity(toolName, args, result, webRegistry);
-  if (!identity) return currentResponse;
+  if (!identity) return visibleResponse;
   return webRegistry.withLock(async () => {
     const record = await webRegistry.read(identity.queenThreadId);
     const { protocol: _priorProtocol, ...priorMap } =
@@ -909,7 +1054,7 @@ export async function projectExecutionMapForToolResultV1(
         executionMapProjectionVersions: versions,
       });
     }
-    return { ...merged, protocol };
+    return visibleExecutionMapResponse({ ...merged, protocol });
   });
 }
 
@@ -918,17 +1063,22 @@ export function executionMapToolMetadataV1(toolName) {
   const dispatch = toolName === "nelos_orchestrate_create";
   const cleanup = toolName === "nelos_spinoff_cleanup";
   const refresh = toolName === "nelos_execution_map_refresh";
+  const history = toolName === "nelos_execution_map_history";
   return {
     ui: { resourceUri: EXECUTION_MAP_RESOURCE_URI },
     "openai/outputTemplate": EXECUTION_MAP_RESOURCE_URI,
-    "openai/toolInvocation/invoking": refresh
+    "openai/toolInvocation/invoking": history
+      ? "Loading full task-web history…"
+      : refresh
       ? "Refreshing worker status…"
       : cleanup
       ? "Cleaning up spin-offs…"
       : dispatch
         ? "Dispatching task…"
         : "Planning task web…",
-    "openai/toolInvocation/invoked": refresh
+    "openai/toolInvocation/invoked": history
+      ? "Full task-web history ready"
+      : refresh
       ? "Worker status updated"
       : cleanup
       ? "Cleanup receipt ready"
@@ -944,7 +1094,7 @@ export function listExecutionMapResourcesV1() {
     name: "nelos-execution-map",
     title: "Nelos execution map",
     description:
-      "Inline receipt for planned, active, completed, and archived Nelos task-web members.",
+      "Compact inline receipt for Nelos task-web members, with full archived history available on explicit request.",
     mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE,
     _meta: {
       ui: {

@@ -71,12 +71,14 @@ import {
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
 } from "./launch-execution-gate.mjs";
 import {
+  EXECUTION_MAP_HISTORY_INPUT_SCHEMA,
   EXECUTION_MAP_REFRESH_INPUT_SCHEMA,
   projectExecutionMapForToolResultV1,
   executionMapOutputSchemaForToolV1,
   executionMapToolMetadataV1,
   listExecutionMapResourcesV1,
   readExecutionMapResourceV1,
+  readExecutionMapHistoryV1,
   refreshExecutionMapStatusV1,
 } from "./execution-map.mjs";
 import {
@@ -833,6 +835,18 @@ const TOOLS = [
     annotations: READ_ONLY_ANNOTATIONS,
     async run(args, { appServerBridge }) {
       return refreshExecutionMapStatusV1(args, { appServerBridge });
+    },
+  },
+  {
+    name: "nelos_execution_map_history",
+    description:
+      "Show the complete persisted execution-map roster for one Nelos web, " +
+      "including archived members omitted from ordinary visual receipts. " +
+      "Use only when the user asks to inspect historical members.",
+    inputSchema: EXECUTION_MAP_HISTORY_INPUT_SCHEMA,
+    annotations: READ_ONLY_ANNOTATIONS,
+    async run(args, { webRegistry }) {
+      return readExecutionMapHistoryV1(args, { webRegistry });
     },
   },
   {

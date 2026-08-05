@@ -8,8 +8,9 @@ integration is not implemented.
 
 `nelos_plan_bootstrap`, `nelos_plan_lifecycle`, `nelos_plan_replan`,
 `nelos_plan_slices`, `nelos_orchestrate_create`,
-`nelos_execution_map_refresh`, and `nelos_spinoff_cleanup` advertise the
-versioned `ui://nelos/execution-map-v8.html` MCP Apps resource. Successful calls preserve
+`nelos_execution_map_refresh`, `nelos_execution_map_history`, and
+`nelos_spinoff_cleanup` advertise the versioned
+`ui://nelos/execution-map-v9.html` MCP Apps resource. Successful calls preserve
 their existing complete text/JSON result and additionally return
 `structuredContent` containing a compact visual projection plus a versioned
 `protocol.result` copy of the complete tool result. The latter keeps
@@ -24,14 +25,24 @@ action union rather than an untyped object. Visual tools correlate
 `structuredContent`. The visual projection contains:
 
 - the parent task or objective;
-- every member task in the current receipt;
+- every non-archived member task in an ordinary receipt;
 - lifecycle, exact requested model, and reasoning level;
 - planned, authorization-required, launch-pending, running, created,
   archiving, complete, archived, kept, or attention status.
 
-Aggregate total, lifecycle, created, and archived counts remain in
-`structuredContent` for model and client compatibility, but are intentionally
-not rendered because the visible worker cards already communicate the roster.
+The durable projection retains the full roster, but ordinary visual receipts
+omit archived members. `nelos_execution_map_history` is the explicit read-only
+path for showing the complete persisted roster, including archived members.
+This separation keeps archive recoverable and inspectable without making every
+later tool call replay the entire history.
+
+Worker cards render inside native disclosure groups. Current tasks stay open
+when there are four or fewer members and start folded for larger webs; archived
+history is always folded initially. The user can expand either group without
+another MCP call. Aggregate total, lifecycle, created, and archived counts
+remain in `structuredContent` for model and client compatibility, but are
+intentionally not rendered because the visible worker cards already
+communicate the roster.
 Archived phases and workers use a muted neutral treatment so green remains
 reserved for created or completed work. Attention uses an amber review-needed
 treatment rather than failure red. The widget does not render its own header or
@@ -66,8 +77,9 @@ approve or launch tasks itself.
 
 Cleanup remains host-owned and receipt-driven. Its first map can show
 `archiving` while native archive effects are outstanding; replaying the exact
-archive receipts produces a second terminal map with each affected worker
-marked `archived`.
+archive receipts removes those workers from subsequent ordinary maps. The
+cleanup protocol receipt still reports the exact archive outcome, and the
+explicit history tool shows the archived worker cards.
 
 Development verification is layered:
 
