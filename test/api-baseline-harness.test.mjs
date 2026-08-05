@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { canonicalDigest, reviseTask, sha256Bytes } from "../src/experimentation-contract/index.mjs";
+import { canonicalDigest, deriveTaskDigest, deriveTaskIdentity, reviseTask, sealTask, sha256Bytes } from "../src/experimentation-contract/index.mjs";
 import { bundleDigest, createStarterDevelopmentRelease, createTaskPackage } from "../src/experimentation-corpus/index.mjs";
 import { expandExperimentPlan } from "../src/experiment-runner.mjs";
 import { executeApiBaselineAttempt } from "../src/api-baseline-adapter.mjs";
@@ -327,17 +327,33 @@ test("Nelos candidates and sealed canary expansion remain rejected", () => {
 function privateCalibrationPackages() {
   return createStarterDevelopmentRelease().packages.map((original, index) => {
     const text = `Synthetic private fixture ${CALIBRATION_CONCEPTS[index].key}`;
-    const task = reviseTask(original.task, {
+    const revised = reviseTask(original.task, {
       prompt: { ...original.task.prompt, text, digest: sha256Bytes(Buffer.from(text, "utf8")) },
       determinism: { ...original.task.determinism, seed: 9100 + index },
       visibility: "private",
     });
+    const task = initialCalibrationTask(revised);
     return createTaskPackage({
       task,
       graderBundle: original.graderBundle,
       assets: original.assets.map((asset) => ({ ...asset, bytes: Buffer.from(asset.bytes, "base64") })),
     });
   });
+}
+
+function initialCalibrationTask(source, changes = {}) {
+  const task = {
+    ...structuredClone(source),
+    ...structuredClone(changes),
+    taskId: `task:${"0".repeat(64)}`,
+    specRevision: 1,
+    previousDigest: null,
+    digest: `sha256:${"0".repeat(64)}`,
+    state: "sealed",
+  };
+  task.taskId = deriveTaskIdentity(task);
+  task.digest = deriveTaskDigest(task);
+  return sealTask(task);
 }
 
 function privateCalibrationEvidence(packages) {
@@ -387,7 +403,7 @@ function calibrationPackageWithGrader(taskPackage, overrides) {
   const material = { ...taskPackage.graderBundle, ...overrides };
   delete material.digest;
   const graderBundle = { ...material, digest: bundleDigest(material) };
-  const task = reviseTask(taskPackage.task, { grader: { ...taskPackage.task.grader, digest: graderBundle.digest } });
+  const task = initialCalibrationTask(taskPackage.task, { grader: { ...taskPackage.task.grader, id: graderBundle.graderBundleId.slice("grader:".length), version: graderBundle.version, digest: graderBundle.digest } });
   return createTaskPackage({
     task,
     graderBundle,
@@ -463,11 +479,17 @@ test("calibration publication rejects manufactured, incomplete, or stale externa
   delete staleMaterial.digest;
   const staleAccess = { ...staleMaterial, digest: canonicalDigest(staleMaterial) };
   assert.throws(() => createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS, accessEvidence: staleAccess, semanticReview: evidence.semanticReview }), { code: "INVALID_ACCESS_EVIDENCE" });
+
+  const revisedPackages = [...packages];
+  const revisedTask = reviseTask(revisedPackages[0].task, { determinism: { ...revisedPackages[0].task.determinism, seed: revisedPackages[0].task.determinism.seed + 1 } });
+  revisedPackages[0] = createTaskPackage({ task: revisedTask, graderBundle: revisedPackages[0].graderBundle, assets: revisedPackages[0].assets.map((asset) => ({ ...asset, bytes: Buffer.from(asset.bytes, "base64") })) });
+  assert.throws(() => createCalibrationTrancheRelease({ packages: revisedPackages, concepts: CALIBRATION_CONCEPTS, ...privateCalibrationEvidence(revisedPackages) }), { code: "PRIOR_EVIDENCE_TASK_REUSE" });
 });
 
-test("calibration artifact check rejects every entry outside the exact public projection set", async () => {
+test("calibration artifact check rejects every entry outside the exact public projection set", async (context) => {
   const privateRoot = await mkdtemp(resolve(tmpdir(), "nelos-calibration-private-"));
   const artifactRoot = await mkdtemp(resolve(tmpdir(), "nelos-calibration-artifacts-"));
+  context.after(async () => Promise.all([rm(privateRoot, { recursive: true, force: true }), rm(artifactRoot, { recursive: true, force: true })]));
   await writePrivateCalibrationRoot(privateRoot);
   const { files } = await buildCalibrationRelease({ privateRoot });
   await Promise.all([...files].map(([path, bytes]) => writeFile(resolve(artifactRoot, path), bytes)));
