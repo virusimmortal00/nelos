@@ -114,19 +114,21 @@ async function writeProjections(root, files) {
   }
 }
 
-async function compareCommitted(files) {
-  const paths = (await readdir(COMMITTED_ARTIFACT_ROOT, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith(".json")).map(({ name }) => name).sort();
+async function compareCommitted(files, artifactRoot) {
+  const entries = await readdir(artifactRoot, { withFileTypes: true });
+  const paths = entries.map(({ name }) => name).sort();
+  if (entries.some((entry) => !entry.isFile())) fail("PUBLIC_PROJECTION_MEMBERSHIP_MISMATCH", "committed public artifact directory must contain only projection files");
   if (JSON.stringify(paths) !== JSON.stringify([...files.keys()].sort())) fail("PUBLIC_PROJECTION_MEMBERSHIP_MISMATCH", "committed public artifact membership differs");
   for (const [path, expected] of files) {
-    if (!(await readFile(resolve(COMMITTED_ARTIFACT_ROOT, path))).equals(expected)) fail("PUBLIC_PROJECTION_MISMATCH", `${path} differs from the private-material projection`);
+    if (!(await readFile(resolve(artifactRoot, path))).equals(expected)) fail("PUBLIC_PROJECTION_MISMATCH", `${path} differs from the private-material projection`);
   }
 }
 
-export async function buildCalibrationRelease({ privateRoot, outputRoot = null, check = false }) {
+export async function buildCalibrationRelease({ privateRoot, outputRoot = null, check = false, committedArtifactRoot = COMMITTED_ARTIFACT_ROOT }) {
   const material = await loadPrivateMaterial(privateRoot);
   const tranche = createCalibrationTrancheRelease(material);
   const files = publicProjectionFiles(tranche);
-  if (check) await compareCommitted(files);
+  if (check) await compareCommitted(files, committedArtifactRoot);
   if (outputRoot !== null) await writeProjections(resolve(outputRoot), files);
   return { tranche, files };
 }

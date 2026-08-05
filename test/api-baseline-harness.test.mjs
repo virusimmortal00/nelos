@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 
 import { canonicalDigest, reviseTask, sha256Bytes } from "../src/experimentation-contract/index.mjs";
-import { createStarterDevelopmentRelease, createTaskPackage } from "../src/experimentation-corpus/index.mjs";
+import { bundleDigest, createStarterDevelopmentRelease, createTaskPackage } from "../src/experimentation-corpus/index.mjs";
 import { expandExperimentPlan } from "../src/experiment-runner.mjs";
 import { executeApiBaselineAttempt } from "../src/api-baseline-adapter.mjs";
 import { startApiReceiptProxy } from "../src/api-baseline-receipt-proxy.mjs";
@@ -351,6 +351,18 @@ async function writePrivateCalibrationRoot(root, packages = privateCalibrationPa
   return { concepts, packages };
 }
 
+function calibrationPackageWithGrader(taskPackage, overrides) {
+  const material = { ...taskPackage.graderBundle, ...overrides };
+  delete material.digest;
+  const graderBundle = { ...material, digest: bundleDigest(material) };
+  const task = reviseTask(taskPackage.task, { grader: { ...taskPackage.task.grader, digest: graderBundle.digest } });
+  return createTaskPackage({
+    task,
+    graderBundle,
+    assets: taskPackage.assets.map((asset) => ({ ...asset, bytes: Buffer.from(asset.bytes, "base64") })),
+  });
+}
+
 test("public calibration artifacts preserve the approved immutable release and inert schedule", async () => {
   const lock = JSON.parse(await readFile(resolve(COMMITTED_ARTIFACT_ROOT, "release-lock.json"), "utf8"));
   const schedule = JSON.parse(await readFile(resolve(COMMITTED_ARTIFACT_ROOT, "schedule.json"), "utf8"));
@@ -393,6 +405,31 @@ test("public calibration projections reproduce deterministically from external p
   assert.equal(first.tranche.packages.length, 10);
   assert.equal(first.tranche.semanticIndependence.comparisonCount, 105);
   assert.equal(first.tranche.schedule.trialCount, 20);
+});
+
+test("calibration release binds every unique grader bundle and rejects identity collisions", () => {
+  const packages = privateCalibrationPackages();
+  packages[1] = calibrationPackageWithGrader(packages[1], { graderBundleId: "grader:calibration-alternate" });
+  const tranche = createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS });
+  assert.deepEqual(tranche.release.graderBundles.map(({ graderBundleId }) => graderBundleId), ["grader:calibration-alternate", "grader:starter-exact"]);
+
+  const collision = [...packages];
+  collision[2] = calibrationPackageWithGrader(collision[2], { version: "1.0.1" });
+  assert.throws(() => createCalibrationTrancheRelease({ packages: collision, concepts: CALIBRATION_CONCEPTS }), { code: "GRADER_IDENTITY_COLLISION" });
+});
+
+test("calibration artifact check rejects every entry outside the exact public projection set", async () => {
+  const privateRoot = await mkdtemp(resolve(tmpdir(), "nelos-calibration-private-"));
+  const artifactRoot = await mkdtemp(resolve(tmpdir(), "nelos-calibration-artifacts-"));
+  await writePrivateCalibrationRoot(privateRoot);
+  const { files } = await buildCalibrationRelease({ privateRoot });
+  await Promise.all([...files].map(([path, bytes]) => writeFile(resolve(artifactRoot, path), bytes)));
+  await buildCalibrationRelease({ privateRoot, check: true, committedArtifactRoot: artifactRoot });
+  await writeFile(resolve(artifactRoot, "operator-notes.txt"), "must not be accepted");
+  await assert.rejects(() => buildCalibrationRelease({ privateRoot, check: true, committedArtifactRoot: artifactRoot }), { code: "PUBLIC_PROJECTION_MEMBERSHIP_MISMATCH" });
+  await rm(resolve(artifactRoot, "operator-notes.txt"));
+  await mkdir(resolve(artifactRoot, "private-material"));
+  await assert.rejects(() => buildCalibrationRelease({ privateRoot, check: true, committedArtifactRoot: artifactRoot }), { code: "PUBLIC_PROJECTION_MEMBERSHIP_MISMATCH" });
 });
 
 test("private calibration material overlap and symlinks fail closed", async () => {

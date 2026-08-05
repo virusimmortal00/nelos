@@ -134,16 +134,25 @@ function successorRelease(previous, members) {
       bytes: Buffer.from(entry.bytes, "base64").byteLength,
     });
   }
+  const graderBundles = new Map();
+  for (const { taskPackage } of members) {
+    const bundle = taskPackage.graderBundle;
+    const existing = graderBundles.get(bundle.graderBundleId);
+    if (existing !== undefined && existing.digest !== bundle.digest) {
+      fail("GRADER_IDENTITY_COLLISION", "one grader identity cannot reference multiple bundle digests");
+    }
+    graderBundles.set(bundle.graderBundleId, {
+      graderBundleId: bundle.graderBundleId,
+      version: bundle.version,
+      digest: bundle.digest,
+    });
+  }
   const removedTaskIds = previous.tasks.map(({ taskId }) => taskId).sort();
   return reviseCorpusRelease(previous, {
     version: CALIBRATION_RELEASE_VERSION,
     tasks,
     assets: [...assets.values()].sort((left, right) => left.assetId.localeCompare(right.assetId)),
-    graderBundles: [{
-      graderBundleId: members[0].taskPackage.graderBundle.graderBundleId,
-      version: members[0].taskPackage.graderBundle.version,
-      digest: members[0].taskPackage.graderBundle.digest,
-    }],
+    graderBundles: [...graderBundles.values()].sort((left, right) => left.graderBundleId.localeCompare(right.graderBundleId)),
     changelog: [
       { changeId: "change:task-added", kind: "task-added", summary: "Add ten requirement-bound independent calibration tasks.", taskIds: tasks.map(({ taskId }) => taskId) },
       { changeId: "change:task-excluded", kind: "task-excluded", summary: "Retain predecessor development identities as audited exclusions from the private calibration release.", taskIds: removedTaskIds },
