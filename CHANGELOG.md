@@ -5,6 +5,26 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.10] - 2026-08-05
+
+### User-facing changes
+
+- Execution-map receipts now keep canonical spider/web task titles after later
+  plan updates and omit archived members from routine views.
+- Added the read-only `nelos_execution_map_history` tool for explicitly loading
+  the complete persisted roster. Current and archived members render in
+  independently collapsible sections, with large groups folded initially.
+
+### Compatibility requirements
+
+- The MCP Apps resource URI advances to `ui://nelos/execution-map-v9.html` so
+  hosts do not reuse the previous non-collapsible widget from cache.
+
+### Security fixes
+
+- Archived history remains durably persisted and inspectable; the default
+  filter changes visibility only and never mutates lifecycle state.
+
 ## [0.12.9] - 2026-08-05
 
 ### User-facing changes

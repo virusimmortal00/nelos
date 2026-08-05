@@ -29,6 +29,7 @@ test("execution-map visual fixtures cover the meaningful lifecycle states", () =
     "created_spinoff",
     "archiving_spinoff",
     "archived_spinoff",
+    "large_history",
     "attention_subagent",
   ]);
   assert.equal(new Set(keys).size, keys.length);
@@ -196,8 +197,12 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       },
     });
     assert.equal(membersElement.children.length, 1);
-    assert.equal(membersElement.children[0].className, "member");
-    assert.equal(membersElement.children[0].dataset.status, "running");
+    assert.equal(membersElement.children[0].className, "member-group");
+    assert.equal(membersElement.children[0].open, true);
+    assert.equal(
+      membersElement.children[0].children[1].children[0].dataset.status,
+      "running",
+    );
 
     const acceptedMap = EXECUTION_MAP_FIXTURES.find(
       ({ key }) => key === "accepted_subagent",
@@ -206,7 +211,40 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       detail: { globals: { toolOutput: acceptedMap } },
     });
     assert.equal(membersElement.children.length, 1);
-    assert.equal(membersElement.children[0].dataset.status, "accepted");
+    assert.equal(
+      membersElement.children[0].children[1].children[0].dataset.status,
+      "accepted",
+    );
+
+    const archivedMap = EXECUTION_MAP_FIXTURES.find(
+      ({ key }) => key === "archived_spinoff",
+    ).map;
+    listeners.get("openai:set_globals")({
+      detail: { globals: { toolOutput: archivedMap } },
+    });
+    assert.equal(membersElement.children[0].open, false);
+    assert.equal(
+      membersElement.children[0].children[0].textContent,
+      "Archived history (1)",
+    );
+
+    const largeHistoryMap = EXECUTION_MAP_FIXTURES.find(
+      ({ key }) => key === "large_history",
+    ).map;
+    listeners.get("openai:set_globals")({
+      detail: { globals: { toolOutput: largeHistoryMap } },
+    });
+    assert.equal(membersElement.children.length, 2);
+    assert.equal(membersElement.children[0].open, false);
+    assert.equal(membersElement.children[1].open, false);
+    assert.equal(
+      membersElement.children[0].children[0].textContent,
+      "Current tasks (5)",
+    );
+    assert.equal(
+      membersElement.children[1].children[0].textContent,
+      "Archived history (5)",
+    );
   } finally {
     await client.close();
     await running.close();

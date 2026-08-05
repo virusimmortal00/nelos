@@ -279,6 +279,29 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
     ],
   }),
   fixture({
+    key: "large_history",
+    title: "Large collapsible task-web history",
+    phase: "running",
+    members: [
+      ...Array.from({ length: 5 }, (_, index) =>
+        member({
+          id: `current-${index + 1}`,
+          task: `🕷️B8.${index + 1} · Current worker ${index + 1}`,
+          lifecycle: "spinoff",
+          status: "running",
+          threadId: `thread-current-${index + 1}`,
+        })),
+      ...Array.from({ length: 5 }, (_, index) =>
+        member({
+          id: `archived-${index + 1}`,
+          task: `🕷️B8.${index + 6} · Archived worker ${index + 1}`,
+          lifecycle: "spinoff",
+          status: "archived",
+          threadId: `thread-archived-${index + 1}`,
+        })),
+    ],
+  }),
+  fixture({
     key: "attention_subagent",
     title: "Sub-agent needing attention",
     phase: "attention",

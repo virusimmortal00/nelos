@@ -67,10 +67,33 @@
         margin: 0 auto;
       }
 
+      .groups {
+        display: grid;
+        gap: 8px;
+      }
+
+      .member-group {
+        min-width: 0;
+      }
+
+      .group-summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.3;
+        padding: 7px 4px;
+        user-select: none;
+      }
+
+      .group-summary::marker {
+        color: var(--accent);
+      }
+
       .members {
         display: grid;
         gap: 8px;
-        margin: 0;
+        margin: 2px 0 0;
         padding: 0;
         list-style: none;
       }
@@ -227,7 +250,7 @@
   </head>
   <body>
     <main aria-live="polite">
-      <ol id="members" class="members" aria-label="Nelos task workers"></ol>
+      <div id="members" class="groups" aria-label="Nelos task workers"></div>
     </main>
 
     <script type="module">
@@ -247,6 +270,63 @@
         return element;
       };
 
+      const memberItem = (member) => {
+        const item = document.createElement("li");
+        item.className = "member";
+        item.dataset.status = String(member.status || "");
+
+        const dot = document.createElement("span");
+        dot.className = "status-dot";
+        dot.setAttribute("aria-label", label(member.status));
+
+        const content = document.createElement("div");
+        content.className = "member-main";
+        const title = document.createElement("p");
+        title.className = "member-task";
+        title.textContent = String(member.task || member.id || "Task");
+        const status = String(member.status || "planned");
+        const statusTag = tag(label(status), "status");
+        statusTag.dataset.status = status;
+        const heading = document.createElement("div");
+        heading.className = "member-heading";
+        heading.append(title, statusTag);
+
+        const meta = document.createElement("div");
+        meta.className = "member-meta";
+        meta.append(
+          tag(
+            member.lifecycle === "spinoff" ? "Spin-off" : "Sub-agent",
+            "lifecycle",
+          ),
+          tag(String(member.model || "host-default")),
+          tag(`${label(member.reasoning || "host-default")} reasoning`),
+        );
+        if (member.threadId) {
+          const threadTag = tag(`Task ${member.threadId}`);
+          threadTag.title = "Native Codex task identifier";
+          meta.append(threadTag);
+        }
+
+        content.append(heading, meta);
+        item.append(dot, content);
+        return item;
+      };
+
+      const memberGroup = (title, members, { archived = false } = {}) => {
+        const group = document.createElement("details");
+        group.className = "member-group";
+        group.open = !archived && members.length <= 4;
+        const summary = document.createElement("summary");
+        summary.className = "group-summary";
+        summary.textContent = `${title} (${members.length})`;
+        const list = document.createElement("ol");
+        list.className = "members";
+        list.setAttribute("aria-label", title);
+        list.append(...members.map(memberItem));
+        group.append(summary, list);
+        return group;
+      };
+
       const render = (value) => {
         if (!value || value.view !== "execution-map") return;
 
@@ -260,46 +340,15 @@
           return;
         }
 
-        for (const member of members) {
-          const item = document.createElement("li");
-          item.className = "member";
-          item.dataset.status = String(member.status || "");
-
-          const dot = document.createElement("span");
-          dot.className = "status-dot";
-          dot.setAttribute("aria-label", label(member.status));
-
-          const content = document.createElement("div");
-          content.className = "member-main";
-          const title = document.createElement("p");
-          title.className = "member-task";
-          title.textContent = String(member.task || member.id || "Task");
-          const status = String(member.status || "planned");
-          const statusTag = tag(label(status), "status");
-          statusTag.dataset.status = status;
-          const heading = document.createElement("div");
-          heading.className = "member-heading";
-          heading.append(title, statusTag);
-
-          const meta = document.createElement("div");
-          meta.className = "member-meta";
-          meta.append(
-            tag(
-              member.lifecycle === "spinoff" ? "Spin-off" : "Sub-agent",
-              "lifecycle",
-            ),
-            tag(String(member.model || "host-default")),
-            tag(`${label(member.reasoning || "host-default")} reasoning`),
+        const active = members.filter(({ status }) => status !== "archived");
+        const archived = members.filter(({ status }) => status === "archived");
+        if (active.length > 0) {
+          membersElement.append(memberGroup("Current tasks", active));
+        }
+        if (archived.length > 0) {
+          membersElement.append(
+            memberGroup("Archived history", archived, { archived: true }),
           );
-          if (member.threadId) {
-            const threadTag = tag(`Task ${member.threadId}`);
-            threadTag.title = "Native Codex task identifier";
-            meta.append(threadTag);
-          }
-
-          content.append(heading, meta);
-          item.append(dot, content);
-          membersElement.append(item);
         }
       };
 

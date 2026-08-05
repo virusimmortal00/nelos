@@ -67,6 +67,10 @@ long-lived
   turn renders `complete`, an in-progress turn renders `running`, and stale,
   unavailable, or unsuccessful evidence renders `attention`. It returns no
   prompts, previews, result bodies, or transcripts;
+- `nelos_execution_map_history` — reads the complete persisted visual
+  projection for one exact web/queen identity. Ordinary execution-map receipts
+  omit archived members; this explicit read-only call restores the full roster
+  without prompts, turns, transcripts, result bodies, or native mutations;
 - `nelos_thread_inspect` — reads one explicitly identified task and returns
   only bounded identity, title, status, working
   directory, parent, and timestamp fields. It requests no turns and never
@@ -157,12 +161,12 @@ long-lived
   partial and in-flight outcomes remain visible without replaying an archive.
   Persisting a cleanup choice globally requires explicit user intent. It also
   exposes the execution-map resource: outstanding effects render as
-  `archiving`, while accepted native archive receipts render a terminal
-  `archived` worker card. Aggregate counts remain available in the structured
-  receipt without duplicating the visible worker roster.
+  `archiving`, while accepted native archive receipts remove the worker from
+  ordinary maps. The exact cleanup protocol result remains visible, and
+  `nelos_execution_map_history` renders the archived worker card.
 
-Bootstrap preparation, thread inspection, inventory, web inspection, wait,
-health, routing, verification, and subagent identity resolution advertise
+Bootstrap preparation, execution-map refresh/history, thread inspection,
+inventory, web inspection, wait, health, routing, verification, and subagent identity resolution advertise
 `readOnlyHint: true`. Batch launch verification advertises
 `readOnlyHint: false`, `destructiveHint: false`, and `idempotentHint: true`
 because successful verification adopts joined members into the execution web.
@@ -177,11 +181,14 @@ delivery persists private state and returns a receipt-bound host wake effect;
 cleanup remains declared destructive because its requested native effect
 archives tasks. This small bridge exposes no web server, live task dashboard,
 transcript surface, or general-purpose app-server proxy. Selected planning,
-dispatch, status-refresh, and spin-off cleanup tools expose a self-contained
+dispatch, status-refresh, full-history, and spin-off cleanup tools expose a self-contained
 MCP Apps execution-map resource that renders only their current receipt,
 including the authorization-required state before a launch wave becomes
 executable, native-turn completion after bounded refresh, and the terminal
-archived state after exact native archive receipts are accepted. The widget
+archived state after exact native archive receipts are accepted. Ordinary
+receipts filter archived members from the visible roster, while the explicit
+history tool restores them. Large current rosters and archived history render
+in independently collapsible disclosure groups. The widget
 performs no app-server reads or native effects; the refresh tool owns its
 bounded read before returning the receipt. Every protocol-producing tool
 publishes its exact result `outputSchema`. Results containing `nextAction`

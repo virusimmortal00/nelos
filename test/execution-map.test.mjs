@@ -11,6 +11,7 @@ import {
   executionMapToolMetadataV1,
   listExecutionMapResourcesV1,
   readExecutionMapResourceV1,
+  readExecutionMapHistoryV1,
   refreshExecutionMapStatusV1,
 } from "../src/execution-map.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
@@ -206,7 +207,7 @@ test("planned task webs expose authorization and authorized launch phases", () =
   assert.equal(launchPending.summary.created, 0);
 });
 
-test("archived spin-offs produce a terminal execution-map receipt", () => {
+test("ordinary receipts hide archived spin-offs without losing the protocol receipt", () => {
   const archived = executionMapForToolResultV1(
     "nelos_spinoff_cleanup",
     { webId: "B4", queenThreadId: "queen-thread" },
@@ -227,21 +228,116 @@ test("archived spin-offs produce a terminal execution-map receipt", () => {
     },
   );
 
-  assert.equal(archived.phase, "archived");
-  assert.equal(archived.summary.archived, 1);
+  assert.equal(archived.phase, "complete");
+  assert.equal(archived.summary.archived, 0);
   assert.equal(archived.summary.created, 0);
-  assert.deepEqual(archived.members, [{
-    id: "inspect-next-action",
-    task: "Inspect nextAction protocol visibility",
-    lifecycle: "spinoff",
-    model: "gpt-5.6-sol",
-    reasoning: "medium",
-    status: "archived",
-    threadId: "thread-archive",
-  }]);
+  assert.deepEqual(archived.members, []);
   assert.equal(
     archived.protocol.result.results[0].state,
     "archived",
+  );
+});
+
+test("ordinary projection stays filtered when no persisted web identity resolves", async () => {
+  const projected = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_cleanup",
+    {},
+    {
+      state: "complete",
+      results: [{
+        workUnitId: "old",
+        threadId: "thread-old",
+        title: "🕷️B4.1 · Old worker",
+        state: "archived",
+      }],
+    },
+    { webRegistry: memoryWebRegistry() },
+  );
+  assert.deepEqual(projected.members, []);
+  assert.equal(projected.summary.archived, 0);
+});
+
+test("planned receipts use persisted spider titles and never regress them", async () => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Keep task names canonical",
+    slices: [plannedSlice("canonical", { title: "Canonical worker" })],
+  });
+  const result = {
+    plan,
+    planRun: {
+      waves: [{
+        members: [{
+          sliceId: "canonical",
+          title: "🕷️B6.1 · Canonical worker",
+        }],
+      }],
+    },
+  };
+  const planned = executionMapForToolResultV1(
+    "nelos_plan_slices",
+    {},
+    result,
+  );
+  assert.equal(planned.members[0].task, "🕷️B6.1 · Canonical worker");
+
+  const webRegistry = memoryWebRegistry();
+  await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    {
+      workUnit: {
+        webId: "B6",
+        queenThreadId: "queen-b6",
+        workUnitId: "canonical",
+        specRevision: 1,
+        attempt: 1,
+        memberKind: "spinoff",
+        title: "🕷️B6.1 · Canonical worker",
+        objectiveSummary: "Canonical worker",
+      },
+    },
+    { binding: { state: "bound", memberThreadId: "thread-canonical" } },
+    { webRegistry },
+  );
+  const laterPlainPlan = await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-b6" },
+    { plan },
+    { webRegistry },
+  );
+  assert.equal(
+    laterPlainPlan.members[0].task,
+    "🕷️B6.1 · Canonical worker",
+  );
+
+  const wrongLineagePlan = await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-b6" },
+    {
+      plan,
+      planRun: {
+        waves: [{
+          members: [{
+            sliceId: "canonical",
+            title: "🕷️B7.1 · Wrong web worker",
+          }],
+        }],
+      },
+    },
+    { webRegistry },
+  );
+  assert.equal(
+    wrongLineagePlan.members[0].task,
+    "🕷️B6.1 · Canonical worker",
+  );
+
+  const historyResult = await readExecutionMapHistoryV1(
+    { schemaVersion: 1, webId: "B6", queenThreadId: "queen-b6" },
+    { webRegistry },
+  );
+  assert.equal(
+    historyResult.members[0].task,
+    "🕷️B6.1 · Canonical worker",
   );
 });
 
@@ -378,6 +474,50 @@ function memoryWebRegistry() {
     async write(record) { records.set(record.threadId, structuredClone(record)); },
   };
 }
+
+test("explicit execution-map history returns archived members", async () => {
+  const webRegistry = memoryWebRegistry();
+  await webRegistry.write({
+    threadId: "queen-history",
+    outboundWebId: "C7",
+    executionMapProjection: {
+      task: "Historical task web",
+      members: [
+        {
+          id: "current",
+          task: "🕷️C7.1 · Current worker",
+          lifecycle: "spinoff",
+          model: "gpt-5.6-terra",
+          reasoning: "low",
+          status: "running",
+          threadId: "thread-current",
+        },
+        {
+          id: "old",
+          task: "🕷️C7.2 · Old worker",
+          lifecycle: "spinoff",
+          model: "gpt-5.6-terra",
+          reasoning: "low",
+          status: "archived",
+          threadId: "thread-old",
+        },
+      ],
+    },
+  });
+  const result = await readExecutionMapHistoryV1(
+    { schemaVersion: 1, webId: "c7", queenThreadId: "queen-history" },
+    { webRegistry },
+  );
+  const history = executionMapForToolResultV1(
+    "nelos_execution_map_history",
+    {},
+    result,
+  );
+  assert.equal(history.members.length, 2);
+  assert.equal(history.phase, "running");
+  assert.equal(history.summary.archived, 1);
+  assert.equal(history.protocol.result.command, "execution map history");
+});
 
 test("web-wide projection survives restart and rejects stale member regressions", async () => {
   const webRegistry = memoryWebRegistry();
@@ -522,6 +662,8 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.match(resource.contents[0].text, /--archived/u);
   assert.match(resource.contents[0].text, /member\.status/u);
   assert.match(resource.contents[0].text, /className = "member-heading"/u);
+  assert.match(resource.contents[0].text, /document\.createElement\("details"\)/u);
+  assert.match(resource.contents[0].text, /Archived history/u);
   assert.match(resource.contents[0].text, /"Sub-agent"/u);
   assert.match(resource.contents[0].text, /prefers-reduced-motion: reduce/u);
   assert.match(resource.contents[0].text, /@keyframes status-pulse/u);
@@ -550,6 +692,10 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   );
   assert.deepEqual(
     executionMapToolMetadataV1("nelos_execution_map_refresh").ui,
+    { resourceUri: EXECUTION_MAP_RESOURCE_URI },
+  );
+  assert.deepEqual(
+    executionMapToolMetadataV1("nelos_execution_map_history").ui,
     { resourceUri: EXECUTION_MAP_RESOURCE_URI },
   );
   assert.equal(executionMapToolMetadataV1("nelos_thread_inspect"), null);

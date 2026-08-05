@@ -469,6 +469,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_launch_authorize",
       "nelos_launch_verify_batch",
       "nelos_execution_map_refresh",
+      "nelos_execution_map_history",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
       "nelos_web_inspect",
@@ -491,6 +492,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   for (const tool of tools.filter(({ name }) =>
     [
       "nelos_execution_map_refresh",
+      "nelos_execution_map_history",
       "nelos_thread_inspect",
       "nelos_thread_inventory",
       "nelos_web_inspect",
@@ -2470,15 +2472,12 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
     completeResponse.result.structuredContent.protocol.result,
     completed,
   );
-  assert.equal(cleanupResponse.result.structuredContent.phase, "archived");
+  assert.equal(cleanupResponse.result.structuredContent.phase, "complete");
   assert.equal(
     cleanupResponse.result.structuredContent.summary.archived,
-    1,
+    0,
   );
-  assert.equal(
-    cleanupResponse.result.structuredContent.members[0].status,
-    "archived",
-  );
+  assert.deepEqual(cleanupResponse.result.structuredContent.members, []);
   assert.deepEqual(
     cleanupResponse.result.structuredContent.protocol.result,
     cleaned,
@@ -3530,6 +3529,67 @@ test("nelos_web_inspect delegates the complete bounded workflow", async () => {
       },
     ],
   ]);
+});
+
+test("nelos_execution_map_history exposes the persisted full roster explicitly", async () => {
+  const [, response] = await roundTrip(
+    [
+      INITIALIZE,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "nelos_execution_map_history",
+          arguments: {
+            schemaVersion: 1,
+            webId: "A1",
+            queenThreadId: "queen-1",
+          },
+        },
+      },
+    ],
+    {
+      webRegistry: {
+        async read(threadId) {
+          assert.equal(threadId, "queen-1");
+          return {
+            threadId: "queen-1",
+            outboundWebId: "A1",
+            executionMapProjection: {
+              task: "Long-running web",
+              members: [{
+                id: "old-worker",
+                task: "🕷️A1.1 · Old worker",
+                lifecycle: "spinoff",
+                model: "gpt-5.6-terra",
+                reasoning: "low",
+                status: "archived",
+                threadId: "thread-old",
+              }],
+            },
+          };
+        },
+      },
+    },
+  );
+  const result = toolBody(response);
+  assert.equal(result.isError, false);
+  assert.equal(result.body.command, "execution map history");
+  assert.deepEqual(result.body.members[0], {
+    id: "old-worker",
+    task: "🕷️A1.1 · Old worker",
+    lifecycle: "spinoff",
+    model: "gpt-5.6-terra",
+    reasoning: "low",
+    status: "archived",
+    threadId: "thread-old",
+  });
+  assert.deepEqual(
+    response.result.structuredContent.members[0],
+    result.body.members[0],
+  );
+  assert.equal(response.result.structuredContent.summary.archived, 1);
 });
 
 test("nelos_thread_wait forwards snapshot cursors and polling bounds", async () => {
