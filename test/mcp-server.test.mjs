@@ -283,11 +283,15 @@ test("worker shutdown routes every transport and signal trigger through one clea
   }
 });
 
-test("worker shutdown is idempotent, bounded, and never signals siblings", async () => {
+test("worker shutdown is idempotent, bounded, and never signals siblings", { timeout: 10_000 }, async () => {
   const input = new PassThrough();
   const output = new PassThrough();
   const signals = new EventEmitter();
   let timeout;
+  let observeClose;
+  let observeLeaseRemoval;
+  const closeObserved = new Promise((resolve) => { observeClose = resolve; });
+  const leaseRemovalObserved = new Promise((resolve) => { observeLeaseRemoval = resolve; });
   let closeCalls = 0;
   let leaseCalls = 0;
   const exits = [];
@@ -299,10 +303,10 @@ test("worker shutdown is idempotent, bounded, and never signals siblings", async
     setShutdownTimer: (callback) => { timeout = callback; return "timer"; },
     clearShutdownTimer: () => {},
     onExit: (code) => exits.push(code),
-    onLeaseRemove: () => { leaseCalls += 1; },
+    onLeaseRemove: () => { leaseCalls += 1; observeLeaseRemoval(); },
     workerRegistry: TEST_WORKER_REGISTRY,
     appServerBridge: {
-      close() { closeCalls += 1; },
+      close() { closeCalls += 1; observeClose(); },
       waitForThreads: () => new Promise(() => {}),
     },
   });
@@ -316,7 +320,7 @@ test("worker shutdown is idempotent, bounded, and never signals siblings", async
   await flushWorker();
   input.end();
   signals.emit("SIGTERM");
-  await flushWorker();
+  await Promise.all([closeObserved, leaseRemovalObserved]);
   assert.equal(closeCalls, 1);
   assert.equal(leaseCalls, 1);
   assert.deepEqual(exits, []);

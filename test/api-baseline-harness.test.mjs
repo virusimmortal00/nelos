@@ -14,6 +14,7 @@ import { executeApiBaselineAttempt } from "../src/api-baseline-adapter.mjs";
 import { startApiReceiptProxy } from "../src/api-baseline-receipt-proxy.mjs";
 import { writeApiBaselineResearchPacket } from "../src/api-baseline-research-packet.mjs";
 import { normalizeApiBaselineVarianceEvidence } from "../src/api-baseline-variance-evidence.mjs";
+import { CALIBRATION_TRANCHE_POLICY, createCalibrationTrancheRequirement } from "../src/api-baseline-calibration-plan.mjs";
 import { createSignedInPilotManifest } from "../scripts/build-signed-in-pilot.mjs";
 import { API_BASELINE_CANDIDATES, API_BASELINE_FAMILIES, API_BASELINE_RUN_PREFIX, CANARY_CEILINGS, createApiBaselineBundle, createAuthorizedConfirmatoryPlan, evaluateConfirmatoryAuthorization, measureRuntimeProvenance, validateApiBaselineBundle } from "../src/api-baseline-harness.mjs";
 import { readApiProviderExchanges, recordApiProviderExchange, safeApiRuntimeError } from "../src/api-baseline-runtime.mjs";
@@ -230,6 +231,47 @@ test("power authorization counts independent paired tasks, not repeated seeds", 
   const plan = createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum }); assert.equal(plan.ceilings.trials, 100); assert.equal(plan.blocks.length, 50);
   const expanded = structuredClone(taskIdsByStratum); expanded[API_BASELINE_FAMILIES[0]].push(`task:${API_BASELINE_FAMILIES[0]}:extra`);
   assert.throws(() => createAuthorizedConfirmatoryPlan({ authorization, taskIdsByStratum: expanded }), { code: "CONFIRMATORY_AUTHORIZED_TASK_COUNT_MISMATCH" });
+});
+
+test("staged calibration produces a bounded non-executable corpus requirement", () => {
+  const input = bundle();
+  const repeated = API_BASELINE_FAMILIES.flatMap((stratum) => evidenceFor(stratum, `task:${stratum}:existing`, `block:${stratum}`, "api-canary"));
+  const signed = API_BASELINE_FAMILIES.flatMap((stratum) => evidenceFor(stratum, `task:${stratum}:existing`, `signed:${stratum}`, "signed-in-pilot"));
+  const observations = [...repeated, ...signed];
+  const decision = evaluateConfirmatoryAuthorization({ varianceEvidence: observations });
+  const requirement = createCalibrationTrancheRequirement({ apiBundle: input, confirmatoryDecision: decision, varianceEvidence: observations });
+  assert.equal(requirement.status, "corpus-required");
+  assert.equal(requirement.executable, false);
+  assert.equal(requirement.scheduleRequirement.trialCount, 20);
+  assert.equal(requirement.ceilings.maxTotalEstimatedCostUsd, 3.75);
+  assert.equal(requirement.hardBounds.maxTranches, 5);
+  assert.equal(requirement.hardBounds.maxCumulativeEstimatedCostUsd, 18.75);
+  assert.equal(requirement.authorizationBoundary.zeroProviderCallsUntilSeparateAuthorization, true);
+  assert.equal(requirement.authorizationBoundary.thisArtifactCanAuthorizeCalls, false);
+  assert.equal(requirement.authorizationBoundary.thisArtifactCanAuthorizeConfirmatoryWork, false);
+  assert.equal(requirement.authorizationBoundary.thisArtifactCanAuthorizeNelosArm, false);
+  assert.equal(requirement.claimPolicy.comparativePerformanceClaims, "prohibited");
+  assert.equal(requirement.currentEvidence.every(({ independentPairedTasks, existingTaskIds }) => independentPairedTasks === 1 && existingTaskIds.length === 1), true);
+  assert.equal(requirement.corpusRequirement.newIndependentTasksPerStratum, CALIBRATION_TRANCHE_POLICY.newIndependentTasksPerStratum);
+  assert.equal(requirement.requirementDigest, canonicalDigest(Object.fromEntries(Object.entries(requirement).filter(([key]) => key !== "requirementDigest"))));
+  assert.deepEqual(requirement, createCalibrationTrancheRequirement({ apiBundle: input, confirmatoryDecision: decision, varianceEvidence: observations }));
+});
+
+test("staged calibration cannot override stale, authorized, or incomplete power decisions", () => {
+  const input = bundle();
+  const observations = API_BASELINE_FAMILIES.flatMap((stratum) => [
+    ...evidenceFor(stratum, `task:${stratum}:existing`, `api:${stratum}`, "api-canary"),
+    ...evidenceFor(stratum, `task:${stratum}:existing`, `signed:${stratum}`, "signed-in-pilot"),
+  ]);
+  const decision = evaluateConfirmatoryAuthorization({ varianceEvidence: observations });
+  const stale = structuredClone(decision); stale.zeroFurtherCalls = false;
+  assert.throws(() => createCalibrationTrancheRequirement({ apiBundle: input, confirmatoryDecision: stale, varianceEvidence: observations }), { code: "CALIBRATION_STALE_POWER_DECISION" });
+  const independent = API_BASELINE_FAMILIES.flatMap((stratum) => Array.from({ length: 10 }, (_, index) => evidenceFor(stratum, `task:${stratum}:${index}`, `block:${index}`, index % 2 ? "api-canary" : "signed-in-pilot")).flat());
+  const authorized = evaluateConfirmatoryAuthorization({ varianceEvidence: independent });
+  assert.throws(() => createCalibrationTrancheRequirement({ apiBundle: input, confirmatoryDecision: authorized, varianceEvidence: independent }), { code: "CALIBRATION_NOT_APPLICABLE" });
+  const missingPhase = observations.filter(({ phase }) => phase === "api-canary");
+  const missingDecision = evaluateConfirmatoryAuthorization({ varianceEvidence: missingPhase });
+  assert.throws(() => createCalibrationTrancheRequirement({ apiBundle: input, confirmatoryDecision: missingDecision, varianceEvidence: missingPhase }), { code: "CALIBRATION_NOT_APPLICABLE" });
 });
 
 test("retained signed-in and API evidence normalize into paired task clusters", () => {

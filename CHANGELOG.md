@@ -5,6 +5,25 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.9] - 2026-08-05
+
+### User-facing changes
+
+- Added an offline staged variance-acquisition planner for an insufficient-task
+  confirmatory no-go. The first fixed tranche requests two new governed tasks
+  per stratum and records exact trial, cost, and cumulative review ceilings.
+
+### Compatibility requirements
+
+- Calibration requirements are non-executable and cannot supersede the sealed
+  no-go. Every provider-call tranche requires a separately implemented exact
+  corpus schedule and fresh user authorization.
+
+### Security fixes
+
+- Calibration evidence is ineligible for comparative claims, and each tranche
+  returns to zero calls before any re-estimation or escalation.
+
 ## [0.12.8] - 2026-08-04
 
 ### User-facing changes

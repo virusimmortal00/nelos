@@ -160,3 +160,35 @@ paired tasks, the result is `no-go`, `zeroFurtherCalls` is true, and no
 confirmatory plan can be created. An authorized result seals exact independent
 task IDs, AB/BA allocation, trial count, and exposure ceilings into a separate
 confirmatory plan; it never reuses repeated seeds as independent clusters.
+
+## Staged variance acquisition after a no-go
+
+An insufficient-cluster no-go may produce an offline corpus requirement, but it
+does not authorize another provider call. The requirement binds the exact
+canary bundle, retained variance evidence, no-go decision, and dated pricing
+snapshot. It asks for two new governed independent tasks in each critical
+stratum: ten tasks and twenty direct-Codex repeat-arm trials total. The first
+tranche is capped at USD 3.75, one attempt per trial, no provider retries, and
+concurrency one.
+
+```sh
+node scripts/plan-api-baseline-calibration.mjs \
+  --bundle /secure/operator/api-canary.json \
+  --decision /secure/operator/confirmatory-authorization.json \
+  --observations /secure/operator/paired-task-variance-evidence.json \
+  --out /secure/operator/calibration-tranche-1-requirement.json
+```
+
+The output is deliberately `corpus-required` and `executable: false`. A later
+slice must build and validate a published immutable corpus release, seal an
+exact balanced schedule over task identities not present in prior evidence,
+and obtain a fresh user authorization before that one tranche can run. After a
+completed or aborted tranche the default returns to zero calls. Re-estimation
+uses only sealed complete evidence; post-hoc exclusions and effect-based early
+stopping are forbidden. Every additional tranche requires a new proposal and
+authorization, with a hard ceiling of five tranches, one hundred trials, and
+USD 18.75 before mandatory manual design review.
+
+Calibration outcomes are design evidence only. They cannot support a
+direct-versus-Nelos performance claim, cannot introduce a Nelos arm, and do not
+modify or supersede the retained confirmatory no-go.
