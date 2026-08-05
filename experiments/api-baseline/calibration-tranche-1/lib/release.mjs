@@ -260,12 +260,17 @@ export function createCalibrationTrancheRelease({ packages, concepts, accessEvid
     predecessor.release.digest !== "sha256:64fbee81daaea1c0869cf54f8ef7f36c76d2c7af62ec85995112328f2ad13a89"
   ) fail("PREDECESSOR_IDENTITY_MISMATCH", "the calibration release requires the approved immutable 1.0.0 predecessor");
   for (const taskPackage of packages) {
+    if (`grader:${taskPackage.task.grader.id}` !== taskPackage.graderBundle.graderBundleId || taskPackage.task.grader.version !== taskPackage.graderBundle.version) {
+      fail("GRADER_IDENTITY_MISMATCH", "task and package grader id, version, and digest identities must agree");
+    }
     const candidateDigests = new Set(taskPackage.assets.filter(({ audience }) => audience === "candidate").map(({ digest }) => digest));
     const graderDigests = taskPackage.assets.filter(({ audience }) => audience === "grader").map(({ digest }) => digest);
     if (graderDigests.length === 0 || graderDigests.some((digest) => candidateDigests.has(digest))) fail("HIDDEN_ASSET_EXPOSED", "candidate and grader asset digest sets must be nonempty and disjoint");
   }
   const previousIds = new Set(predecessor.packages.map(({ task }) => task.taskId));
-  if (packages.some(({ task }) => previousIds.has(task.taskId))) fail("PRIOR_EVIDENCE_TASK_REUSE", "calibration tasks cannot reuse predecessor identities");
+  if (packages.some(({ task }) => previousIds.has(task.taskId) || task.previousDigest !== null || task.specRevision !== 1)) {
+    fail("PRIOR_EVIDENCE_TASK_REUSE", "calibration tasks must be independently authored initial tasks without predecessor lineage");
+  }
   const counts = Object.fromEntries(CALIBRATION_STRATA.map((stratum) => [stratum, 0]));
   const members = packages.map((taskPackage, index) => {
     counts[concepts[index].stratum] += 1;
