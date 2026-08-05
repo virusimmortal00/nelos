@@ -46,11 +46,24 @@ export async function loadPrivateMaterial(privateRoot) {
   const root = await resolvePrivateRoot(privateRoot);
   const manifestPath = resolve(root, "private-manifest.json");
   const packagesRoot = resolve(root, "packages");
+  const accessEvidencePath = resolve(root, "access-evidence.json");
+  const semanticReviewPath = resolve(root, "semantic-pair-review.json");
   await regularNonSymlink(manifestPath, "UNSAFE_PRIVATE_MANIFEST");
+  await regularNonSymlink(accessEvidencePath, "UNSAFE_ACCESS_EVIDENCE");
+  await regularNonSymlink(semanticReviewPath, "UNSAFE_SEMANTIC_REVIEW");
   const packagesEntry = await lstat(packagesRoot).catch(() => null);
   if (!packagesEntry?.isDirectory() || packagesEntry.isSymbolicLink()) fail("UNSAFE_PRIVATE_PACKAGES", "private packages must use a real directory");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (!Array.isArray(manifest?.concepts) || manifest.concepts.length !== 10) fail("INVALID_PRIVATE_MANIFEST", "private manifest must bind ten concepts");
+  if (
+    manifest.evidence?.access?.file !== "access-evidence.json" || !/^sha256:[0-9a-f]{64}$/u.test(manifest.evidence.access.digest) ||
+    manifest.evidence?.semanticReview?.file !== "semantic-pair-review.json" || !/^sha256:[0-9a-f]{64}$/u.test(manifest.evidence.semanticReview.digest)
+  ) fail("INVALID_PRIVATE_MANIFEST", "private manifest must bind the fixed external evidence files and their digests");
+  const accessEvidence = JSON.parse(await readFile(accessEvidencePath, "utf8"));
+  const semanticReview = JSON.parse(await readFile(semanticReviewPath, "utf8"));
+  if (canonicalDigest(accessEvidence) !== manifest.evidence.access.digest || canonicalDigest(semanticReview) !== manifest.evidence.semanticReview.digest) {
+    fail("PRIVATE_EVIDENCE_IDENTITY_MISMATCH", "external evidence differs from its private-manifest binding");
+  }
   const concepts = manifest.concepts.map(({ key, stratum }) => ({ key, stratum }));
   const packages = [];
   for (const concept of manifest.concepts) {
@@ -67,7 +80,7 @@ export async function loadPrivateMaterial(privateRoot) {
   const declaredFiles = packageEntries.map(({ name }) => name).sort();
   const expectedFiles = manifest.concepts.map(({ taskId }) => `${taskId.slice(5)}.json`).sort();
   if (JSON.stringify(declaredFiles) !== JSON.stringify(expectedFiles)) fail("UNDECLARED_PRIVATE_PACKAGE", "private package directory must exactly match declared membership");
-  return { root, concepts, packages };
+  return { root, concepts, packages, accessEvidence, semanticReview };
 }
 
 export function publicProjectionFiles(tranche) {
@@ -90,6 +103,8 @@ export function publicProjectionFiles(tranche) {
       { id: "immutable-packages", status: "passed", count: tranche.packages.length },
       { id: "five-strata-two-independent-tasks", status: "passed", strata: CALIBRATION_CONCEPTS.map(({ stratum }) => stratum).filter((value, index, all) => all.indexOf(value) === index) },
       { id: "complete-semantic-review", status: "passed", comparisons: tranche.semanticIndependence.comparisonCount },
+      { id: "external-review-evidence", status: "passed", evidenceDigest: tranche.semanticReview.digest },
+      { id: "external-access-evidence", status: "passed", evidenceDigest: tranche.accessEvidence.digest },
       { id: "candidate-host-isolation", status: "passed", candidateAssetDigest: canonicalDigest(candidateAssetDigests), graderAssetDigest: canonicalDigest(graderAssetDigests), disjoint: !graderAssetDigests.some((digest) => candidateAssetDigests.includes(digest)) },
       { id: "contamination", status: "passed", reportDigest: tranche.contamination.digest },
       { id: "inert-schedule", status: "passed", trials: tranche.schedule.trialCount, abBlocks: 5, baBlocks: 5 },

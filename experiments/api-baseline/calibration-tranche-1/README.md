@@ -27,15 +27,21 @@ root. The private root must be a real, non-symlink directory with this shape:
 ```text
 <private-root>/
   private-manifest.json
+  access-evidence.json
+  semantic-pair-review.json
   packages/<64-hex-task-id>.json
 ```
 
-`private-manifest.json` uses the public release-lock shape and binds each
-approved concept to one task ID and package digest. Complete package files may
+`private-manifest.json` uses the public release-lock shape, binds each approved
+concept to one task ID and package digest, and binds the exact digests of both
+external evidence files. `access-evidence.json` records one real post-freeze
+host access per private task. `semantic-pair-review.json` records the external
+reviewer, review time, and disposition of every one of the 105 required task
+pairs. The builder never manufactures either form of evidence. Complete package files may
 contain grader-audience assets only in that external root. The builder rejects
 repository overlap, symlinked roots/directories/files, undeclared package
-files, identity mismatch, candidate/grader digest overlap, incomplete access
-evidence, duplicates, and partition contamination.
+files, identity mismatch, candidate/grader digest overlap, unbound or incomplete
+access/review evidence, duplicates, and partition contamination.
 
 Reproduce the committed public projections without provider or credential
 access:

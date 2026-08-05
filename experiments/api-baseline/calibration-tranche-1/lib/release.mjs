@@ -45,6 +45,91 @@ function exactConcepts(concepts) {
   }
 }
 
+function validatedEvidenceDigest(value, code) {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || !/^sha256:[0-9a-f]{64}$/u.test(value.digest)) {
+    fail(code, "evidence must be a self-digested object");
+  }
+  const material = { ...value };
+  delete material.digest;
+  if (value.digest !== canonicalDigest(material)) fail(code, "evidence digest does not match its contents");
+}
+
+function validateAccessEvidence(accessEvidence, packages) {
+  validatedEvidenceDigest(accessEvidence, "INVALID_ACCESS_EVIDENCE");
+  if (accessEvidence.schemaVersion !== 1 || accessEvidence.requirementDigest !== CALIBRATION_REQUIREMENT_DIGEST || !Array.isArray(accessEvidence.entries)) {
+    fail("INVALID_ACCESS_EVIDENCE", "access evidence must bind this calibration requirement and contain entries");
+  }
+  const activeIds = new Set(packages.map(({ task }) => task.taskId));
+  const seen = new Set();
+  for (const entry of accessEvidence.entries) {
+    if (
+      entry === null || typeof entry !== "object" || Array.isArray(entry) ||
+      typeof entry.actor !== "string" || entry.actor.length === 0 ||
+      !["evaluator", "administrator"].includes(entry.role) ||
+      !activeIds.has(entry.taskId) || !Number.isFinite(Date.parse(entry.at)) ||
+      Date.parse(entry.at) <= Date.parse(CALIBRATION_FREEZE_AT) || seen.has(entry.taskId)
+    ) fail("INVALID_ACCESS_EVIDENCE", "access evidence requires one post-freeze evaluator record for every active task");
+    seen.add(entry.taskId);
+  }
+  if (seen.size !== activeIds.size || [...activeIds].some((taskId) => !seen.has(taskId))) {
+    fail("UNLOGGED_PRIVATE_ACCESS", "access evidence must cover every active private task exactly once");
+  }
+  return accessEvidence.entries;
+}
+
+function expectedSemanticPairs(packages) {
+  const pairs = [];
+  for (let left = 0; left < packages.length; left += 1) {
+    for (let right = left + 1; right < packages.length; right += 1) {
+      const leftPackage = packages[left];
+      const rightPackage = packages[right];
+      const [leftTaskId, rightTaskId] = [leftPackage.task.taskId, rightPackage.task.taskId].sort();
+      pairs.push({
+        leftTaskId,
+        rightTaskId,
+        promptTokenJaccard: tokenJaccard(leftPackage.task.prompt.text, rightPackage.task.prompt.text),
+      });
+    }
+  }
+  return pairs.sort((left, right) => `${left.leftTaskId}:${left.rightTaskId}`.localeCompare(`${right.leftTaskId}:${right.rightTaskId}`));
+}
+
+function validateSemanticReview(semanticReview, packages) {
+  validatedEvidenceDigest(semanticReview, "INVALID_SEMANTIC_REVIEW");
+  if (
+    semanticReview.schemaVersion !== 1 || semanticReview.requirementDigest !== CALIBRATION_REQUIREMENT_DIGEST ||
+    typeof semanticReview.reviewer !== "string" || semanticReview.reviewer.length === 0 ||
+    !Number.isFinite(Date.parse(semanticReview.reviewedAt)) || Date.parse(semanticReview.reviewedAt) <= Date.parse(CALIBRATION_FREEZE_AT) ||
+    !Array.isArray(semanticReview.pairs)
+  ) fail("INVALID_SEMANTIC_REVIEW", "semantic review evidence is incomplete or not bound to this requirement");
+  const expected = expectedSemanticPairs(packages);
+  const expectedKeys = expected.map(({ leftTaskId, rightTaskId }) => `${leftTaskId}:${rightTaskId}`);
+  const reviewedKeys = semanticReview.pairs.map((pair) => {
+    if (pair === null || typeof pair !== "object" || pair.disposition !== "independent") {
+      fail("SEMANTIC_INDEPENDENCE_REVIEW_FAILED", "every reviewed pair must have an independent disposition");
+    }
+    const [leftTaskId, rightTaskId] = [pair.leftTaskId, pair.rightTaskId].sort();
+    return `${leftTaskId}:${rightTaskId}`;
+  }).sort();
+  if (reviewedKeys.length !== 105 || new Set(reviewedKeys).size !== 105 || canonicalDigest(reviewedKeys) !== canonicalDigest(expectedKeys)) {
+    fail("SEMANTIC_INDEPENDENCE_REVIEW_FAILED", "external semantic review must cover each required pair exactly once");
+  }
+  const dispositions = new Map(semanticReview.pairs.map((pair) => [[pair.leftTaskId, pair.rightTaskId].sort().join(":"), pair.disposition]));
+  const pairs = expected.map((pair) => ({ ...pair, disposition: dispositions.get(`${pair.leftTaskId}:${pair.rightTaskId}`) }));
+  return Object.freeze({
+    schemaVersion: 1,
+    method: "complete-pair-external-concept-review-plus-unicode-token-jaccard-v1",
+    reviewEvidenceDigest: semanticReview.digest,
+    newTaskCount: 10,
+    priorEvidenceTaskCount: 5,
+    comparisonCount: pairs.length,
+    nearThreshold: 0.8,
+    disposition: "independent",
+    pairs,
+    digest: canonicalDigest(pairs),
+  });
+}
+
 export function validateCalibrationContamination({
   release,
   activePackages,
@@ -117,7 +202,7 @@ function scheduleFor(release, packages) {
   return Object.freeze({ ...unsigned, scheduleDigest: canonicalDigest(unsigned) });
 }
 
-function successorRelease(previous, members) {
+function successorRelease(previous, members, evidenceDigests) {
   const tasks = members.map(({ taskPackage, strata }) => ({
     taskId: taskPackage.task.taskId,
     revision: taskPackage.task.specRevision,
@@ -159,13 +244,13 @@ function successorRelease(previous, members) {
     ],
     retainedExclusions: removedTaskIds.map((taskId) => ({ taskId, reasonCode: "superseded", reason: "Excluded from the private requirement-bound calibration membership." })),
     cutoff: { ...previous.cutoff, createdAt: CALIBRATION_RELEASE_CREATED_AT },
-    provenance: { ...previous.provenance, sourceUri: `urn:nelos:api-calibration:${CALIBRATION_REQUIREMENT_DIGEST}`, sourceDigest: canonicalDigest(members.map(({ taskPackage }) => taskPackage.digest).sort()) },
+    provenance: { ...previous.provenance, sourceUri: `urn:nelos:api-calibration:${CALIBRATION_REQUIREMENT_DIGEST}`, sourceDigest: canonicalDigest({ packageDigests: members.map(({ taskPackage }) => taskPackage.digest).sort(), ...evidenceDigests }) },
     duplicateAnalysis: analyzeCorpusDuplicates(members.map(({ taskPackage }) => taskPackage), 0.8),
     visibility: "private-test",
   });
 }
 
-export function createCalibrationTrancheRelease({ packages, concepts }) {
+export function createCalibrationTrancheRelease({ packages, concepts, accessEvidence, semanticReview }) {
   if (!Array.isArray(packages) || packages.length !== 10) fail("INVALID_PRIVATE_MEMBERSHIP", "exactly ten private packages are required");
   exactConcepts(concepts);
   packages.forEach(validateTaskPackage);
@@ -187,24 +272,13 @@ export function createCalibrationTrancheRelease({ packages, concepts }) {
     return { taskPackage, strata: { category: concepts[index].stratum, risk: "high", size: "medium", decomposability: "localized" } };
   });
   if (Object.values(counts).some((count) => count !== 2)) fail("INVALID_STRATUM_MEMBERSHIP", "each baseline stratum requires two independent tasks");
-  let release = successorRelease(predecessor.release, members);
-  release = transitionCorpusRelease(transitionCorpusRelease(transitionCorpusRelease(release, "reviewed"), "sealed"), "published");
   const priorEvidencePackages = CALIBRATION_STRATA.map((stratum) => predecessor.packages.find((taskPackage) => predecessor.release.tasks.find(({ taskId }) => taskId === taskPackage.task.taskId)?.strata.category === stratum));
   const reviewPackages = [...packages, ...priorEvidencePackages];
-  const pairs = [];
-  for (let left = 0; left < reviewPackages.length; left += 1) {
-    for (let right = left + 1; right < reviewPackages.length; right += 1) pairs.push({
-      leftTaskId: reviewPackages[left].task.taskId,
-      rightTaskId: reviewPackages[right].task.taskId,
-      promptTokenJaccard: tokenJaccard(reviewPackages[left].task.prompt.text, reviewPackages[right].task.prompt.text),
-      disposition: "independent",
-    });
-  }
-  pairs.sort((left, right) => `${left.leftTaskId}:${left.rightTaskId}`.localeCompare(`${right.leftTaskId}:${right.rightTaskId}`));
-  if (pairs.length !== 105) fail("SEMANTIC_INDEPENDENCE_REVIEW_FAILED", "the complete semantic review must cover all 105 pairs");
-  const semanticIndependence = Object.freeze({ schemaVersion: 1, method: "complete-pair-human-concept-review-plus-unicode-token-jaccard-v1", newTaskCount: 10, priorEvidenceTaskCount: 5, comparisonCount: 105, nearThreshold: 0.8, disposition: "independent", pairs, digest: canonicalDigest(pairs) });
-  const accessLog = packages.map(({ task }, index) => ({ actor: "team:evaluation-host", role: "evaluator", taskId: task.taskId, at: `2026-08-05T13:${String(index).padStart(2, "0")}:00Z` }));
+  const semanticIndependence = validateSemanticReview(semanticReview, reviewPackages);
+  const accessLog = validateAccessEvidence(accessEvidence, packages);
+  let release = successorRelease(predecessor.release, members, { accessEvidenceDigest: accessEvidence.digest, semanticReviewDigest: semanticReview.digest });
   const exclusions = [];
   const contamination = validateCalibrationContamination({ release, activePackages: packages, developmentPackages: priorEvidencePackages, accessLog, exclusions });
-  return Object.freeze({ predecessor: predecessor.release, release, packages, concepts, priorEvidencePackages, semanticIndependence, accessLog, exclusions, contamination, schedule: scheduleFor(release, packages) });
+  release = transitionCorpusRelease(transitionCorpusRelease(transitionCorpusRelease(release, "reviewed"), "sealed"), "published");
+  return Object.freeze({ predecessor: predecessor.release, release, packages, concepts, priorEvidencePackages, semanticReview, semanticIndependence, accessEvidence, accessLog, exclusions, contamination, schedule: scheduleFor(release, packages) });
 }

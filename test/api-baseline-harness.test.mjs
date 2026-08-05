@@ -31,6 +31,7 @@ import {
 import {
   CALIBRATION_CONCEPTS,
   CALIBRATION_REQUIREMENT_DIGEST,
+  CALIBRATION_STRATA,
   createCalibrationTrancheRelease,
 } from "../experiments/api-baseline/calibration-tranche-1/lib/release.mjs";
 
@@ -339,6 +340,30 @@ function privateCalibrationPackages() {
   });
 }
 
+function privateCalibrationEvidence(packages) {
+  const accessMaterial = {
+    schemaVersion: 1,
+    requirementDigest: CALIBRATION_REQUIREMENT_DIGEST,
+    recordedAt: "2026-08-05T13:10:00Z",
+    entries: packages.map(({ task }, index) => ({ actor: "agent:offline-test-fixture", role: "evaluator", taskId: task.taskId, at: `2026-08-05T13:${String(index).padStart(2, "0")}:00Z` })),
+  };
+  const accessEvidence = { ...accessMaterial, digest: canonicalDigest(accessMaterial) };
+  const predecessor = createStarterDevelopmentRelease();
+  const priorEvidencePackages = CALIBRATION_STRATA.map((stratum) => predecessor.packages.find((taskPackage) => predecessor.release.tasks.find(({ taskId }) => taskId === taskPackage.task.taskId)?.strata.category === stratum));
+  const reviewPackages = [...packages, ...priorEvidencePackages];
+  const pairs = [];
+  for (let left = 0; left < reviewPackages.length; left += 1) {
+    for (let right = left + 1; right < reviewPackages.length; right += 1) {
+      const [leftTaskId, rightTaskId] = [reviewPackages[left].task.taskId, reviewPackages[right].task.taskId].sort();
+      pairs.push({ leftTaskId, rightTaskId, disposition: "independent" });
+    }
+  }
+  pairs.sort((left, right) => `${left.leftTaskId}:${left.rightTaskId}`.localeCompare(`${right.leftTaskId}:${right.rightTaskId}`));
+  const reviewMaterial = { schemaVersion: 1, requirementDigest: CALIBRATION_REQUIREMENT_DIGEST, reviewer: "agent:offline-test-fixture", reviewedAt: "2026-08-05T13:15:00Z", pairs };
+  const semanticReview = { ...reviewMaterial, digest: canonicalDigest(reviewMaterial) };
+  return { accessEvidence, semanticReview };
+}
+
 async function writePrivateCalibrationRoot(root, packages = privateCalibrationPackages()) {
   await mkdir(resolve(root, "packages"), { recursive: true });
   const concepts = CALIBRATION_CONCEPTS.map((concept, index) => ({
@@ -346,9 +371,16 @@ async function writePrivateCalibrationRoot(root, packages = privateCalibrationPa
     taskId: packages[index].task.taskId,
     packageDigest: packages[index].digest,
   }));
-  await writeFile(resolve(root, "private-manifest.json"), JSON.stringify({ schemaVersion: 1, concepts }));
+  const { accessEvidence, semanticReview } = privateCalibrationEvidence(packages);
+  const evidence = {
+    access: { file: "access-evidence.json", digest: canonicalDigest(accessEvidence) },
+    semanticReview: { file: "semantic-pair-review.json", digest: canonicalDigest(semanticReview) },
+  };
+  await writeFile(resolve(root, "private-manifest.json"), JSON.stringify({ schemaVersion: 1, concepts, evidence }));
+  await writeFile(resolve(root, "access-evidence.json"), JSON.stringify(accessEvidence));
+  await writeFile(resolve(root, "semantic-pair-review.json"), JSON.stringify(semanticReview));
   await Promise.all(packages.map((taskPackage) => writeFile(resolve(root, "packages", `${taskPackage.task.taskId.slice(5)}.json`), JSON.stringify(taskPackage))));
-  return { concepts, packages };
+  return { concepts, packages, accessEvidence, semanticReview };
 }
 
 function calibrationPackageWithGrader(taskPackage, overrides) {
@@ -410,12 +442,27 @@ test("public calibration projections reproduce deterministically from external p
 test("calibration release binds every unique grader bundle and rejects identity collisions", () => {
   const packages = privateCalibrationPackages();
   packages[1] = calibrationPackageWithGrader(packages[1], { graderBundleId: "grader:calibration-alternate" });
-  const tranche = createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS });
+  const tranche = createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS, ...privateCalibrationEvidence(packages) });
   assert.deepEqual(tranche.release.graderBundles.map(({ graderBundleId }) => graderBundleId), ["grader:calibration-alternate", "grader:starter-exact"]);
 
   const collision = [...packages];
   collision[2] = calibrationPackageWithGrader(collision[2], { version: "1.0.1" });
-  assert.throws(() => createCalibrationTrancheRelease({ packages: collision, concepts: CALIBRATION_CONCEPTS }), { code: "GRADER_IDENTITY_COLLISION" });
+  assert.throws(() => createCalibrationTrancheRelease({ packages: collision, concepts: CALIBRATION_CONCEPTS, ...privateCalibrationEvidence(collision) }), { code: "GRADER_IDENTITY_COLLISION" });
+});
+
+test("calibration publication rejects manufactured, incomplete, or stale external evidence", () => {
+  const packages = privateCalibrationPackages();
+  const evidence = privateCalibrationEvidence(packages);
+  const incompleteMaterial = { ...evidence.semanticReview, pairs: evidence.semanticReview.pairs.slice(1) };
+  delete incompleteMaterial.digest;
+  const incompleteReview = { ...incompleteMaterial, digest: canonicalDigest(incompleteMaterial) };
+  assert.throws(() => createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS, accessEvidence: evidence.accessEvidence, semanticReview: incompleteReview }), { code: "SEMANTIC_INDEPENDENCE_REVIEW_FAILED" });
+
+  const staleMaterial = structuredClone(evidence.accessEvidence);
+  staleMaterial.entries[0].at = "2026-08-05T12:00:00Z";
+  delete staleMaterial.digest;
+  const staleAccess = { ...staleMaterial, digest: canonicalDigest(staleMaterial) };
+  assert.throws(() => createCalibrationTrancheRelease({ packages, concepts: CALIBRATION_CONCEPTS, accessEvidence: staleAccess, semanticReview: evidence.semanticReview }), { code: "INVALID_ACCESS_EVIDENCE" });
 });
 
 test("calibration artifact check rejects every entry outside the exact public projection set", async () => {
@@ -442,7 +489,9 @@ test("private calibration material overlap and symlinks fail closed", async () =
 
   const unsafeRoot = await mkdtemp(resolve(tmpdir(), "nelos-calibration-unsafe-"));
   const material = await loadPrivateMaterial(realRoot);
-  await writeFile(resolve(unsafeRoot, "private-manifest.json"), JSON.stringify({ schemaVersion: 1, concepts: material.concepts.map((concept, index) => ({ ...concept, taskId: material.packages[index].task.taskId, packageDigest: material.packages[index].digest })) }));
+  await writeFile(resolve(unsafeRoot, "private-manifest.json"), await readFile(resolve(realRoot, "private-manifest.json")));
+  await writeFile(resolve(unsafeRoot, "access-evidence.json"), await readFile(resolve(realRoot, "access-evidence.json")));
+  await writeFile(resolve(unsafeRoot, "semantic-pair-review.json"), await readFile(resolve(realRoot, "semantic-pair-review.json")));
   await symlink(resolve(realRoot, "packages"), resolve(unsafeRoot, "packages"), "dir");
   await assert.rejects(() => loadPrivateMaterial(unsafeRoot), { code: "UNSAFE_PRIVATE_PACKAGES" });
 });
