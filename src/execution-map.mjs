@@ -839,7 +839,7 @@ function mergeMaps(
     const priorLineageId = safeTitleLineageId(prior.task);
     const candidateLineageId = safeTitleLineageId(candidate.task);
     const task = candidate.task === candidate.id ||
-        (priorLineageId !== null && candidateLineageId === null)
+        (priorLineageId !== null && candidateLineageId !== priorLineageId)
       ? prior.task
       : candidate.task;
     members.set(candidate.id, {

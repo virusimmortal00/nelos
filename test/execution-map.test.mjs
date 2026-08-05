@@ -309,6 +309,36 @@ test("planned receipts use persisted spider titles and never regress them", asyn
     laterPlainPlan.members[0].task,
     "🕷️B6.1 · Canonical worker",
   );
+
+  const wrongLineagePlan = await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-b6" },
+    {
+      plan,
+      planRun: {
+        waves: [{
+          members: [{
+            sliceId: "canonical",
+            title: "🕷️B7.1 · Wrong web worker",
+          }],
+        }],
+      },
+    },
+    { webRegistry },
+  );
+  assert.equal(
+    wrongLineagePlan.members[0].task,
+    "🕷️B6.1 · Canonical worker",
+  );
+
+  const historyResult = await readExecutionMapHistoryV1(
+    { schemaVersion: 1, webId: "B6", queenThreadId: "queen-b6" },
+    { webRegistry },
+  );
+  assert.equal(
+    historyResult.members[0].task,
+    "🕷️B6.1 · Canonical worker",
+  );
 });
 
 test("not-ready cleanup preserves each pending spin-off route", () => {

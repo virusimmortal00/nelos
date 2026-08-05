@@ -3551,7 +3551,8 @@ test("nelos_execution_map_history exposes the persisted full roster explicitly",
     ],
     {
       webRegistry: {
-        async read() {
+        async read(threadId) {
+          assert.equal(threadId, "queen-1");
           return {
             threadId: "queen-1",
             outboundWebId: "A1",
@@ -3575,8 +3576,19 @@ test("nelos_execution_map_history exposes the persisted full roster explicitly",
   const result = toolBody(response);
   assert.equal(result.isError, false);
   assert.equal(result.body.command, "execution map history");
-  assert.equal(result.body.members[0].status, "archived");
-  assert.equal(response.result.structuredContent.members[0].status, "archived");
+  assert.deepEqual(result.body.members[0], {
+    id: "old-worker",
+    task: "🕷️A1.1 · Old worker",
+    lifecycle: "spinoff",
+    model: "gpt-5.6-terra",
+    reasoning: "low",
+    status: "archived",
+    threadId: "thread-old",
+  });
+  assert.deepEqual(
+    response.result.structuredContent.members[0],
+    result.body.members[0],
+  );
   assert.equal(response.result.structuredContent.summary.archived, 1);
 });
 
