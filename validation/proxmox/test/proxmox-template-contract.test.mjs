@@ -15,7 +15,7 @@ import {
   validateToolchainLock,
 } from "../scripts/validate-contract.mjs";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../../", import.meta.url));
 const validationRoot = join(root, "validation", "proxmox");
 const execFileAsync = promisify(execFile);
 
@@ -238,7 +238,7 @@ test("repository validator runs with network APIs blocked", async () => {
     lanes: ["legacy-01446", "agent-plugin-01470"],
   });
 
-  const blocker = fileURLToPath(new URL("../scripts/offline-network-blocker.cjs", import.meta.url));
+  const blocker = fileURLToPath(new URL("../../../scripts/offline-network-blocker.cjs", import.meta.url));
   const validator = fileURLToPath(new URL("../scripts/validate-contract.mjs", import.meta.url));
   const { stdout, stderr } = await execFileAsync(
     process.execPath,

@@ -6,16 +6,12 @@ on:
       - ".github/workflows/proxmox-template.yml"
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
-      - "scripts/validate-contract.mjs"
-      - "test/proxmox-template-contract.test.mjs"
       - "validation/proxmox/**"
   push:
     paths:
       - ".github/workflows/proxmox-template.yml"
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
-      - "scripts/validate-contract.mjs"
-      - "test/proxmox-template-contract.test.mjs"
       - "validation/proxmox/**"
 
 permissions:
@@ -45,9 +41,9 @@ jobs:
         run: |
           set -euo pipefail
           unset CODEX_API_KEY OPENAI_API_KEY
-          node scripts/validate-contract.mjs
+          node validation/proxmox/scripts/validate-contract.mjs
           node --import ./scripts/test-bootstrap.mjs \
-            --test test/proxmox-template-contract.test.mjs
+            --test validation/proxmox/test/proxmox-template-contract.test.mjs
 
       - name: Check shell sources
         run: |

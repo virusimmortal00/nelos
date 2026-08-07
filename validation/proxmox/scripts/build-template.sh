@@ -149,7 +149,7 @@ for source_name in "${EXPECTED_PACKER_SOURCES[@]}"; do
 done
 
 without_proxmox_auth env -u NODE_OPTIONS -u NODE_PATH \
-  node "${REPOSITORY_ROOT}/scripts/validate-contract.mjs" >/dev/null || \
+  node "${REPOSITORY_ROOT}/validation/proxmox/scripts/validate-contract.mjs" >/dev/null || \
   die "repository contract validation failed"
 readonly SOURCE_LOCK_SPEC="${SOURCE_REVISION}:validation/proxmox/toolchain.lock.json"
 expected_node_version="$(git_readonly show "$SOURCE_LOCK_SPEC" | jq -er '.artifacts.node.version')"

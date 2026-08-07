@@ -116,10 +116,10 @@ developer SSH key or forwarded agent is accepted by this recipe.
 From an exact, clean source commit on the controller:
 
 ```bash
-node scripts/validate-contract.mjs
+node validation/proxmox/scripts/validate-contract.mjs
 NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs \
   node --import ./scripts/test-bootstrap.mjs \
-  --test test/proxmox-template-contract.test.mjs
+  --test validation/proxmox/test/proxmox-template-contract.test.mjs
 bash -n validation/proxmox/scripts/*.sh
 shellcheck validation/proxmox/scripts/*.sh
 ```

@@ -129,7 +129,6 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "docs/configuration.md",
     "docs/observation-join.md",
     "docs/slice-planning.md",
-    "scripts/validate-contract.mjs",
     "src/mcp-server.mjs",
     "src/nelos-configuration.mjs",
     "src/planning-bootstrap.mjs",
@@ -144,7 +143,6 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "test/nelos-configuration.test.mjs",
     "test/exception-replanning.test.mjs",
     "test/plugin-marketplace.test.mjs",
-    "test/proxmox-template-contract.test.mjs",
     "test/web-inspection.test.mjs",
   ];
   const selection = selectImpactedCompatibilityContractsV1(

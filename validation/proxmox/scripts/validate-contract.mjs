@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
-const repositoryRoot = resolve(dirname(scriptPath), "..");
+const repositoryRoot = resolve(dirname(scriptPath), "../../..");
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
