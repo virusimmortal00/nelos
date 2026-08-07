@@ -15,27 +15,12 @@ import { z } from "zod";
 import {
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
+  EXECUTION_MAP_STATUSES,
   readExecutionMapResourceV1,
 } from "../src/execution-map.mjs";
 
 export const MCP_APP_FIXTURE_HOST = "127.0.0.1";
 export const MCP_APP_FIXTURE_PORT = 3101;
-
-const STATUS_VALUES = [
-  "planning",
-  "planned",
-  "authorization-required",
-  "launch-pending",
-  "unknown",
-  "running",
-  "created",
-  "archiving",
-  "archived",
-  "kept",
-  "complete",
-  "accepted",
-  "attention",
-];
 
 const MEMBER_SCHEMA = z.object({
   id: z.string(),
@@ -43,14 +28,14 @@ const MEMBER_SCHEMA = z.object({
   lifecycle: z.enum(["spinoff", "subagent"]),
   model: z.string(),
   reasoning: z.string(),
-  status: z.enum(STATUS_VALUES),
+  status: z.enum(EXECUTION_MAP_STATUSES),
   threadId: z.string().nullable(),
 });
 
 const EXECUTION_MAP_FIXTURE_SCHEMA = z.object({
   schemaVersion: z.literal(1),
   view: z.literal("execution-map"),
-  phase: z.enum(STATUS_VALUES),
+  phase: z.enum(EXECUTION_MAP_STATUSES),
   task: z.string(),
   summary: z.object({
     total: z.number().int().nonnegative(),
@@ -275,6 +260,108 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         reasoning: "low",
         status: "archived",
         threadId: "019fb4a1-2642-7bc2-a6ed-42de5c541d7c",
+      }),
+    ],
+  }),
+  fixture({
+    key: "mixed_statuses",
+    title: "Mixed compact status rollups",
+    phase: "attention",
+    members: [
+      member({
+        id: "archived-a",
+        task: "Archive the superseded implementation task",
+        lifecycle: "spinoff",
+        status: "archived",
+        threadId: "thread-archived-a",
+      }),
+      member({
+        id: "running-a",
+        task: "Exercise the compact worker row with a deliberately long task title",
+        status: "running",
+        threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
+      }),
+      member({
+        id: "planning",
+        task: "Plan the status-grouped execution map",
+        model: "gpt-5.6-sol",
+        status: "planning",
+      }),
+      member({
+        id: "kept",
+        task: "Keep the accepted reusable worker",
+        lifecycle: "spinoff",
+        status: "kept",
+        threadId: "thread-kept",
+      }),
+      member({
+        id: "launch-pending",
+        task: "Wait for the native launch receipt",
+        status: "launch-pending",
+      }),
+      member({
+        id: "accepted",
+        task: "Record the accepted worker result",
+        status: "accepted",
+        threadId: "thread-accepted",
+      }),
+      member({
+        id: "created",
+        task: "Bind the newly created durable worker",
+        lifecycle: "spinoff",
+        status: "created",
+        threadId: "thread-created",
+      }),
+      member({
+        id: "unknown",
+        task: "Await authoritative turn evidence",
+        status: "unknown",
+        threadId: "thread-unknown",
+      }),
+      member({
+        id: "complete",
+        task: "Complete the focused implementation",
+        status: "complete",
+        threadId: "thread-complete",
+      }),
+      member({
+        id: "authorization-required",
+        task: "Request launch authorization",
+        model: "gpt-5.6-sol",
+        status: "authorization-required",
+      }),
+      member({
+        id: "archiving",
+        task: "Archive the completed spin-off",
+        lifecycle: "spinoff",
+        status: "archiving",
+        threadId: "thread-archiving",
+      }),
+      member({
+        id: "planned",
+        task: "Hold the planned follow-up",
+        status: "planned",
+      }),
+      member({
+        id: "attention",
+        task: "Review mismatched worker evidence",
+        model: "gpt-5.6-sol",
+        status: "attention",
+        threadId: "thread-attention",
+      }),
+      member({
+        id: "running-b",
+        task: "Verify status rollup interaction",
+        lifecycle: "spinoff",
+        status: "running",
+        threadId: "thread-running-b",
+      }),
+      member({
+        id: "archived-b",
+        task: "Archive the historical verification task",
+        lifecycle: "spinoff",
+        status: "archived",
+        threadId: "thread-archived-b",
       }),
     ],
   }),

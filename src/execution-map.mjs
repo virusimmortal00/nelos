@@ -8,9 +8,25 @@ import { assertWebId, titleLineageId } from "./task-web.mjs";
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v9.html";
+  "ui://nelos/execution-map-v10.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
+
+export const EXECUTION_MAP_STATUSES = Object.freeze([
+  "planning",
+  "planned",
+  "authorization-required",
+  "launch-pending",
+  "created",
+  "unknown",
+  "running",
+  "attention",
+  "complete",
+  "accepted",
+  "archiving",
+  "archived",
+  "kept",
+]);
 
 export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
   "nelos_plan_bootstrap",
@@ -28,21 +44,7 @@ export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
 ]));
 
 const EXECUTION_MAP_PHASE_SCHEMA = Object.freeze({
-  enum: [
-    "planning",
-    "planned",
-    "authorization-required",
-    "launch-pending",
-    "unknown",
-    "running",
-    "created",
-    "archiving",
-    "archived",
-    "kept",
-    "complete",
-    "accepted",
-    "attention",
-  ],
+  enum: EXECUTION_MAP_STATUSES,
 });
 
 const MEMBER_SCHEMA = Object.freeze({

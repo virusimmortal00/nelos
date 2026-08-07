@@ -657,16 +657,30 @@ test("the execution map is a self-contained MCP Apps resource", () => {
     resource.contents[0].text,
     /ui\/notifications\/tool-result/u,
   );
+  assert.match(
+    resource.contents[0].text,
+    /ui\/notifications\/size-changed/u,
+  );
+  assert.match(resource.contents[0].text, /ResizeObserver/u);
+  assert.match(resource.contents[0].text, /root\.style\.height = "max-content"/u);
   assert.match(resource.contents[0].text, /structuredContent/u);
   assert.match(resource.contents[0].text, /authorization-required/u);
   assert.match(resource.contents[0].text, /--archived/u);
-  assert.match(resource.contents[0].text, /member\.status/u);
+  assert.match(resource.contents[0].text, /STATUS_GROUPS/u);
+  assert.match(resource.contents[0].text, /memberStatus/u);
   assert.match(resource.contents[0].text, /className = "member-heading"/u);
   assert.match(resource.contents[0].text, /document\.createElement\("details"\)/u);
-  assert.match(resource.contents[0].text, /Archived history/u);
+  assert.match(resource.contents[0].text, /title: "Launch pending"/u);
+  assert.match(resource.contents[0].text, /title: "Archive"/u);
+  assert.match(resource.contents[0].text, /className = "member-group"/u);
+  assert.match(resource.contents[0].text, /className = "tag task-id"|"task-id"/u);
+  assert.match(resource.contents[0].text, /padding: 7px 9px/u);
   assert.match(resource.contents[0].text, /"Sub-agent"/u);
   assert.match(resource.contents[0].text, /prefers-reduced-motion: reduce/u);
   assert.match(resource.contents[0].text, /@keyframes status-pulse/u);
+  assert.doesNotMatch(resource.contents[0].text, /Current tasks/u);
+  assert.doesNotMatch(resource.contents[0].text, /Archived history/u);
+  assert.doesNotMatch(resource.contents[0].text, /className = "tag status"/u);
   assert.doesNotMatch(resource.contents[0].text, /"Joined subagent"/u);
   assert.doesNotMatch(resource.contents[0].text, /--danger/u);
   assert.doesNotMatch(resource.contents[0].text, /<header>/u);

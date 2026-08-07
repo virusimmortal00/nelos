@@ -5,6 +5,38 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.11] - 2026-08-07
+
+### User-facing changes
+
+- Execution-map members now render in independently collapsible status groups
+  such as `Launch pending`, `Running`, `Complete`, and `Archive`, with exact
+  per-status counts in every rollup.
+- Expanded status groups use compact worker rows that keep lifecycle, model,
+  reasoning, and the full native task identity available without letting task
+  metadata dominate the receipt.
+- The pinned MCP Apps reference-host runner now starts its sandbox on the
+  origin expected by that host, so the documented visual fixtures load without
+  a port override.
+
+### Compatibility requirements
+
+- The MCP Apps resource URI advances to `ui://nelos/execution-map-v10.html` so
+  hosts do not reuse the previous current-versus-archive widget from cache.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+- Disclosure state is local to one rendered receipt and resets when a new tool
+  result replaces that receipt.
+
 ## [0.12.10] - 2026-08-05
 
 ### User-facing changes

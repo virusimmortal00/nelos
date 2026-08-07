@@ -115,9 +115,10 @@ subagents, or hand-run parallel chats:
 - **Visible Execution Map:** MCP Apps-compatible hosts render an inline receipt
   after planning, dispatch, and spin-off cleanup, showing every task's
   lifecycle, exact model, reasoning level, authorization, launch, and archive
-  status as an individual worker card. Aggregate counts remain in the
-  structured receipt for non-UI clients without duplicating the visible
-  roster, and protocol tools publish their exact model-visible result schemas.
+  status in independently collapsible status rollups. Expanded groups use
+  compact worker rows; aggregate counts remain in the structured receipt for
+  non-UI clients without duplicating the visible roster, and protocol tools
+  publish their exact model-visible result schemas.
 
 ## Nelos in action
 

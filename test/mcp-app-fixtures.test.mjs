@@ -10,13 +10,33 @@ import {
   EXECUTION_MAP_FIXTURES,
   startMcpAppFixtureServer,
 } from "../scripts/mcp-app-fixture-server.mjs";
-import { isPathWithin } from "../scripts/dev-mcp-app-ui.mjs";
+import {
+  MCP_APPS_SANDBOX_PORT,
+  isPathWithin,
+  resolveSandboxPort,
+} from "../scripts/dev-mcp-app-ui.mjs";
 import {
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
+  EXECUTION_MAP_STATUSES,
 } from "../src/execution-map.mjs";
 
 test("execution-map visual fixtures cover the meaningful lifecycle states", () => {
+  assert.deepEqual(EXECUTION_MAP_STATUSES, [
+    "planning",
+    "planned",
+    "authorization-required",
+    "launch-pending",
+    "created",
+    "unknown",
+    "running",
+    "attention",
+    "complete",
+    "accepted",
+    "archiving",
+    "archived",
+    "kept",
+  ]);
   const keys = EXECUTION_MAP_FIXTURES.map(({ key }) => key);
   assert.deepEqual(keys, [
     "planning_subagent",
@@ -29,6 +49,7 @@ test("execution-map visual fixtures cover the meaningful lifecycle states", () =
     "created_spinoff",
     "archiving_spinoff",
     "archived_spinoff",
+    "mixed_statuses",
     "large_history",
     "attention_subagent",
   ]);
@@ -50,6 +71,14 @@ test("execution-map visual fixtures cover the meaningful lifecycle states", () =
       current.map.members.filter(({ status }) => status === "archived").length,
     );
   }
+
+  const mixedStatuses = EXECUTION_MAP_FIXTURES.find(
+    ({ key }) => key === "mixed_statuses",
+  ).map.members.map(({ status }) => status);
+  assert.deepEqual(
+    [...new Set(mixedStatuses)].sort(),
+    [...EXECUTION_MAP_STATUSES].sort(),
+  );
 });
 
 test("reference-host cache containment is platform-aware", () => {
@@ -76,6 +105,16 @@ test("reference-host cache containment is platform-aware", () => {
       win32,
     ),
     false,
+  );
+});
+
+test("the pinned reference host rejects an unreachable sandbox override", () => {
+  assert.equal(MCP_APPS_SANDBOX_PORT, 8081);
+  assert.equal(resolveSandboxPort(undefined), MCP_APPS_SANDBOX_PORT);
+  assert.equal(resolveSandboxPort("8081"), MCP_APPS_SANDBOX_PORT);
+  assert.throws(
+    () => resolveSandboxPort("8181"),
+    /pinned basic-host requires sandbox port 8081/u,
   );
 });
 
@@ -198,7 +237,12 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     });
     assert.equal(membersElement.children.length, 1);
     assert.equal(membersElement.children[0].className, "member-group");
-    assert.equal(membersElement.children[0].open, true);
+    assert.equal(membersElement.children[0].open, false);
+    assert.equal(membersElement.children[0].dataset.status, "running");
+    assert.equal(
+      membersElement.children[0].children[0].textContent,
+      "Running (1)",
+    );
     assert.equal(
       membersElement.children[0].children[1].children[0].dataset.status,
       "running",
@@ -211,6 +255,11 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       detail: { globals: { toolOutput: acceptedMap } },
     });
     assert.equal(membersElement.children.length, 1);
+    assert.equal(membersElement.children[0].open, false);
+    assert.equal(
+      membersElement.children[0].children[0].textContent,
+      "Accepted (1)",
+    );
     assert.equal(
       membersElement.children[0].children[1].children[0].dataset.status,
       "accepted",
@@ -225,8 +274,98 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(membersElement.children[0].open, false);
     assert.equal(
       membersElement.children[0].children[0].textContent,
-      "Archived history (1)",
+      "Archive (1)",
     );
+
+    const mixedMap = EXECUTION_MAP_FIXTURES.find(
+      ({ key }) => key === "mixed_statuses",
+    ).map;
+    listeners.get("openai:set_globals")({
+      detail: { globals: { toolOutput: mixedMap } },
+    });
+    const expectedGroups = [
+      ["planning", "Planning (1)"],
+      ["planned", "Planned (1)"],
+      ["authorization-required", "Authorization required (1)"],
+      ["launch-pending", "Launch pending (1)"],
+      ["created", "Created (1)"],
+      ["unknown", "Unknown (1)"],
+      ["running", "Running (2)"],
+      ["attention", "Attention (1)"],
+      ["complete", "Complete (1)"],
+      ["accepted", "Accepted (1)"],
+      ["archiving", "Archiving (1)"],
+      ["archived", "Archive (2)"],
+      ["kept", "Kept (1)"],
+    ];
+    assert.equal(membersElement.children.length, expectedGroups.length);
+    for (const [index, [status, summary]] of expectedGroups.entries()) {
+      const group = membersElement.children[index];
+      assert.equal(group.tagName, "details");
+      assert.equal(group.className, "member-group");
+      assert.equal(group.dataset.status, status);
+      assert.equal(group.open, false);
+      assert.equal(group.children[0].tagName, "summary");
+      assert.equal(group.children[0].textContent, summary);
+      assert.equal(
+        group.children[1].attributes["aria-label"],
+        `${summary.replace(/ \(\d+\)$/u, "")} tasks`,
+      );
+      assert.ok(
+        group.children[1].children.every(
+          ({ dataset }) => dataset.status === status,
+        ),
+      );
+    }
+    const runningGroup = membersElement.children.find(
+      ({ dataset }) => dataset.status === "running",
+    );
+    assert.deepEqual(
+      runningGroup.children[1].children.map(
+        ({ children }) => children[1].children[0].children[0].textContent,
+      ),
+      [
+        "Exercise the compact worker row with a deliberately long task title",
+        "Verify status rollup interaction",
+      ],
+    );
+    const firstRunningRow = runningGroup.children[1].children[0];
+    const firstRunningContent = firstRunningRow.children[1];
+    const firstRunningMeta = firstRunningContent.children[1];
+    assert.equal(firstRunningMeta.children.length, 4);
+    assert.ok(
+      firstRunningMeta.children.every(
+        ({ className }) => className !== "tag status",
+      ),
+    );
+    const taskIdTag = firstRunningMeta.children[3];
+    const fullTaskId = "019fb49b-b447-7840-ace3-187079ef4e58";
+    assert.equal(taskIdTag.className, "tag task-id");
+    assert.equal(taskIdTag.textContent, `Task ${fullTaskId}`);
+    assert.equal(taskIdTag.dataset.threadId, fullTaskId);
+    assert.equal(
+      taskIdTag.title,
+      `Native Codex task identifier: ${fullTaskId}`,
+    );
+    assert.equal(
+      taskIdTag.attributes["aria-label"],
+      `Native Codex task identifier ${fullTaskId}`,
+    );
+    const archiveGroup = membersElement.children.find(
+      ({ dataset }) => dataset.status === "archived",
+    );
+    assert.deepEqual(
+      archiveGroup.children[1].children.map(
+        ({ children }) => children[1].children[0].children[0].textContent,
+      ),
+      [
+        "Archive the superseded implementation task",
+        "Archive the historical verification task",
+      ],
+    );
+    runningGroup.open = true;
+    assert.equal(runningGroup.open, true);
+    assert.equal(archiveGroup.open, false);
 
     const largeHistoryMap = EXECUTION_MAP_FIXTURES.find(
       ({ key }) => key === "large_history",
@@ -239,11 +378,11 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(membersElement.children[1].open, false);
     assert.equal(
       membersElement.children[0].children[0].textContent,
-      "Current tasks (5)",
+      "Running (5)",
     );
     assert.equal(
       membersElement.children[1].children[0].textContent,
-      "Archived history (5)",
+      "Archive (5)",
     );
   } finally {
     await client.close();

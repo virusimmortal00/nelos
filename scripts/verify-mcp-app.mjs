@@ -200,13 +200,20 @@ function verifyResource() {
   assert.equal(content?.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
   assert.match(content?.text ?? "", /ui\/initialize/u);
   assert.match(content?.text ?? "", /ui\/notifications\/tool-result/u);
+  assert.match(content?.text ?? "", /ui\/notifications\/size-changed/u);
+  assert.match(content?.text ?? "", /ResizeObserver/u);
+  assert.match(content?.text ?? "", /root\.style\.height = "max-content"/u);
   assert.match(content?.text ?? "", /window\.openai\?\.toolOutput/u);
   assert.match(content?.text ?? "", /openai:set_globals/u);
   assert.match(content?.text ?? "", /Waiting for task state/u);
   assert.match(content?.text ?? "", /--archived/u);
   assert.match(content?.text ?? "", /className = "member-heading"/u);
   assert.match(content?.text ?? "", /document\.createElement\("details"\)/u);
-  assert.match(content?.text ?? "", /Archived history/u);
+  assert.match(content?.text ?? "", /STATUS_GROUPS/u);
+  assert.match(content?.text ?? "", /title: "Launch pending"/u);
+  assert.match(content?.text ?? "", /title: "Archive"/u);
+  assert.match(content?.text ?? "", /"task-id"/u);
+  assert.match(content?.text ?? "", /padding: 7px 9px/u);
   assert.match(content?.text ?? "", /"Sub-agent"/u);
   assert.match(content?.text ?? "", /prefers-reduced-motion: reduce/u);
   assert.match(content?.text ?? "", /@keyframes status-pulse/u);
@@ -218,6 +225,8 @@ function verifyResource() {
   assert.doesNotMatch(content?.text ?? "", /phaseElement/u);
   assert.doesNotMatch(content?.text ?? "", /id="summary"/u);
   assert.doesNotMatch(content?.text ?? "", /className = "metric"/u);
+  assert.doesNotMatch(content?.text ?? "", /Current tasks/u);
+  assert.doesNotMatch(content?.text ?? "", /Archived history/u);
   console.log("✓ execution-map resource listed and read");
 }
 

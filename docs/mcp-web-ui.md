@@ -10,7 +10,7 @@ integration is not implemented.
 `nelos_plan_slices`, `nelos_orchestrate_create`,
 `nelos_execution_map_refresh`, `nelos_execution_map_history`, and
 `nelos_spinoff_cleanup` advertise the versioned
-`ui://nelos/execution-map-v9.html` MCP Apps resource. Successful calls preserve
+`ui://nelos/execution-map-v10.html` MCP Apps resource. Successful calls preserve
 their existing complete text/JSON result and additionally return
 `structuredContent` containing a compact visual projection plus a versioned
 `protocol.result` copy of the complete tool result. The latter keeps
@@ -27,8 +27,8 @@ action union rather than an untyped object. Visual tools correlate
 - the parent task or objective;
 - every non-archived member task in an ordinary receipt;
 - lifecycle, exact requested model, and reasoning level;
-- planned, authorization-required, launch-pending, running, created,
-  archiving, complete, archived, kept, or attention status.
+- planning, planned, authorization-required, launch-pending, unknown, running,
+  created, attention, complete, accepted, archiving, archived, or kept status.
 
 The durable projection retains the full roster, but ordinary visual receipts
 omit archived members. `nelos_execution_map_history` is the explicit read-only
@@ -36,25 +36,29 @@ path for showing the complete persisted roster, including archived members.
 This separation keeps archive recoverable and inspectable without making every
 later tool call replay the entire history.
 
-Worker cards render inside native disclosure groups. Current tasks stay open
-when there are four or fewer members and start folded for larger webs; archived
-history is always folded initially. The user can expand either group without
-another MCP call. Aggregate total, lifecycle, created, and archived counts
-remain in `structuredContent` for model and client compatibility, but are
-intentionally not rendered because the visible worker cards already
-communicate the roster.
+Every non-empty canonical status renders as a native disclosure group in the
+same deterministic order as the execution-map lifecycle rank. Headings use
+sentence-case user labels and exact counts, including `Launch pending`,
+`Running`, `Complete`, and `Archive`. All groups start folded, and the user can
+expand or close each group independently without another MCP call. Expanded
+groups render compact worker rows: one line on ordinary desktop widths and a
+compact title-plus-metadata stack on narrow widths. Aggregate total, lifecycle,
+created, and archived counts remain in `structuredContent` for model and client
+compatibility, but are intentionally not rendered separately because the
+status headings already communicate the visible roster.
 Archived phases and workers use a muted neutral treatment so green remains
 reserved for created or completed work. Attention uses an amber review-needed
 treatment rather than failure red. The widget does not render its own header or
 global phase because the host card already supplies the tool title and each
-worker card shows its status inline. The global phase remains available in
+rollup supplies its members' status. The global phase remains available in
 `structuredContent`.
 
 Lifecycle is shown as neutral metadata using the compact labels `Sub-agent` and
-`Spin-off`. Current status appears beside the worker title and may use semantic
-color. Planning, launch-pending, running, and archiving dots pulse subtly while
-work is active; the animation is disabled when the host operating system
-requests reduced motion.
+`Spin-off`. Model and reasoning remain visible beside it. Full native task IDs
+remain in the document and accessible labels but are visually bounded so they
+cannot grow a row. Planning, launch-pending, running, and archiving dots pulse
+subtly while work is active; the animation is disabled when the host operating
+system requests reduced motion.
 
 Tool receipts remain immutable snapshots. After a native wait or result read,
 `nelos_execution_map_refresh` checks the exact supplied thread and turn
@@ -79,7 +83,7 @@ Cleanup remains host-owned and receipt-driven. Its first map can show
 `archiving` while native archive effects are outstanding; replaying the exact
 archive receipts removes those workers from subsequent ordinary maps. The
 cleanup protocol receipt still reports the exact archive outcome, and the
-explicit history tool shows the archived worker cards.
+explicit history tool shows those workers in the `Archive` rollup.
 
 Development verification is layered:
 
