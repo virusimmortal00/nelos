@@ -30,6 +30,17 @@ export const MCP_APPS_UPSTREAM_REPOSITORY =
   "https://github.com/modelcontextprotocol/ext-apps.git";
 export const MCP_APPS_UPSTREAM_COMMIT =
   "92f46a574568a3ddac7600343b7d3c4c4ed7b588";
+export const MCP_APPS_SANDBOX_PORT = 8081;
+
+export function resolveSandboxPort(value) {
+  const port = Number(value ?? MCP_APPS_SANDBOX_PORT);
+  if (port !== MCP_APPS_SANDBOX_PORT) {
+    throw new Error(
+      `the pinned basic-host requires sandbox port ${MCP_APPS_SANDBOX_PORT}`,
+    );
+  }
+  return port;
+}
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -43,9 +54,8 @@ const hostPort = Number.parseInt(
   process.env.NELOS_MCP_APP_HOST_PORT ?? "8180",
   10,
 );
-const sandboxPort = Number.parseInt(
-  process.env.NELOS_MCP_APP_SANDBOX_PORT ?? "8181",
-  10,
+const sandboxPort = resolveSandboxPort(
+  process.env.NELOS_MCP_APP_SANDBOX_PORT,
 );
 const cacheRoot = resolve(
   process.env.NELOS_MCP_APP_HOST_CACHE_DIR ??
