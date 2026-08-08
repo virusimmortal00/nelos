@@ -15,14 +15,25 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Expanded status groups use compact worker rows that keep lifecycle, model,
   reasoning, and the full native task identity available without letting task
   metadata dominate the receipt.
+- Compatible updates in an active execution-map instance preserve expanded
+  statuses and keyboard focus. A compact bulk control expands active statuses
+  or collapses the full roster, with terminal-only receipts offering
+  `Expand all`.
+- Collapsed status markers now retain success, archive, and attention semantics
+  using MCP Apps host theme tokens when available. Narrow and touch layouts get
+  two-line task titles and larger disclosure targets without changing ordinary
+  desktop row density.
+- Receipt updates use a dedicated screen-reader status message instead of
+  replaying the full task tree, and waiting or empty states now use valid
+  non-list markup.
 - The pinned MCP Apps reference-host runner now starts its sandbox on the
   origin expected by that host, so the documented visual fixtures load without
   a port override.
 
 ### Compatibility requirements
 
-- The MCP Apps resource URI advances to `ui://nelos/execution-map-v10.html` so
-  hosts do not reuse the previous current-versus-archive widget from cache.
+- The MCP Apps resource URI advances to `ui://nelos/execution-map-v11.html` so
+  hosts do not reuse the first status-rollup widget from cache.
 
 ### Migrations
 
@@ -34,8 +45,8 @@ None.
 
 ### Known limitations
 
-- Disclosure state is local to one rendered receipt and resets when a new tool
-  result replaces that receipt.
+- Disclosure state remains local to one active UI instance. A new iframe or a
+  receipt for a different task starts folded.
 
 ## [0.12.10] - 2026-08-05
 

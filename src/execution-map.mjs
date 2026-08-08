@@ -8,7 +8,7 @@ import { assertWebId, titleLineageId } from "./task-web.mjs";
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v10.html";
+  "ui://nelos/execution-map-v11.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
 

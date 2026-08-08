@@ -201,6 +201,7 @@ function verifyResource() {
   assert.match(content?.text ?? "", /ui\/initialize/u);
   assert.match(content?.text ?? "", /ui\/notifications\/tool-result/u);
   assert.match(content?.text ?? "", /ui\/notifications\/size-changed/u);
+  assert.match(content?.text ?? "", /ui\/notifications\/host-context-changed/u);
   assert.match(content?.text ?? "", /ResizeObserver/u);
   assert.match(content?.text ?? "", /root\.style\.height = "max-content"/u);
   assert.match(content?.text ?? "", /window\.openai\?\.toolOutput/u);
@@ -208,6 +209,14 @@ function verifyResource() {
   assert.match(content?.text ?? "", /Waiting for task state/u);
   assert.match(content?.text ?? "", /--archived/u);
   assert.match(content?.text ?? "", /className = "member-heading"/u);
+  assert.match(content?.text ?? "", /Expand active/u);
+  assert.match(content?.text ?? "", /Collapse all/u);
+  assert.match(content?.text ?? "", /currentViewKey/u);
+  assert.match(content?.text ?? "", /bulkHadFocus/u);
+  assert.match(content?.text ?? "", /applyHostContext/u);
+  assert.match(content?.text ?? "", /id="host-fonts"/u);
+  assert.match(content?.text ?? "", /styles\?\.css\?\.fonts/u);
+  assert.match(content?.text ?? "", /role="status"/u);
   assert.match(content?.text ?? "", /document\.createElement\("details"\)/u);
   assert.match(content?.text ?? "", /STATUS_GROUPS/u);
   assert.match(content?.text ?? "", /title: "Launch pending"/u);
@@ -219,6 +228,7 @@ function verifyResource() {
   assert.match(content?.text ?? "", /@keyframes status-pulse/u);
   assert.doesNotMatch(content?.text ?? "", /"Joined subagent"/u);
   assert.doesNotMatch(content?.text ?? "", /--danger/u);
+  assert.doesNotMatch(content?.text ?? "", /<main aria-live=/u);
   assert.doesNotMatch(content?.text ?? "", /<header>/u);
   assert.doesNotMatch(content?.text ?? "", /class="eyebrow"/u);
   assert.doesNotMatch(content?.text ?? "", /id="phase"/u);

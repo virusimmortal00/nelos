@@ -116,9 +116,10 @@ subagents, or hand-run parallel chats:
   after planning, dispatch, and spin-off cleanup, showing every task's
   lifecycle, exact model, reasoning level, authorization, launch, and archive
   status in independently collapsible status rollups. Expanded groups use
-  compact worker rows; aggregate counts remain in the structured receipt for
-  non-UI clients without duplicating the visible roster, and protocol tools
-  publish their exact model-visible result schemas.
+  compact worker rows, retain their disclosure state across compatible updates,
+  and offer a compact active-status bulk toggle; aggregate counts remain in the
+  structured receipt for non-UI clients without duplicating the visible roster,
+  and protocol tools publish their exact model-visible result schemas.
 
 ## Nelos in action
 
