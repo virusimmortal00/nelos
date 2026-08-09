@@ -15,7 +15,9 @@ are outside this template's scope.
   isolation, two-Codex-lane, retention, and evidence requirements.
 - `toolchain.lock.json` pins the controller Packer binary, Proxmox plugin,
   Ubuntu cloud image, Node.js, and both self-contained Codex CLI archives by
-  exact URL and SHA-256 digest.
+  exact URL and SHA-256 digest. It also fixes the Ubuntu APT snapshot used for
+  every guest package installation so a rebuild cannot silently select newer
+  package candidates.
 - `scripts/bootstrap-cloud-image-template.sh` creates a clean Ubuntu base
   template on one explicitly selected PVE node.
 - `packer/` plus `scripts/build-template.sh` create an immutable validator

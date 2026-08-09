@@ -5,6 +5,7 @@ set +x
 readonly UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/releases/noble/release-20260801/ubuntu-24.04-server-cloudimg-amd64.img"
 readonly UBUNTU_IMAGE_SHA256="0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe"
 readonly UBUNTU_IMAGE_NAME="ubuntu-24.04-server-cloudimg-amd64-release-20260801.img"
+readonly UBUNTU_APT_SNAPSHOT="20260801T120000Z"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -54,6 +55,27 @@ guest_exec_checked() {
     my $data = decode_json(<STDIN>);
     exit((($data->{exited} // 0) == 1 && ($data->{exitcode} // 1) == 0) ? 0 : 1);
   ' || die "guest command failed: $1"
+}
+
+guest_exec_cloud_init_wait() {
+  local response exit_code
+  response="$(qm guest exec "$BASE_TEMPLATE_VMID" --timeout 1800 -- /usr/bin/cloud-init status --wait)" || \
+    die "cloud-init status command could not be submitted"
+  exit_code="$(printf '%s' "$response" | perl -MJSON::PP -0777 -e '
+    my $data = decode_json(<STDIN>);
+    exit 1 unless (($data->{exited} // 0) == 1 && defined $data->{exitcode});
+    print $data->{exitcode};
+  ')" || die "cloud-init status returned an incomplete guest-agent response"
+  case "$exit_code" in
+    0) ;;
+    2)
+      printf 'warning: cloud-init completed with recoverable errors: %s\n' "$response" >&2
+      ;;
+    *)
+      printf 'cloud-init failure response: %s\n' "$response" >&2
+      die "cloud-init status failed with exit code ${exit_code}"
+      ;;
+  esac
 }
 
 [[ ${EUID} -eq 0 ]] || die "run this bootstrap on the selected Proxmox node as root"
@@ -165,8 +187,8 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-[[ $IMAGE_CACHE_DIR == /* && $IMAGE_CACHE_DIR != / && ! -L $IMAGE_CACHE_DIR ]] || \
-  die "IMAGE_CACHE_DIR must be a specific absolute non-symlink directory"
+[[ $IMAGE_CACHE_DIR =~ ^/[A-Za-z0-9._/-]+$ && $IMAGE_CACHE_DIR != / && ! -L $IMAGE_CACHE_DIR ]] || \
+  die "IMAGE_CACHE_DIR must be a specific absolute non-symlink directory without whitespace or backslashes"
 if [[ -e $IMAGE_CACHE_DIR ]]; then
   [[ -d $IMAGE_CACHE_DIR ]] || die "IMAGE_CACHE_DIR exists but is not a directory"
 else
@@ -203,6 +225,9 @@ install -d -m 0755 "$SNIPPET_DIR"
 umask 077
 printf '%s\n' \
   '#cloud-config' \
+  'apt:' \
+  '  conf: |' \
+  "    APT::Snapshot \"${UBUNTU_APT_SNAPSHOT}\";" \
   'package_update: true' \
   'package_upgrade: false' \
   'packages:' \
@@ -257,7 +282,7 @@ while ((SECONDS < deadline)); do
 done
 ((agent_ready == 1)) || die "guest agent did not become ready within 30 minutes"
 
-guest_exec_checked /usr/bin/cloud-init status --wait
+guest_exec_cloud_init_wait
 guest_exec_checked /usr/bin/env bash -c \
   'set -Eeuo pipefail; systemctl enable qemu-guest-agent.service; apt-get clean; rm -rf /var/lib/apt/lists/*; cloud-init clean --logs --machine-id --seed; rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id; truncate -s 0 /etc/machine-id; sync'
 

@@ -50,6 +50,7 @@
   "policy": {
     "allowFloatingVersions": false,
     "requireSha256": true,
+    "ubuntuAptSnapshot": "20260801T120000Z",
     "buildNetwork": "allowlisted",
     "validationNetwork": "denied"
   }

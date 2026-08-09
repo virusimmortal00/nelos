@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+readonly UBUNTU_APT_SNAPSHOT="20260801T120000Z"
+
 die() {
   printf 'error: %s\n' "$*" >&2
   exit 1
@@ -96,8 +98,16 @@ require_command systemd-detect-virt
 assert_build_guest
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get -o DPkg::Lock::Timeout=300 update
-apt-get -o DPkg::Lock::Timeout=300 install -y --no-install-recommends \
+apt-get \
+  -o DPkg::Lock::Timeout=300 \
+  -o Acquire::Retries=3 \
+  -o APT::Snapshot="$UBUNTU_APT_SNAPSHOT" \
+  update
+apt-get \
+  -o DPkg::Lock::Timeout=300 \
+  -o Acquire::Retries=3 \
+  -o APT::Snapshot="$UBUNTU_APT_SNAPSHOT" \
+  install -y --no-install-recommends \
   ca-certificates \
   curl \
   git \
@@ -116,6 +126,7 @@ jq -e '
   .platform.architecture == "x86_64" and
   .policy.allowFloatingVersions == false and
   .policy.requireSha256 == true and
+  .policy.ubuntuAptSnapshot == "20260801T120000Z" and
   .policy.validationNetwork == "denied" and
   (.artifacts.node | type == "object") and
   (.artifacts.codexLegacy | type == "object") and

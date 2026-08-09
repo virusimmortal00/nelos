@@ -132,6 +132,7 @@ test("toolchain lock rejects drift from immutable artifacts and lane IDs", async
     assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
     assert.match(artifact.url, /^https:\/\//u);
   }
+  assert.equal(toolchainLock.policy.ubuntuAptSnapshot, "20260801T120000Z");
 
   const floating = structuredClone(toolchainLock);
   floating.policy.allowFloatingVersions = true;
@@ -143,15 +144,23 @@ test("toolchain lock rejects drift from immutable artifacts and lane IDs", async
     () => validateToolchainLock(changedDigest, contract),
     /\/artifacts\/codexAgentPlugin: does not match the immutable artifact pin/u,
   );
+
+  const floatingSnapshot = structuredClone(toolchainLock);
+  floatingSnapshot.policy.ubuntuAptSnapshot = "latest";
+  assert.throws(
+    () => validateToolchainLock(floatingSnapshot, contract),
+    /\/policy\/ubuntuAptSnapshot: must be an immutable UTC snapshot ID/u,
+  );
 });
 
 test("executable recipe matches the immutable lock and guarded contract", async () => {
   const { toolchainLock } = await loadFixture();
   assert.equal(await validateRecipeSources(root, toolchainLock), true);
 
-  const [buildWrapper, bootstrap, proxmoxSource] = await Promise.all([
+  const [buildWrapper, bootstrap, provisionGuest, proxmoxSource] = await Promise.all([
     readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
+    readFile(join(validationRoot, "scripts", "provision-guest.sh"), "utf8"),
     readFile(join(validationRoot, "packer", "proxmox.pkr.hcl"), "utf8"),
   ]);
   assert.match(buildWrapper, /"\$PACKER_BIN" build -on-error=abort/u);
@@ -162,6 +171,8 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /git_readonly status --porcelain=v1 --untracked-files=all/u);
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
+  assert.match(bootstrap, /APT::Snapshot/u);
+  assert.match(provisionGuest, /APT::Snapshot/u);
   assert.match(proxmoxSource, /bridge\s*=\s*"vmbr0"/u);
   assert.match(proxmoxSource, /firewall\s*=\s*true/u);
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);

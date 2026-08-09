@@ -9,6 +9,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(scriptPath), "../../..");
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
 
 const EXPECTED_ARTIFACTS = Object.freeze({
   packer: {
@@ -267,9 +268,12 @@ export function validateToolchainLock(lock, contract) {
   }
   assertClosedObject(
     lock.policy,
-    ["allowFloatingVersions", "requireSha256", "buildNetwork", "validationNetwork"],
+    ["allowFloatingVersions", "requireSha256", "ubuntuAptSnapshot", "buildNetwork", "validationNetwork"],
     "/policy",
   );
+  if (!UBUNTU_APT_SNAPSHOT.test(lock.policy.ubuntuAptSnapshot)) {
+    fail("/policy/ubuntuAptSnapshot", "must be an immutable UTC snapshot ID");
+  }
   if (
     lock.policy.allowFloatingVersions !== false ||
     lock.policy.requireSha256 !== true ||
@@ -284,10 +288,11 @@ export function validateToolchainLock(lock, contract) {
 
 export async function validateRecipeSources(root, lock) {
   const validationRoot = join(resolve(root), "validation", "proxmox");
-  const [versions, proxmox, bootstrap, buildWrapper] = await Promise.all([
+  const [versions, proxmox, bootstrap, provisionGuest, buildWrapper] = await Promise.all([
     readFile(join(validationRoot, "packer", "versions.pkr.hcl"), "utf8"),
     readFile(join(validationRoot, "packer", "proxmox.pkr.hcl"), "utf8"),
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
+    readFile(join(validationRoot, "scripts", "provision-guest.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
   ]);
   const packer = lock.artifacts.packer;
@@ -307,6 +312,15 @@ export async function validateRecipeSources(root, lock) {
   }
   if (!bootstrap.includes(`readonly UBUNTU_IMAGE_SHA256="${ubuntu.sha256}"`)) {
     fail("/recipe/bootstrap", "Ubuntu image digest must match the toolchain lock");
+  }
+  if (!bootstrap.includes(`readonly UBUNTU_APT_SNAPSHOT="${lock.policy.ubuntuAptSnapshot}"`)) {
+    fail("/recipe/bootstrap", "Ubuntu APT snapshot must match the toolchain lock");
+  }
+  if (!provisionGuest.includes(`readonly UBUNTU_APT_SNAPSHOT="${lock.policy.ubuntuAptSnapshot}"`)) {
+    fail("/recipe/provision-guest", "Ubuntu APT snapshot must match the toolchain lock");
+  }
+  if (!provisionGuest.includes('-o APT::Snapshot="$UBUNTU_APT_SNAPSHOT"')) {
+    fail("/recipe/provision-guest", "guest packages must come from the immutable Ubuntu snapshot");
   }
   for (const requiredSource of [
     'machine            = "q35"',
