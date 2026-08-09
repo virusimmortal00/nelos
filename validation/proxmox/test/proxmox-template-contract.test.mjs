@@ -170,6 +170,9 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /materialize_tracked/u);
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /git_readonly status --porcelain=v1 --untracked-files=all/u);
+  assert.equal(buildWrapper.includes('map(select(startswith("size=")))) == ["size=64G"]'), true);
+  assert.equal(buildWrapper.includes('map(select(startswith("discard=")))) == ["discard=on"]'), true);
+  assert.equal(buildWrapper.includes('map(select(startswith("iothread=")))) == ["iothread=1"]'), true);
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
   assert.match(bootstrap, /APT::Snapshot \\"\$\{UBUNTU_APT_SNAPSHOT\}\\";/u);
   assert.match(provisionGuest, /-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"/u);

@@ -356,13 +356,19 @@ jq -e \
 base_config_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config")" || die "could not query base template configuration"
 jq -e \
   --arg digest "$UBUNTU_IMAGE_SHA256" \
-  '.data.machine == "q35" and
+  '(.data.scsi0 // "") as $disk |
+   ($disk | split(",")) as $diskOptions |
+   .data.machine == "q35" and
    .data.bios == "ovmf" and
    .data.scsihw == "virtio-scsi-single" and
    ((.data.agent // "") | contains("enabled=1")) and
    ((.data.description // "") | contains("ubuntu-sha256:" + $digest)) and
-   ((.data.scsi0 // "") | test("^[A-Za-z0-9][A-Za-z0-9._-]*:"))' \
-  <<<"$base_config_response" >/dev/null || die "base template hardware, guest-agent, provenance, or disk identity does not match"
+   ($disk | test("^[A-Za-z0-9][A-Za-z0-9._-]*:")) and
+   (($diskOptions | map(select(startswith("size=")))) == ["size=64G"]) and
+   (($diskOptions | map(select(startswith("discard=")))) == ["discard=on"]) and
+   (($diskOptions | map(select(startswith("iothread=")))) == ["iothread=1"])' \
+  <<<"$base_config_response" >/dev/null || \
+  die "base template hardware, guest-agent, provenance, or inherited disk contract does not match"
 
 base_disk_storage="$(jq -er '.data.scsi0 | capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage' <<<"$base_config_response")"
 base_storage_response="$(api_get "storage/${base_disk_storage}")" || die "could not query base disk storage configuration"
