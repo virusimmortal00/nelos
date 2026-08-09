@@ -229,6 +229,35 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   };
   validateEvidenceDocument(failedEvidence, evidenceSchema, contract);
 
+  const failedMissingTool = structuredClone(evidence);
+  failedMissingTool.lanes["legacy-01446"].toolNames = ["another_tool"];
+  failedMissingTool.lanes["legacy-01446"].checks.toolsList = false;
+  failedMissingTool.lanes["legacy-01446"].checks.nelosConfigGet = false;
+  failedMissingTool.lanes["legacy-01446"].checks.laneParity = false;
+  failedMissingTool.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedMissingTool.result = {
+    status: "failed",
+    failures: ["legacy.tools-list.missing-required-tool"],
+  };
+  validateEvidenceDocument(failedMissingTool, evidenceSchema, contract);
+
+  const passedWithFailedCheck = structuredClone(evidence);
+  passedWithFailedCheck.lanes["legacy-01446"].checks.toolsList = false;
+  assert.throws(
+    () => validateEvidenceDocument(passedWithFailedCheck, evidenceSchema, contract),
+    /passed evidence requires every lane check to pass/u,
+  );
+
+  const failedWithAllChecks = structuredClone(evidence);
+  failedWithAllChecks.result = {
+    status: "failed",
+    failures: ["synthetic.failure-without-failed-check"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(failedWithAllChecks, evidenceSchema, contract),
+    /failed evidence requires at least one failed lane check/u,
+  );
+
   const unsafeEvidence = structuredClone(evidence);
   unsafeEvidence.runId = "validator-192.0.2.10";
   unsafeEvidence.lanes["legacy-01446"].home = "/var/lib/nelos-validator/runs/validator-192.0.2.10/legacy-01446/home";

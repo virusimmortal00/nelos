@@ -459,13 +459,15 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
   if (legacy.codexHome !== `${legacy.home}/.codex`) fail("/lanes/legacy-01446/codexHome", "must equal HOME/.codex");
   if (agent.codexHome !== `${agent.home}/.codex`) fail("/lanes/agent-plugin-01470/codexHome", "must equal HOME/.codex");
   if (legacy.pluginVersion !== agent.pluginVersion) fail("/lanes", "plugin versions must match across lanes");
-  assertExactSet(agent.toolNames, legacy.toolNames, "/lanes/agent-plugin-01470/toolNames");
-  for (const [laneId, lane] of Object.entries({
-    "legacy-01446": legacy,
-    "agent-plugin-01470": agent,
-  })) {
-    if (!lane.toolNames.includes("nelos_config_get")) {
-      fail(`/lanes/${laneId}/toolNames`, "must include nelos_config_get");
+  if (evidence.result.status === "passed") {
+    assertExactSet(agent.toolNames, legacy.toolNames, "/lanes/agent-plugin-01470/toolNames");
+    for (const [laneId, lane] of Object.entries({
+      "legacy-01446": legacy,
+      "agent-plugin-01470": agent,
+    })) {
+      if (!lane.toolNames.includes("nelos_config_get")) {
+        fail(`/lanes/${laneId}/toolNames`, "must include nelos_config_get");
+      }
     }
   }
   for (const [laneId, lane] of Object.entries({
