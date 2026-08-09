@@ -71,15 +71,18 @@ overrides, unknown `PKR_VAR_*` values, extra HCL source, or an unclean checkout.
 
 For each target node, identify:
 
-- A node-local, active, `images`-capable VM disk storage.
-- A node-local, active, `images`-capable EFI storage.
-- A node-local, active, `images`-capable Cloud-Init storage.
-- A node-local, active `dir` storage with `snippets` enabled.
+- A node-local, active, enabled, `images`-capable VM disk storage.
+- A node-local, active, enabled, `images`-capable EFI storage.
+- A node-local, active, enabled, `images`-capable Cloud-Init storage.
+- A node-local, active, enabled `dir` storage with `snippets` enabled.
 - An untagged `vmbr0` with DHCP and provisioning-time outbound internet.
 
-The three image roles may use one storage ID when that backend supports them.
-The VM-disk backend selected for a validation template must also support PVE
-snapshots and linked clones; confirm that capability before reserving the VMID.
+The persistent VM and EFI disks require node-local `lvmthin` or `zfspool`
+backends so the validator template can provide snapshots and linked clones.
+The transient inherited and final Cloud-Init disks use full-copy semantics and
+may also use node-local `dir` or plain thick `lvm`. The snippets role remains
+restricted to `dir`. Both scripts require each selected storage to report
+`active=1` and `enabled=1` through the selected node's PVE storage status API.
 VM disks are node-local, so a template built on one node is not assumed to
 exist on another. Run the bootstrap and validator-template build separately for
 each target node, using a different VMID and name each time.

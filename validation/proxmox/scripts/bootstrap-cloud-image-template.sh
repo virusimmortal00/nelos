@@ -6,7 +6,9 @@ readonly UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/releases/noble/releas
 readonly UBUNTU_IMAGE_SHA256="0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe"
 readonly UBUNTU_IMAGE_NAME="ubuntu-24.04-server-cloudimg-amd64-release-20260801.img"
 readonly UBUNTU_APT_SNAPSHOT="20260801T120000Z"
-readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
+readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"
+readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
+readonly SNIPPET_STORAGE_TYPES_CSV="dir"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -27,17 +29,23 @@ storage_config() {
   pvesh get "/storage/${storage}" --output-format json
 }
 
+storage_status() {
+  local storage="$1"
+  pvesh get "/nodes/${PROXMOX_NODE}/storage/${storage}/status" --output-format json
+}
+
 assert_node_local_storage() {
   local storage="$1"
   local required_content="$2"
-  local config
+  local allowed_types_csv="$3"
+  local config status
 
   config="$(storage_config "$storage")" || die "could not read storage configuration: ${storage}"
   printf '%s' "$config" | perl -MJSON::PP -0777 -e '
-    my ($wanted_node, $wanted_content, $node_local_types_csv) = @ARGV;
+    my ($wanted_node, $wanted_content, $allowed_types_csv) = @ARGV;
     my $data = decode_json(<STDIN>);
-    my %node_local_types = map { $_ => 1 } split /,/, $node_local_types_csv;
-    exit 1 unless $node_local_types{$data->{type} // q{}};
+    my %allowed_types = map { $_ => 1 } split /,/, $allowed_types_csv;
+    exit 1 unless $allowed_types{$data->{type} // q{}};
     exit 1 if (($data->{shared} // 0) != 0);
     my %content = map { $_ => 1 } split /,/, ($data->{content} // q{});
     exit 1 unless $content{$wanted_content};
@@ -45,9 +53,13 @@ assert_node_local_storage() {
       my %nodes = map { $_ => 1 } split /,/, $data->{nodes};
       exit 1 unless $nodes{$wanted_node};
     }
-  ' "$PROXMOX_NODE" "$required_content" "$NODE_LOCAL_STORAGE_TYPES_CSV" || \
+  ' "$PROXMOX_NODE" "$required_content" "$allowed_types_csv" || \
     die "storage ${storage} must be node-local, ${required_content}-capable, and enabled for ${PROXMOX_NODE}"
-  pvesm status --storage "$storage" >/dev/null || die "storage is not active on this node: ${storage}"
+  status="$(storage_status "$storage")" || die "could not read node storage status: ${storage}"
+  printf '%s' "$status" | perl -MJSON::PP -0777 -e '
+    my $data = decode_json(<STDIN>);
+    exit 1 unless (($data->{active} // 0) == 1 && ($data->{enabled} // 0) == 1);
+  ' || die "storage ${storage} must report active=1 and enabled=1 for ${PROXMOX_NODE}"
 }
 
 guest_exec_checked() {
@@ -95,7 +107,7 @@ for name in \
   require_env "$name"
 done
 
-for command in awk basename curl date dirname install mktemp perl pvesh pvesm pveversion qm readlink sha256sum sleep stat uname; do
+for command in awk basename curl date dirname install mktemp perl pvesh pveversion qm readlink sha256sum sleep stat uname; do
   require_command "$command"
 done
 
@@ -122,10 +134,10 @@ local_node="$(basename "$(readlink -f /etc/pve/local)")"
 pve_release="$(pveversion | awk 'NR == 1 { print; exit }')"
 [[ ${pve_release} =~ ^pve-manager/8\.4\. ]] || die "expected Proxmox VE 8.4, found ${pve_release}"
 
-assert_node_local_storage "$PVE_VM_STORAGE" images
-assert_node_local_storage "$PVE_EFI_STORAGE" images
-assert_node_local_storage "$PVE_CLOUD_INIT_STORAGE" images
-assert_node_local_storage "$PVE_SNIPPETS_STORAGE" snippets
+assert_node_local_storage "$PVE_VM_STORAGE" images "$LINKED_CLONE_STORAGE_TYPES_CSV"
+assert_node_local_storage "$PVE_EFI_STORAGE" images "$LINKED_CLONE_STORAGE_TYPES_CSV"
+assert_node_local_storage "$PVE_CLOUD_INIT_STORAGE" images "$FULL_COPY_STORAGE_TYPES_CSV"
+assert_node_local_storage "$PVE_SNIPPETS_STORAGE" snippets "$SNIPPET_STORAGE_TYPES_CSV"
 
 cluster_resources="$(pvesh get /cluster/resources --type vm --output-format json)" || die "could not query cluster VM inventory"
 if printf '%s' "$cluster_resources" | perl -MJSON::PP -0777 -e '

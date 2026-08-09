@@ -340,9 +340,33 @@ jq -e '.data.version | startswith("8.4.")' <<<"$version_response" >/dev/null || 
 resources_response="$(api_get 'cluster/resources?type=vm')" || die "could not query Proxmox VM inventory"
 jq -e '.data | type == "array"' <<<"$resources_response" >/dev/null || die "unexpected Proxmox inventory response"
 
-readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
+readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"
+readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
 readonly BASE_TEMPLATE_DEVICE_KEYS_JSON='["efidisk0","ide2","ipconfig0","net0","scsi0","serial0","vga"]'
 readonly PROXMOX_INDEXED_DEVICE_KEY_PATTERN='^(audio|efidisk|hostpci|ide|ipconfig|net|numa|parallel|rng|sata|scsi|serial|tpmstate|unused|usb|virtio|virtiofs)[0-9]+$'
+
+assert_api_storage() {
+  local storage="$1"
+  local allowed_types_csv="$2"
+  local role="$3"
+  local config_response status_response
+
+  config_response="$(api_get "storage/${storage}")" || die "could not query ${role} storage configuration"
+  jq -e \
+    --arg node "$PROXMOX_NODE" \
+    --arg allowed_storage_types "$allowed_types_csv" \
+    '.data.type as $storageType |
+     (($allowed_storage_types | split(",") | index($storageType)) != null) and
+     ((.data.shared // 0) == 0) and
+     ((.data.content // "") | split(",") | index("images") != null) and
+     ((.data.nodes // $node) | split(",") | index($node) != null)' \
+    <<<"$config_response" >/dev/null || \
+    die "${role} storage type, node-local scope, image content, or node restriction does not match"
+  status_response="$(api_get "nodes/${PROXMOX_NODE}/storage/${storage}/status")" || \
+    die "could not query ${role} node storage status"
+  jq -e '.data.active == 1 and .data.enabled == 1' <<<"$status_response" >/dev/null || \
+    die "${role} storage must report active=1 and enabled=1 for the selected node"
+}
 
 jq -e \
   --argjson vmid "$BASE_TEMPLATE_VMID" \
@@ -387,17 +411,28 @@ jq -e \
   <<<"$base_config_response" >/dev/null || \
   die "base template hardware, guest-agent, provenance, or inherited device contract does not match"
 
-base_disk_storage="$(jq -er '.data.scsi0 | capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage' <<<"$base_config_response")"
-base_storage_response="$(api_get "storage/${base_disk_storage}")" || die "could not query base disk storage configuration"
-jq -e \
-  --arg node "$PROXMOX_NODE" \
-  --arg node_local_storage_types "$NODE_LOCAL_STORAGE_TYPES_CSV" \
-  '.data.type as $storageType |
-   (($node_local_storage_types | split(",") | index($storageType)) != null) and
-   ((.data.shared // 0) == 0) and
-   ((.data.content // "") | split(",") | index("images") != null) and
-   ((.data.nodes // $node) | split(",") | index($node) != null)' \
-  <<<"$base_storage_response" >/dev/null || die "base disk storage must be node-local, image-capable, and enabled for the selected node"
+persistent_storage_inventory="$(jq -er '
+  [.data.scsi0, .data.efidisk0] |
+  map(capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage) |
+  unique[]
+' <<<"$base_config_response")" || die "could not identify every inherited persistent disk storage"
+mapfile -t persistent_disk_storages <<<"$persistent_storage_inventory"
+readonly -a persistent_disk_storages
+[[ ${#persistent_disk_storages[@]} -ge 1 ]] || die "base template has no inherited persistent disk storage"
+inherited_cloud_init_storage="$(jq -er '
+  .data.ide2 | capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage
+' <<<"$base_config_response")" || die "could not identify the inherited Cloud-Init storage"
+readonly inherited_cloud_init_storage
+inherited_cloud_init_checked=0
+for persistent_disk_storage in "${persistent_disk_storages[@]}"; do
+  assert_api_storage "$persistent_disk_storage" "$LINKED_CLONE_STORAGE_TYPES_CSV" "inherited persistent disk"
+  if [[ $persistent_disk_storage == "$inherited_cloud_init_storage" ]]; then
+    inherited_cloud_init_checked=1
+  fi
+done
+if ((inherited_cloud_init_checked == 0)); then
+  assert_api_storage "$inherited_cloud_init_storage" "$FULL_COPY_STORAGE_TYPES_CSV" "inherited Cloud-Init"
+fi
 
 if jq -e \
   --argjson vmid "$OUTPUT_TEMPLATE_VMID" \
@@ -407,19 +442,7 @@ if jq -e \
   die "refusing to overwrite an existing VM/template ID or name"
 fi
 
-storage_response="$(api_get "storage/${CLOUD_INIT_STORAGE}")" || die "could not query Cloud-Init storage configuration"
-jq -e \
-  --arg node "$PROXMOX_NODE" \
-  --arg node_local_storage_types "$NODE_LOCAL_STORAGE_TYPES_CSV" \
-  '.data.type as $storageType |
-   (($node_local_storage_types | split(",") | index($storageType)) != null) and
-   ((.data.shared // 0) == 0) and
-   ((.data.content // "") | split(",") | index("images") != null) and
-   ((.data.nodes // $node) | split(",") | index($node) != null)' \
-  <<<"$storage_response" >/dev/null || die "Cloud-Init storage must be node-local, image-capable, and enabled for the selected node"
-
-storage_status="$(api_get "nodes/${PROXMOX_NODE}/storage/${CLOUD_INIT_STORAGE}/status")" || die "could not query Cloud-Init storage status"
-jq -e '.data.active == 1' <<<"$storage_status" >/dev/null || die "Cloud-Init storage is not active on the selected node"
+assert_api_storage "$CLOUD_INIT_STORAGE" "$FULL_COPY_STORAGE_TYPES_CSV" "final Cloud-Init"
 
 build_nonce="$(< /proc/sys/kernel/random/uuid)"
 readonly build_nonce

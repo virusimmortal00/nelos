@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { dirname, join, resolve } from "node:path";
@@ -10,6 +11,10 @@ const repositoryRoot = resolve(dirname(scriptPath), "../../..");
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
 
 const EXPECTED_ARTIFACTS = Object.freeze({
   packer: {
@@ -366,7 +371,7 @@ export async function validateRecipeSources(root, lock) {
   return true;
 }
 
-export function createEvidenceProbe(contract) {
+export function createEvidenceProbe(contract, templateDigests = {}) {
   const checks = {
     marketplaceInstall: true,
     pluginInstall: true,
@@ -390,8 +395,8 @@ export function createEvidenceProbe(contract) {
       proxmoxVeVersion: contract.scope.proxmoxVeBaseline,
       operatingSystem: "ubuntu-24.04-lts",
       architecture: contract.scope.guest.architecture,
-      contractSha256: "2".repeat(64),
-      toolchainLockSha256: "3".repeat(64),
+      contractSha256: templateDigests.contractSha256 ?? "2".repeat(64),
+      toolchainLockSha256: templateDigests.toolchainLockSha256 ?? "3".repeat(64),
     },
     lanes: {
       "legacy-01446": {
@@ -446,12 +451,22 @@ export function createEvidenceProbe(contract) {
   };
 }
 
-export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
+export function validateEvidenceDocument(evidence, evidenceSchema, contract, templateDigests = undefined) {
   assertOnlyLocalReferences(evidenceSchema);
   validateAgainstSchema(evidence, evidenceSchema);
   assertNoUserSpecificMaterial(evidence);
   if (evidence.contractVersion !== contract.contractVersion) {
     fail("/contractVersion", "must match the validator contract");
+  }
+  if (templateDigests !== undefined) {
+    for (const [field, repositoryFile] of [
+      ["contractSha256", "contract.json"],
+      ["toolchainLockSha256", "toolchain.lock.json"],
+    ]) {
+      if (evidence.template[field] !== templateDigests[field]) {
+        fail(`/template/${field}`, `must match the SHA-256 digest of the repository ${repositoryFile} bytes`);
+      }
+    }
   }
   const legacy = evidence.lanes["legacy-01446"];
   const agent = evidence.lanes["agent-plugin-01470"];
@@ -551,34 +566,49 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
   return evidence;
 }
 
-async function readJson(path, label) {
-  let text;
+async function readJsonWithBytes(path, label) {
+  let bytes;
   try {
-    text = await readFile(path, "utf8");
+    bytes = await readFile(path);
   } catch (error) {
     fail("", `cannot read ${label}: ${error.message}`);
   }
   try {
-    return JSON.parse(text);
+    return { bytes, value: JSON.parse(bytes.toString("utf8")) };
   } catch {
     fail("", `${label} is not valid JSON`);
   }
 }
 
+async function readJson(path, label) {
+  return (await readJsonWithBytes(path, label)).value;
+}
+
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
   const validationRoot = join(resolve(root), "validation", "proxmox");
-  const [contract, contractSchema, toolchainLock, evidenceSchema] = await Promise.all([
-    readJson(join(validationRoot, "contract.json"), "contract.json"),
+  const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema] = await Promise.all([
+    readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
     readJson(join(validationRoot, "contract.schema.json"), "contract.schema.json"),
-    readJson(join(validationRoot, "toolchain.lock.json"), "toolchain.lock.json"),
+    readJsonWithBytes(join(validationRoot, "toolchain.lock.json"), "toolchain.lock.json"),
     readJson(join(validationRoot, "evidence", "schema.json"), "evidence/schema.json"),
   ]);
+  const contract = contractDocument.value;
+  const toolchainLock = toolchainLockDocument.value;
+  const templateDigests = Object.freeze({
+    contractSha256: sha256(contractDocument.bytes),
+    toolchainLockSha256: sha256(toolchainLockDocument.bytes),
+  });
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
   await validateRecipeSources(root, toolchainLock);
-  validateEvidenceDocument(createEvidenceProbe(contract), evidenceSchema, contract);
+  validateEvidenceDocument(createEvidenceProbe(contract, templateDigests), evidenceSchema, contract, templateDigests);
   if (options.evidencePath) {
-    validateEvidenceDocument(await readJson(resolve(options.evidencePath), "evidence"), evidenceSchema, contract);
+    validateEvidenceDocument(
+      await readJson(resolve(options.evidencePath), "evidence"),
+      evidenceSchema,
+      contract,
+      templateDigests,
+    );
   }
   return {
     valid: true,

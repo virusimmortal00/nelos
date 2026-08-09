@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -191,12 +193,36 @@ test("Proxmox preflight closes storage types and inherited device inventory", as
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
   ]);
 
-  const storageTypeContract = 'readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';
-  assert.equal(buildWrapper.includes(storageTypeContract), true);
-  assert.equal(bootstrap.includes(storageTypeContract), true);
-  assert.match(bootstrap, /unless \$node_local_types\{\$data->\{type\} \/\/ q\{\}\}/u);
-  assert.equal((buildWrapper.match(/--arg node_local_storage_types/gu) ?? []).length, 2);
-  assert.equal((buildWrapper.match(/\(\(\.data\.shared \/\/ 0\) == 0\)/gu) ?? []).length, 2);
+  const linkedCloneStorageTypeContract = 'readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"';
+  const fullCopyStorageTypeContract = 'readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';
+  assert.equal(buildWrapper.includes(linkedCloneStorageTypeContract), true);
+  assert.equal(bootstrap.includes(linkedCloneStorageTypeContract), true);
+  assert.equal(buildWrapper.includes(fullCopyStorageTypeContract), true);
+  assert.equal(bootstrap.includes(fullCopyStorageTypeContract), true);
+  assert.equal(bootstrap.includes('readonly SNIPPET_STORAGE_TYPES_CSV="dir"'), true);
+  assert.doesNotMatch(linkedCloneStorageTypeContract, /(?:^|[,="])lvm(?:[,"]|$)/u);
+  assert.match(fullCopyStorageTypeContract, /(?:^|[,="])lvm(?:[,"]|$)/u);
+  assert.match(bootstrap, /unless \$allowed_types\{\$data->\{type\} \/\/ q\{\}\}/u);
+  assert.equal((bootstrap.match(/images "\$LINKED_CLONE_STORAGE_TYPES_CSV"/gu) ?? []).length, 2);
+  assert.equal((bootstrap.match(/images "\$FULL_COPY_STORAGE_TYPES_CSV"/gu) ?? []).length, 1);
+  assert.match(bootstrap, /snippets "\$SNIPPET_STORAGE_TYPES_CSV"/u);
+  assert.match(bootstrap, /pvesh get "\/nodes\/\$\{PROXMOX_NODE\}\/storage\/\$\{storage\}\/status"/u);
+  assert.match(bootstrap, /\$data->\{active\} \/\/ 0\) == 1 && \(\$data->\{enabled\} \/\/ 0\) == 1/u);
+  assert.equal((buildWrapper.match(/--arg allowed_storage_types/gu) ?? []).length, 1);
+  assert.equal((buildWrapper.match(/\(\(\.data\.shared \/\/ 0\) == 0\)/gu) ?? []).length, 1);
+  assert.match(buildWrapper, /\[\.data\.scsi0, \.data\.efidisk0\]/u);
+  assert.match(buildWrapper, /\.data\.ide2 \| capture/u);
+  assert.match(
+    buildWrapper,
+    /assert_api_storage "\$persistent_disk_storage" "\$LINKED_CLONE_STORAGE_TYPES_CSV"/u,
+  );
+  assert.match(
+    buildWrapper,
+    /assert_api_storage "\$inherited_cloud_init_storage" "\$FULL_COPY_STORAGE_TYPES_CSV"/u,
+  );
+  assert.match(buildWrapper, /assert_api_storage "\$CLOUD_INIT_STORAGE" "\$FULL_COPY_STORAGE_TYPES_CSV"/u);
+  assert.match(buildWrapper, /api_get "nodes\/\$\{PROXMOX_NODE\}\/storage\/\$\{storage\}\/status"/u);
+  assert.match(buildWrapper, /\.data\.active == 1 and \.data\.enabled == 1/u);
 
   assert.match(buildWrapper, /\/config\?current=1/u);
   assert.equal(
@@ -486,6 +512,50 @@ test("repository validator runs with network APIs blocked", async () => {
     contractVersion: "1.0.0",
     lanes: ["legacy-01446", "agent-plugin-01470"],
   });
+});
+
+test("repository evidence binds the exact contract and toolchain lock bytes", async (context) => {
+  const [contractBytes, toolchainLockBytes, { contract }] = await Promise.all([
+    readFile(join(validationRoot, "contract.json")),
+    readFile(join(validationRoot, "toolchain.lock.json")),
+    loadFixture(),
+  ]);
+  const contractSha256 = createHash("sha256").update(contractBytes).digest("hex");
+  const toolchainLockSha256 = createHash("sha256").update(toolchainLockBytes).digest("hex");
+  const tamperDigest = (digest) => `${digest.startsWith("0") ? "1" : "0"}${digest.slice(1)}`;
+  const evidence = createEvidenceProbe(contract, {
+    contractSha256,
+    toolchainLockSha256,
+  });
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-evidence-"));
+  context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const evidencePath = join(temporaryRoot, "evidence.json");
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+
+  await validateRepositoryContract(root, { evidencePath });
+  const blocker = fileURLToPath(new URL("../../../scripts/offline-network-blocker.cjs", import.meta.url));
+  const validator = fileURLToPath(new URL("../scripts/validate-contract.mjs", import.meta.url));
+  const { stderr } = await execFileAsync(
+    process.execPath,
+    ["--require", blocker, validator, "--root", root, "--evidence", evidencePath],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(stderr, "");
+
+  evidence.template.contractSha256 = tamperDigest(contractSha256);
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(root, { evidencePath }),
+    /\/template\/contractSha256: must match the SHA-256 digest of the repository contract\.json bytes/u,
+  );
+
+  evidence.template.contractSha256 = contractSha256;
+  evidence.template.toolchainLockSha256 = tamperDigest(toolchainLockSha256);
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(root, { evidencePath }),
+    /\/template\/toolchainLockSha256: must match the SHA-256 digest of the repository toolchain\.lock\.json bytes/u,
+  );
 });
 
 test("validation contract files contain no user-specific machine material", async () => {
