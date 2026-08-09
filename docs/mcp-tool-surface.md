@@ -163,7 +163,7 @@ long-lived
   exposes the execution-map resource: outstanding effects render as
   `archiving`, while accepted native archive receipts remove the worker from
   ordinary maps. The exact cleanup protocol result remains visible, and
-  `nelos_execution_map_history` renders the archived worker card.
+  `nelos_execution_map_history` renders the worker in the `Archive` rollup.
 
 Bootstrap preparation, execution-map refresh/history, thread inspection,
 inventory, web inspection, wait, health, routing, verification, and subagent identity resolution advertise
@@ -187,8 +187,9 @@ including the authorization-required state before a launch wave becomes
 executable, native-turn completion after bounded refresh, and the terminal
 archived state after exact native archive receipts are accepted. Ordinary
 receipts filter archived members from the visible roster, while the explicit
-history tool restores them. Large current rosters and archived history render
-in independently collapsible disclosure groups. The widget
+history tool restores them. Every non-empty canonical status renders as an
+independently collapsible rollup with an exact count, and expanded rollups use
+compact worker rows. The widget
 performs no app-server reads or native effects; the refresh tool owns its
 bounded read before returning the receipt. Every protocol-producing tool
 publishes its exact result `outputSchema`. Results containing `nextAction`

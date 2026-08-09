@@ -199,8 +199,8 @@ npm run inspect:mcp
 The rendered component has a second lane built on the official MCP Apps
 `basic-host`. Nelos starts a Streamable HTTP fixture server with the official
 MCP SDK, checks out the host at a reviewed commit, builds it in a temporary
-cache, and connects the host and its separate sandbox to nine deterministic
-execution-map states:
+cache, and connects the host and its separate sandbox to deterministic
+execution-map fixtures spanning every canonical worker status:
 
 ```bash
 # Build and reach the host, sandbox, and fixture MCP endpoints.
@@ -215,6 +215,8 @@ npm run verify:mcp-app:all
 
 The host is pinned to
 `modelcontextprotocol/ext-apps@92f46a574568a3ddac7600343b7d3c4c4ed7b588`.
+That host compiles its sandbox origin as `http://localhost:8081`, so the Nelos
+launcher uses and enforces port `8081` for the sandbox process.
 Its checkout and dependencies live under the operating-system temporary
 directory rather than the repository. Delete that cache, or set
 `NELOS_MCP_APP_HOST_CACHE_DIR`, when deliberately changing the reviewed
