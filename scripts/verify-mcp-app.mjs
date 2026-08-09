@@ -216,6 +216,7 @@ function verifyResource() {
   assert.match(content?.text ?? "", /applyHostContext/u);
   assert.match(content?.text ?? "", /id="host-fonts"/u);
   assert.match(content?.text ?? "", /styles\?\.css\?\.fonts/u);
+  assert.match(content?.text ?? "", /id="members"[\s\S]*?role="group"[\s\S]*?aria-label="Nelos task workers"/u);
   assert.match(content?.text ?? "", /role="status"/u);
   assert.match(content?.text ?? "", /document\.createElement\("details"\)/u);
   assert.match(content?.text ?? "", /STATUS_GROUPS/u);

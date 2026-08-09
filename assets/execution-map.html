@@ -424,7 +424,12 @@
           Expand active
         </button>
       </div>
-      <div id="members" class="groups" aria-label="Nelos task workers"></div>
+      <div
+        id="members"
+        class="groups"
+        role="group"
+        aria-label="Nelos task workers"
+      ></div>
       <p
         id="update-status"
         class="sr-only"
@@ -710,11 +715,19 @@
           root.dataset.theme = context.theme;
           root.style.colorScheme = context.theme;
         }
-        for (const [name, value] of Object.entries(
-          context.styles?.variables ?? {},
-        )) {
-          if (HOST_STYLE_VARIABLES.has(name) && typeof value === "string") {
-            root.style.setProperty(name, value);
+        if (
+          context.styles &&
+          Object.prototype.hasOwnProperty.call(context.styles, "variables")
+        ) {
+          for (const name of HOST_STYLE_VARIABLES) {
+            root.style.removeProperty(name);
+          }
+          for (const [name, value] of Object.entries(
+            context.styles.variables ?? {},
+          )) {
+            if (HOST_STYLE_VARIABLES.has(name) && typeof value === "string") {
+              root.style.setProperty(name, value);
+            }
           }
         }
         if (typeof context.styles?.css?.fonts === "string") {

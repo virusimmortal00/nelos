@@ -538,6 +538,7 @@ test("npm/plugin payload excludes calibration and keeps the 0.12.11 release inva
   assert.equal(plugin.version, "0.12.11");
   assert.equal(plugin.releaseBuildIdentity, "nelos-release-v1:0.12.11");
   assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, "0.12.11");
+  assert.equal(mcp.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY, "nelos-release-v1:0.12.11");
   assert.equal(packageMetadata.files.some((path) => path.startsWith("experiments")), false);
   assert.equal(packageMetadata.scripts["calibration:build"], undefined);
   const packed = JSON.parse((await executeFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: REPOSITORY_ROOT })).stdout)[0];

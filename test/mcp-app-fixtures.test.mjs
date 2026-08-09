@@ -53,6 +53,11 @@ async function mountExecutionMapWidget(source, {
       getPropertyValue(name) {
         return properties.get(name) ?? "";
       },
+      removeProperty(name) {
+        const value = properties.get(name) ?? "";
+        properties.delete(name);
+        return value;
+      },
       setProperty(name, value) {
         properties.set(name, String(value));
       },
@@ -176,6 +181,7 @@ async function mountExecutionMapWidget(source, {
   bulkToggleElement.setAttribute("aria-expanded", "false");
   const membersElement = makeElement("div", "members");
   membersElement.className = "groups";
+  membersElement.setAttribute("role", "group");
   const updateStatusElement = makeElement("p", "update-status");
   updateStatusElement.className = "sr-only";
   groupActionsElement.append(bulkToggleElement);
@@ -525,6 +531,7 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       updateStatusElement,
     } = widget;
     assert.equal(membersElement.tagName, "div");
+    assert.equal(membersElement.attributes.role, "group");
     assert.equal(membersElement.children[0]?.tagName, "p");
     assert.equal(membersElement.children[0]?.textContent, "Waiting for task state…");
     assert.equal(documentElement.dataset.theme, "light");
@@ -536,6 +543,10 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(
       documentElement.style.getPropertyValue("--color-text-primary"),
       "rgb(20, 21, 24)",
+    );
+    assert.equal(
+      documentElement.style.getPropertyValue("--color-background-primary"),
+      "rgb(255, 255, 255)",
     );
     assert.equal(observers.length, 1);
     assert.deepEqual(observers[0].observed, [documentElement, document.body]);
@@ -767,7 +778,11 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(documentElement.style.colorScheme, "dark");
     assert.equal(
       documentElement.style.getPropertyValue("--color-text-primary"),
-      "rgb(20, 21, 24)",
+      "",
+    );
+    assert.equal(
+      documentElement.style.getPropertyValue("--color-background-primary"),
+      "",
     );
     assert.equal(
       documentElement.style.getPropertyValue("--color-text-warning"),
@@ -784,6 +799,11 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(
       hostFontsElement.textContent,
       '@font-face { font-family: "Fixture Sans"; src: local("Helvetica"); }',
+    );
+    sendHostContext({ platform: "desktop" });
+    assert.equal(
+      documentElement.style.getPropertyValue("--color-text-warning"),
+      "rgb(180, 83, 9)",
     );
 
     const oneGroupMap = JSON.parse(JSON.stringify(withoutAttentionMap));

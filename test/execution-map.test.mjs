@@ -689,8 +689,9 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.match(resource.contents[0].text, /--nelos-safe-area-top/u);
   assert.match(
     resource.contents[0].text,
-    /data-status="created"[^\n]*group-summary::marker,[\s\S]{0,240}color: var\(--success\)/u,
+    /\.member-group\[data-status="created"\]\s*>\s*\.group-summary::marker,[^{}]*\{[^{}]*color:\s*var\(--success\);[^{}]*\}/u,
   );
+  assert.match(resource.contents[0].text, /id="members"[\s\S]*?role="group"[\s\S]*?aria-label="Nelos task workers"/u);
   assert.match(resource.contents[0].text, /role="status"/u);
   assert.match(
     resource.contents[0].text,

@@ -27,8 +27,8 @@ action union rather than an untyped object. Visual tools correlate
 - the parent task or objective;
 - every non-archived member task in an ordinary receipt;
 - lifecycle, exact requested model, and reasoning level;
-- planning, planned, authorization-required, launch-pending, unknown, running,
-  created, attention, complete, accepted, archiving, archived, or kept status.
+- planning, planned, authorization-required, launch-pending, created, unknown,
+  running, attention, complete, accepted, archiving, archived, or kept status.
 
 The durable projection retains the full roster, but ordinary visual receipts
 omit archived members. `nelos_execution_map_history` is the explicit read-only
