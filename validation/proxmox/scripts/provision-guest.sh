@@ -99,6 +99,7 @@ assert_build_guest
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get \
+  --error-on=any \
   -o DPkg::Lock::Timeout=300 \
   -o Acquire::Retries=3 \
   -o APT::Snapshot="$UBUNTU_APT_SNAPSHOT" \

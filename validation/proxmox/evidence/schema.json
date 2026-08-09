@@ -221,7 +221,7 @@
           "const": "0.144.6"
         },
         "freshProcess": {
-          "const": true
+          "type": "boolean"
         },
         "home": {
           "type": "string",
@@ -315,7 +315,7 @@
           "const": "0.147.0"
         },
         "freshProcess": {
-          "const": true
+          "type": "boolean"
         },
         "home": {
           "type": "string",

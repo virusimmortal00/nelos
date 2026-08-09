@@ -316,8 +316,14 @@ export async function validateRecipeSources(root, lock) {
   if (!bootstrap.includes(`readonly UBUNTU_APT_SNAPSHOT="${lock.policy.ubuntuAptSnapshot}"`)) {
     fail("/recipe/bootstrap", "Ubuntu APT snapshot must match the toolchain lock");
   }
+  if (!bootstrap.includes('APT::Snapshot \\"${UBUNTU_APT_SNAPSHOT}\\";')) {
+    fail("/recipe/bootstrap", "base-template packages must come from the immutable Ubuntu snapshot");
+  }
   if (!provisionGuest.includes(`readonly UBUNTU_APT_SNAPSHOT="${lock.policy.ubuntuAptSnapshot}"`)) {
     fail("/recipe/provision-guest", "Ubuntu APT snapshot must match the toolchain lock");
+  }
+  if (!provisionGuest.includes("--error-on=any")) {
+    fail("/recipe/provision-guest", "guest package metadata updates must fail on any fetch error");
   }
   if (!provisionGuest.includes('-o APT::Snapshot="$UBUNTU_APT_SNAPSHOT"')) {
     fail("/recipe/provision-guest", "guest packages must come from the immutable Ubuntu snapshot");
@@ -474,6 +480,12 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
     "legacy-01446": legacy,
     "agent-plugin-01470": agent,
   })) {
+    if (lane.freshProcess !== lane.checks.freshProcessStart) {
+      fail(`/lanes/${laneId}/freshProcess`, "must match the observed fresh-process start check");
+    }
+    if (lane.checks.nelosConfigGet && !lane.toolNames.includes("nelos_config_get")) {
+      fail(`/lanes/${laneId}/toolNames`, "must include nelos_config_get when its check passes");
+    }
     for (const environmentKey of contract.lanes[laneId].requiredEnvironment) {
       if (!lane.processObservation.observedEnvironmentKeys.includes(environmentKey)) {
         fail(`/lanes/${laneId}/processObservation/observedEnvironmentKeys`, `must include ${environmentKey}`);

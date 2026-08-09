@@ -171,8 +171,9 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /git_readonly status --porcelain=v1 --untracked-files=all/u);
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
-  assert.match(bootstrap, /APT::Snapshot/u);
-  assert.match(provisionGuest, /APT::Snapshot/u);
+  assert.match(bootstrap, /APT::Snapshot \\"\$\{UBUNTU_APT_SNAPSHOT\}\\";/u);
+  assert.match(provisionGuest, /-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"/u);
+  assert.match(provisionGuest, /--error-on=any/u);
   assert.match(proxmoxSource, /bridge\s*=\s*"vmbr0"/u);
   assert.match(proxmoxSource, /firewall\s*=\s*true/u);
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
@@ -240,6 +241,36 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     failures: ["legacy.tools-list.missing-required-tool"],
   };
   validateEvidenceDocument(failedMissingTool, evidenceSchema, contract);
+
+  const failedBeforeProcessStart = structuredClone(evidence);
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].freshProcess = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.freshProcessStart = false;
+  failedBeforeProcessStart.result = {
+    status: "failed",
+    failures: ["agent-plugin.process.start-failed"],
+  };
+  validateEvidenceDocument(failedBeforeProcessStart, evidenceSchema, contract);
+
+  const inconsistentProcessStart = structuredClone(failedBeforeProcessStart);
+  inconsistentProcessStart.lanes["agent-plugin-01470"].freshProcess = true;
+  assert.throws(
+    () => validateEvidenceDocument(inconsistentProcessStart, evidenceSchema, contract),
+    /must match the observed fresh-process start check/u,
+  );
+
+  const failedWithFalseToolClaim = structuredClone(evidence);
+  failedWithFalseToolClaim.lanes["legacy-01446"].toolNames = ["another_tool"];
+  failedWithFalseToolClaim.lanes["legacy-01446"].checks.toolsList = false;
+  failedWithFalseToolClaim.lanes["legacy-01446"].checks.laneParity = false;
+  failedWithFalseToolClaim.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedWithFalseToolClaim.result = {
+    status: "failed",
+    failures: ["legacy.tools-list.invalid-tool-claim"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(failedWithFalseToolClaim, evidenceSchema, contract),
+    /must include nelos_config_get when its check passes/u,
+  );
 
   const passedWithFailedCheck = structuredClone(evidence);
   passedWithFailedCheck.lanes["legacy-01446"].checks.toolsList = false;
