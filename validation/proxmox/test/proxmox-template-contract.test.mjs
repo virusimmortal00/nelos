@@ -192,6 +192,17 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   assert.equal(evidence.lanes["legacy-01446"].checks.laneParity, true);
   assert.equal(evidence.lanes["agent-plugin-01470"].checks.laneParity, true);
 
+  const sha256Revision = structuredClone(evidence);
+  sha256Revision.candidate.sourceRevision = "a".repeat(64);
+  validateEvidenceDocument(sha256Revision, evidenceSchema, contract);
+
+  const incompleteRevision = structuredClone(evidence);
+  incompleteRevision.candidate.sourceRevision = "a".repeat(48);
+  assert.throws(
+    () => validateEvidenceDocument(incompleteRevision, evidenceSchema, contract),
+    /sourceRevision: must match/u,
+  );
+
   const wrongRun = structuredClone(evidence);
   wrongRun.runId = "another-run";
   assert.throws(

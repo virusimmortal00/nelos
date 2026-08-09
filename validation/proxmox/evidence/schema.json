@@ -34,7 +34,7 @@
       "properties": {
         "sourceRevision": {
           "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
         },
         "treeSha256": {
           "$ref": "#/$defs/sha256"
