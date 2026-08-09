@@ -221,6 +221,38 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     /must include PLUGIN_DATA/u,
   );
 
+  const failedWithMissingPluginData = structuredClone(missingPluginData);
+  failedWithMissingPluginData.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  failedWithMissingPluginData.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedWithMissingPluginData.lanes["legacy-01446"].checks.laneParity = false;
+  failedWithMissingPluginData.result = {
+    status: "failed",
+    failures: ["agent-plugin.process.required-environment-missing"],
+  };
+  validateEvidenceDocument(failedWithMissingPluginData, evidenceSchema, contract);
+
+  const pluginInstallFailedWithMcpSuccess = structuredClone(evidence);
+  pluginInstallFailedWithMcpSuccess.lanes["agent-plugin-01470"].checks.pluginInstall = false;
+  pluginInstallFailedWithMcpSuccess.result = {
+    status: "failed",
+    failures: ["agent-plugin.plugin.install-failed"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(pluginInstallFailedWithMcpSuccess, evidenceSchema, contract),
+    /cannot pass before plugin installation succeeds/u,
+  );
+
+  const pluginInstallWithoutMarketplace = structuredClone(evidence);
+  pluginInstallWithoutMarketplace.lanes["agent-plugin-01470"].checks.marketplaceInstall = false;
+  pluginInstallWithoutMarketplace.result = {
+    status: "failed",
+    failures: ["agent-plugin.marketplace.install-failed"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(pluginInstallWithoutMarketplace, evidenceSchema, contract),
+    /cannot pass before marketplace installation succeeds/u,
+  );
+
   const mismatchedTools = structuredClone(evidence);
   mismatchedTools.lanes["agent-plugin-01470"].toolNames = ["another_tool"];
   assert.throws(

@@ -485,6 +485,19 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
     "legacy-01446": legacy,
     "agent-plugin-01470": agent,
   })) {
+    if (!lane.checks.marketplaceInstall && lane.checks.pluginInstall) {
+      fail(`/lanes/${laneId}/checks/pluginInstall`, "cannot pass before marketplace installation succeeds");
+    }
+    if (!lane.checks.pluginInstall) {
+      for (const downstreamCheck of ["mcpInitialize", "toolsList", "nelosConfigGet", "laneParity"]) {
+        if (lane.checks[downstreamCheck]) {
+          fail(`/lanes/${laneId}/checks/${downstreamCheck}`, "cannot pass before plugin installation succeeds");
+        }
+      }
+      if (lane.toolNames.length !== 0) {
+        fail(`/lanes/${laneId}/toolNames`, "must be empty when plugin installation did not succeed");
+      }
+    }
     if (lane.freshProcess !== lane.checks.freshProcessStart) {
       fail(`/lanes/${laneId}/freshProcess`, "must match the observed fresh-process start check");
     }
@@ -514,9 +527,11 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
     if (lane.checks.nelosConfigGet && !lane.toolNames.includes("nelos_config_get")) {
       fail(`/lanes/${laneId}/toolNames`, "must include nelos_config_get when its check passes");
     }
-    for (const environmentKey of contract.lanes[laneId].requiredEnvironment) {
-      if (!lane.processObservation.observedEnvironmentKeys.includes(environmentKey)) {
-        fail(`/lanes/${laneId}/processObservation/observedEnvironmentKeys`, `must include ${environmentKey}`);
+    if (evidence.result.status === "passed") {
+      for (const environmentKey of contract.lanes[laneId].requiredEnvironment) {
+        if (!lane.processObservation.observedEnvironmentKeys.includes(environmentKey)) {
+          fail(`/lanes/${laneId}/processObservation/observedEnvironmentKeys`, `must include ${environmentKey}`);
+        }
       }
     }
   }
