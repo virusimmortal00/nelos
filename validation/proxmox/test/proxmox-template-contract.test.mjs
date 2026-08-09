@@ -185,6 +185,45 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
 });
 
+test("Proxmox preflight closes storage types and inherited device inventory", async () => {
+  const [buildWrapper, bootstrap] = await Promise.all([
+    readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
+    readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
+  ]);
+
+  const storageTypeContract = 'readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';
+  assert.equal(buildWrapper.includes(storageTypeContract), true);
+  assert.equal(bootstrap.includes(storageTypeContract), true);
+  assert.match(bootstrap, /unless \$node_local_types\{\$data->\{type\} \/\/ q\{\}\}/u);
+  assert.equal((buildWrapper.match(/--arg node_local_storage_types/gu) ?? []).length, 2);
+  assert.equal((buildWrapper.match(/\(\(\.data\.shared \/\/ 0\) == 0\)/gu) ?? []).length, 2);
+
+  assert.match(buildWrapper, /\/config\?current=1/u);
+  assert.equal(
+    buildWrapper.includes(
+      "readonly BASE_TEMPLATE_DEVICE_KEYS_JSON='[\"efidisk0\",\"ide2\",\"ipconfig0\",\"net0\",\"scsi0\",\"serial0\",\"vga\"]'",
+    ),
+    true,
+  );
+  for (const inheritedDevicePrefix of [
+    "efidisk",
+    "hostpci",
+    "ide",
+    "sata",
+    "scsi",
+    "tpmstate",
+    "unused",
+    "usb",
+    "virtio",
+  ]) {
+    assert.match(buildWrapper, new RegExp(`\\|${inheritedDevicePrefix}\\|`, "u"));
+  }
+  for (const inheritedDeviceKey of ["args", "ivshmem", "tablet", "vmstate", "watchdog"]) {
+    assert.equal(buildWrapper.includes(`. == "${inheritedDeviceKey}"`), true);
+  }
+  assert.match(buildWrapper, /\] \| sort\) == \(\$allowed_device_keys \| sort\)/u);
+});
+
 test("sanitized evidence validates isolated fresh-process lane parity", async () => {
   const { contract, evidenceSchema } = await loadFixture();
   const evidence = createEvidenceProbe(contract);

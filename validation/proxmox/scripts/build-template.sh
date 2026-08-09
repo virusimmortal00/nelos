@@ -340,6 +340,10 @@ jq -e '.data.version | startswith("8.4.")' <<<"$version_response" >/dev/null || 
 resources_response="$(api_get 'cluster/resources?type=vm')" || die "could not query Proxmox VM inventory"
 jq -e '.data | type == "array"' <<<"$resources_response" >/dev/null || die "unexpected Proxmox inventory response"
 
+readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
+readonly BASE_TEMPLATE_DEVICE_KEYS_JSON='["efidisk0","ide2","ipconfig0","net0","scsi0","serial0","vga"]'
+readonly PROXMOX_INDEXED_DEVICE_KEY_PATTERN='^(audio|efidisk|hostpci|ide|ipconfig|net|numa|parallel|rng|sata|scsi|serial|tpmstate|unused|usb|virtio|virtiofs)[0-9]+$'
+
 jq -e \
   --argjson vmid "$BASE_TEMPLATE_VMID" \
   --arg name "$BASE_TEMPLATE_NAME" \
@@ -353,9 +357,11 @@ jq -e \
     (((.tags // "") | split(";")) | index("ubuntu-release-20260801") != null)
   )' <<<"$resources_response" >/dev/null || die "base VMID, name, node, template state, or ownership tag does not match"
 
-base_config_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config")" || die "could not query base template configuration"
+base_config_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config?current=1")" || die "could not query current base template configuration"
 jq -e \
   --arg digest "$UBUNTU_IMAGE_SHA256" \
+  --arg indexed_device_key_pattern "$PROXMOX_INDEXED_DEVICE_KEY_PATTERN" \
+  --argjson allowed_device_keys "$BASE_TEMPLATE_DEVICE_KEYS_JSON" \
   '(.data.scsi0 // "") as $disk |
    ($disk | split(",")) as $diskOptions |
    .data.machine == "q35" and
@@ -366,15 +372,29 @@ jq -e \
    ($disk | test("^[A-Za-z0-9][A-Za-z0-9._-]*:")) and
    (($diskOptions | map(select(startswith("size=")))) == ["size=64G"]) and
    (($diskOptions | map(select(startswith("discard=")))) == ["discard=on"]) and
-   (($diskOptions | map(select(startswith("iothread=")))) == ["iothread=1"])' \
+   (($diskOptions | map(select(startswith("iothread=")))) == ["iothread=1"]) and
+   ([.data | keys[] |
+     select(
+       test($indexed_device_key_pattern) or
+       . == "args" or
+       . == "ivshmem" or
+       . == "tablet" or
+       . == "vmstate" or
+       . == "vga" or
+       . == "watchdog"
+     )
+   ] | sort) == ($allowed_device_keys | sort)' \
   <<<"$base_config_response" >/dev/null || \
-  die "base template hardware, guest-agent, provenance, or inherited disk contract does not match"
+  die "base template hardware, guest-agent, provenance, or inherited device contract does not match"
 
 base_disk_storage="$(jq -er '.data.scsi0 | capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage' <<<"$base_config_response")"
 base_storage_response="$(api_get "storage/${base_disk_storage}")" || die "could not query base disk storage configuration"
 jq -e \
   --arg node "$PROXMOX_NODE" \
-  '.data.shared != 1 and
+  --arg node_local_storage_types "$NODE_LOCAL_STORAGE_TYPES_CSV" \
+  '.data.type as $storageType |
+   (($node_local_storage_types | split(",") | index($storageType)) != null) and
+   ((.data.shared // 0) == 0) and
    ((.data.content // "") | split(",") | index("images") != null) and
    ((.data.nodes // $node) | split(",") | index($node) != null)' \
   <<<"$base_storage_response" >/dev/null || die "base disk storage must be node-local, image-capable, and enabled for the selected node"
@@ -390,7 +410,10 @@ fi
 storage_response="$(api_get "storage/${CLOUD_INIT_STORAGE}")" || die "could not query Cloud-Init storage configuration"
 jq -e \
   --arg node "$PROXMOX_NODE" \
-  '.data.shared != 1 and
+  --arg node_local_storage_types "$NODE_LOCAL_STORAGE_TYPES_CSV" \
+  '.data.type as $storageType |
+   (($node_local_storage_types | split(",") | index($storageType)) != null) and
+   ((.data.shared // 0) == 0) and
    ((.data.content // "") | split(",") | index("images") != null) and
    ((.data.nodes // $node) | split(",") | index($node) != null)' \
   <<<"$storage_response" >/dev/null || die "Cloud-Init storage must be node-local, image-capable, and enabled for the selected node"

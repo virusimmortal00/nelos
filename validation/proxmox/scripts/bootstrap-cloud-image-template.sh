@@ -6,6 +6,7 @@ readonly UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/releases/noble/releas
 readonly UBUNTU_IMAGE_SHA256="0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe"
 readonly UBUNTU_IMAGE_NAME="ubuntu-24.04-server-cloudimg-amd64-release-20260801.img"
 readonly UBUNTU_APT_SNAPSHOT="20260801T120000Z"
+readonly NODE_LOCAL_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -33,8 +34,10 @@ assert_node_local_storage() {
 
   config="$(storage_config "$storage")" || die "could not read storage configuration: ${storage}"
   printf '%s' "$config" | perl -MJSON::PP -0777 -e '
-    my ($wanted_node, $wanted_content) = @ARGV;
+    my ($wanted_node, $wanted_content, $node_local_types_csv) = @ARGV;
     my $data = decode_json(<STDIN>);
+    my %node_local_types = map { $_ => 1 } split /,/, $node_local_types_csv;
+    exit 1 unless $node_local_types{$data->{type} // q{}};
     exit 1 if (($data->{shared} // 0) != 0);
     my %content = map { $_ => 1 } split /,/, ($data->{content} // q{});
     exit 1 unless $content{$wanted_content};
@@ -42,7 +45,7 @@ assert_node_local_storage() {
       my %nodes = map { $_ => 1 } split /,/, $data->{nodes};
       exit 1 unless $nodes{$wanted_node};
     }
-  ' "$PROXMOX_NODE" "$required_content" || \
+  ' "$PROXMOX_NODE" "$required_content" "$NODE_LOCAL_STORAGE_TYPES_CSV" || \
     die "storage ${storage} must be node-local, ${required_content}-capable, and enabled for ${PROXMOX_NODE}"
   pvesm status --storage "$storage" >/dev/null || die "storage is not active on this node: ${storage}"
 }
