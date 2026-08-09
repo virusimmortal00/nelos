@@ -173,7 +173,10 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
   assert.match(bootstrap, /APT::Snapshot \\"\$\{UBUNTU_APT_SNAPSHOT\}\\";/u);
   assert.match(provisionGuest, /-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"/u);
-  assert.match(provisionGuest, /--error-on=any/u);
+  assert.match(
+    provisionGuest,
+    /apt-get\s+\\\n\s+--error-on=any\s+\\\n\s+-o DPkg::Lock::Timeout=300\s+\\\n\s+-o Acquire::Retries=3\s+\\\n\s+-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"\s+\\\n\s+update/u,
+  );
   assert.match(proxmoxSource, /bridge\s*=\s*"vmbr0"/u);
   assert.match(proxmoxSource, /firewall\s*=\s*true/u);
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
@@ -224,6 +227,9 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
 
   const failedEvidence = structuredClone(evidence);
   failedEvidence.lanes["agent-plugin-01470"].checks.toolsList = false;
+  failedEvidence.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  failedEvidence.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedEvidence.lanes["legacy-01446"].checks.laneParity = false;
   failedEvidence.result = {
     status: "failed",
     failures: ["agent-plugin.tools-list.missing-required-tool"],
@@ -244,7 +250,14 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
 
   const failedBeforeProcessStart = structuredClone(evidence);
   failedBeforeProcessStart.lanes["agent-plugin-01470"].freshProcess = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys = [];
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].toolNames = [];
   failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.freshProcessStart = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.toolsList = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedBeforeProcessStart.lanes["legacy-01446"].checks.laneParity = false;
   failedBeforeProcessStart.result = {
     status: "failed",
     failures: ["agent-plugin.process.start-failed"],
@@ -258,22 +271,87 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     /must match the observed fresh-process start check/u,
   );
 
-  const failedWithFalseToolClaim = structuredClone(evidence);
-  failedWithFalseToolClaim.lanes["legacy-01446"].toolNames = ["another_tool"];
-  failedWithFalseToolClaim.lanes["legacy-01446"].checks.toolsList = false;
-  failedWithFalseToolClaim.lanes["legacy-01446"].checks.laneParity = false;
-  failedWithFalseToolClaim.lanes["agent-plugin-01470"].checks.laneParity = false;
-  failedWithFalseToolClaim.result = {
+  const prelaunchWithDownstreamSuccess = structuredClone(failedBeforeProcessStart);
+  prelaunchWithDownstreamSuccess.lanes["agent-plugin-01470"].checks.mcpInitialize = true;
+  assert.throws(
+    () => validateEvidenceDocument(prelaunchWithDownstreamSuccess, evidenceSchema, contract),
+    /cannot pass before a fresh process starts/u,
+  );
+
+  const prelaunchWithProcessObservation = structuredClone(failedBeforeProcessStart);
+  prelaunchWithProcessObservation.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys = ["HOME"];
+  assert.throws(
+    () => validateEvidenceDocument(prelaunchWithProcessObservation, evidenceSchema, contract),
+    /must be empty when no process was observed/u,
+  );
+
+  const prelaunchWithToolObservation = structuredClone(failedBeforeProcessStart);
+  prelaunchWithToolObservation.lanes["agent-plugin-01470"].toolNames = ["nelos_config_get"];
+  assert.throws(
+    () => validateEvidenceDocument(prelaunchWithToolObservation, evidenceSchema, contract),
+    /must be empty when no fresh process started/u,
+  );
+
+  const failedMcpWithToolSuccess = structuredClone(evidence);
+  failedMcpWithToolSuccess.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
+  failedMcpWithToolSuccess.result = {
+    status: "failed",
+    failures: ["agent-plugin.mcp.initialize-failed"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(failedMcpWithToolSuccess, evidenceSchema, contract),
+    /tool checks cannot pass before MCP initialization/u,
+  );
+
+  const failedMcpInitialization = structuredClone(evidence);
+  failedMcpInitialization.lanes["agent-plugin-01470"].toolNames = [];
+  failedMcpInitialization.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
+  failedMcpInitialization.lanes["agent-plugin-01470"].checks.toolsList = false;
+  failedMcpInitialization.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  failedMcpInitialization.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedMcpInitialization.lanes["legacy-01446"].checks.laneParity = false;
+  failedMcpInitialization.result = {
+    status: "failed",
+    failures: ["agent-plugin.mcp.initialize-failed"],
+  };
+  validateEvidenceDocument(failedMcpInitialization, evidenceSchema, contract);
+
+  const failedMcpWithStaleTools = structuredClone(failedMcpInitialization);
+  failedMcpWithStaleTools.lanes["agent-plugin-01470"].toolNames = ["nelos_config_get"];
+  assert.throws(
+    () => validateEvidenceDocument(failedMcpWithStaleTools, evidenceSchema, contract),
+    /must be empty before MCP initialization succeeds/u,
+  );
+
+  const asymmetricLaneParity = structuredClone(evidence);
+  asymmetricLaneParity.lanes["agent-plugin-01470"].checks.laneParity = false;
+  asymmetricLaneParity.result = {
+    status: "failed",
+    failures: ["lane.parity-mismatch"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(asymmetricLaneParity, evidenceSchema, contract),
+    /lane parity must report the same result in both lanes/u,
+  );
+
+  const failedWithInvalidToolClaim = structuredClone(evidence);
+  failedWithInvalidToolClaim.lanes["legacy-01446"].toolNames = ["another_tool"];
+  failedWithInvalidToolClaim.lanes["legacy-01446"].checks.laneParity = false;
+  failedWithInvalidToolClaim.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedWithInvalidToolClaim.result = {
     status: "failed",
     failures: ["legacy.tools-list.invalid-tool-claim"],
   };
   assert.throws(
-    () => validateEvidenceDocument(failedWithFalseToolClaim, evidenceSchema, contract),
+    () => validateEvidenceDocument(failedWithInvalidToolClaim, evidenceSchema, contract),
     /must include nelos_config_get when its check passes/u,
   );
 
   const passedWithFailedCheck = structuredClone(evidence);
   passedWithFailedCheck.lanes["legacy-01446"].checks.toolsList = false;
+  passedWithFailedCheck.lanes["legacy-01446"].checks.nelosConfigGet = false;
+  passedWithFailedCheck.lanes["legacy-01446"].checks.laneParity = false;
+  passedWithFailedCheck.lanes["agent-plugin-01470"].checks.laneParity = false;
   assert.throws(
     () => validateEvidenceDocument(passedWithFailedCheck, evidenceSchema, contract),
     /passed evidence requires every lane check to pass/u,

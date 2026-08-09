@@ -322,7 +322,7 @@ export async function validateRecipeSources(root, lock) {
   if (!provisionGuest.includes(`readonly UBUNTU_APT_SNAPSHOT="${lock.policy.ubuntuAptSnapshot}"`)) {
     fail("/recipe/provision-guest", "Ubuntu APT snapshot must match the toolchain lock");
   }
-  if (!provisionGuest.includes("--error-on=any")) {
+  if (!/apt-get\s+\\\n\s+--error-on=any\s+\\\n\s+-o DPkg::Lock::Timeout=300\s+\\\n\s+-o Acquire::Retries=3\s+\\\n\s+-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"\s+\\\n\s+update/u.test(provisionGuest)) {
     fail("/recipe/provision-guest", "guest package metadata updates must fail on any fetch error");
   }
   if (!provisionGuest.includes('-o APT::Snapshot="$UBUNTU_APT_SNAPSHOT"')) {
@@ -465,8 +465,13 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
   if (legacy.codexHome !== `${legacy.home}/.codex`) fail("/lanes/legacy-01446/codexHome", "must equal HOME/.codex");
   if (agent.codexHome !== `${agent.home}/.codex`) fail("/lanes/agent-plugin-01470/codexHome", "must equal HOME/.codex");
   if (legacy.pluginVersion !== agent.pluginVersion) fail("/lanes", "plugin versions must match across lanes");
-  if (evidence.result.status === "passed") {
+  if (legacy.checks.laneParity !== agent.checks.laneParity) {
+    fail("/lanes", "lane parity must report the same result in both lanes");
+  }
+  if (legacy.checks.laneParity) {
     assertExactSet(agent.toolNames, legacy.toolNames, "/lanes/agent-plugin-01470/toolNames");
+  }
+  if (evidence.result.status === "passed") {
     for (const [laneId, lane] of Object.entries({
       "legacy-01446": legacy,
       "agent-plugin-01470": agent,
@@ -482,6 +487,29 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract) {
   })) {
     if (lane.freshProcess !== lane.checks.freshProcessStart) {
       fail(`/lanes/${laneId}/freshProcess`, "must match the observed fresh-process start check");
+    }
+    if (!lane.freshProcess) {
+      for (const downstreamCheck of ["mcpInitialize", "toolsList", "nelosConfigGet", "laneParity"]) {
+        if (lane.checks[downstreamCheck]) {
+          fail(`/lanes/${laneId}/checks/${downstreamCheck}`, "cannot pass before a fresh process starts");
+        }
+      }
+      if (lane.toolNames.length !== 0) {
+        fail(`/lanes/${laneId}/toolNames`, "must be empty when no fresh process started");
+      }
+      if (lane.processObservation.observedEnvironmentKeys.length !== 0) {
+        fail(`/lanes/${laneId}/processObservation/observedEnvironmentKeys`, "must be empty when no process was observed");
+      }
+      continue;
+    }
+    if (!lane.checks.mcpInitialize && (lane.checks.toolsList || lane.checks.nelosConfigGet || lane.checks.laneParity)) {
+      fail(`/lanes/${laneId}/checks`, "tool checks cannot pass before MCP initialization");
+    }
+    if (!lane.checks.mcpInitialize && lane.toolNames.length !== 0) {
+      fail(`/lanes/${laneId}/toolNames`, "must be empty before MCP initialization succeeds");
+    }
+    if (!lane.checks.toolsList && (lane.checks.nelosConfigGet || lane.checks.laneParity)) {
+      fail(`/lanes/${laneId}/checks`, "tool-result checks cannot pass before tools/list succeeds");
     }
     if (lane.checks.nelosConfigGet && !lane.toolNames.includes("nelos_config_get")) {
       fail(`/lanes/${laneId}/toolNames`, "must include nelos_config_get when its check passes");
