@@ -1,6 +1,6 @@
 {
   "name": "nelos",
-  "version": "0.12.11",
+  "version": "0.12.12",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {
@@ -45,6 +45,8 @@
   "files": [
     ".codex-plugin/",
     ".mcp.json",
+    "plugin.json",
+    "mcp.json",
     "CHANGELOG.md",
     "assets/",
     "distribution-provenance.json",

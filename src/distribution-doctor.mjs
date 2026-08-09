@@ -123,12 +123,18 @@ export async function diagnoseDistribution(options = {}) {
       inspectProvenance(join(state.plugin.installedPath, PROVENANCE_FILENAME)),
       observedIntegrity(() => computeDistributionIntegrity(
         state.releasePath,
-        { allowLegacyWithoutCorpus: true },
+        {
+          allowLegacyWithoutCorpus: true,
+          allowLegacyWithoutAgentPluginLayout: true,
+        },
       )),
       observedIntegrity(() => computeFileIntegrity(join(state.skillPath, "SKILL.md"))),
       observedIntegrity(() => computeDistributionIntegrity(
         state.plugin.installedPath,
-        { allowLegacyWithoutCorpus: true },
+        {
+          allowLegacyWithoutCorpus: true,
+          allowLegacyWithoutAgentPluginLayout: true,
+        },
       )),
     ]);
     const distributionIntact = Boolean(

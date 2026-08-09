@@ -23,6 +23,7 @@ import {
   computeDistributionIntegrity,
   pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
+import { assertAgentPluginLayout } from "./generate-mcp-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -89,21 +90,31 @@ export function validateVersionCoherence({
   packageMetadata,
   pluginMetadata,
   mcpMetadata,
+  agentPluginMetadata,
+  agentPluginMcpMetadata,
   provenance,
   lockMetadata,
   actualIntegrity,
 }) {
   const version = packageMetadata?.version;
   assertReleaseTag(tag, version);
+  assertAgentPluginLayout({
+    legacyPluginMetadata: pluginMetadata,
+    agentPluginMetadata,
+    agentPluginMcpMetadata,
+  });
   const releaseBuildIdentity = `nelos-release-v1:${version}`;
   const surfaces = [
     [".codex-plugin/plugin.json", pluginMetadata?.version, version],
+    ["plugin.json", agentPluginMetadata?.version, version],
     [".mcp.json", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION, version],
+    ["mcp.json", agentPluginMcpMetadata?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION, version],
     ["distribution-provenance.json", provenance?.revision, version],
     ["package-lock.json", lockMetadata?.version, version],
     ["package-lock.json root package", lockMetadata?.packages?.[""]?.version, version],
     [".codex-plugin/plugin.json release build identity", pluginMetadata?.releaseBuildIdentity, releaseBuildIdentity],
     [".mcp.json release build identity", mcpMetadata?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY, releaseBuildIdentity],
+    ["mcp.json release build identity", agentPluginMcpMetadata?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY, releaseBuildIdentity],
   ];
   for (const [label, candidate, expected] of surfaces) {
     if (candidate !== expected) {
@@ -255,6 +266,8 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
     packageText,
     pluginText,
     mcpText,
+    agentPluginText,
+    agentPluginMcpText,
     provenanceText,
     lockText,
     changelog,
@@ -262,6 +275,8 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
     readFile(join(root, "package.json"), "utf8"),
     readFile(join(root, ".codex-plugin", "plugin.json"), "utf8"),
     readFile(join(root, ".mcp.json"), "utf8"),
+    readFile(join(root, "plugin.json"), "utf8"),
+    readFile(join(root, "mcp.json"), "utf8"),
     readFile(join(root, "distribution-provenance.json"), "utf8"),
     readFile(join(root, "package-lock.json"), "utf8"),
     readFile(join(root, "CHANGELOG.md"), "utf8"),
@@ -269,6 +284,8 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
   const packageMetadata = json(packageText, "package.json");
   const pluginMetadata = json(pluginText, ".codex-plugin/plugin.json");
   const mcpMetadata = json(mcpText, ".mcp.json");
+  const agentPluginMetadata = json(agentPluginText, "plugin.json");
+  const agentPluginMcpMetadata = json(agentPluginMcpText, "mcp.json");
   const provenance = json(provenanceText, "distribution-provenance.json");
   const lockMetadata = json(lockText, "package-lock.json");
   const actualIntegrity = await computeDistributionIntegrity(root);
@@ -277,6 +294,8 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
     packageMetadata,
     pluginMetadata,
     mcpMetadata,
+    agentPluginMetadata,
+    agentPluginMcpMetadata,
     provenance,
     lockMetadata,
     actualIntegrity,

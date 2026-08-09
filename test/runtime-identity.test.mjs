@@ -373,11 +373,19 @@ test("reports integrity-failure when the digest does not match", async () => {
       integrity: INTEGRITY_A,
     });
     const loaded = await deriveRuntimeIdentityV1({ moduleRoot: root });
+    let integrityOptions;
     const health = await resolveRuntimeHealthV1({
       loaded,
       codexHome,
       verifyIntegrity: true,
-      computeIntegrity: async () => INTEGRITY_B,
+      computeIntegrity: async (_path, options) => {
+        integrityOptions = options;
+        return INTEGRITY_B;
+      },
+    });
+    assert.deepEqual(integrityOptions, {
+      allowLegacyWithoutCorpus: true,
+      allowLegacyWithoutAgentPluginLayout: true,
     });
     assert.equal(health.state, "integrity-failure");
     assert.equal(health.mutationAllowed, false);

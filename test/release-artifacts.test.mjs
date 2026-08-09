@@ -24,18 +24,24 @@ import {
 import {
   computeDistributionIntegrity,
 } from "../src/distribution-provenance.mjs";
+import {
+  buildAgentPluginMcpConfig,
+  renderAgentPluginManifest,
+} from "../scripts/generate-mcp-config.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const execFileAsync = promisify(execFile);
 
 function coherentFixture(version = "1.2.3+codex.20260728120000") {
+  const pluginMetadata = {
+    name: "nelos",
+    version,
+    releaseBuildIdentity: `nelos-release-v1:${version}`,
+  };
   return {
     tag: `v${version}`,
     packageMetadata: { name: "nelos", version },
-    pluginMetadata: {
-      version,
-      releaseBuildIdentity: `nelos-release-v1:${version}`,
-    },
+    pluginMetadata,
     mcpMetadata: {
       mcpServers: {
         nelos: {
@@ -46,6 +52,11 @@ function coherentFixture(version = "1.2.3+codex.20260728120000") {
         },
       },
     },
+    agentPluginMetadata: JSON.parse(renderAgentPluginManifest(pluginMetadata)),
+    agentPluginMcpMetadata: buildAgentPluginMcpConfig(
+      version,
+      pluginMetadata.releaseBuildIdentity,
+    ),
     provenance: {
       revision: version,
       integrity: "sha256:fixture",
@@ -92,14 +103,23 @@ test("release coherence requires every version and provenance surface", () => {
   );
   for (const mutate of [
     (candidate) => { candidate.pluginMetadata.version = "9.9.9"; },
+    (candidate) => { candidate.agentPluginMetadata.version = "9.9.9"; },
     (candidate) => {
       candidate.mcpMetadata.mcpServers.nelos.env.NELOS_PLUGIN_VERSION = "9.9.9";
+    },
+    (candidate) => {
+      candidate.agentPluginMcpMetadata.mcpServers.nelos.env.NELOS_PLUGIN_VERSION =
+        "9.9.9";
     },
     (candidate) => {
       candidate.pluginMetadata.releaseBuildIdentity = "nelos-release-v1:9.9.9";
     },
     (candidate) => {
       candidate.mcpMetadata.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY =
+        "nelos-release-v1:9.9.9";
+    },
+    (candidate) => {
+      candidate.agentPluginMcpMetadata.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY =
         "nelos-release-v1:9.9.9";
     },
     (candidate) => { candidate.provenance.revision = "9.9.9"; },

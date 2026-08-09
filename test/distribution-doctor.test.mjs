@@ -6,6 +6,11 @@ import net from "node:net";
 import { basename, delimiter, dirname, join } from "node:path";
 import test from "node:test";
 
+import {
+  renderAgentPluginManifest,
+  renderAgentPluginMcpConfig,
+  renderMcpConfig,
+} from "../scripts/generate-mcp-config.mjs";
 import { diagnoseDistribution } from "../src/distribution-doctor.mjs";
 import { distributionInstallInternals } from "../src/distribution-install.mjs";
 import {
@@ -17,15 +22,30 @@ import {
   computeFileIntegrity,
 } from "../src/distribution-provenance.mjs";
 
+const DOCTOR_FIXTURE_VERSION = "0.0.0";
+const DOCTOR_FIXTURE_RELEASE_IDENTITY =
+  `nelos-release-v1:${DOCTOR_FIXTURE_VERSION}`;
+
 async function canonicalMkdtemp(prefix) {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
-async function createDoctorFixture(root, { includeCorpus = true } = {}) {
+async function createDoctorFixture(
+  root,
+  { includeCorpus = true, includeAgentPluginLayout = true } = {},
+) {
+  const sourcePluginMetadata = JSON.parse(
+    await readFile(new URL("../.codex-plugin/plugin.json", import.meta.url), "utf8"),
+  );
+  const pluginMetadata = {
+    ...sourcePluginMetadata,
+    version: DOCTOR_FIXTURE_VERSION,
+    releaseBuildIdentity: DOCTOR_FIXTURE_RELEASE_IDENTITY,
+  };
   const home = join(root, "home");
   const codexHome = join(home, ".codex");
   const installRoot = join(codexHome, "distributions", PLUGIN_NAME);
-  const releasePath = join(installRoot, "releases", "test-release");
+  const releasePath = join(installRoot, "releases", DOCTOR_FIXTURE_VERSION);
   const binDir = join(home, ".local", "bin");
   const skillPath = join(codexHome, "skills", "manage-nelos-tasks");
   const pluginSourcePath = join(home, "plugins", PLUGIN_NAME);
@@ -35,7 +55,7 @@ async function createDoctorFixture(root, { includeCorpus = true } = {}) {
     "cache",
     "personal",
     PLUGIN_NAME,
-    "test-release",
+    DOCTOR_FIXTURE_VERSION,
   );
   for (const directory of [
     join(releasePath, ".codex-plugin"),
@@ -56,13 +76,29 @@ async function createDoctorFixture(root, { includeCorpus = true } = {}) {
   await Promise.all([
     writeFile(join(releasePath, "README.md"), "trusted release\n"),
     writeFile(join(releasePath, "CHANGELOG.md"), "# Changelog\n"),
-    writeFile(join(releasePath, ".mcp.json"), `${JSON.stringify({
-      nelos: {
-        command: "node",
-        args: ["-e", "process.exit(0)"],
-        env: { NELOS_PLUGIN_VERSION: "test-release" },
-      },
-    })}\n`),
+    writeFile(
+      join(releasePath, ".codex-plugin", "plugin.json"),
+      `${JSON.stringify(pluginMetadata, null, 2)}\n`,
+    ),
+    writeFile(
+      join(releasePath, ".mcp.json"),
+      renderMcpConfig(DOCTOR_FIXTURE_VERSION, DOCTOR_FIXTURE_RELEASE_IDENTITY),
+    ),
+    ...(includeAgentPluginLayout
+      ? [
+        writeFile(
+          join(releasePath, "plugin.json"),
+          renderAgentPluginManifest(pluginMetadata),
+        ),
+        writeFile(
+          join(releasePath, "mcp.json"),
+          renderAgentPluginMcpConfig(
+            DOCTOR_FIXTURE_VERSION,
+            DOCTOR_FIXTURE_RELEASE_IDENTITY,
+          ),
+        ),
+      ]
+      : []),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
     writeFile(
@@ -79,10 +115,13 @@ async function createDoctorFixture(root, { includeCorpus = true } = {}) {
   const provenance = {
     schemaVersion: 1,
     distribution: DISTRIBUTION_NAME,
-    revision: "test-release",
+    revision: DOCTOR_FIXTURE_VERSION,
     integrity: await computeDistributionIntegrity(
       releasePath,
-      { allowLegacyWithoutCorpus: !includeCorpus },
+      {
+        allowLegacyWithoutCorpus: !includeCorpus,
+        allowLegacyWithoutAgentPluginLayout: !includeAgentPluginLayout,
+      },
     ),
     skillIntegrity: await computeFileIntegrity(join(skillPath, "SKILL.md")),
     requiredCliCommands: [...REQUIRED_CLI_COMMANDS],
@@ -128,6 +167,27 @@ async function createDoctorFixture(root, { includeCorpus = true } = {}) {
     configPath: join(codexHome, "config.toml"),
   };
 }
+
+test("doctor fixtures carry both production-generated plugin layouts", async () => {
+  const root = await canonicalMkdtemp("nelos-doctor-plugin-layouts-");
+  try {
+    const fixture = await createDoctorFixture(root);
+    const legacyPlugin = JSON.parse(
+      await readFile(join(fixture.releasePath, ".codex-plugin", "plugin.json"), "utf8"),
+    );
+    const expectedAgentPlugin = renderAgentPluginManifest(legacyPlugin);
+    const expectedAgentMcp = renderAgentPluginMcpConfig(
+      legacyPlugin.version,
+      legacyPlugin.releaseBuildIdentity,
+    );
+    for (const path of [fixture.releasePath, fixture.pluginInstalledPath]) {
+      assert.equal(await readFile(join(path, "plugin.json"), "utf8"), expectedAgentPlugin);
+      assert.equal(await readFile(join(path, "mcp.json"), "utf8"), expectedAgentMcp);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("personal marketplace bootstrap is exact and idempotent", async () => {
   const root = await canonicalMkdtemp("nelos-marketplace-");
@@ -1291,6 +1351,51 @@ test("doctor verifies a pre-corpus release with its legacy integrity entry set",
     assert.equal(
       diagnosis.checks.find(({ id }) => id === "coherence").status,
       "ok",
+    );
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("doctor verifies a pre-Agent-Plugins release with its paired legacy entry set", async () => {
+  const root = await canonicalMkdtemp("nelos-doctor-legacy-agent-layout-");
+  try {
+    const fixture = await createDoctorFixture(root, {
+      includeAgentPluginLayout: false,
+    });
+    const diagnosis = await diagnoseDistribution({
+      ...fixture,
+      env: { PATH: fixture.binDir },
+    });
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "distribution").status,
+      "ok",
+    );
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "coherence").status,
+      "ok",
+    );
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("doctor rejects a partially present Agent Plugins layout", async () => {
+  const root = await canonicalMkdtemp("nelos-doctor-partial-agent-layout-");
+  try {
+    const fixture = await createDoctorFixture(root, {
+      includeAgentPluginLayout: false,
+    });
+    for (const path of [fixture.releasePath, fixture.pluginInstalledPath]) {
+      await writeFile(join(path, "plugin.json"), "{}\n");
+    }
+    const diagnosis = await diagnoseDistribution({
+      ...fixture,
+      env: { PATH: fixture.binDir },
+    });
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "distribution").status,
+      "error",
+    );
+    assert.equal(
+      diagnosis.checks.find(({ id }) => id === "coherence").status,
+      "error",
     );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
