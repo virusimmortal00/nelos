@@ -187,13 +187,20 @@ function runAgentPluginServer({ home, pluginData, server, requests }) {
     });
     let stdout = "";
     let stderr = "";
+    let stdinClosed = false;
     child.once("error", reject);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
-      const completeLines = stdout.split("\n").filter((line) => line.trim());
-      if (completeLines.length >= requests.length) child.stdin.end();
+      const completeLines = stdout
+        .split("\n")
+        .slice(0, -1)
+        .filter((line) => line.trim());
+      if (!stdinClosed && completeLines.length >= requests.length) {
+        stdinClosed = true;
+        child.stdin.end();
+      }
     });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("close", (status) => resolve({ status, stdout, stderr }));
