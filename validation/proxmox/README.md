@@ -367,11 +367,18 @@ Before this can produce a valid evidence document, a follow-on Linux runner must
    home, Codex home, cache, temporary directory, or plugin cache. Evidence must
    bind the exact lane-local values of `HOME`, `CODEX_HOME`, `TMPDIR`,
    `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, not only report
-   that those variable names were present.
-4. Install the exact source commit in both the legacy and agent-plugin layouts.
-5. Start a fresh Codex process for each lane and verify MCP initialize,
+   that those variable names were present. Read only those six process values,
+   compare them before projection, and never serialize a mismatched or arbitrary
+   environment value.
+4. Recompute the candidate distribution integrity from the exact candidate
+   bytes, require its tracked provenance to match, and recompute the installed
+   distribution integrity in each lane. A version or release-build string alone
+   is not exact-source evidence.
+5. Install the exact source commit in both the legacy and agent-plugin layouts,
+   and require each verified installed digest to equal the candidate digest.
+6. Start a fresh Codex process for each lane and verify MCP initialize,
    `tools/list`, `nelos_config_get`, and exact tool parity.
-6. Export only schema-valid, sanitized evidence and then reconcile and delete
+7. Export only schema-valid, sanitized evidence and then reconcile and delete
    the exact owned clone.
 
 A Linux VM can establish Linux CLI behavior only. macOS and Codex Desktop need

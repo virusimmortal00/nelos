@@ -30,6 +30,7 @@
       "required": [
         "sourceRevision",
         "treeSha256",
+        "distributionIntegrity",
         "dirty"
       ],
       "properties": {
@@ -40,6 +41,9 @@
         "treeSha256": {
           "$ref": "#/$defs/sha256",
           "description": "SHA-256 of the bytes nelos.proxmox.candidate-tree.git-ls-tree.v1\\0objectFormat=<sha1|sha256>\\0 followed by the hardened raw git ls-tree -r -z --full-tree sourceRevision -- output."
+        },
+        "distributionIntegrity": {
+          "$ref": "#/$defs/distributionIntegrity"
         },
         "dirty": {
           "const": false
@@ -179,6 +183,10 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "distributionIntegrity": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
     "checkResults": {
       "type": "object",
       "required": [
@@ -227,6 +235,7 @@
         "xdgCacheHome",
         "xdgDataHome",
         "pluginVersion",
+        "installedDistributionIntegrity",
         "pluginManifestPath",
         "mcpManifestPath",
         "launchMode",
@@ -268,6 +277,13 @@
         "pluginVersion": {
           "$ref": "#/$defs/semver"
         },
+        "installedDistributionIntegrity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
         "pluginManifestPath": {
           "const": ".codex-plugin/plugin.json"
         },
@@ -283,6 +299,7 @@
             "commandClass",
             "cwdClass",
             "observedEnvironmentKeys",
+            "observedEnvironmentPaths",
             "fullCommandCaptured",
             "fullEnvironmentCaptured"
           ],
@@ -308,6 +325,44 @@
                 ]
               },
               "uniqueItems": true
+            },
+            "observedEnvironmentPaths": {
+              "type": "object",
+              "required": [
+                "HOME",
+                "CODEX_HOME",
+                "TMPDIR",
+                "XDG_CONFIG_HOME",
+                "XDG_CACHE_HOME",
+                "XDG_DATA_HOME"
+              ],
+              "properties": {
+                "HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/home$"
+                },
+                "CODEX_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/home/\\.codex$"
+                },
+                "TMPDIR": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/tmp$"
+                },
+                "XDG_CONFIG_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/config$"
+                },
+                "XDG_CACHE_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/cache$"
+                },
+                "XDG_DATA_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/data$"
+                }
+              },
+              "additionalProperties": false
             },
             "fullCommandCaptured": {
               "const": false
@@ -344,6 +399,7 @@
         "xdgCacheHome",
         "xdgDataHome",
         "pluginVersion",
+        "installedDistributionIntegrity",
         "pluginManifestPath",
         "mcpManifestPath",
         "launchMode",
@@ -385,6 +441,13 @@
         "pluginVersion": {
           "$ref": "#/$defs/semver"
         },
+        "installedDistributionIntegrity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
         "pluginManifestPath": {
           "const": "plugin.json"
         },
@@ -400,6 +463,7 @@
             "commandClass",
             "cwdClass",
             "observedEnvironmentKeys",
+            "observedEnvironmentPaths",
             "fullCommandCaptured",
             "fullEnvironmentCaptured"
           ],
@@ -427,6 +491,44 @@
                 ]
               },
               "uniqueItems": true
+            },
+            "observedEnvironmentPaths": {
+              "type": "object",
+              "required": [
+                "HOME",
+                "CODEX_HOME",
+                "TMPDIR",
+                "XDG_CONFIG_HOME",
+                "XDG_CACHE_HOME",
+                "XDG_DATA_HOME"
+              ],
+              "properties": {
+                "HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/home$"
+                },
+                "CODEX_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/home/\\.codex$"
+                },
+                "TMPDIR": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/tmp$"
+                },
+                "XDG_CONFIG_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/config$"
+                },
+                "XDG_CACHE_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/cache$"
+                },
+                "XDG_DATA_HOME": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/data$"
+                }
+              },
+              "additionalProperties": false
             },
             "fullCommandCaptured": {
               "const": false

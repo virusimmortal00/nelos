@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual, promisify } from "node:util";
+
+import { buildMcpConfig } from "../../../scripts/generate-mcp-config.mjs";
+import { DISTRIBUTION_ENTRIES } from "../../../src/distribution-provenance.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(scriptPath), "../../..");
@@ -28,11 +31,32 @@ const GIT_IDENTITY_ARGUMENTS = Object.freeze([
 const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const GIT_OBJECT_FORMAT_WIDTH = Object.freeze({ sha1: 40, sha256: 64 });
 const GIT_TREE_MANIFEST_DOMAIN = "nelos.proxmox.candidate-tree.git-ls-tree.v1";
+const GIT_ENVIRONMENT = Object.freeze({
+  PATH: "/usr/bin:/bin",
+  LC_ALL: "C",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_ATTR_NOSYSTEM: "1",
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_NO_REPLACE_OBJECTS: "1",
+  GIT_REF_PARANOIA: "1",
+});
 const SHA256 = /^[a-f0-9]{64}$/u;
+const DISTRIBUTION_INTEGRITY = /^sha256:[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
+const ISOLATED_ENVIRONMENT_FIELDS = Object.freeze({
+  HOME: "home",
+  CODEX_HOME: "codexHome",
+  TMPDIR: "tmpDir",
+  XDG_CONFIG_HOME: "xdgConfigHome",
+  XDG_CACHE_HOME: "xdgCacheHome",
+  XDG_DATA_HOME: "xdgDataHome",
+});
 const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
   ".codex-plugin/plugin.json",
+  ".mcp.json",
+  "distribution-provenance.json",
   "validation/proxmox/contract.json",
   "validation/proxmox/contract.schema.json",
   "validation/proxmox/toolchain.lock.json",
@@ -49,6 +73,9 @@ const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
 const EVIDENCE_REPOSITORY_INPUT_BUFFERS = Object.freeze(
   EVIDENCE_REPOSITORY_INPUTS.map((path) => [path, Buffer.from(path, "ascii")]),
 );
+const DISTRIBUTION_ENTRY_BUFFERS = Object.freeze(
+  DISTRIBUTION_ENTRIES.map((path) => [path, Buffer.from(path, "ascii")]),
+);
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -60,16 +87,7 @@ async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024) {
       cwd: root,
       encoding: null,
       maxBuffer,
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_ATTR_NOSYSTEM: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_REF_PARANOIA: "1",
-      },
+      env: GIT_ENVIRONMENT,
     });
     return Buffer.from(stdout);
   } catch {
@@ -79,6 +97,82 @@ async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024) {
 
 async function gitText(root, argumentsList) {
   return (await gitBuffer(root, argumentsList, 8 * 1024 * 1024)).toString("utf8");
+}
+
+async function readGitBlobs(root, objectIds) {
+  if (objectIds.length === 0) fail("/candidate/distributionIntegrity", "candidate distribution has no tracked files");
+  const maximumOutputBytes = 256 * 1024 * 1024;
+  let output;
+  try {
+    output = await new Promise((resolvePromise, rejectPromise) => {
+      const child = spawn(
+        GIT_EXECUTABLE,
+        [...GIT_IDENTITY_ARGUMENTS, "cat-file", "--batch"],
+        {
+          cwd: root,
+          env: GIT_ENVIRONMENT,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      const stdout = [];
+      let stdoutBytes = 0;
+      let settled = false;
+      const rejectOnce = (error) => {
+        if (settled) return;
+        settled = true;
+        child.kill("SIGKILL");
+        rejectPromise(error);
+      };
+      child.stdout.on("data", (chunk) => {
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > maximumOutputBytes) {
+          rejectOnce(new Error("Git blob batch is too large"));
+          return;
+        }
+        stdout.push(chunk);
+      });
+      child.stderr.resume();
+      child.on("error", rejectOnce);
+      child.stdin.on("error", rejectOnce);
+      child.on("close", (code, signal) => {
+        if (settled) return;
+        settled = true;
+        if (code !== 0 || signal !== null) {
+          rejectPromise(new Error("Git blob batch failed"));
+          return;
+        }
+        resolvePromise(Buffer.concat(stdout));
+      });
+      child.stdin.end(`${objectIds.join("\n")}\n`);
+    });
+  } catch {
+    fail("/candidate/distributionIntegrity", "exact candidate distribution blobs could not be read");
+  }
+
+  const blobs = [];
+  let offset = 0;
+  for (const expectedObjectId of objectIds) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd === -1) fail("/candidate/distributionIntegrity", "Git blob batch header is incomplete");
+    const header = output.subarray(offset, headerEnd).toString("ascii");
+    const match = /^(?<objectId>[a-f0-9]+) blob (?<size>0|[1-9][0-9]*)$/u.exec(header);
+    if (match === null || match.groups.objectId !== expectedObjectId) {
+      fail("/candidate/distributionIntegrity", "Git blob batch identity is invalid");
+    }
+    const size = Number(match.groups.size);
+    if (!Number.isSafeInteger(size) || size > maximumOutputBytes) {
+      fail("/candidate/distributionIntegrity", "Git blob batch size is invalid");
+    }
+    const start = headerEnd + 1;
+    const end = start + size;
+    if (end >= output.length || output[end] !== 0x0a) {
+      fail("/candidate/distributionIntegrity", "Git blob batch payload is incomplete");
+    }
+    blobs.push(output.subarray(start, end));
+    offset = end + 1;
+  }
+  if (offset !== output.length) fail("/candidate/distributionIntegrity", "Git blob batch contains trailing output");
+  return blobs;
 }
 
 async function rejectGitControlFile(root, gitPath, label) {
@@ -145,6 +239,8 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
   }
   let hasGitAttributes = false;
   const trackedInputs = Object.create(null);
+  const distributionFiles = [];
+  const observedDistributionEntries = new Set();
   let recordOffset = 0;
   while (recordOffset < treeManifest.length) {
     const recordEnd = treeManifest.indexOf(0, recordOffset);
@@ -176,6 +272,24 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
       fail("/candidate/treeManifest", "Git tree manifest object metadata is invalid");
     }
     const path = record.subarray(pathSeparator + 1);
+    const decodedPath = path.toString("utf8");
+    if (!Buffer.from(decodedPath, "utf8").equals(path)) {
+      fail("/candidate/distributionIntegrity", "candidate distribution paths must be valid UTF-8");
+    }
+    for (const [distributionEntry, encodedEntry] of DISTRIBUTION_ENTRY_BUFFERS) {
+      if (
+        path.equals(encodedEntry) ||
+        (
+          path.length > encodedEntry.length &&
+          path[encodedEntry.length] === 0x2f &&
+          path.subarray(0, encodedEntry.length).equals(encodedEntry)
+        )
+      ) {
+        distributionFiles.push(Object.freeze({ path: decodedPath, objectId }));
+        observedDistributionEntries.add(distributionEntry);
+        break;
+      }
+    }
     for (const [repositoryPath, encodedPath] of EVIDENCE_REPOSITORY_INPUT_BUFFERS) {
       if (path.equals(encodedPath)) {
         trackedInputs[repositoryPath] = Object.freeze({ mode, objectId });
@@ -195,10 +309,30 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
     }
     recordOffset = recordEnd + 1;
   }
+  for (const distributionEntry of DISTRIBUTION_ENTRIES) {
+    if (!observedDistributionEntries.has(distributionEntry)) {
+      fail("/candidate/distributionIntegrity", `candidate distribution entry is missing: ${distributionEntry}`);
+    }
+  }
   return Object.freeze({
     hasGitAttributes,
     trackedInputs: Object.freeze(trackedInputs),
+    distributionFiles: Object.freeze(distributionFiles),
   });
+}
+
+async function computeCandidateDistributionIntegrity(root, distributionFiles) {
+  const sorted = [...distributionFiles].sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const blobs = await readGitBlobs(root, sorted.map(({ objectId }) => objectId));
+  const hash = createHash("sha256");
+  for (let index = 0; index < sorted.length; index += 1) {
+    hash.update(sorted[index].path);
+    hash.update("\0");
+    hash.update(blobs[index]);
+    hash.update("\0");
+  }
+  return `sha256:${hash.digest("hex")}`;
 }
 
 async function inspectEvidenceCandidate(root) {
@@ -241,7 +375,11 @@ async function inspectEvidenceCandidate(root) {
     ["ls-tree", "-r", "-z", "--full-tree", sourceRevision, "--"],
     256 * 1024 * 1024,
   );
-  const { hasGitAttributes, trackedInputs } = inspectCanonicalGitTreeManifest(treeManifest, objectFormat);
+  const {
+    distributionFiles,
+    hasGitAttributes,
+    trackedInputs,
+  } = inspectCanonicalGitTreeManifest(treeManifest, objectFormat);
   if (hasGitAttributes) {
     fail("/candidate/attributes", "tracked .gitattributes files require an explicit archive policy");
   }
@@ -252,6 +390,7 @@ async function inspectEvidenceCandidate(root) {
   return Object.freeze({
     sourceRevision,
     treeSha256: sha256(Buffer.concat([manifestDomain, treeManifest])),
+    distributionIntegrity: await computeCandidateDistributionIntegrity(canonicalRoot, distributionFiles),
     trackedInputs,
   });
 }
@@ -757,6 +896,7 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
 
 export function createEvidenceProbe(contract, repositoryIdentity = {}) {
   const pluginVersion = repositoryIdentity.pluginVersion ?? "0.0.0";
+  const distributionIntegrity = repositoryIdentity.distributionIntegrity ?? `sha256:${"4".repeat(64)}`;
   const checks = {
     marketplaceInstall: true,
     pluginInstall: true,
@@ -773,6 +913,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
     candidate: {
       sourceRevision: repositoryIdentity.sourceRevision ?? "0".repeat(40),
       treeSha256: repositoryIdentity.treeSha256 ?? "1".repeat(64),
+      distributionIntegrity,
       dirty: false,
     },
     template: {
@@ -797,6 +938,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
         xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
         pluginVersion,
+        installedDistributionIntegrity: distributionIntegrity,
         pluginManifestPath: ".codex-plugin/plugin.json",
         mcpManifestPath: ".mcp.json",
         launchMode: "inline-home-cache-bootstrap",
@@ -811,6 +953,14 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
             "XDG_CONFIG_HOME",
             "XDG_DATA_HOME",
           ],
+          observedEnvironmentPaths: {
+            HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home",
+            CODEX_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home/.codex",
+            TMPDIR: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/tmp",
+            XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/config",
+            XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
+            XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
+          },
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
         },
@@ -827,6 +977,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
         xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
         pluginVersion,
+        installedDistributionIntegrity: distributionIntegrity,
         pluginManifestPath: "plugin.json",
         mcpManifestPath: "mcp.json",
         launchMode: "direct-plugin-root",
@@ -843,6 +994,14 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
             "XDG_CONFIG_HOME",
             "XDG_DATA_HOME",
           ],
+          observedEnvironmentPaths: {
+            HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
+            CODEX_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex",
+            TMPDIR: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
+            XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
+            XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
+            XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
+          },
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
         },
@@ -886,6 +1045,12 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
       if (Object.hasOwn(repositoryIdentity, field) && evidence.candidate[field] !== repositoryIdentity[field]) {
         fail(`/candidate/${field}`, "must match the exact clean repository checkout");
       }
+    }
+    if (
+      Object.hasOwn(repositoryIdentity, "distributionIntegrity") &&
+      evidence.candidate.distributionIntegrity !== repositoryIdentity.distributionIntegrity
+    ) {
+      fail("/candidate/distributionIntegrity", "must match the exact candidate distribution bytes");
     }
   }
   const legacy = evidence.lanes["legacy-01446"];
@@ -946,6 +1111,19 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
     "legacy-01446": legacy,
     "agent-plugin-01470": agent,
   })) {
+    if (lane.checks.pluginInstall) {
+      if (lane.installedDistributionIntegrity !== evidence.candidate.distributionIntegrity) {
+        fail(
+          `/lanes/${laneId}/installedDistributionIntegrity`,
+          "must match the exact candidate distribution when plugin installation passes",
+        );
+      }
+    } else if (lane.installedDistributionIntegrity !== null) {
+      fail(
+        `/lanes/${laneId}/installedDistributionIntegrity`,
+        "must be null when exact plugin installation was not verified",
+      );
+    }
     if (!lane.checks.marketplaceInstall && lane.checks.pluginInstall) {
       fail(`/lanes/${laneId}/checks/pluginInstall`, "cannot pass before marketplace installation succeeds");
     }
@@ -974,7 +1152,24 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
       if (lane.processObservation.observedEnvironmentKeys.length !== 0) {
         fail(`/lanes/${laneId}/processObservation/observedEnvironmentKeys`, "must be empty when no process was observed");
       }
+      if (Object.values(lane.processObservation.observedEnvironmentPaths).some((value) => value !== null)) {
+        fail(`/lanes/${laneId}/processObservation/observedEnvironmentPaths`, "must contain only null paths when no process was observed");
+      }
       continue;
+    }
+    for (const [environmentKey, field] of Object.entries(ISOLATED_ENVIRONMENT_FIELDS)) {
+      if (lane.processObservation.observedEnvironmentPaths[environmentKey] !== lane[field]) {
+        fail(
+          `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+          `must equal the isolated ${field} reported for the observed process`,
+        );
+      }
+      if (!lane.processObservation.observedEnvironmentKeys.includes(environmentKey)) {
+        fail(
+          `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
+          `must include ${environmentKey} when a fresh process is observed`,
+        );
+      }
     }
     if (!lane.checks.mcpInitialize && (lane.checks.toolsList || lane.checks.nelosConfigGet || lane.checks.laneParity)) {
       fail(`/lanes/${laneId}/checks`, "tool checks cannot pass before MCP initialization");
@@ -1078,6 +1273,97 @@ function validateCandidatePluginManifest(manifest) {
   });
 }
 
+function validateCandidateDistributionProvenance(provenance, pluginIdentity, candidateCheckoutIdentity) {
+  if (!isObject(provenance)) fail("/candidate/distributionProvenance", "must be an object");
+  const allowedFields = new Set([
+    "schemaVersion",
+    "distribution",
+    "revision",
+    "sourceRepository",
+    "sourceRevision",
+    "sourceRevisionType",
+    "cacheIdentity",
+    "integrity",
+    "skillIntegrity",
+    "requiredCliCommands",
+  ]);
+  for (const field of Object.keys(provenance)) {
+    if (!allowedFields.has(field)) fail(`/candidate/distributionProvenance/${field}`, "unknown field");
+  }
+  for (const field of [
+    "schemaVersion",
+    "distribution",
+    "revision",
+    "sourceRepository",
+    "cacheIdentity",
+    "integrity",
+    "skillIntegrity",
+    "requiredCliCommands",
+  ]) {
+    if (!Object.hasOwn(provenance, field)) {
+      fail(`/candidate/distributionProvenance/${field}`, "required field is missing");
+    }
+  }
+  if (
+    provenance.schemaVersion !== 1 ||
+    provenance.distribution !== "nelos" ||
+    provenance.revision !== pluginIdentity.pluginVersion ||
+    provenance.sourceRepository !== "https://github.com/virusimmortal00/nelos.git" ||
+    provenance.cacheIdentity !==
+      `https://github.com/virusimmortal00/nelos.git#nelos@${pluginIdentity.pluginVersion}` ||
+    !DISTRIBUTION_INTEGRITY.test(provenance.integrity) ||
+    !DISTRIBUTION_INTEGRITY.test(provenance.skillIntegrity) ||
+    !Array.isArray(provenance.requiredCliCommands) ||
+    provenance.requiredCliCommands.length === 0 ||
+    provenance.requiredCliCommands.some((command) => typeof command !== "string" || command.length === 0) ||
+    new Set(provenance.requiredCliCommands).size !== provenance.requiredCliCommands.length ||
+    (provenance.sourceRevision !== undefined && !GIT_OBJECT_ID.test(provenance.sourceRevision)) ||
+    (
+      provenance.sourceRevisionType !== undefined &&
+      !["git", "distribution-sha256"].includes(provenance.sourceRevisionType)
+    )
+  ) {
+    fail("/candidate/distributionProvenance", "must describe the exact candidate Nelos release");
+  }
+  if (
+    candidateCheckoutIdentity !== undefined &&
+    provenance.integrity !== candidateCheckoutIdentity.distributionIntegrity
+  ) {
+    fail(
+      "/candidate/distributionProvenance/integrity",
+      "must match the distribution digest recomputed from exact candidate Git blobs",
+    );
+  }
+  return Object.freeze({
+    distributionIntegrity:
+      candidateCheckoutIdentity?.distributionIntegrity ?? provenance.integrity,
+  });
+}
+
+function validateLegacyPluginLayout(pluginManifest, mcpManifest) {
+  if (pluginManifest.mcpServers !== "./.mcp.json") {
+    fail(
+      "/candidate/legacyPluginLayout/.codex-plugin/plugin.json",
+      "must declare the tracked .mcp.json manifest",
+    );
+  }
+  let expectedMcpManifest;
+  try {
+    expectedMcpManifest = buildMcpConfig(
+      pluginManifest.version,
+      pluginManifest.releaseBuildIdentity,
+    );
+  } catch {
+    fail("/candidate/legacyPluginLayout/.mcp.json", "candidate legacy MCP identity is invalid");
+  }
+  if (!isDeepStrictEqual(mcpManifest, expectedMcpManifest)) {
+    fail(
+      "/candidate/legacyPluginLayout/.mcp.json",
+      "must exactly match the candidate-generated legacy MCP bootstrap",
+    );
+  }
+}
+
 function validateAgentPluginLayout(pluginManifest, mcpManifest, legacyPluginManifest) {
   const expectedPluginManifest = {
     $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
@@ -1132,6 +1418,7 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
     toolchainLockDocument,
     evidenceSchemaDocument,
     pluginManifestDocument,
+    distributionProvenanceDocument,
   ] =
     await Promise.all([
       readCandidateJsonWithBytes(
@@ -1164,20 +1451,33 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
         ".codex-plugin/plugin.json",
         ".codex-plugin/plugin.json",
       ),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        "distribution-provenance.json",
+        "distribution-provenance.json",
+      ),
     ]);
   const contract = contractDocument.value;
   const contractSchema = contractSchemaDocument.value;
   const toolchainLock = toolchainLockDocument.value;
   const evidenceSchema = evidenceSchemaDocument.value;
   const pluginManifest = pluginManifestDocument.value;
+  const distributionProvenance = distributionProvenanceDocument.value;
   const templateDigests = Object.freeze({
     contractSha256: sha256(contractDocument.bytes),
     toolchainLockSha256: sha256(toolchainLockDocument.bytes),
   });
   const candidatePluginIdentity = validateCandidatePluginManifest(pluginManifest);
+  const candidateDistributionIdentity = validateCandidateDistributionProvenance(
+    distributionProvenance,
+    candidatePluginIdentity,
+    candidateCheckoutIdentity,
+  );
   const repositoryInputs = Object.freeze({
     ...templateDigests,
     ...candidatePluginIdentity,
+    ...candidateDistributionIdentity,
   });
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
@@ -1185,7 +1485,13 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
   validateEvidenceDocument(createEvidenceProbe(contract, repositoryInputs), evidenceSchema, contract, repositoryInputs);
   if (options.evidencePath) {
     if (externalEvidence?.result?.status === "passed") {
-      const [agentPluginManifest, agentMcpManifest] = await Promise.all([
+      const [legacyMcpManifest, agentPluginManifest, agentMcpManifest] = await Promise.all([
+        readCandidateJsonWithBytes(
+          resolvedRoot,
+          candidateCheckoutIdentity,
+          ".mcp.json",
+          "legacy .mcp.json",
+        ).then(({ value }) => value),
         readCandidateJsonWithBytes(
           resolvedRoot,
           candidateCheckoutIdentity,
@@ -1199,6 +1505,7 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
           "Agent Plugins v1 mcp.json",
         ).then(({ value }) => value),
       ]);
+      validateLegacyPluginLayout(pluginManifest, legacyMcpManifest);
       validateAgentPluginLayout(agentPluginManifest, agentMcpManifest, pluginManifest);
     }
     const repositoryIdentity = Object.freeze({

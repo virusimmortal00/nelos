@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, cp, lstat, mkdir, mkdtemp, readFile, realpath as fsRealpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -16,6 +16,10 @@ import {
   validateRepositoryContract,
   validateToolchainLock,
 } from "../scripts/validate-contract.mjs";
+import {
+  computeDistributionIntegrity,
+  DISTRIBUTION_ENTRIES,
+} from "../../../src/distribution-provenance.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const validationRoot = join(root, "validation", "proxmox");
@@ -141,6 +145,25 @@ function createAgentPluginLayout(pluginManifest) {
   };
 }
 
+async function refreshFixtureDistributionProvenance(fixtureRoot) {
+  const pluginManifest = await readJson(join(fixtureRoot, ".codex-plugin", "plugin.json"));
+  let distributionProvenance;
+  try {
+    distributionProvenance = await readJson(join(fixtureRoot, "distribution-provenance.json"));
+  } catch {
+    distributionProvenance = await readJson(join(root, "distribution-provenance.json"));
+  }
+  distributionProvenance.revision = pluginManifest.version;
+  distributionProvenance.cacheIdentity =
+    `https://github.com/virusimmortal00/nelos.git#nelos@${pluginManifest.version}`;
+  distributionProvenance.integrity = await computeDistributionIntegrity(fixtureRoot);
+  await writeFile(
+    join(fixtureRoot, "distribution-provenance.json"),
+    `${JSON.stringify(distributionProvenance, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+}
+
 async function createCleanRepositoryFixture(context, { agentPluginLayout = true } = {}) {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-repository-"));
   context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
@@ -152,6 +175,7 @@ async function createCleanRepositoryFixture(context, { agentPluginLayout = true 
     join(root, ".codex-plugin", "plugin.json"),
     join(fixtureRoot, ".codex-plugin", "plugin.json"),
   );
+  await cp(join(root, ".mcp.json"), join(fixtureRoot, ".mcp.json"));
   if (agentPluginLayout) {
     const legacyPluginManifest = await readJson(join(fixtureRoot, ".codex-plugin", "plugin.json"));
     const { pluginManifest, mcpManifest } = createAgentPluginLayout(legacyPluginManifest);
@@ -160,6 +184,24 @@ async function createCleanRepositoryFixture(context, { agentPluginLayout = true 
       writeFile(join(fixtureRoot, "mcp.json"), `${JSON.stringify(mcpManifest, null, 2)}\n`, { mode: 0o600 }),
     ]);
   }
+  for (const entry of DISTRIBUTION_ENTRIES) {
+    const target = join(fixtureRoot, entry);
+    try {
+      await lstat(target);
+      continue;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const sourceStats = await lstat(join(root, entry));
+    if (sourceStats.isDirectory()) {
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, ".fixture"), `${entry}\n`, { mode: 0o600 });
+    } else {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, `${entry}\n`, { mode: 0o600 });
+    }
+  }
+  await refreshFixtureDistributionProvenance(fixtureRoot);
   const env = commitGitEnvironment();
   await execFileAsync("git", ["init", "--quiet"], { cwd: fixtureRoot, env });
   await execFileAsync("git", ["add", "--all"], { cwd: fixtureRoot, env });
@@ -363,6 +405,7 @@ async function readGitCandidateIdentity(fixtureRoot) {
       .update(manifestDomain)
       .update(treeManifest)
       .digest("hex"),
+    distributionIntegrity: await computeDistributionIntegrity(fixtureRoot),
   };
 }
 
@@ -1434,8 +1477,12 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   const { contract, evidenceSchema } = await loadFixture();
   const { version: pluginVersion } = await readJson(join(root, ".codex-plugin", "plugin.json"));
   const evidence = createEvidenceProbe(contract, { pluginVersion });
+  const repositoryIdentity = {
+    pluginVersion,
+    distributionIntegrity: evidence.candidate.distributionIntegrity,
+  };
 
-  validateEvidenceDocument(evidence, evidenceSchema, contract, { pluginVersion });
+  validateEvidenceDocument(evidence, evidenceSchema, contract, repositoryIdentity);
   assert.equal(evidence.sanitization.status, "passed");
   assert.equal(evidence.sanitization.credentialsCaptured, false);
   assert.equal(evidence.observations.networkDeniedDuringValidation, true);
@@ -1445,7 +1492,7 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   const staleTemplateVersion = structuredClone(evidence);
   staleTemplateVersion.template.templateVersion = "9.9.9";
   assert.throws(
-    () => validateEvidenceDocument(staleTemplateVersion, evidenceSchema, contract, { pluginVersion }),
+    () => validateEvidenceDocument(staleTemplateVersion, evidenceSchema, contract, repositoryIdentity),
     /\/template\/templateVersion: must match the validator contract version/u,
   );
 
@@ -1457,9 +1504,28 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
       stalePluginVersion,
       evidenceSchema,
       contract,
-      { pluginVersion },
+      repositoryIdentity,
     ),
     /pluginVersion: must match the exact candidate plugin manifest identity/u,
+  );
+
+  const staleInstalledDistribution = structuredClone(evidence);
+  staleInstalledDistribution.lanes["legacy-01446"].installedDistributionIntegrity =
+    `sha256:${"5".repeat(64)}`;
+  assert.throws(
+    () => validateEvidenceDocument(staleInstalledDistribution, evidenceSchema, contract, repositoryIdentity),
+    /installedDistributionIntegrity: must match the exact candidate distribution/u,
+  );
+
+  const unboundCandidateDistribution = structuredClone(evidence);
+  unboundCandidateDistribution.candidate.distributionIntegrity = `sha256:${"5".repeat(64)}`;
+  unboundCandidateDistribution.lanes["legacy-01446"].installedDistributionIntegrity =
+    unboundCandidateDistribution.candidate.distributionIntegrity;
+  unboundCandidateDistribution.lanes["agent-plugin-01470"].installedDistributionIntegrity =
+    unboundCandidateDistribution.candidate.distributionIntegrity;
+  assert.throws(
+    () => validateEvidenceDocument(unboundCandidateDistribution, evidenceSchema, contract, repositoryIdentity),
+    /\/candidate\/distributionIntegrity: must match the exact candidate distribution bytes/u,
   );
 
   const sha256Revision = structuredClone(evidence);
@@ -1479,6 +1545,26 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     () => validateEvidenceDocument(wrongRun, evidenceSchema, contract),
     /must be isolated beneath this evidence run ID/u,
   );
+
+  for (const laneId of ["legacy-01446", "agent-plugin-01470"]) {
+    for (const [environmentKey, suffix] of Object.entries({
+      HOME: "home",
+      CODEX_HOME: "home/.codex",
+      TMPDIR: "tmp",
+      XDG_CONFIG_HOME: "xdg/config",
+      XDG_CACHE_HOME: "xdg/cache",
+      XDG_DATA_HOME: "xdg/data",
+    })) {
+      const mismatchedObservedPath = structuredClone(evidence);
+      mismatchedObservedPath.lanes[laneId].processObservation.observedEnvironmentPaths[environmentKey] =
+        `/var/lib/nelos-validator/runs/another-run/${laneId}/${suffix}`;
+      assert.throws(
+        () => validateEvidenceDocument(mismatchedObservedPath, evidenceSchema, contract),
+        new RegExp(`observedEnvironmentPaths/${environmentKey}: must equal the isolated`, "u"),
+        `${laneId} ${environmentKey}`,
+      );
+    }
+  }
 
   for (const laneId of ["legacy-01446", "agent-plugin-01470"]) {
     for (const [field, suffix] of Object.entries({
@@ -1554,6 +1640,7 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
 
   const pluginInstallFailedWithMcpSuccess = structuredClone(evidence);
   pluginInstallFailedWithMcpSuccess.lanes["agent-plugin-01470"].checks.pluginInstall = false;
+  pluginInstallFailedWithMcpSuccess.lanes["agent-plugin-01470"].installedDistributionIntegrity = null;
   pluginInstallFailedWithMcpSuccess.result = {
     status: "failed",
     failures: ["agent-plugin.plugin.install-failed"],
@@ -1615,6 +1702,14 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   const failedBeforeProcessStart = structuredClone(evidence);
   failedBeforeProcessStart.lanes["agent-plugin-01470"].freshProcess = false;
   failedBeforeProcessStart.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys = [];
+  failedBeforeProcessStart.lanes["agent-plugin-01470"].processObservation.observedEnvironmentPaths = {
+    HOME: null,
+    CODEX_HOME: null,
+    TMPDIR: null,
+    XDG_CONFIG_HOME: null,
+    XDG_CACHE_HOME: null,
+    XDG_DATA_HOME: null,
+  };
   failedBeforeProcessStart.lanes["agent-plugin-01470"].toolNames = [];
   failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.freshProcessStart = false;
   failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
@@ -1799,6 +1894,7 @@ test("passed repository evidence requires the exact Agent Plugins v1 root layout
   const failedEvidence = structuredClone(evidence);
   failedEvidence.lanes["agent-plugin-01470"].toolNames = [];
   failedEvidence.lanes["agent-plugin-01470"].checks.pluginInstall = false;
+  failedEvidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = null;
   failedEvidence.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
   failedEvidence.lanes["agent-plugin-01470"].checks.toolsList = false;
   failedEvidence.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
@@ -1852,6 +1948,86 @@ test("passed repository evidence requires the exact Agent Plugins v1 root layout
   );
 });
 
+test("passed repository evidence requires the exact tracked legacy MCP layout", async (context) => {
+  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
+  const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
+  const [contractBytes, toolchainLockBytes, contract, pluginManifest, candidateIdentity] = await Promise.all([
+    readFile(join(fixtureValidationRoot, "contract.json")),
+    readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
+    readJson(join(fixtureValidationRoot, "contract.json")),
+    readJson(join(fixtureRoot, ".codex-plugin", "plugin.json")),
+    readGitCandidateIdentity(fixtureRoot),
+  ]);
+  const evidence = createEvidenceProbe(contract, {
+    contractSha256: createHash("sha256").update(contractBytes).digest("hex"),
+    toolchainLockSha256: createHash("sha256").update(toolchainLockBytes).digest("hex"),
+    pluginVersion: pluginManifest.version,
+    ...candidateIdentity,
+  });
+  const evidencePath = join(artifactRoot, "legacy-layout-evidence.json");
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+
+  await execFileAsync("git", ["rm", "--quiet", ".mcp.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "remove legacy MCP manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/distributionIntegrity: candidate distribution entry is missing: \.mcp\.json/u,
+  );
+
+  const invalidLegacyMcp = await readJson(join(root, ".mcp.json"));
+  invalidLegacyMcp.mcpServers.nelos.command = "bash";
+  await writeFile(
+    join(fixtureRoot, ".mcp.json"),
+    `${JSON.stringify(invalidLegacyMcp, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  await refreshFixtureDistributionProvenance(fixtureRoot);
+  await execFileAsync("git", ["add", ".mcp.json", "distribution-provenance.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "add invalid legacy MCP manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  const invalidIdentity = await readGitCandidateIdentity(fixtureRoot);
+  Object.assign(evidence.candidate, invalidIdentity);
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity = invalidIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = invalidIdentity.distributionIntegrity;
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/legacyPluginLayout\/\.mcp\.json: must exactly match the candidate-generated legacy MCP bootstrap/u,
+  );
+
+  const failedEvidence = structuredClone(evidence);
+  failedEvidence.lanes["legacy-01446"].toolNames = [];
+  failedEvidence.lanes["legacy-01446"].checks.pluginInstall = false;
+  failedEvidence.lanes["legacy-01446"].installedDistributionIntegrity = null;
+  failedEvidence.lanes["legacy-01446"].checks.mcpInitialize = false;
+  failedEvidence.lanes["legacy-01446"].checks.toolsList = false;
+  failedEvidence.lanes["legacy-01446"].checks.nelosConfigGet = false;
+  failedEvidence.lanes["legacy-01446"].checks.laneParity = false;
+  failedEvidence.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedEvidence.result = {
+    status: "failed",
+    failures: ["legacy.layout.invalid"],
+  };
+  await writeFile(evidencePath, `${JSON.stringify(failedEvidence)}\n`, { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+});
+
 test("repository validator runs with network APIs blocked", async () => {
   assert.equal(gitExecutable, "/usr/bin/git");
   for (const control of [
@@ -1882,6 +2058,22 @@ test("repository validator runs with network APIs blocked", async () => {
   const blocker = fileURLToPath(new URL("../../../scripts/offline-network-blocker.cjs", import.meta.url));
   const validator = fileURLToPath(new URL("../scripts/validate-contract.mjs", import.meta.url));
   const validatorSource = await readFile(validator, "utf8");
+  const workflowSource = await readFile(join(root, ".github", "workflows", "proxmox-template.yml"), "utf8");
+  for (const dependencyPath of [
+    ".codex-plugin/plugin.json",
+    ".mcp.json",
+    "distribution-provenance.json",
+    "plugin.json",
+    "mcp.json",
+    "scripts/generate-mcp-config.mjs",
+    "src/distribution-provenance.mjs",
+  ]) {
+    assert.equal(
+      workflowSource.split(`- "${dependencyPath}"`).length - 1,
+      2,
+      `${dependencyPath} must trigger both pull-request and push source validation`,
+    );
+  }
   for (const sealedGitControl of [
     'const GIT_EXECUTABLE = "/usr/bin/git"',
     'PATH: "/usr/bin:/bin"',
@@ -1992,7 +2184,54 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   );
 
   evidence.candidate.treeSha256 = candidateIdentity.treeSha256;
+  evidence.candidate.distributionIntegrity = `sha256:${"5".repeat(64)}`;
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity =
+    evidence.candidate.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity =
+    evidence.candidate.distributionIntegrity;
   await writeFile(evidencePath, JSON.stringify(evidence) + "\n", { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/distributionIntegrity: must match the exact candidate distribution bytes/u,
+  );
+
+  evidence.candidate.distributionIntegrity = candidateIdentity.distributionIntegrity;
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity = candidateIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = candidateIdentity.distributionIntegrity;
+  await writeFile(evidencePath, JSON.stringify(evidence) + "\n", { mode: 0o600 });
+
+  await writeFile(join(fixtureRoot, "README.md"), "changed distribution bytes\n", { mode: 0o600 });
+  await runFixtureGit(["add", "README.md"], commitGitEnvironment());
+  await runFixtureGit(
+    ["commit", "--quiet", "--message", "change distribution without provenance"],
+    commitGitEnvironment(),
+  );
+  const changedDistributionIdentity = await readGitCandidateIdentity(fixtureRoot);
+  Object.assign(evidence.candidate, changedDistributionIdentity);
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity =
+    changedDistributionIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity =
+    changedDistributionIdentity.distributionIntegrity;
+  await writeFile(evidencePath, JSON.stringify(evidence) + "\n", { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/distributionProvenance\/integrity: must match the distribution digest recomputed/u,
+  );
+
+  await refreshFixtureDistributionProvenance(fixtureRoot);
+  await runFixtureGit(["add", "distribution-provenance.json"], commitGitEnvironment());
+  await runFixtureGit(
+    ["commit", "--quiet", "--message", "refresh distribution provenance"],
+    commitGitEnvironment(),
+  );
+  const refreshedDistributionIdentity = await readGitCandidateIdentity(fixtureRoot);
+  Object.assign(evidence.candidate, refreshedDistributionIdentity);
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity =
+    refreshedDistributionIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity =
+    refreshedDistributionIdentity.distributionIntegrity;
+  await writeFile(evidencePath, JSON.stringify(evidence) + "\n", { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
 
   await runFixtureGit(["config", "core.autocrlf", "true"]);
   await validateRepositoryContract(fixtureRoot, { evidencePath });

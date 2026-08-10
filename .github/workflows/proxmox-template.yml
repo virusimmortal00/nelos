@@ -4,14 +4,28 @@ on:
   pull_request:
     paths:
       - ".github/workflows/proxmox-template.yml"
+      - ".codex-plugin/plugin.json"
+      - ".mcp.json"
+      - "distribution-provenance.json"
+      - "plugin.json"
+      - "mcp.json"
+      - "scripts/generate-mcp-config.mjs"
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
+      - "src/distribution-provenance.mjs"
       - "validation/proxmox/**"
   push:
     paths:
       - ".github/workflows/proxmox-template.yml"
+      - ".codex-plugin/plugin.json"
+      - ".mcp.json"
+      - "distribution-provenance.json"
+      - "plugin.json"
+      - "mcp.json"
+      - "scripts/generate-mcp-config.mjs"
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
+      - "src/distribution-provenance.mjs"
       - "validation/proxmox/**"
 
 permissions:
