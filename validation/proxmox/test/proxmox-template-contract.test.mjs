@@ -620,6 +620,41 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   assert.match(bootstrap, /snippets "\$SNIPPET_STORAGE_TYPES_CSV"/u);
   assert.match(bootstrap, /pvesh get "\/nodes\/\$\{PROXMOX_NODE\}\/storage\/\$\{storage\}\/status"/u);
   assert.match(bootstrap, /\$data->\{active\} \/\/ 0\) == 1 && \(\$data->\{enabled\} \/\/ 0\) == 1/u);
+  assert.match(
+    bootstrap,
+    /assert_root_owned_nonwritable_file "\$IMAGE_PATH" "cached image"/u,
+  );
+  assert.match(
+    bootstrap,
+    /assert_root_owned_nonwritable_directory "\$snippet_root" "snippets storage root"/u,
+  );
+  assert.match(
+    bootstrap,
+    /assert_protected_directory_chain "\$IMAGE_CACHE_DIR" "IMAGE_CACHE_DIR"/u,
+  );
+  assert.match(
+    bootstrap,
+    /assert_protected_directory_chain "\$snippet_root" "snippets storage root"/u,
+  );
+  assert.match(
+    bootstrap,
+    /assert_protected_directory_chain "\$SNIPPET_DIR" "snippets directory"/u,
+  );
+  assert.match(bootstrap, /\$current == "\/tmp" \|\| \$current == "\/var\/tmp"/u);
+  assert.match(bootstrap, /\(permission_bits & 01000\) != 0/u);
+  assert.match(bootstrap, /\[\[ \$canonical == "\$path" \]\]/u);
+  assert.equal(
+    (bootstrap.match(
+      /assert_root_owned_nonwritable_directory "\$SNIPPET_DIR" "snippets directory"/gu,
+    ) ?? []).length,
+    2,
+  );
+  assert.match(bootstrap, /install -d -o root -g root -m 0755 "\$SNIPPET_DIR"/u);
+  assert.match(bootstrap, /\[\[ \$owner == "0" \]\]/u);
+  assert.equal(
+    (bootstrap.match(/\(\( \(permission_bits & 0022\) == 0 \)\)/gu) ?? []).length,
+    2,
+  );
   assert.equal((buildWrapper.match(/--arg allowed_storage_types/gu) ?? []).length, 1);
   assert.equal((buildWrapper.match(/\(\(\.data\.shared \/\/ 0\) == 0\)/gu) ?? []).length, 1);
   assert.match(buildWrapper, /\[\.data\.scsi0, \.data\.efidisk0\]/u);

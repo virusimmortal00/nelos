@@ -24,6 +24,60 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+assert_root_owned_nonwritable_directory() {
+  local path="$1"
+  local label="$2"
+  local owner mode permission_bits
+
+  [[ -d $path && ! -L $path ]] || die "${label} must be a non-symlink directory"
+  owner="$(stat -c '%u' -- "$path")" || die "could not inspect ${label} ownership"
+  mode="$(stat -c '%a' -- "$path")" || die "could not inspect ${label} permissions"
+  [[ $owner == "0" ]] || die "${label} must be owned by root"
+  [[ $mode =~ ^[0-7]{3,4}$ ]] || die "${label} permissions are malformed"
+  permission_bits=$((8#$mode))
+  (( (permission_bits & 0022) == 0 )) || die "${label} must not be group- or world-writable"
+}
+
+assert_root_owned_nonwritable_file() {
+  local path="$1"
+  local label="$2"
+  local owner mode permission_bits
+
+  [[ -f $path && ! -L $path ]] || die "${label} must be a non-symlink regular file"
+  owner="$(stat -c '%u' -- "$path")" || die "could not inspect ${label} ownership"
+  mode="$(stat -c '%a' -- "$path")" || die "could not inspect ${label} permissions"
+  [[ $owner == "0" ]] || die "${label} must be owned by root"
+  [[ $mode =~ ^[0-7]{3,4}$ ]] || die "${label} permissions are malformed"
+  permission_bits=$((8#$mode))
+  (( (permission_bits & 0022) == 0 )) || die "${label} must not be group- or world-writable"
+}
+
+assert_protected_directory_chain() {
+  local path="$1"
+  local label="$2"
+  local canonical current owner mode permission_bits
+
+  canonical="$(readlink -f -- "$path")" || die "could not resolve ${label} exactly"
+  [[ $canonical == "$path" ]] || die "${label} must use its canonical absolute path"
+  current="$canonical"
+  while true; do
+    [[ -d $current && ! -L $current ]] || die "${label} ancestor must be a non-symlink directory: ${current}"
+    owner="$(stat -c '%u' -- "$current")" || die "could not inspect ${label} ancestor ownership"
+    mode="$(stat -c '%a' -- "$current")" || die "could not inspect ${label} ancestor permissions"
+    [[ $owner == "0" ]] || die "${label} ancestor must be owned by root: ${current}"
+    [[ $mode =~ ^[0-7]{3,4}$ ]] || die "${label} ancestor permissions are malformed: ${current}"
+    permission_bits=$((8#$mode))
+    if (( (permission_bits & 0022) != 0 )); then
+      [[ $current == "/tmp" || $current == "/var/tmp" ]] || \
+        die "${label} ancestor must not be group- or world-writable: ${current}"
+      (( (permission_bits & 01000) != 0 )) || \
+        die "${label} temporary ancestor must have the sticky bit: ${current}"
+    fi
+    [[ $current == "/" ]] && break
+    current="$(dirname -- "$current")"
+  done
+}
+
 storage_config() {
   local storage="$1"
   pvesh get "/storage/${storage}" --output-format json
@@ -213,6 +267,7 @@ fi
 cache_mode="$(stat -c '%a' "$IMAGE_CACHE_DIR")"
 [[ $cache_mode == "700" || $cache_mode == "750" || $cache_mode == "755" ]] || \
   die "IMAGE_CACHE_DIR must not be group- or world-writable"
+assert_protected_directory_chain "$IMAGE_CACHE_DIR" "IMAGE_CACHE_DIR"
 [[ ! -L $IMAGE_PATH ]] || die "cached image path must not be a symbolic link"
 if [[ -e "$IMAGE_PATH" ]]; then
   [[ -f $IMAGE_PATH ]] || die "cached image path must be a regular file"
@@ -233,9 +288,17 @@ else
   rm -f -- "$partial_path"
   partial_path=""
 fi
+assert_root_owned_nonwritable_file "$IMAGE_PATH" "cached image"
 
-install -d -m 0755 "$SNIPPET_DIR"
-[[ -d $SNIPPET_DIR && ! -L $SNIPPET_DIR ]] || die "snippets directory must be a non-symlink directory"
+assert_root_owned_nonwritable_directory "$snippet_root" "snippets storage root"
+assert_protected_directory_chain "$snippet_root" "snippets storage root"
+if [[ -e $SNIPPET_DIR || -L $SNIPPET_DIR ]]; then
+  assert_root_owned_nonwritable_directory "$SNIPPET_DIR" "snippets directory"
+else
+  install -d -o root -g root -m 0755 "$SNIPPET_DIR"
+  assert_root_owned_nonwritable_directory "$SNIPPET_DIR" "snippets directory"
+fi
+assert_protected_directory_chain "$SNIPPET_DIR" "snippets directory"
 [[ ! -e $SNIPPET_PATH && ! -L $SNIPPET_PATH ]] || die "refusing to overwrite an existing snippets file: ${SNIPPET_PATH}"
 umask 077
 printf '%s\n' \

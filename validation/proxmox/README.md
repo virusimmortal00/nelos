@@ -181,6 +181,13 @@ Cloud-Init snippet to install `qemu-guest-agent`. It boots the owned VM, waits
 for Cloud-Init through the guest agent, scrubs machine identity, removes the
 snippet reference, and only then converts the VM to a template.
 
+The image-cache directory and cached image must be root-owned and not writable
+by group or other users. The configured snippets storage root and its
+`snippets` directory have the same ownership and write restrictions; a missing
+`snippets` directory is created as `root:root` mode `0755`. Every path must be
+canonical and have a root-owned, non-symlink, non-writable ancestor chain; the
+only writable-ancestor exception is a root-owned sticky `/tmp` or `/var/tmp`.
+
 Secure Boot enrollment is disabled (`pre-enrolled-keys=0`) because this lane
 does not yet test Secure Boot. The hardware contract is fixed to q35/OVMF,
 `x86-64-v2-AES`, 4 vCPUs, 8 GiB RAM, a 64 GiB SCSI disk, `vmbr0`, DHCP, and the
