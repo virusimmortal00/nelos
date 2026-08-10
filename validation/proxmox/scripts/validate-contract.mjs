@@ -608,6 +608,7 @@ export async function validateRecipeSources(root, lock) {
 }
 
 export function createEvidenceProbe(contract, repositoryIdentity = {}) {
+  const pluginVersion = repositoryIdentity.pluginVersion ?? "0.0.0";
   const checks = {
     marketplaceInstall: true,
     pluginInstall: true,
@@ -640,7 +641,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         freshProcess: true,
         home: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home",
         codexHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home/.codex",
-        pluginVersion: "0.0.0",
+        pluginVersion,
         pluginManifestPath: ".codex-plugin/plugin.json",
         mcpManifestPath: ".mcp.json",
         launchMode: "inline-home-cache-bootstrap",
@@ -659,7 +660,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         freshProcess: true,
         home: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
         codexHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex",
-        pluginVersion: "0.0.0",
+        pluginVersion,
         pluginManifestPath: "plugin.json",
         mcpManifestPath: "mcp.json",
         launchMode: "direct-plugin-root",
@@ -721,6 +722,16 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   if (legacy.codexHome !== `${legacy.home}/.codex`) fail("/lanes/legacy-01446/codexHome", "must equal HOME/.codex");
   if (agent.codexHome !== `${agent.home}/.codex`) fail("/lanes/agent-plugin-01470/codexHome", "must equal HOME/.codex");
   if (legacy.pluginVersion !== agent.pluginVersion) fail("/lanes", "plugin versions must match across lanes");
+  if (repositoryIdentity !== undefined && Object.hasOwn(repositoryIdentity, "pluginVersion")) {
+    for (const [laneId, lane] of Object.entries({
+      "legacy-01446": legacy,
+      "agent-plugin-01470": agent,
+    })) {
+      if (lane.pluginVersion !== repositoryIdentity.pluginVersion) {
+        fail(`/lanes/${laneId}/pluginVersion`, "must match the exact candidate plugin manifest identity");
+      }
+    }
+  }
   if (legacy.checks.laneParity !== agent.checks.laneParity) {
     fail("/lanes", "lane parity must report the same result in both lanes");
   }
@@ -825,28 +836,53 @@ async function readJson(path, label) {
   return (await readJsonWithBytes(path, label)).value;
 }
 
+function validateCandidatePluginManifest(manifest) {
+  if (!isObject(manifest)) fail("/candidate/pluginManifest", "must be an object");
+  if (typeof manifest.version !== "string" || !SEMVER.test(manifest.version)) {
+    fail("/candidate/pluginManifest/version", "must be an exact semantic version");
+  }
+  const expectedBuildIdentity = `nelos-release-v1:${manifest.version}`;
+  if (manifest.releaseBuildIdentity !== expectedBuildIdentity) {
+    fail(
+      "/candidate/pluginManifest/releaseBuildIdentity",
+      `must equal ${expectedBuildIdentity}`,
+    );
+  }
+  return Object.freeze({
+    pluginVersion: manifest.version,
+    releaseBuildIdentity: manifest.releaseBuildIdentity,
+  });
+}
+
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
   const resolvedRoot = resolve(root);
   const validationRoot = join(resolvedRoot, "validation", "proxmox");
-  const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema] = await Promise.all([
-    readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
-    readJson(join(validationRoot, "contract.schema.json"), "contract.schema.json"),
-    readJsonWithBytes(join(validationRoot, "toolchain.lock.json"), "toolchain.lock.json"),
-    readJson(join(validationRoot, "evidence", "schema.json"), "evidence/schema.json"),
-  ]);
+  const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema, pluginManifest] =
+    await Promise.all([
+      readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
+      readJson(join(validationRoot, "contract.schema.json"), "contract.schema.json"),
+      readJsonWithBytes(join(validationRoot, "toolchain.lock.json"), "toolchain.lock.json"),
+      readJson(join(validationRoot, "evidence", "schema.json"), "evidence/schema.json"),
+      readJson(join(resolvedRoot, ".codex-plugin", "plugin.json"), ".codex-plugin/plugin.json"),
+    ]);
   const contract = contractDocument.value;
   const toolchainLock = toolchainLockDocument.value;
   const templateDigests = Object.freeze({
     contractSha256: sha256(contractDocument.bytes),
     toolchainLockSha256: sha256(toolchainLockDocument.bytes),
   });
+  const candidatePluginIdentity = validateCandidatePluginManifest(pluginManifest);
+  const repositoryInputs = Object.freeze({
+    ...templateDigests,
+    ...candidatePluginIdentity,
+  });
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
   await validateRecipeSources(resolvedRoot, toolchainLock);
-  validateEvidenceDocument(createEvidenceProbe(contract, templateDigests), evidenceSchema, contract, templateDigests);
+  validateEvidenceDocument(createEvidenceProbe(contract, repositoryInputs), evidenceSchema, contract, repositoryInputs);
   if (options.evidencePath) {
     const repositoryIdentity = Object.freeze({
-      ...templateDigests,
+      ...repositoryInputs,
       ...await inspectEvidenceCandidate(resolvedRoot),
     });
     validateEvidenceDocument(

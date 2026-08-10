@@ -160,7 +160,8 @@ git_config_inventory="$(git_readonly config --includes --show-scope --name-only 
   die "could not inspect source checkout Git configuration"
 while IFS=$'\t' read -r config_scope config_key; do
   [[ -n $config_scope && -n $config_key ]] || die "source checkout Git configuration inventory is malformed"
-  case "${config_key,,}" in
+  normalized_config_key="$(LC_ALL=C awk '{ print tolower($0) }' <<<"$config_key")"
+  case "$normalized_config_key" in
     extensions.partialclone | remote.*.promisor | remote.*.partialclonefilter)
       die "source checkout partial-clone and promisor configuration is forbidden"
       ;;

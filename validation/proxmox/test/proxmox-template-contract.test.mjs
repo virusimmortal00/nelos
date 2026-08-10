@@ -83,6 +83,11 @@ async function createCleanRepositoryFixture(context) {
   const fixtureRoot = join(temporaryRoot, "repository");
   await mkdir(join(fixtureRoot, "validation"), { recursive: true });
   await cp(validationRoot, join(fixtureRoot, "validation", "proxmox"), { recursive: true });
+  await mkdir(join(fixtureRoot, ".codex-plugin"), { recursive: true });
+  await cp(
+    join(root, ".codex-plugin", "plugin.json"),
+    join(fixtureRoot, ".codex-plugin", "plugin.json"),
+  );
   const env = commitGitEnvironment();
   await execFileAsync("git", ["init", "--quiet"], { cwd: fixtureRoot, env });
   await execFileAsync("git", ["add", "--all"], { cwd: fixtureRoot, env });
@@ -129,7 +134,7 @@ async function runBuildGitPreflight(artifactRoot, fixtureRoot) {
     "build-template.sh",
   );
   await chmod(buildWrapper, 0o700);
-  return execFileAsync(buildWrapper, [], {
+  return execFileAsync("/bin/bash", [buildWrapper], {
     cwd: fixtureRoot,
     encoding: "utf8",
     env: {
@@ -1028,13 +1033,27 @@ test("Proxmox preflight closes storage types and base configuration", async () =
 
 test("sanitized evidence validates isolated fresh-process lane parity", async () => {
   const { contract, evidenceSchema } = await loadFixture();
-  const evidence = createEvidenceProbe(contract);
+  const { version: pluginVersion } = await readJson(join(root, ".codex-plugin", "plugin.json"));
+  const evidence = createEvidenceProbe(contract, { pluginVersion });
 
-  validateEvidenceDocument(evidence, evidenceSchema, contract);
+  validateEvidenceDocument(evidence, evidenceSchema, contract, { pluginVersion });
   assert.equal(evidence.sanitization.status, "passed");
   assert.equal(evidence.sanitization.credentialsCaptured, false);
   assert.equal(evidence.lanes["legacy-01446"].checks.laneParity, true);
   assert.equal(evidence.lanes["agent-plugin-01470"].checks.laneParity, true);
+
+  const stalePluginVersion = structuredClone(evidence);
+  stalePluginVersion.lanes["legacy-01446"].pluginVersion = "9.9.9";
+  stalePluginVersion.lanes["agent-plugin-01470"].pluginVersion = "9.9.9";
+  assert.throws(
+    () => validateEvidenceDocument(
+      stalePluginVersion,
+      evidenceSchema,
+      contract,
+      { pluginVersion },
+    ),
+    /pluginVersion: must match the exact candidate plugin manifest identity/u,
+  );
 
   const sha256Revision = structuredClone(evidence);
   sha256Revision.candidate.sourceRevision = "a".repeat(64);
@@ -1266,6 +1285,19 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   );
 });
 
+test("repository validation binds the candidate version to its release build identity", async (context) => {
+  const { fixtureRoot } = await createCleanRepositoryFixture(context);
+  const pluginManifestPath = join(fixtureRoot, ".codex-plugin", "plugin.json");
+  const pluginManifest = await readJson(pluginManifestPath);
+  pluginManifest.releaseBuildIdentity = "nelos-release-v1:9.9.9";
+  await writeFile(pluginManifestPath, `${JSON.stringify(pluginManifest, null, 2)}\n`, { mode: 0o600 });
+
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot),
+    /\/candidate\/pluginManifest\/releaseBuildIdentity: must equal nelos-release-v1:/u,
+  );
+});
+
 test("repository validator runs with network APIs blocked", async () => {
   assert.equal(gitExecutable, "/usr/bin/git");
   for (const control of [
@@ -1340,10 +1372,11 @@ test("repository validator runs with network APIs blocked", async () => {
 test("repository evidence binds the exact clean candidate and contract bytes", async (context) => {
   const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
   const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
-  const [contractBytes, toolchainLockBytes, contract, candidateIdentity] = await Promise.all([
+  const [contractBytes, toolchainLockBytes, contract, pluginManifest, candidateIdentity] = await Promise.all([
     readFile(join(fixtureValidationRoot, "contract.json")),
     readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
     readJson(join(fixtureValidationRoot, "contract.json")),
+    readJson(join(fixtureRoot, ".codex-plugin", "plugin.json")),
     readGitCandidateIdentity(fixtureRoot),
   ]);
   const contractSha256 = createHash("sha256").update(contractBytes).digest("hex");
@@ -1352,6 +1385,7 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   const evidence = createEvidenceProbe(contract, {
     contractSha256,
     toolchainLockSha256,
+    pluginVersion: pluginManifest.version,
     ...candidateIdentity,
   });
   const evidencePath = join(artifactRoot, "evidence.json");
@@ -1551,15 +1585,17 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
 test("repository evidence rejects gitlink candidates before accepting their identity", async (context) => {
   const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
   const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
-  const [contractBytes, toolchainLockBytes, contract, candidateIdentity] = await Promise.all([
+  const [contractBytes, toolchainLockBytes, contract, pluginManifest, candidateIdentity] = await Promise.all([
     readFile(join(fixtureValidationRoot, "contract.json")),
     readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
     readJson(join(fixtureValidationRoot, "contract.json")),
+    readJson(join(fixtureRoot, ".codex-plugin", "plugin.json")),
     readGitCandidateIdentity(fixtureRoot),
   ]);
   const evidence = createEvidenceProbe(contract, {
     contractSha256: createHash("sha256").update(contractBytes).digest("hex"),
     toolchainLockSha256: createHash("sha256").update(toolchainLockBytes).digest("hex"),
+    pluginVersion: pluginManifest.version,
     ...candidateIdentity,
   });
   const evidencePath = join(artifactRoot, "gitlink-evidence.json");
