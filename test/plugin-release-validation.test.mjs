@@ -10,6 +10,10 @@ import {
   validatePluginRelease,
   validatePluginReleaseChange,
 } from "../scripts/validate-plugin-release.mjs";
+import {
+  buildAgentPluginManifest,
+  buildAgentPluginMcpConfig,
+} from "../scripts/generate-mcp-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const sourceRepository = "https://github.com/virusimmortal00/nelos.git";
@@ -67,11 +71,24 @@ test("provenance-only source revision changes are validated from Git", async () 
     await git(root, "init", "-b", "main");
     await git(root, "config", "user.name", "Nelos Test");
     await git(root, "config", "user.email", "nelos@example.invalid");
-    await writeJson(join(root, ".codex-plugin", "plugin.json"), { version });
+    const legacyManifest = {
+      name: "nelos",
+      version,
+      releaseBuildIdentity: `nelos-release-v1:${version}`,
+    };
+    await writeJson(join(root, ".codex-plugin", "plugin.json"), legacyManifest);
+    await writeJson(join(root, "plugin.json"), buildAgentPluginManifest(legacyManifest));
     await writeJson(join(root, "package.json"), { version });
     await writeJson(join(root, ".mcp.json"), {
-      mcpServers: { nelos: { env: { NELOS_PLUGIN_VERSION: version } } },
+      mcpServers: { nelos: { env: {
+        NELOS_PLUGIN_VERSION: version,
+        NELOS_RELEASE_BUILD_IDENTITY: `nelos-release-v1:${version}`,
+      } } },
     });
+    await writeJson(
+      join(root, "mcp.json"),
+      buildAgentPluginMcpConfig(version, legacyManifest.releaseBuildIdentity),
+    );
     await writeJson(provenancePath, {
       revision: version,
       sourceRepository,

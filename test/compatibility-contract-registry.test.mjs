@@ -125,10 +125,13 @@ test("changed paths select direct contracts and transitive dependents", () => {
 test("installed lifecycle surfaces belong to lifecycle invariants", () => {
   const paths = [
     ".codex-plugin/plugin.json",
+    "bin/nelos-mcp",
     "docs/backlog.md",
     "docs/configuration.md",
     "docs/observation-join.md",
     "docs/slice-planning.md",
+    "mcp.json",
+    "plugin.json",
     "src/mcp-server.mjs",
     "src/nelos-configuration.mjs",
     "src/planning-bootstrap.mjs",
@@ -136,6 +139,7 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "src/vendor/smol-toml-1.6.0.LICENSE",
     "src/vendor/smol-toml-1.6.0.cjs",
     "src/web-inspection.mjs",
+    "test/agent-plugin-layout.test.mjs",
     "test/durable-spinoff-composition.test.mjs",
     "test/manage-nelos-tasks-skill.test.mjs",
     "test/mcp-config.test.mjs",

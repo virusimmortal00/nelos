@@ -10,12 +10,15 @@ import {
   SOURCE_REPOSITORY,
   pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
+import { assertAgentPluginLayout } from "./generate-mcp-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 export const PLUGIN_PAYLOAD_PATHS = Object.freeze([
   ".codex-plugin",
   ".mcp.json",
+  "plugin.json",
+  "mcp.json",
   "assets",
   "bin",
   "completions",
@@ -61,28 +64,51 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
     baseManifestText,
     baseProvenanceText,
     candidateManifest,
+    agentPluginManifest,
     packageMetadata,
     mcp,
+    agentPluginMcp,
     provenance,
   ] =
     await Promise.all([
       git(root, "show", `${baseRef}:.codex-plugin/plugin.json`),
       git(root, "show", `${baseRef}:distribution-provenance.json`),
       jsonAt(root, ".codex-plugin/plugin.json"),
+      jsonAt(root, "plugin.json"),
       jsonAt(root, "package.json"),
       jsonAt(root, ".mcp.json"),
+      jsonAt(root, "mcp.json"),
       jsonAt(root, "distribution-provenance.json"),
     ]);
   const baseManifest = JSON.parse(baseManifestText);
   const baseProvenance = JSON.parse(baseProvenanceText);
   const candidateVersion = candidateManifest.version;
+  assertAgentPluginLayout({
+    legacyPluginMetadata: candidateManifest,
+    agentPluginMetadata: agentPluginManifest,
+    agentPluginMcpMetadata: agentPluginMcp,
+  });
+  const releaseBuildIdentity = `nelos-release-v1:${candidateVersion}`;
   for (const [label, version] of [
+    ["plugin.json", agentPluginManifest.version],
     ["package.json", packageMetadata.version],
     [".mcp.json", mcp?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
+    ["mcp.json", agentPluginMcp?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
     ["distribution-provenance.json", provenance.revision],
   ]) {
     if (version !== candidateVersion) {
       throw new Error(`${label} version ${version} does not match plugin ${candidateVersion}`);
+    }
+  }
+  for (const [label, identity] of [
+    [".codex-plugin/plugin.json", candidateManifest.releaseBuildIdentity],
+    [".mcp.json", mcp?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY],
+    ["mcp.json", agentPluginMcp?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY],
+  ]) {
+    if (identity !== releaseBuildIdentity) {
+      throw new Error(
+        `${label} release build identity ${identity} does not match ${releaseBuildIdentity}`,
+      );
     }
   }
   const candidateCacheIdentity = pluginCacheIdentity({

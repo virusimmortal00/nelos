@@ -105,17 +105,19 @@ the current evidence and limitations.
 
 Every release must have one coherent version and one coherent artifact set:
 
-1. `package.json` `version`;
+1. `package.json` `version` and both root `package-lock.json` version fields;
 2. `.codex-plugin/plugin.json` `version`;
-3. the generated `.mcp.json` `NELOS_PLUGIN_VERSION`; and
-4. `distribution-provenance.json` `revision`
+3. the generated `.mcp.json` `NELOS_PLUGIN_VERSION`;
+4. the Agent Plugins v1 `plugin.json` `version`;
+5. the generated Agent Plugins v1 `mcp.json` `NELOS_PLUGIN_VERSION`; and
+6. `distribution-provenance.json` `revision`
 
-must be exactly equal. The MCP configuration is generated from the plugin
-manifest and must have no checked-in diff after generation. The distribution
-provenance digest must match the complete declared distribution surface, and
-the skill digest must match the bundled skill. The tag, source archive,
-marketplace plugin, optional CLI distribution, and changelog entry must all
-refer to that same version and commit.
+must be exactly equal. Both MCP configurations and the Agent Plugins manifest
+are generated from the legacy plugin manifest and must have no checked-in diff
+after generation. The distribution provenance digest must match the complete
+declared distribution surface, and the skill digest must match the bundled
+skill. The tag, source archive, marketplace plugin, optional CLI distribution,
+and changelog entry must all refer to that same version and commit.
 
 No released version may be rebuilt, repointed, or have its provenance record
 reused for different bytes. A correction requires a new patch or prerelease
@@ -132,8 +134,8 @@ retroactive tags for those unverified states.
 For every public release, maintainers:
 
 1. finalize the changelog and compatibility evidence;
-2. set the same version on all four coherent surfaces and regenerate
-   `.mcp.json`;
+2. set the same version on all six coherent surfaces and regenerate both plugin
+   layouts;
 3. refresh distribution and skill provenance after all distributed content is
    final;
 4. run the repository syntax checks and complete tests on macOS and Linux,

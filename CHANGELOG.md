@@ -5,6 +5,37 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.12] - 2026-08-09
+
+### User-facing changes
+
+- Nelos now ships the portable Agent Plugins v1 root layout (`plugin.json` and
+  `mcp.json`) alongside the existing Codex plugin layout. Agent Plugins hosts
+  launch the same bundled MCP server directly through `${PLUGIN_ROOT}`.
+- Release validation and distribution provenance cover both layouts and fail
+  when their versions, generated MCP identities, or packaged bytes diverge.
+
+### Compatibility requirements
+
+- The legacy `.codex-plugin/plugin.json` and `.mcp.json` layout remains
+  available for codex-cli 0.144.6. The Agent Plugins v1 layout is the separate
+  validation lane for codex-cli 0.147.0; this does not add 0.147.0 to Nelos's
+  app-server compatibility registry.
+
+### Migrations
+
+None. Existing legacy marketplace installs remain supported.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+- The Agent Plugins layout does not resolve the legacy `${PLUGIN_ROOT}` host
+  behavior tracked by issue #8; that layout continues to use its generated
+  cache-locating bootstrap.
+
 ## [0.12.11] - 2026-08-07
 
 ### User-facing changes

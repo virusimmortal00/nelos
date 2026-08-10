@@ -1,0 +1,235 @@
+{
+  "$schema": "./contract.schema.json",
+  "schemaVersion": 1,
+  "contractId": "nelos-proxmox-validator-template",
+  "contractVersion": "1.0.0",
+  "template": {
+    "name": "nelos-validator",
+    "distributionModel": "repository-recipe-and-release-manifest",
+    "immutability": "versioned-template",
+    "cloneLifecycle": "disposable-linked-clone"
+  },
+  "scope": {
+    "surface": "linux-cli-only",
+    "proxmoxVeBaseline": "8.4",
+    "guest": {
+      "operatingSystem": "linux",
+      "distribution": "ubuntu",
+      "release": "24.04 LTS",
+      "architecture": "x86_64"
+    },
+    "supportedProducts": [
+      "codex-cli"
+    ],
+    "excludedSurfaces": [
+      "arm64",
+      "codex-desktop",
+      "codex-ide",
+      "macos",
+      "windows"
+    ]
+  },
+  "hardware": {
+    "machine": "q35",
+    "firmware": "ovmf",
+    "cpu": {
+      "architecture": "x86_64",
+      "type": "x86-64-v2-AES",
+      "sockets": 1,
+      "cores": 4,
+      "totalVcpus": 4,
+      "numa": false
+    },
+    "memory": {
+      "sizeMiB": 8192,
+      "ballooning": false
+    },
+    "disk": {
+      "sizeGiB": 64,
+      "bus": "scsi0",
+      "controller": "virtio-scsi-single",
+      "storageScope": "node-local",
+      "snapshotCapable": true,
+      "discard": true,
+      "ioThread": true
+    },
+    "network": {
+      "interfaces": 1,
+      "model": "virtio",
+      "bridge": "nelosbld",
+      "addressing": "dhcp",
+      "firewall": true
+    },
+    "cloudInit": true,
+    "guestAgent": true,
+    "vmIdPolicy": {
+      "scope": "cluster-wide",
+      "unique": true,
+      "allocation": "external"
+    }
+  },
+  "isolation": {
+    "runRootTemplate": "/var/lib/nelos-validator/runs/${RUN_ID}",
+    "laneRootTemplate": "${RUN_ROOT}/${LANE_ID}",
+    "environment": {
+      "HOME": "${LANE_ROOT}/home",
+      "CODEX_HOME": "${LANE_ROOT}/home/.codex",
+      "TMPDIR": "${LANE_ROOT}/tmp",
+      "XDG_CONFIG_HOME": "${LANE_ROOT}/xdg/config",
+      "XDG_CACHE_HOME": "${LANE_ROOT}/xdg/cache",
+      "XDG_DATA_HOME": "${LANE_ROOT}/xdg/data"
+    },
+    "codexHomeEqualsHomeDotCodex": true,
+    "freshCodexProcessPerVerification": true,
+    "sharedMutableState": false,
+    "forbiddenHostInputs": [
+      "mac-authentication-state",
+      "mac-codex-config",
+      "mac-filesystem-mounts",
+      "mac-plugin-cache",
+      "ssh-agent-forwarding"
+    ],
+    "forbiddenAttachments": [
+      "host-filesystem",
+      "persistent-shared-cache",
+      "persistent-shared-data-disk",
+      "public-network-interface",
+      "tpm-state",
+      "usb-or-pci-passthrough"
+    ]
+  },
+  "lanes": {
+    "legacy-01446": {
+      "codexVersion": "0.144.6",
+      "pluginFormat": "legacy-codex",
+      "pluginManifestPath": ".codex-plugin/plugin.json",
+      "mcpManifestPath": ".mcp.json",
+      "launchMode": "inline-home-cache-bootstrap",
+      "pluginRootSource": "home-dot-codex-cache-discovery",
+      "requiredEnvironment": [
+        "HOME",
+        "CODEX_HOME",
+        "TMPDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME"
+      ],
+      "forbiddenAssumptions": [
+        "PLUGIN_DATA",
+        "PLUGIN_ROOT"
+      ]
+    },
+    "agent-plugin-01470": {
+      "codexVersion": "0.147.0",
+      "pluginFormat": "agent-plugin-v1",
+      "pluginManifestPath": "plugin.json",
+      "mcpManifestPath": "mcp.json",
+      "launchMode": "direct-plugin-root",
+      "pluginRootSource": "injected-plugin-environment",
+      "requiredEnvironment": [
+        "HOME",
+        "CODEX_HOME",
+        "TMPDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "PLUGIN_ROOT",
+        "PLUGIN_DATA"
+      ],
+      "forbiddenAssumptions": [
+        "legacy-cache-scan"
+      ]
+    }
+  },
+  "validation": {
+    "offline": true,
+    "buildNetwork": {
+      "mode": "preconfigured-restricted-vnet",
+      "bridge": "nelosbld",
+      "dhcpSource": "restricted-vnet",
+      "defaultEgressPolicy": "deny",
+      "dnsPolicy": "restricted-host-allowlist-only",
+      "allowedTcpPorts": [
+        443
+      ],
+      "allowedGuestHosts": [
+        "github.com",
+        "nodejs.org",
+        "release-assets.githubusercontent.com",
+        "snapshot.ubuntu.com"
+      ]
+    },
+    "validationNetwork": "denied",
+    "marketplaceSelector": "nelos@nelos-marketplace",
+    "mcpServerId": "nelos",
+    "requiredChecks": [
+      "marketplace-install",
+      "plugin-install",
+      "fresh-process-start",
+      "mcp-initialize",
+      "tools-list",
+      "nelos-config-get",
+      "lane-parity"
+    ],
+    "requiredObservations": [
+      "network-denied-during-validation"
+    ],
+    "evidenceSchemaPath": "./evidence/schema.json",
+    "sanitization": {
+      "required": true,
+      "fullEnvironmentAllowed": false,
+      "fullConfigurationAllowed": false,
+      "credentialMaterialAllowed": false,
+      "userSpecificIdentifiersAllowed": false,
+      "allowedEnvironmentKeys": [
+        "CODEX_HOME",
+        "HOME",
+        "TMPDIR",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "NELOS_PLUGIN_VERSION",
+        "NELOS_RELEASE_BUILD_IDENTITY",
+        "PLUGIN_DATA",
+        "PLUGIN_ROOT"
+      ]
+    }
+  },
+  "retention": {
+    "activeGeneration": "indefinite",
+    "replacedGenerationMinimumDays": 30,
+    "minimumValidatedGenerations": 2,
+    "disposableArtifacts": "destroy-after-reconciliation"
+  },
+  "release": {
+    "sourceDistribution": "recipe-and-manifest-only",
+    "templateMutation": "immutable",
+    "clonePerRun": true,
+    "destroyAfterEvidenceExport": true,
+    "sourceControlled": [
+      "contract",
+      "contract-schema",
+      "cloud-init-policy",
+      "ci-validation",
+      "example-configuration",
+      "evidence-schema",
+      "lifecycle-scripts",
+      "offline-validator",
+      "operator-guide",
+      "packer-template",
+      "tests",
+      "toolchain-lock"
+    ],
+    "forbiddenRepositoryArtifacts": [
+      "auth-material",
+      "cloud-init-instance-data",
+      "codex-home",
+      "disk-images",
+      "generated-host-identity",
+      "plugin-cache",
+      "private-keys",
+      "terraform-state",
+      "unredacted-evidence"
+    ]
+  }
+}
