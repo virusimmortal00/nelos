@@ -31,6 +31,23 @@ const GIT_TREE_MANIFEST_DOMAIN = "nelos.proxmox.candidate-tree.git-ls-tree.v1";
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
+const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
+  ".codex-plugin/plugin.json",
+  "validation/proxmox/contract.json",
+  "validation/proxmox/contract.schema.json",
+  "validation/proxmox/toolchain.lock.json",
+  "validation/proxmox/evidence/schema.json",
+  "validation/proxmox/packer/versions.pkr.hcl",
+  "validation/proxmox/packer/proxmox.pkr.hcl",
+  "validation/proxmox/scripts/bootstrap-cloud-image-template.sh",
+  "validation/proxmox/scripts/provision-guest.sh",
+  "validation/proxmox/scripts/build-template.sh",
+  "plugin.json",
+  "mcp.json",
+]);
+const EVIDENCE_REPOSITORY_INPUT_BUFFERS = Object.freeze(
+  EVIDENCE_REPOSITORY_INPUTS.map((path) => [path, Buffer.from(path, "ascii")]),
+);
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -126,6 +143,7 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
     fail("/candidate/objectFormat", "Git storage object format must be sha1 or sha256");
   }
   let hasGitAttributes = false;
+  const trackedInputs = Object.create(null);
   let recordOffset = 0;
   while (recordOffset < treeManifest.length) {
     const recordEnd = treeManifest.indexOf(0, recordOffset);
@@ -157,6 +175,12 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
       fail("/candidate/treeManifest", "Git tree manifest object metadata is invalid");
     }
     const path = record.subarray(pathSeparator + 1);
+    for (const [repositoryPath, encodedPath] of EVIDENCE_REPOSITORY_INPUT_BUFFERS) {
+      if (path.equals(encodedPath)) {
+        trackedInputs[repositoryPath] = Object.freeze({ mode, objectId });
+        break;
+      }
+    }
     const attributesName = Buffer.from(".gitattributes", "ascii");
     if (
       path.equals(attributesName)
@@ -170,7 +194,10 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
     }
     recordOffset = recordEnd + 1;
   }
-  return Object.freeze({ hasGitAttributes });
+  return Object.freeze({
+    hasGitAttributes,
+    trackedInputs: Object.freeze(trackedInputs),
+  });
 }
 
 async function inspectEvidenceCandidate(root) {
@@ -213,7 +240,7 @@ async function inspectEvidenceCandidate(root) {
     ["ls-tree", "-r", "-z", "--full-tree", sourceRevision, "--"],
     256 * 1024 * 1024,
   );
-  const { hasGitAttributes } = inspectCanonicalGitTreeManifest(treeManifest, objectFormat);
+  const { hasGitAttributes, trackedInputs } = inspectCanonicalGitTreeManifest(treeManifest, objectFormat);
   if (hasGitAttributes) {
     fail("/candidate/attributes", "tracked .gitattributes files require an explicit archive policy");
   }
@@ -224,6 +251,7 @@ async function inspectEvidenceCandidate(root) {
   return Object.freeze({
     sourceRevision,
     treeSha256: sha256(Buffer.concat([manifestDomain, treeManifest])),
+    trackedInputs,
   });
 }
 
@@ -502,14 +530,25 @@ export function validateToolchainLock(lock, contract) {
   return lock;
 }
 
-export async function validateRecipeSources(root, lock) {
+export async function validateRecipeSources(root, lock, repositoryIdentity = undefined) {
   const validationRoot = join(resolve(root), "validation", "proxmox");
+  const readRecipeSource = async (relativePath, label) => {
+    if (repositoryIdentity === undefined) {
+      return readFile(join(validationRoot, relativePath), "utf8");
+    }
+    return (await readTrackedCandidateBytes(
+      resolve(root),
+      repositoryIdentity,
+      `validation/proxmox/${relativePath}`,
+      label,
+    )).toString("utf8");
+  };
   const [versions, proxmox, bootstrap, provisionGuest, buildWrapper] = await Promise.all([
-    readFile(join(validationRoot, "packer", "versions.pkr.hcl"), "utf8"),
-    readFile(join(validationRoot, "packer", "proxmox.pkr.hcl"), "utf8"),
-    readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
-    readFile(join(validationRoot, "scripts", "provision-guest.sh"), "utf8"),
-    readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
+    readRecipeSource("packer/versions.pkr.hcl", "Packer version contract"),
+    readRecipeSource("packer/proxmox.pkr.hcl", "Packer Proxmox contract"),
+    readRecipeSource("scripts/bootstrap-cloud-image-template.sh", "base template bootstrap"),
+    readRecipeSource("scripts/provision-guest.sh", "validator guest provisioner"),
+    readRecipeSource("scripts/build-template.sh", "template build wrapper"),
   ]);
   const packer = lock.artifacts.packer;
   const plugin = lock.artifacts.packerProxmoxPlugin;
@@ -698,6 +737,9 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   if (evidence.contractVersion !== contract.contractVersion) {
     fail("/contractVersion", "must match the validator contract");
   }
+  if (evidence.template.templateVersion !== contract.contractVersion) {
+    fail("/template/templateVersion", "must match the validator contract version");
+  }
   if (repositoryIdentity !== undefined) {
     for (const [field, repositoryFile] of [
       ["contractSha256", "contract.json"],
@@ -821,13 +863,7 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   return evidence;
 }
 
-async function readJsonWithBytes(path, label) {
-  let bytes;
-  try {
-    bytes = await readFile(path);
-  } catch (error) {
-    fail("", `cannot read ${label}: ${error.message}`);
-  }
+function parseJsonBytes(bytes, label) {
   try {
     return { bytes, value: JSON.parse(bytes.toString("utf8")) };
   } catch {
@@ -835,8 +871,43 @@ async function readJsonWithBytes(path, label) {
   }
 }
 
+async function readJsonWithBytes(path, label) {
+  let bytes;
+  try {
+    bytes = await readFile(path);
+  } catch (error) {
+    fail("", `cannot read ${label}: ${error.message}`);
+  }
+  return parseJsonBytes(bytes, label);
+}
+
 async function readJson(path, label) {
   return (await readJsonWithBytes(path, label)).value;
+}
+
+async function readTrackedCandidateBytes(root, repositoryIdentity, repositoryPath, label) {
+  const trackedInput = repositoryIdentity?.trackedInputs?.[repositoryPath];
+  if (
+    !isObject(trackedInput)
+    || !["100644", "100755"].includes(trackedInput.mode)
+    || typeof trackedInput.objectId !== "string"
+  ) {
+    fail(
+      `/candidate/trackedInputs/${repositoryPath}`,
+      `${label} must be a regular file tracked by the exact candidate revision`,
+    );
+  }
+  return gitBuffer(root, ["cat-file", "blob", trackedInput.objectId], 16 * 1024 * 1024);
+}
+
+async function readCandidateJsonWithBytes(root, repositoryIdentity, repositoryPath, label) {
+  if (repositoryIdentity === undefined) {
+    return readJsonWithBytes(join(root, repositoryPath), label);
+  }
+  return parseJsonBytes(
+    await readTrackedCandidateBytes(root, repositoryIdentity, repositoryPath, label),
+    label,
+  );
 }
 
 function validateCandidatePluginManifest(manifest) {
@@ -857,22 +928,98 @@ function validateCandidatePluginManifest(manifest) {
   });
 }
 
+function validateAgentPluginLayout(pluginManifest, mcpManifest, legacyPluginManifest) {
+  const expectedPluginManifest = {
+    $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    name: legacyPluginManifest.name,
+    version: legacyPluginManifest.version,
+    description: legacyPluginManifest.description,
+    author: legacyPluginManifest.author,
+    homepage: legacyPluginManifest.homepage,
+    repository: legacyPluginManifest.repository,
+    license: legacyPluginManifest.license,
+    keywords: legacyPluginManifest.keywords,
+  };
+  if (!isDeepStrictEqual(pluginManifest, expectedPluginManifest)) {
+    fail(
+      "/candidate/agentPluginLayout/plugin.json",
+      "must exactly match the candidate legacy plugin identity and Agent Plugins v1 schema",
+    );
+  }
+  const expectedMcpManifest = {
+    $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+    mcpServers: {
+      nelos: {
+        type: "stdio",
+        command: "node",
+        args: ["${PLUGIN_ROOT}/bin/nelos-mcp"],
+        env: {
+          NELOS_PLUGIN_VERSION: legacyPluginManifest.version,
+          NELOS_RELEASE_BUILD_IDENTITY: legacyPluginManifest.releaseBuildIdentity,
+        },
+      },
+    },
+  };
+  if (!isDeepStrictEqual(mcpManifest, expectedMcpManifest)) {
+    fail(
+      "/candidate/agentPluginLayout/mcp.json",
+      "must exactly launch the candidate MCP release through the Agent Plugins v1 schema",
+    );
+  }
+}
+
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
   const resolvedRoot = resolve(root);
-  const validationRoot = join(resolvedRoot, "validation", "proxmox");
   const candidateCheckoutIdentity = options.evidencePath
     ? await inspectEvidenceCandidate(resolvedRoot)
     : undefined;
-  const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema, pluginManifest] =
+  const externalEvidence = options.evidencePath
+    ? await readJson(resolve(options.evidencePath), "evidence")
+    : undefined;
+  const [
+    contractDocument,
+    contractSchemaDocument,
+    toolchainLockDocument,
+    evidenceSchemaDocument,
+    pluginManifestDocument,
+  ] =
     await Promise.all([
-      readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
-      readJson(join(validationRoot, "contract.schema.json"), "contract.schema.json"),
-      readJsonWithBytes(join(validationRoot, "toolchain.lock.json"), "toolchain.lock.json"),
-      readJson(join(validationRoot, "evidence", "schema.json"), "evidence/schema.json"),
-      readJson(join(resolvedRoot, ".codex-plugin", "plugin.json"), ".codex-plugin/plugin.json"),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        "validation/proxmox/contract.json",
+        "contract.json",
+      ),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        "validation/proxmox/contract.schema.json",
+        "contract.schema.json",
+      ),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        "validation/proxmox/toolchain.lock.json",
+        "toolchain.lock.json",
+      ),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        "validation/proxmox/evidence/schema.json",
+        "evidence/schema.json",
+      ),
+      readCandidateJsonWithBytes(
+        resolvedRoot,
+        candidateCheckoutIdentity,
+        ".codex-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+      ),
     ]);
   const contract = contractDocument.value;
+  const contractSchema = contractSchemaDocument.value;
   const toolchainLock = toolchainLockDocument.value;
+  const evidenceSchema = evidenceSchemaDocument.value;
+  const pluginManifest = pluginManifestDocument.value;
   const templateDigests = Object.freeze({
     contractSha256: sha256(contractDocument.bytes),
     toolchainLockSha256: sha256(toolchainLockDocument.bytes),
@@ -884,9 +1031,26 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
   });
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
-  await validateRecipeSources(resolvedRoot, toolchainLock);
+  await validateRecipeSources(resolvedRoot, toolchainLock, candidateCheckoutIdentity);
   validateEvidenceDocument(createEvidenceProbe(contract, repositoryInputs), evidenceSchema, contract, repositoryInputs);
   if (options.evidencePath) {
+    if (externalEvidence?.result?.status === "passed") {
+      const [agentPluginManifest, agentMcpManifest] = await Promise.all([
+        readCandidateJsonWithBytes(
+          resolvedRoot,
+          candidateCheckoutIdentity,
+          "plugin.json",
+          "Agent Plugins v1 plugin.json",
+        ).then(({ value }) => value),
+        readCandidateJsonWithBytes(
+          resolvedRoot,
+          candidateCheckoutIdentity,
+          "mcp.json",
+          "Agent Plugins v1 mcp.json",
+        ).then(({ value }) => value),
+      ]);
+      validateAgentPluginLayout(agentPluginManifest, agentMcpManifest, pluginManifest);
+    }
     const repositoryIdentity = Object.freeze({
       ...repositoryInputs,
       ...candidateCheckoutIdentity,
@@ -898,7 +1062,7 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
       repositoryIdentity,
     );
     validateEvidenceDocument(
-      await readJson(resolve(options.evidencePath), "evidence"),
+      externalEvidence,
       evidenceSchema,
       contract,
       repositoryIdentity,
