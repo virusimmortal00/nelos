@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -20,12 +20,21 @@ import {
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const validationRoot = join(root, "validation", "proxmox");
 const execFileAsync = promisify(execFile);
+const gitExecutable = "/usr/bin/git";
+const gitTreeManifestDomain = "nelos.proxmox.candidate-tree.git-ls-tree.v1";
+const gitObjectFormatWidth = Object.freeze({ sha1: 40, sha256: 64 });
 const gitIdentityArguments = Object.freeze([
   "--no-replace-objects",
+  "--literal-pathspecs",
+  "--no-optional-locks",
   "-c", "core.useReplaceRefs=false",
   "-c", "core.attributesFile=/dev/null",
   "-c", "core.autocrlf=false",
   "-c", "core.eol=lf",
+  "-c", "core.commitGraph=false",
+  "-c", "core.multiPackIndex=false",
+  "-c", "core.fsmonitor=false",
+  "-c", "core.untrackedCache=false",
   "-c", "tar.umask=0002",
 ]);
 
@@ -45,12 +54,14 @@ async function loadFixture() {
 
 function cleanGitEnvironment() {
   return {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    PATH: "/usr/bin:/bin",
     LC_ALL: "C",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_ATTR_NOSYSTEM: "1",
+    GIT_NO_LAZY_FETCH: "1",
     GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_REF_PARANOIA: "1",
   };
 }
 
@@ -79,36 +90,193 @@ async function createCleanRepositoryFixture(context) {
   return { artifactRoot: temporaryRoot, fixtureRoot };
 }
 
-async function readGitCandidateIdentity(fixtureRoot) {
-  const env = cleanGitEnvironment();
-  const { stdout: revisionOutput } = await execFileAsync("git", [
-    ...gitIdentityArguments,
-    "rev-parse",
-    "HEAD^{commit}",
-  ], {
+async function runBuildGitPreflight(artifactRoot, fixtureRoot) {
+  const facadeBin = join(artifactRoot, "linux-facade-bin");
+  await mkdir(facadeBin, { recursive: true });
+  const unamePath = join(facadeBin, "uname");
+  await writeFile(
+    unamePath,
+    [
+      "#!/usr/bin/env bash",
+      "case \"${1:-}\" in",
+      "  -s) printf '%s\\n' Linux ;;",
+      "  -m) printf '%s\\n' x86_64 ;;",
+      "  *) exit 64 ;;",
+      "esac",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  await chmod(unamePath, 0o700);
+  const realpathPath = join(facadeBin, "realpath");
+  await writeFile(
+    realpathPath,
+    [
+      "#!/usr/bin/env bash",
+      "case \"${1:-}\" in -m|-e) shift ;; esac",
+      "if [[ ${1:-} == -- ]]; then shift; fi",
+      "node -e 'process.stdout.write(require(\"node:fs\").realpathSync(process.argv[1]) + \"\\n\")' \"${1:?path is required}\"",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  await chmod(realpathPath, 0o700);
+  const buildWrapper = join(
+    fixtureRoot,
+    "validation",
+    "proxmox",
+    "scripts",
+    "build-template.sh",
+  );
+  await chmod(buildWrapper, 0o700);
+  return execFileAsync(buildWrapper, [], {
     cwd: fixtureRoot,
     encoding: "utf8",
-    env,
+    env: {
+      PATH: `${facadeBin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      PROXMOX_URL: "https://pve.invalid:8006/api2/json",
+      PROXMOX_USERNAME: "builder@pve!nelos",
+      PROXMOX_TOKEN: "test-token",
+      NELOS_PACKER_STATE_DIR: join(artifactRoot, "packer-state"),
+      PKR_VAR_proxmox_node: "prox2",
+      PKR_VAR_base_template_vmid: "9020",
+      PKR_VAR_base_template_name: "nelos-base",
+      PKR_VAR_output_template_vmid: "9021",
+      PKR_VAR_output_template_name: "nelos-validator",
+      PKR_VAR_cloud_init_storage: "local-lvm",
+    },
   });
+}
+
+async function readGitCandidateIdentity(fixtureRoot) {
+  const env = cleanGitEnvironment();
+  const [{ stdout: configOutput }, { stdout: alternatesOutput }] = await Promise.all([
+    execFileAsync(gitExecutable, [
+      ...gitIdentityArguments,
+      "config",
+      "--includes",
+      "--show-scope",
+      "--name-only",
+      "--null",
+      "--list",
+    ], {
+      cwd: fixtureRoot,
+      encoding: null,
+      env,
+    }),
+    execFileAsync(gitExecutable, [
+      ...gitIdentityArguments,
+      "rev-parse",
+      "--git-path",
+      "objects/info/alternates",
+    ], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env,
+    }),
+  ]);
+  const configParts = Buffer.from(configOutput).toString("utf8").split("\0");
+  if (configParts.at(-1) === "") configParts.pop();
+  assert.equal(configParts.length % 2, 0, "fixture Git configuration inventory must be exact");
+  for (let index = 0; index < configParts.length; index += 2) {
+    const scope = configParts[index];
+    const key = configParts[index + 1].toLowerCase();
+    assert.equal(
+      (scope === "local" || scope === "worktree") && key.startsWith("tar."),
+      false,
+      "fixture repository and worktree tar.* configuration is forbidden",
+    );
+    assert.equal(
+      key === "extensions.partialclone"
+        || /^remote\..+\.(?:promisor|partialclonefilter)$/u.test(key),
+      false,
+      "fixture partial-clone and promisor configuration is forbidden",
+    );
+  }
+  const alternatesGitPath = alternatesOutput.trim();
+  assert.notEqual(alternatesGitPath, "", "fixture object alternates path must resolve exactly");
+  const alternatesPath = isAbsolute(alternatesGitPath)
+    ? alternatesGitPath
+    : resolve(fixtureRoot, alternatesGitPath);
+  try {
+    const stats = await lstat(alternatesPath);
+    assert.equal(stats.isSymbolicLink(), false, "fixture object alternates path must not be a symlink");
+    assert.equal(stats.isFile(), true, "fixture object alternates path must be a regular file");
+    assert.equal(stats.size, 0, "fixture object alternates path must be empty");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const [{ stdout: revisionOutput }, { stdout: objectFormatOutput }] = await Promise.all([
+    execFileAsync(gitExecutable, [
+      ...gitIdentityArguments,
+      "rev-parse",
+      "--verify",
+      "--end-of-options",
+      "HEAD^{commit}",
+    ], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env,
+    }),
+    execFileAsync(gitExecutable, [
+      ...gitIdentityArguments,
+      "rev-parse",
+      "--show-object-format=storage",
+    ], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env,
+    }),
+  ]);
   const sourceRevision = revisionOutput.trim();
-  const { stdout: archive } = await execFileAsync(
-    "git",
-    [...gitIdentityArguments, "archive", "--format=tar", sourceRevision],
+  const objectFormat = objectFormatOutput.trim();
+  const objectIdWidth = gitObjectFormatWidth[objectFormat];
+  assert.notEqual(objectIdWidth, undefined, "fixture Git object format must be sha1 or sha256");
+  assert.equal(sourceRevision.length, objectIdWidth);
+  assert.match(sourceRevision, /^[a-f0-9]+$/u);
+  const { stdout: treeManifest } = await execFileAsync(
+    gitExecutable,
+    [...gitIdentityArguments, "ls-tree", "-r", "-z", "--full-tree", sourceRevision, "--"],
     {
       cwd: fixtureRoot,
       encoding: null,
-      env: { ...env, GIT_GRAFT_FILE: "/dev/null" },
+      env,
       maxBuffer: 256 * 1024 * 1024,
     },
   );
+  let recordOffset = 0;
+  while (recordOffset < treeManifest.length) {
+    const recordEnd = treeManifest.indexOf(0, recordOffset);
+    assert.notEqual(recordEnd, -1, "fixture tree manifest record must be NUL terminated");
+    const record = treeManifest.subarray(recordOffset, recordEnd);
+    const pathSeparator = record.indexOf(0x09);
+    assert.ok(pathSeparator > 0 && pathSeparator < record.length - 1);
+    const header = record.subarray(0, pathSeparator).toString("ascii");
+    const headerMatch = /^(?<mode>[0-7]{6}) (?<type>blob|commit) (?<objectId>[a-f0-9]+)$/u.exec(header);
+    assert.notEqual(headerMatch, null, "fixture tree manifest header must use the documented shape");
+    const { mode, type, objectId } = headerMatch.groups;
+    assert.notEqual(mode, "160000", "fixture candidates must not contain gitlinks");
+    assert.notEqual(type, "commit", "fixture candidates must not contain submodules");
+    assert.equal(type, "blob");
+    assert.ok(["100644", "100755", "120000"].includes(mode));
+    assert.equal(objectId.length, objectIdWidth);
+    recordOffset = recordEnd + 1;
+  }
+  const manifestDomain = Buffer.from(
+    `${gitTreeManifestDomain}\0objectFormat=${objectFormat}\0`,
+    "ascii",
+  );
   return {
     sourceRevision,
-    treeSha256: createHash("sha256").update(archive).digest("hex"),
+    treeSha256: createHash("sha256")
+      .update(manifestDomain)
+      .update(treeManifest)
+      .digest("hex"),
   };
 }
 
 test("Proxmox contract pins the Linux CLI template and two Codex lanes", async () => {
-  const { contract, contractSchema, toolchainLock } = await loadFixture();
+  const { contract, contractSchema, toolchainLock, evidenceSchema } = await loadFixture();
 
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
@@ -138,6 +306,10 @@ test("Proxmox contract pins the Linux CLI template and two Codex lanes", async (
   assert.equal(contract.hardware.firmware, "ovmf");
   assert.equal(contract.hardware.disk.sizeGiB, 64);
   assert.equal(contract.hardware.disk.controller, "virtio-scsi-single");
+  assert.equal(
+    evidenceSchema.properties.candidate.properties.treeSha256.description,
+    "SHA-256 of the bytes nelos.proxmox.candidate-tree.git-ls-tree.v1\\0objectFormat=<sha1|sha256>\\0 followed by the hardened raw git ls-tree -r -z --full-tree sourceRevision -- output.",
+  );
   assert.equal(contract.hardware.disk.storageScope, "node-local");
   assert.equal(contract.hardware.network.model, "virtio");
   assert.equal(contract.hardware.network.bridge, "vmbr0");
@@ -243,7 +415,55 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /SEALED_PACKER_DIR/u);
   assert.match(buildWrapper, /materialize_tracked/u);
   assert.match(buildWrapper, /download_verified/u);
+  assert.match(buildWrapper, /PATH=\/usr\/bin:\/bin/u);
+  assert.match(buildWrapper, /GIT_ATTR_NOSYSTEM=1/u);
+  assert.match(buildWrapper, /GIT_GRAFT_FILE=\/dev\/null/u);
+  assert.match(buildWrapper, /GIT_NO_LAZY_FETCH=1/u);
+  assert.match(buildWrapper, /GIT_NO_REPLACE_OBJECTS=1/u);
+  assert.match(buildWrapper, /GIT_REF_PARANOIA=1/u);
+  assert.match(buildWrapper, /\/usr\/bin\/git\s+\\\n\s+--no-replace-objects/u);
+  for (const gitControl of [
+    "--literal-pathspecs",
+    "--no-optional-locks",
+    "-c core.useReplaceRefs=false",
+    "-c core.attributesFile=/dev/null",
+    "-c core.commitGraph=false",
+    "-c core.multiPackIndex=false",
+    "-c core.fsmonitor=false",
+    "-c core.untrackedCache=false",
+  ]) {
+    assert.equal(buildWrapper.includes(gitControl), true);
+  }
   assert.match(buildWrapper, /git_readonly status --porcelain=v1 --untracked-files=all/u);
+  const replacementRefGuard = "git_readonly for-each-ref --format='%(refname)' refs/replace/";
+  const replacementRefGuardIndex = buildWrapper.indexOf(replacementRefGuard);
+  const alternatesGuardIndex = buildWrapper.indexOf(
+    'reject_git_backend_file "${git_common_dir}/objects/info/alternates"',
+  );
+  const partialCloneGuardIndex = buildWrapper.indexOf("extensions.partialclone");
+  const sourceRevisionIndex = buildWrapper.indexOf("SOURCE_REVISION=");
+  assert.notEqual(replacementRefGuardIndex, -1);
+  assert.notEqual(alternatesGuardIndex, -1);
+  assert.notEqual(partialCloneGuardIndex, -1);
+  assert.ok(replacementRefGuardIndex < sourceRevisionIndex);
+  assert.ok(alternatesGuardIndex < sourceRevisionIndex);
+  assert.ok(partialCloneGuardIndex < sourceRevisionIndex);
+  assert.ok(replacementRefGuardIndex < buildWrapper.indexOf("materialize_tracked()"));
+  assert.match(
+    buildWrapper,
+    /git_readonly rev-parse --verify --end-of-options 'HEAD\^\{commit\}'/u,
+  );
+  assert.match(buildWrapper, /git_readonly rev-parse --show-object-format=storage/u);
+  assert.match(buildWrapper, /GIT_OBJECT_ID_WIDTH=40/u);
+  assert.match(buildWrapper, /GIT_OBJECT_ID_WIDTH=64/u);
+  assert.match(buildWrapper, /source_record != \*\$'\\n'\*/u);
+  const catFileIndex = buildWrapper.indexOf('git_readonly cat-file blob "$source_object" >"$destination"');
+  const hashObjectIndex = buildWrapper.indexOf(
+    'git_readonly hash-object --no-filters -- "$destination"',
+  );
+  assert.notEqual(catFileIndex, -1);
+  assert.notEqual(hashObjectIndex, -1);
+  assert.ok(catFileIndex < hashObjectIndex);
   assert.equal(
     buildWrapper.includes(
       '($scsiDisk[1:] | sort) == ["discard=on", "iothread=1", "size=64G", "ssd=1"]',
@@ -265,11 +485,79 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
 });
 
+test("build Git preflight rejects packed replacements and nonlocal object backends", async (context) => {
+  await context.test("packed replacement refs", async (subcontext) => {
+    const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(subcontext);
+    const { sourceRevision } = await readGitCandidateIdentity(fixtureRoot);
+    const replacementDirectory = join(fixtureRoot, ".git", "refs", "replace");
+    await mkdir(replacementDirectory, { recursive: true });
+    await writeFile(
+      join(replacementDirectory, sourceRevision),
+      `${sourceRevision}\n`,
+      { mode: 0o600 },
+    );
+    await execFileAsync("git", ["pack-refs", "--all"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: cleanGitEnvironment(),
+    });
+    await assert.rejects(
+      runBuildGitPreflight(artifactRoot, fixtureRoot),
+      (error) => {
+        assert.equal(error?.code, 1);
+        assert.match(error?.stderr ?? "", /source checkout replacement refs are forbidden/u);
+        return true;
+      },
+    );
+  });
+
+  await context.test("object alternates", async (subcontext) => {
+    const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(subcontext);
+    await writeFile(
+      join(fixtureRoot, ".git", "objects", "info", "alternates"),
+      `${join(artifactRoot, "external-objects")}\n`,
+      { mode: 0o600 },
+    );
+    await assert.rejects(
+      runBuildGitPreflight(artifactRoot, fixtureRoot),
+      (error) => {
+        assert.equal(error?.code, 1);
+        assert.match(error?.stderr ?? "", /object alternates file must be absent or an empty regular file/u);
+        return true;
+      },
+    );
+  });
+
+  await context.test("partial-clone and promisor configuration", async (subcontext) => {
+    const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(subcontext);
+    await execFileAsync("git", ["config", "remote.origin.promisor", "true"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: cleanGitEnvironment(),
+    });
+    await assert.rejects(
+      runBuildGitPreflight(artifactRoot, fixtureRoot),
+      (error) => {
+        assert.equal(error?.code, 1);
+        assert.match(
+          error?.stderr ?? "",
+          /source checkout partial-clone and promisor configuration is forbidden/u,
+        );
+        return true;
+      },
+    );
+  });
+});
+
 test("Proxmox preflight closes storage types and base configuration", async () => {
   const [buildWrapper, bootstrap] = await Promise.all([
     readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
   ]);
+  const { stdout: jqVersionOutput } = await execFileAsync("jq", ["--version"], {
+    encoding: "utf8",
+  });
+  assert.match(jqVersionOutput.trim(), /^jq-[0-9]+[.][0-9]+(?:[.][0-9]+)?$/u);
 
   const linkedCloneStorageTypeContract = 'readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"';
   const fullCopyStorageTypeContract = 'readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';
@@ -429,10 +717,14 @@ test("Proxmox preflight closes storage types and base configuration", async () =
     try {
       await execFileAsync("jq", ["-n", "-e", ...argumentsList, program], { encoding: "utf8" });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (error?.code === 1) return false;
+      throw error;
     }
   };
+  assert.equal(await jqAccepts([], "false"), false);
+  await assert.rejects(jqAccepts([], "invalid("));
+  await assert.rejects(jqAccepts([], 'error("forced jq runtime failure")'));
   const imageDigest = "0".repeat(64);
   const safeBaseConfig = {
     data: {
@@ -975,6 +1267,25 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
 });
 
 test("repository validator runs with network APIs blocked", async () => {
+  assert.equal(gitExecutable, "/usr/bin/git");
+  for (const control of [
+    "--literal-pathspecs",
+    "--no-optional-locks",
+    "core.commitGraph=false",
+    "core.multiPackIndex=false",
+    "core.fsmonitor=false",
+    "core.untrackedCache=false",
+  ]) {
+    assert.equal(gitIdentityArguments.includes(control), true);
+  }
+  assert.deepEqual(
+    {
+      PATH: cleanGitEnvironment().PATH,
+      GIT_NO_LAZY_FETCH: cleanGitEnvironment().GIT_NO_LAZY_FETCH,
+      GIT_REF_PARANOIA: cleanGitEnvironment().GIT_REF_PARANOIA,
+    },
+    { PATH: "/usr/bin:/bin", GIT_NO_LAZY_FETCH: "1", GIT_REF_PARANOIA: "1" },
+  );
   assert.deepEqual(await validateRepositoryContract(root), {
     valid: true,
     offline: true,
@@ -984,6 +1295,34 @@ test("repository validator runs with network APIs blocked", async () => {
 
   const blocker = fileURLToPath(new URL("../../../scripts/offline-network-blocker.cjs", import.meta.url));
   const validator = fileURLToPath(new URL("../scripts/validate-contract.mjs", import.meta.url));
+  const validatorSource = await readFile(validator, "utf8");
+  for (const sealedGitControl of [
+    'const GIT_EXECUTABLE = "/usr/bin/git"',
+    'PATH: "/usr/bin:/bin"',
+    'GIT_NO_LAZY_FETCH: "1"',
+    'GIT_REF_PARANOIA: "1"',
+    '"--literal-pathspecs"',
+    '"--no-optional-locks"',
+    '"-c", "core.commitGraph=false"',
+    '"-c", "core.multiPackIndex=false"',
+    '"-c", "core.fsmonitor=false"',
+    '"-c", "core.untrackedCache=false"',
+    'rejectGitControlFile(root, "objects/info/alternates"',
+    'key === "extensions.partialclone"',
+    '["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"]',
+  ]) {
+    assert.equal(validatorSource.includes(sealedGitControl), true);
+  }
+  const unsafeStateGateIndex = validatorSource.indexOf("await rejectUnsafeGitState(canonicalRoot)");
+  const statusReadIndex = validatorSource.indexOf(
+    '["status", "--porcelain=v1", "--untracked-files=all"]',
+  );
+  const revisionReadIndex = validatorSource.indexOf(
+    '["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"]',
+  );
+  assert.notEqual(unsafeStateGateIndex, -1);
+  assert.ok(unsafeStateGateIndex < statusReadIndex);
+  assert.ok(unsafeStateGateIndex < revisionReadIndex);
   const { stdout, stderr } = await execFileAsync(
     process.execPath,
     ["--require", blocker, validator, "--root", root],
@@ -1076,6 +1415,57 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   await runFixtureGit(["config", "--unset-all", "core.autocrlf"]);
   await runFixtureGit(["config", "--unset-all", "core.attributesFile"]);
 
+  const fsmonitorHook = join(artifactRoot, "fsmonitor-hook");
+  const fsmonitorSentinel = `${fsmonitorHook}.invoked`;
+  await writeFile(
+    fsmonitorHook,
+    "#!/bin/sh\n: >\"${0}.invoked\"\nprintf '%s\\n' token\n",
+    { mode: 0o700 },
+  );
+  await chmod(fsmonitorHook, 0o700);
+  await runFixtureGit(["config", "core.fsmonitor", fsmonitorHook]);
+  await runFixtureGit(["status", "--porcelain=v1", "--untracked-files=all"]);
+  assert.equal(await readFile(fsmonitorSentinel, "utf8"), "");
+  await rm(fsmonitorSentinel, { force: true });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+  await assert.rejects(readFile(fsmonitorSentinel), { code: "ENOENT" });
+  await runFixtureGit(["config", "--unset-all", "core.fsmonitor"]);
+
+  const alternates = join(fixtureRoot, ".git", "objects", "info", "alternates");
+  await writeFile(alternates, `${join(artifactRoot, "external-objects")}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/gitMetadata: repository-local objects\/info\/alternates must be absent or an empty regular file/u,
+  );
+  await rm(alternates, { force: true });
+
+  const promisorHelper = join(artifactRoot, "promisor-upload-pack");
+  const promisorSentinel = `${promisorHelper}.invoked`;
+  await writeFile(
+    promisorHelper,
+    "#!/bin/sh\n: >\"${0}.invoked\"\nexit 1\n",
+    { mode: 0o700 },
+  );
+  await chmod(promisorHelper, 0o700);
+  await runFixtureGit(["config", "remote.origin.url", `file://${fixtureRoot}`]);
+  await runFixtureGit(["config", "remote.origin.uploadpack", promisorHelper]);
+  await runFixtureGit(["config", "remote.origin.promisor", "true"]);
+  await runFixtureGit(["config", "remote.origin.partialCloneFilter", "blob:none"]);
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/objectBackend: partial-clone and promisor configuration is forbidden/u,
+  );
+  await assert.rejects(readFile(promisorSentinel), { code: "ENOENT" });
+  for (const key of [
+    "remote.origin.partialCloneFilter",
+    "remote.origin.promisor",
+    "remote.origin.uploadpack",
+    "remote.origin.url",
+  ]) {
+    await runFixtureGit(["config", "--unset-all", key]);
+  }
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+
   await runFixtureGit(["config", "tar.umask", "0077"]);
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
@@ -1124,10 +1514,20 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
     candidateIdentity.sourceRevision + "\n",
     { mode: 0o600 },
   );
+  await runFixtureGit(["pack-refs", "--all"]);
+  const replaceRefName = `refs/replace/${candidateIdentity.sourceRevision}`;
+  const { stdout: packedReplacementRefs } = await runFixtureGit([
+    ...gitIdentityArguments,
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/replace/",
+  ]);
+  assert.equal(packedReplacementRefs.trim(), replaceRefName);
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
     /\/candidate\/replacements: replacement refs are forbidden for evidence candidates/u,
   );
+  await runFixtureGit(["update-ref", "-d", replaceRefName]);
   await rm(replaceDirectory, { recursive: true, force: true });
 
   await writeFile(join(fixtureRoot, ".gitattributes"), "* export-ignore\n", { mode: 0o600 });
@@ -1145,6 +1545,45 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
     /\/candidate\/dirty: evidence requires an exactly clean Git checkout/u,
+  );
+});
+
+test("repository evidence rejects gitlink candidates before accepting their identity", async (context) => {
+  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
+  const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
+  const [contractBytes, toolchainLockBytes, contract, candidateIdentity] = await Promise.all([
+    readFile(join(fixtureValidationRoot, "contract.json")),
+    readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
+    readJson(join(fixtureValidationRoot, "contract.json")),
+    readGitCandidateIdentity(fixtureRoot),
+  ]);
+  const evidence = createEvidenceProbe(contract, {
+    contractSha256: createHash("sha256").update(contractBytes).digest("hex"),
+    toolchainLockSha256: createHash("sha256").update(toolchainLockBytes).digest("hex"),
+    ...candidateIdentity,
+  });
+  const evidencePath = join(artifactRoot, "gitlink-evidence.json");
+  await execFileAsync(
+    "git",
+    [
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `160000,${candidateIdentity.sourceRevision},vendor/plugin`,
+    ],
+    { cwd: fixtureRoot, encoding: "utf8", env: commitGitEnvironment() },
+  );
+  await execFileAsync(
+    "git",
+    ["commit", "--quiet", "--message", "add forbidden gitlink"],
+    { cwd: fixtureRoot, encoding: "utf8", env: commitGitEnvironment() },
+  );
+  await mkdir(join(fixtureRoot, "vendor", "plugin"), { recursive: true });
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/gitlinks: Gitlink and submodule entries are forbidden for evidence candidates/u,
   );
 });
 

@@ -37,7 +37,8 @@
           "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
         },
         "treeSha256": {
-          "$ref": "#/$defs/sha256"
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the bytes nelos.proxmox.candidate-tree.git-ls-tree.v1\\0objectFormat=<sha1|sha256>\\0 followed by the hardened raw git ls-tree -r -z --full-tree sourceRevision -- output."
         },
         "dirty": {
           "const": false

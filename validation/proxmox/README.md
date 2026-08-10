@@ -64,8 +64,34 @@ outside the checkout. Packer config, plugin, cache, XDG, and temporary paths are
 isolated there and deleted on exit. The wrapper requires an exact clean Git
 commit, materializes only the four expected HCL files and their allowlisted
 inputs directly from that commit into the run directory, and executes the
-sealed copy. It refuses macOS, arm64, a PVE host, proxy variables, command-line
-overrides, unknown `PKR_VAR_*` values, extra HCL source, or an unclean checkout.
+sealed copy. Git replacement objects are disabled and any loose or packed
+`refs/replace/*` entry is rejected before the source revision is resolved. It
+refuses macOS, arm64, a PVE host, proxy variables, command-line overrides,
+unknown `PKR_VAR_*` values, extra HCL source, or an unclean checkout.
+The controller checkout is a trusted, single-purpose build input: no other
+process may mutate its common Git directory while the wrapper runs. The wrapper
+rejects alternates and partial/promisor repositories and verifies every
+materialized blob against its source object ID; it does not replace repository
+maintenance with a full object-database `fsck` on every build.
+
+Evidence `candidate.treeSha256` is object-format-scoped Git plumbing data: the
+SHA-256 of
+`nelos.proxmox.candidate-tree.git-ls-tree.v1\0objectFormat=<sha1|sha256>\0`
+followed by the raw, NUL-delimited
+`git ls-tree -r -z --full-tree <sourceRevision> --` bytes with replacement
+objects disabled. Record modes, object types, object IDs, and raw paths are
+bound without a text round trip or sort. Gitlinks are forbidden. SHA-1 and
+SHA-256 repositories intentionally have different digest domains; this is not
+a cross-object-format identity, and its object binding inherits the security
+properties of the repository's storage object format. It is not a digest of a
+Git-generated tar archive. A future live-runner archive must record a separate
+`archiveSha256`.
+
+Evidence inspection uses the fixed system Git with system/global configuration,
+lazy fetches, fsmonitor, commit graphs, multi-pack indexes, and replacement
+objects disabled. Repository alternates and partial/promisor configuration are
+rejected before cleanliness or object reads, so offline validation cannot
+silently obtain or substitute candidate objects through those backends.
 
 ## Proxmox prerequisites
 

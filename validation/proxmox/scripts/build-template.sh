@@ -46,9 +46,10 @@ for name in \
   require_env "$name"
 done
 
-for command in awk chmod curl dirname env find git grep id install jq mktemp node realpath rm sha256sum sort stat uname unzip; do
+for command in awk chmod curl dirname env find grep id install jq mktemp node realpath rm sha256sum sort stat uname unzip; do
   require_command "$command"
 done
+[[ -x /usr/bin/git ]] || die "required fixed Git executable not found: /usr/bin/git"
 
 [[ -z ${PROXMOX_PASSWORD:-} ]] || die "PROXMOX_PASSWORD must be unset; use a scoped API token"
 for name in PACKER_LOG PACKER_LOG_PATH; do
@@ -109,14 +110,75 @@ readonly PACKER_DIR REPOSITORY_ROOT
 readonly TOOLCHAIN_LOCK="${REPOSITORY_ROOT}/validation/proxmox/toolchain.lock.json"
 
 git_readonly() {
-  env -i PATH="$PATH" LC_ALL=C git -C "$REPOSITORY_ROOT" "$@"
+  env -i \
+    PATH=/usr/bin:/bin \
+    LC_ALL=C \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_ATTR_NOSYSTEM=1 \
+    GIT_GRAFT_FILE=/dev/null \
+    GIT_NO_LAZY_FETCH=1 \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    GIT_REF_PARANOIA=1 \
+    /usr/bin/git \
+      --no-replace-objects \
+      --literal-pathspecs \
+      --no-optional-locks \
+      -c core.useReplaceRefs=false \
+      -c core.attributesFile=/dev/null \
+      -c core.commitGraph=false \
+      -c core.multiPackIndex=false \
+      -c core.fsmonitor=false \
+      -c core.untrackedCache=false \
+      -C "$REPOSITORY_ROOT" \
+      "$@"
 }
 
 repository_top="$(git_readonly rev-parse --show-toplevel 2>/dev/null)" || die "source checkout is not a Git worktree"
 [[ $(realpath -e -- "$repository_top") == "$REPOSITORY_ROOT" ]] || die "script path and Git worktree root do not match"
-SOURCE_REVISION="$(git_readonly rev-parse --verify 'HEAD^{commit}')" || die "source checkout has no resolvable commit"
+git_common_dir="$(git_readonly rev-parse --path-format=absolute --git-common-dir)" || \
+  die "could not resolve source checkout common Git directory"
+[[ $git_common_dir == /* && -d $git_common_dir && ! -L $git_common_dir ]] || \
+  die "source checkout common Git directory is not an absolute regular directory"
+readonly git_common_dir
+
+reject_git_backend_file() {
+  local control_path="$1"
+  local label="$2"
+  if [[ -e $control_path || -L $control_path ]]; then
+    [[ -f $control_path && ! -L $control_path && ! -s $control_path ]] || \
+      die "source checkout ${label} must be absent or an empty regular file"
+  fi
+}
+
+reject_git_backend_file "${git_common_dir}/info/grafts" "legacy grafts file"
+reject_git_backend_file "${git_common_dir}/objects/info/alternates" "object alternates file"
+replacement_refs="$(git_readonly for-each-ref --format='%(refname)' refs/replace/)" || \
+  die "could not inspect source checkout replacement refs"
+[[ -z $replacement_refs ]] || die "source checkout replacement refs are forbidden"
+git_config_inventory="$(git_readonly config --includes --show-scope --name-only --list)" || \
+  die "could not inspect source checkout Git configuration"
+while IFS=$'\t' read -r config_scope config_key; do
+  [[ -n $config_scope && -n $config_key ]] || die "source checkout Git configuration inventory is malformed"
+  case "${config_key,,}" in
+    extensions.partialclone | remote.*.promisor | remote.*.partialclonefilter)
+      die "source checkout partial-clone and promisor configuration is forbidden"
+      ;;
+  esac
+done <<<"$git_config_inventory"
+GIT_OBJECT_FORMAT="$(git_readonly rev-parse --show-object-format=storage)" || \
+  die "could not resolve source checkout Git object format"
+case "$GIT_OBJECT_FORMAT" in
+  sha1) readonly GIT_OBJECT_ID_WIDTH=40 ;;
+  sha256) readonly GIT_OBJECT_ID_WIDTH=64 ;;
+  *) die "source checkout Git object format must be sha1 or sha256" ;;
+esac
+readonly GIT_OBJECT_FORMAT
+SOURCE_REVISION="$(git_readonly rev-parse --verify --end-of-options 'HEAD^{commit}')" || \
+  die "source checkout has no resolvable commit"
 readonly SOURCE_REVISION
-[[ ${SOURCE_REVISION} =~ ^[a-f0-9]{40}$|^[a-f0-9]{64}$ ]] || die "source revision is not a full Git object ID"
+[[ ${SOURCE_REVISION} =~ ^[a-f0-9]+$ && ${#SOURCE_REVISION} -eq $GIT_OBJECT_ID_WIDTH ]] || \
+  die "source revision is not a full object ID for the repository Git object format"
 [[ -z $(git_readonly status --porcelain=v1 --untracked-files=all) ]] || die "source checkout must be clean, including untracked files"
 
 readonly -a EXPECTED_PACKER_SOURCES=(
@@ -220,16 +282,24 @@ materialize_tracked() {
   local repository_path="$1"
   local destination="$2"
   local destination_mode="$3"
-  local source_mode source_type source_object source_path
+  local materialized_object source_mode source_record source_type source_object source_path
 
-  read -r source_mode source_type source_object source_path < <(
-    git_readonly ls-tree "$SOURCE_REVISION" -- "$repository_path"
-  ) || die "sealed input is absent at source revision: ${repository_path}"
+  source_record="$(git_readonly ls-tree "$SOURCE_REVISION" -- "$repository_path")" || \
+    die "could not inspect sealed input at source revision: ${repository_path}"
+  [[ -n $source_record && $source_record != *$'\n'* ]] || \
+    die "sealed input must resolve to exactly one tree record: ${repository_path}"
+  read -r source_mode source_type source_object source_path <<<"$source_record"
   [[ $source_type == "blob" && ($source_mode == "100644" || $source_mode == "100755") ]] || \
     die "sealed input is not a regular tracked file at source revision: ${repository_path}"
+  [[ $source_object =~ ^[a-f0-9]+$ && ${#source_object} -eq $GIT_OBJECT_ID_WIDTH ]] || \
+    die "sealed input object ID does not match the repository Git object format: ${repository_path}"
   [[ $source_path == "$repository_path" ]] || die "sealed input path did not resolve exactly: ${repository_path}"
   git_readonly cat-file blob "$source_object" >"$destination" || \
     die "could not materialize sealed input: ${repository_path}"
+  materialized_object="$(git_readonly hash-object --no-filters -- "$destination")" || \
+    die "could not verify materialized sealed input: ${repository_path}"
+  [[ $materialized_object == "$source_object" ]] || \
+    die "materialized sealed input does not match its source object: ${repository_path}"
   chmod "$destination_mode" "$destination"
 }
 
@@ -374,28 +444,29 @@ readonly BASE_TEMPLATE_CONFIG_INVENTORY_JQ='
 # shellcheck disable=SC2016
 readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
   ($vmid | tostring) as $vmidString |
-  (.data.efidisk0 // "" | split(",")) as $efiDisk |
-  ($efiDisk[0] |
+  (((try ((.data.efidisk0 // "") | split(",")) catch []) // [])) as $efiDisk |
+  (((try ($efiDisk[0] |
     capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
-  ) as $efiVolume |
+  ) catch null) // null)) as $efiVolume |
   ($efiDisk[1:] | sort) as $efiOptions |
-  (.data.net0 // "" | split(",")) as $networkOptions |
+  (((try ((.data.net0 // "") | split(",")) catch []) // [])) as $networkOptions |
   ($networkOptions |
     map(select(test("^virtio=[0-9A-Fa-f][02468AaCcEe](?::[0-9A-Fa-f]{2}){5}$")))
   ) as $networkMacOptions |
   (($networkMacOptions[0] // "") | sub("^virtio="; "") | ascii_downcase) as $networkMac |
-  (.data.meta // "" | split(",")) as $metaOptions |
-  (.data.scsi0 // "" | split(",")) as $scsiDisk |
-  ($scsiDisk[0] |
+  (((try ((.data.meta // "") | split(",")) catch []) // [])) as $metaOptions |
+  (((try ((.data.scsi0 // "") | split(",")) catch []) // [])) as $scsiDisk |
+  (((try ($scsiDisk[0] |
     capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
-  ) as $scsiVolume |
-  ((.data.smbios1 // "") |
+  ) catch null) // null)) as $scsiVolume |
+  (((try ((.data.smbios1 // "") |
     capture("^uuid=(?<uuid>[a-f0-9]{8}-[a-f0-9]{4}-[14][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$").uuid
-  ) as $smbiosUuid |
-  ((.data.vmgenid // "") |
+  ) catch null) // null)) as $smbiosUuid |
+  (((try ((.data.vmgenid // "") |
     capture("^(?<uuid>[a-f0-9]{8}-[a-f0-9]{4}-[14][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$").uuid
-  ) as $vmGenerationId |
-  (((.data.agent // "") | split(",") | sort) == ["enabled=1", "fstrim_cloned_disks=1"]) and
+  ) catch null) // null)) as $vmGenerationId |
+  (((try ((.data.agent // "") | split(",") | sort) catch []) // []) ==
+    ["enabled=1", "fstrim_cloned_disks=1"]) and
   ((.data | has("arch") | not) or .data.arch == "x86_64") and
   .data.balloon == 0 and
   .data.bios == "ovmf" and
@@ -403,8 +474,8 @@ readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
   .data.cores == 4 and
   (.data.cpu == "x86-64-v2-AES" or .data.cpu == "cputype=x86-64-v2-AES") and
   .data.description == ("Nelos validator base; Ubuntu 24.04 release-20260801; ubuntu-sha256:" + $digest) and
-  ((.data.digest // "") | test("^[a-f0-9]{40}$")) and
-  ($efiVolume.volume | test("^base-" + $vmidString + "-disk-0$")) and
+  (((try ((.data.digest // "") | test("^[a-f0-9]{40}$")) catch false) // false)) and
+  (($efiVolume.volume // "") | test("^base-" + $vmidString + "-disk-0$")) and
   (
     $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=528K"] or
     $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=1M"] or
@@ -427,22 +498,24 @@ readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
   (
     (
       $scsiVolume.storage == $efiVolume.storage and
-      ($scsiVolume.volume | test("^base-" + $vmidString + "-disk-1$"))
+      (($scsiVolume.volume // "") | test("^base-" + $vmidString + "-disk-1$"))
     ) or
     (
       $scsiVolume.storage != $efiVolume.storage and
-      ($scsiVolume.volume | test("^base-" + $vmidString + "-disk-0$"))
+      (($scsiVolume.volume // "") | test("^base-" + $vmidString + "-disk-0$"))
     )
   ) and
   (($scsiDisk[1:] | sort) == ["discard=on", "iothread=1", "size=64G", "ssd=1"]) and
   .data.scsihw == "virtio-scsi-single" and
+  $smbiosUuid != null and
   $smbiosUuid != "00000000-0000-0000-0000-000000000000" and
   .data.serial0 == "socket" and
   .data.sockets == 1 and
-  (((.data.tags // "") | split(";") | sort) ==
+  (((try ((.data.tags // "") | split(";") | sort) catch []) // []) ==
     ["nelos-validator-base", "ubuntu-24-04", "ubuntu-release-20260801"]) and
   .data.template == 1 and
   .data.vga == "serial0" and
+  $vmGenerationId != null and
   $vmGenerationId != "00000000-0000-0000-0000-000000000000" and
   $vmGenerationId != $smbiosUuid'
 # shellcheck disable=SC2016
@@ -462,14 +535,14 @@ readonly BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ='
   ] | length) == 0'
 # shellcheck disable=SC2016
 readonly BASE_CLOUD_INIT_DEVICE_JQ='
-  (.data.ide2 // "" | split(",")) as $cloudInit |
+  (((try ((.data.ide2 // "") | split(",")) catch []) // [])) as $cloudInit |
   ($vmid | tostring) as $vmidString |
-  ($cloudInit[0] |
+  (((try ($cloudInit[0] |
     capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
-  ) as $cloudInitVolume |
+  ) catch null) // null)) as $cloudInitVolume |
   (
-    $cloudInitVolume.volume == ("vm-" + $vmidString + "-cloudinit") or
-    $cloudInitVolume.volume == ($vmidString + "/vm-" + $vmidString + "-cloudinit.qcow2")
+    ($cloudInitVolume.volume // "") == ("vm-" + $vmidString + "-cloudinit") or
+    ($cloudInitVolume.volume // "") == ($vmidString + "/vm-" + $vmidString + "-cloudinit.qcow2")
   ) and
   (
     (($cloudInit[1:] | sort) == ["media=cdrom"]) or

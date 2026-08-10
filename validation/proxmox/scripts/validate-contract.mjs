@@ -10,15 +10,24 @@ import { isDeepStrictEqual, promisify } from "node:util";
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(scriptPath), "../../..");
 const execFileAsync = promisify(execFile);
+const GIT_EXECUTABLE = "/usr/bin/git";
 const GIT_IDENTITY_ARGUMENTS = Object.freeze([
   "--no-replace-objects",
+  "--literal-pathspecs",
+  "--no-optional-locks",
   "-c", "core.useReplaceRefs=false",
   "-c", "core.attributesFile=/dev/null",
   "-c", "core.autocrlf=false",
   "-c", "core.eol=lf",
+  "-c", "core.commitGraph=false",
+  "-c", "core.multiPackIndex=false",
+  "-c", "core.fsmonitor=false",
+  "-c", "core.untrackedCache=false",
   "-c", "tar.umask=0002",
 ]);
 const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
+const GIT_OBJECT_FORMAT_WIDTH = Object.freeze({ sha1: 40, sha256: 64 });
+const GIT_TREE_MANIFEST_DOMAIN = "nelos.proxmox.candidate-tree.git-ls-tree.v1";
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
@@ -27,20 +36,21 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024, environment = {}) {
+async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024) {
   try {
-    const { stdout } = await execFileAsync("git", [...GIT_IDENTITY_ARGUMENTS, ...argumentsList], {
+    const { stdout } = await execFileAsync(GIT_EXECUTABLE, [...GIT_IDENTITY_ARGUMENTS, ...argumentsList], {
       cwd: root,
       encoding: null,
       maxBuffer,
       env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        PATH: "/usr/bin:/bin",
         LC_ALL: "C",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_ATTR_NOSYSTEM: "1",
+        GIT_NO_LAZY_FETCH: "1",
         GIT_NO_REPLACE_OBJECTS: "1",
-        ...environment,
+        GIT_REF_PARANOIA: "1",
       },
     });
     return Buffer.from(stdout);
@@ -72,7 +82,9 @@ async function rejectGitControlFile(root, gitPath, label) {
   }
 }
 
-async function rejectArchiveAffectingGitState(root) {
+async function rejectUnsafeGitState(root) {
+  // Preserve the archive controls for the future live-runner materialization path,
+  // even though evidence identity uses the canonical recursive tree manifest below.
   const configParts = (await gitBuffer(root, [
     "config",
     "--includes",
@@ -91,14 +103,71 @@ async function rejectArchiveAffectingGitState(root) {
     if ((scope === "local" || scope === "worktree") && key.startsWith("tar.")) {
       fail("/candidate/archiveConfig", "repository and worktree tar.* configuration is forbidden");
     }
+    if (
+      key === "extensions.partialclone"
+      || /^remote\..+\.(?:promisor|partialclonefilter)$/u.test(key)
+    ) {
+      fail("/candidate/objectBackend", "partial-clone and promisor configuration is forbidden");
+    }
   }
   await Promise.all([
     rejectGitControlFile(root, "info/attributes", "info/attributes"),
     rejectGitControlFile(root, "info/grafts", "info/grafts"),
+    rejectGitControlFile(root, "objects/info/alternates", "objects/info/alternates"),
   ]);
   if (await gitText(root, ["for-each-ref", "--format=%(refname)", "refs/replace/"]) !== "") {
     fail("/candidate/replacements", "replacement refs are forbidden for evidence candidates");
   }
+}
+
+function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
+  const objectIdWidth = GIT_OBJECT_FORMAT_WIDTH[objectFormat];
+  if (objectIdWidth === undefined) {
+    fail("/candidate/objectFormat", "Git storage object format must be sha1 or sha256");
+  }
+  let hasGitAttributes = false;
+  let recordOffset = 0;
+  while (recordOffset < treeManifest.length) {
+    const recordEnd = treeManifest.indexOf(0, recordOffset);
+    if (recordEnd === -1) {
+      fail("/candidate/treeManifest", "Git tree manifest must contain complete NUL-delimited records");
+    }
+    const record = treeManifest.subarray(recordOffset, recordEnd);
+    const pathSeparator = record.indexOf(0x09);
+    if (pathSeparator <= 0 || pathSeparator === record.length - 1) {
+      fail("/candidate/treeManifest", "Git tree manifest record shape is invalid");
+    }
+    const header = record.subarray(0, pathSeparator).toString("ascii");
+    const headerMatch = /^(?<mode>[0-7]{6}) (?<type>blob|commit) (?<objectId>[a-f0-9]+)$/u.exec(header);
+    if (headerMatch === null) {
+      fail("/candidate/treeManifest", "Git tree manifest header is invalid");
+    }
+    const { mode, type, objectId } = headerMatch.groups;
+    if (mode === "160000" || type === "commit") {
+      fail("/candidate/gitlinks", "Gitlink and submodule entries are forbidden for evidence candidates");
+    }
+    if (
+      type !== "blob"
+      || !["100644", "100755", "120000"].includes(mode)
+      || objectId.length !== objectIdWidth
+    ) {
+      fail("/candidate/treeManifest", "Git tree manifest object metadata is invalid");
+    }
+    const path = record.subarray(pathSeparator + 1);
+    const attributesName = Buffer.from(".gitattributes", "ascii");
+    if (
+      path.equals(attributesName)
+      || (
+        path.length > attributesName.length
+        && path.at(-(attributesName.length + 1)) === 0x2f
+        && path.subarray(-attributesName.length).equals(attributesName)
+      )
+    ) {
+      hasGitAttributes = true;
+    }
+    recordOffset = recordEnd + 1;
+  }
+  return Object.freeze({ hasGitAttributes });
 }
 
 async function inspectEvidenceCandidate(root) {
@@ -118,32 +187,40 @@ async function inspectEvidenceCandidate(root) {
   if (canonicalDiscoveredRoot !== canonicalRoot) {
     fail("/candidate", "repository root must be the exact Git worktree root");
   }
-  await rejectArchiveAffectingGitState(canonicalRoot);
+  await rejectUnsafeGitState(canonicalRoot);
   const status = await gitText(canonicalRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (status !== "") fail("/candidate/dirty", "evidence requires an exactly clean Git checkout");
-  const sourceRevision = (await gitText(canonicalRoot, ["rev-parse", "HEAD^{commit}"])).trim();
-  if (!GIT_OBJECT_ID.test(sourceRevision)) {
+  const sourceRevision = (await gitText(
+    canonicalRoot,
+    ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+  )).trim();
+  const objectFormat = (await gitText(
+    canonicalRoot,
+    ["rev-parse", "--show-object-format=storage"],
+  )).trim();
+  const objectIdWidth = GIT_OBJECT_FORMAT_WIDTH[objectFormat];
+  if (objectIdWidth === undefined) {
+    fail("/candidate/objectFormat", "Git storage object format must be sha1 or sha256");
+  }
+  if (!GIT_OBJECT_ID.test(sourceRevision) || sourceRevision.length !== objectIdWidth) {
     fail("/candidate/sourceRevision", "Git HEAD must resolve to a full lowercase object ID");
   }
-  const treePaths = (await gitBuffer(canonicalRoot, [
-    "ls-tree",
-    "-r",
-    "--name-only",
-    "-z",
-    sourceRevision,
-  ], 256 * 1024 * 1024)).toString("utf8").split("\0");
-  if (treePaths.some((path) => path === ".gitattributes" || path.endsWith("/.gitattributes"))) {
+  const treeManifest = await gitBuffer(
+    canonicalRoot,
+    ["ls-tree", "-r", "-z", "--full-tree", sourceRevision, "--"],
+    256 * 1024 * 1024,
+  );
+  const { hasGitAttributes } = inspectCanonicalGitTreeManifest(treeManifest, objectFormat);
+  if (hasGitAttributes) {
     fail("/candidate/attributes", "tracked .gitattributes files require an explicit archive policy");
   }
-  const archive = await gitBuffer(
-    canonicalRoot,
-    ["archive", "--format=tar", sourceRevision],
-    256 * 1024 * 1024,
-    { GIT_GRAFT_FILE: "/dev/null" },
+  const manifestDomain = Buffer.from(
+    `${GIT_TREE_MANIFEST_DOMAIN}\0objectFormat=${objectFormat}\0`,
+    "ascii",
   );
   return Object.freeze({
     sourceRevision,
-    treeSha256: sha256(archive),
+    treeSha256: sha256(Buffer.concat([manifestDomain, treeManifest])),
   });
 }
 
@@ -493,7 +570,35 @@ export async function validateRecipeSources(root, lock) {
     "materialize_tracked",
     "download_verified",
     'export PACKER_CONFIG="${RUN_ROOT}/config/packer.json"',
+    "PATH=/usr/bin:/bin",
+    "GIT_ATTR_NOSYSTEM=1",
+    "GIT_GRAFT_FILE=/dev/null",
+    "GIT_NO_LAZY_FETCH=1",
+    "GIT_NO_REPLACE_OBJECTS=1",
+    "GIT_REF_PARANOIA=1",
+    "/usr/bin/git",
+    "--no-replace-objects",
+    "--literal-pathspecs",
+    "--no-optional-locks",
+    "-c core.useReplaceRefs=false",
+    "-c core.attributesFile=/dev/null",
+    "-c core.commitGraph=false",
+    "-c core.multiPackIndex=false",
+    "-c core.fsmonitor=false",
+    "-c core.untrackedCache=false",
+    '${git_common_dir}/info/grafts',
+    '${git_common_dir}/objects/info/alternates',
+    "extensions.partialclone",
+    "remote.*.promisor",
+    "remote.*.partialclonefilter",
+    "git_readonly for-each-ref --format='%(refname)' refs/replace/",
+    "git_readonly rev-parse --show-object-format=storage",
+    "git_readonly rev-parse --verify --end-of-options 'HEAD^{commit}'",
+    "GIT_OBJECT_ID_WIDTH=40",
+    "GIT_OBJECT_ID_WIDTH=64",
+    "sealed input must resolve to exactly one tree record",
     "git_readonly status --porcelain=v1 --untracked-files=all",
+    'git_readonly hash-object --no-filters -- "$destination"',
   ]) {
     if (!buildWrapper.includes(sealedBuildControl)) {
       fail("/recipe/build-wrapper", `missing sealed build control: ${sealedBuildControl}`);
