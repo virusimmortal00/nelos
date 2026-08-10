@@ -20,6 +20,8 @@ are outside this template's scope.
   package candidates.
 - `scripts/bootstrap-cloud-image-template.sh` creates a clean Ubuntu base
   template on one explicitly selected PVE node.
+- `scripts/attest-base-template-disks.sh` measures the exact logical bytes of
+  the immutable SCSI and EFI clone sources through a node-local forced command.
 - `packer/` plus `scripts/build-template.sh` create an immutable validator
   template from that base on an isolated Linux controller.
 - The offline validator, tests, ShellCheck, and Packer syntax checks run without
@@ -46,7 +48,8 @@ Recommended controller sizing:
 - 40 GiB thin-provisioned disk.
 - One untagged `vmbr0` NIC using DHCP.
 - Outbound HTTPS to the immutable artifact hosts in `toolchain.lock.json`.
-- HTTPS access to the selected PVE API hostname and SSH reachability to the
+- HTTPS access to the selected PVE API hostname, public-key-only SSH access to
+  the selected node's forced-command disk attester, and SSH reachability to the
   temporary build guest.
 
 Install the internal Proxmox CA into the controller operating system's trust
@@ -142,6 +145,103 @@ Packer generates a one-run SSH key pair in memory, injects its public key with
 Cloud-Init, and removes build authorization before template conversion. No
 developer SSH key or forwarded agent is accepted by this recipe.
 
+## Base disk attestation boundary
+
+PVE 8.4 exposes a configuration digest but no REST checksum for existing
+`lvmthin` or `zfspool` VM volumes. A digest copied into a VM description would
+not bind the disk bytes. Before Packer may full-clone a retained base, the
+controller therefore sends a fresh nonce to a fixed, node-local attester over
+public-key-only SSH. The attester hashes the complete logical byte range of
+`scsi0` and `efidisk0`, returns their logical sizes and storage-native
+identities, and binds the response to the exact current PVE config digest. The
+controller compares those values with an operator-pinned trusted bootstrap
+receipt, then re-reads current and pending configuration immediately before
+Packer runs.
+
+Cloud-Init `ide2` is not content-hashed. PVE recognizes the Cloud-Init volume
+during clone, allocates a fresh destination, and skips copying its source data;
+the pinned Packer source then regenerates that drive before first boot. Its
+configuration, backend, and volume name remain part of the closed preflight.
+
+Node root is the measurement trust anchor: a compromised PVE root can alter a
+volume and falsify any node-local measurement. Within that boundary, the
+attester requires an inactive, read-only, activation-skip LVM thin base volume,
+or an unchanged ZFS current zvol whose bytes remain equivalent to its stable
+`@__base__` linked-clone snapshot (`written@__base__=0`). Full clones read the
+current zvol; linked clones use that snapshot. The attester compares storage
+identity before and after the sequential read. A missing zvol link fails
+closed. Each base build performs one full logical read of its 64 GiB SCSI disk,
+so allow adequate local I/O time.
+
+Install one attester endpoint per base VMID on its owning PVE node:
+
+1. Copy `attest-base-template-disks.sh` to
+   `/usr/local/sbin/attest-base-template-disks.sh` as `root:root` mode `0755`.
+   This permanent forced-command copy is separate from the protected sibling
+   copy used by a one-time bootstrap invocation; keep both byte-identical to
+   the reviewed commit while rebuilding the base.
+2. Copy `examples/base-disk-attester.json.example` to
+   `/etc/nelos-validator/base-disk-attester.json`, replace every identity with
+   that node's exact values, and set the file to `root:root` mode `0600`.
+3. Create a dedicated `nelos-attester` Unix account and its SSH paths with
+   explicit ownership and modes. Keep the home non-writable by group/other so
+   `sshd` `StrictModes` accepts the key:
+
+   ```sh
+   /usr/sbin/useradd --system --create-home --home-dir /var/lib/nelos-attester --shell /bin/bash nelos-attester
+   /usr/sbin/usermod --lock nelos-attester
+   /usr/bin/install -d -o nelos-attester -g nelos-attester -m 0750 /var/lib/nelos-attester
+   /usr/bin/install -d -o nelos-attester -g nelos-attester -m 0700 /var/lib/nelos-attester/.ssh
+   test ! -L /var/lib/nelos-attester/.ssh/authorized_keys
+   test ! -e /var/lib/nelos-attester/.ssh/authorized_keys || test -f /var/lib/nelos-attester/.ssh/authorized_keys
+   test -e /var/lib/nelos-attester/.ssh/authorized_keys || /usr/bin/install -o nelos-attester -g nelos-attester -m 0600 /dev/null /var/lib/nelos-attester/.ssh/authorized_keys
+   /usr/bin/chown nelos-attester:nelos-attester /var/lib/nelos-attester/.ssh/authorized_keys
+   /usr/bin/chmod 0600 /var/lib/nelos-attester/.ssh/authorized_keys
+   ```
+
+   Its only accepted key must be the dedicated controller key described below.
+4. Install this exact sudoers grant as a root-owned mode-`0440` file and verify
+   it with `visudo -cf`:
+
+   ```text
+   Defaults:nelos-attester env_reset,secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+   nelos-attester ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/attest-base-template-disks.sh serve
+   ```
+
+5. Put one line in that account's mode-`0600` `authorized_keys`, substituting
+   the controller's fixed source IP and public key:
+
+   ```text
+   from="<controller-ip>",restrict,command="/usr/bin/sudo -n /usr/local/sbin/attest-base-template-disks.sh serve" ssh-ed25519 <controller-public-key>
+   ```
+
+The dedicated private key remains outside the repository, mode `0600`, inside
+a mode-`0700` controller directory. It must be directly usable without a prompt
+(normally a dedicated passphrase-less key), because the build deliberately
+disables agents and interactive askpass. Pin the node's SSH host key in a
+separate read-only `known_hosts` file after verifying its fingerprint through
+the PVE console; do not trust an unverified `ssh-keyscan` result. The build
+wrapper ignores SSH config and agents, disables passwords, proxies, jumps,
+forwarding, multiplexing, local commands, and TTYs, and accepts only the pinned
+host key and identity file. `CheckHostIP` is disabled intentionally so a
+hostname target cannot mutate the pinned file with a newly resolved address;
+host authentication still requires its exact pinned key.
+
+Before enabling the key, compare the installed attester's SHA-256 with the
+exact file at the merged source revision from the controller or homelab
+orchestration. Record that source revision and helper digest beside the trusted
+baseline receipt. This detects accidental deployment drift; node root remains
+the stated measurement trust anchor.
+
+An existing retained base cannot acquire historical provenance by being hashed
+today. Rebuild it from the checksum-verified Ubuntu image with the merged
+bootstrap and save the final JSON receipt as the trusted baseline. Point the
+private build environment at that complete protected receipt; the wrapper binds
+its receipt kind, locked Ubuntu digest, template/config identity, volume IDs,
+backends, native identities, hashes, and sizes to the fresh measurement. A
+later mismatch requires a fresh trusted rebuild; never rebaseline an
+unexplained retained disk.
+
 ## 1. Validate the checkout offline
 
 From an exact, clean source commit on the controller:
@@ -162,8 +262,9 @@ directories; it has no Proxmox secrets.
 ## 2. Bootstrap one base template
 
 Review and copy `examples/bootstrap.env.example` to a private temporary file.
-Set its values for exactly one target node. Copy the bootstrap script to that
-node and run it there as root with no positional arguments.
+Set its values for exactly one target node. Copy the bootstrap and attester
+scripts together to a protected directory on that node and run the bootstrap
+there as root with no positional arguments.
 
 For example, after copying both files to root-owned paths on the selected PVE
 node:
@@ -171,7 +272,9 @@ node:
 ```bash
 sudo -i
 source /root/private/nelos-bootstrap.env
-/root/bootstrap-cloud-image-template.sh
+test ! -e /root/private/nelos-base-baseline-receipt.json
+umask 077
+/root/bootstrap-cloud-image-template.sh > /root/private/nelos-base-baseline-receipt.json
 ```
 
 The script performs a cluster-wide VMID/name collision check, verifies PVE 8.4,
@@ -179,7 +282,11 @@ checks that every storage is node-local and has the required content role,
 downloads and verifies the immutable Ubuntu image, and uses a uniquely named
 Cloud-Init snippet to install `qemu-guest-agent`. It boots the owned VM, waits
 for Cloud-Init through the guest agent, scrubs machine identity, removes the
-snippet reference, and only then converts the VM to a template.
+snippet reference, and only then converts the VM to a template. After the final
+configuration is settled, it invokes the local attester and prints the trusted
+baseline JSON receipt as the only standard-output record. Save that mode-`0600`
+receipt outside the repository. A failed measurement leaves the template for
+explicit operator reconciliation and does not print a usable baseline.
 
 The image-cache directory and cached image must be root-owned and not writable
 by group or other users. The configured snippets storage root and its
@@ -212,7 +319,9 @@ validation/proxmox/scripts/build-template.sh
 
 The wrapper validates the repository contract before querying PVE, verifies the
 exact base VMID/name/node/ownership tag, verifies the output VMID and name are
-unused cluster-wide, and checks the Cloud-Init storage. Before any mutation, it
+unused cluster-wide, and checks the Cloud-Init storage. It then requires a
+fresh, baseline-matching node attestation for the exact inherited SCSI and EFI
+bytes. Before any mutation, it
 checksum-downloads the locked Linux Packer and plugin archives, installs the
 plugin into private one-run state, and performs a full semantic validation
 behind a dead proxy with synthetic credentials. It seals the inspected inputs
@@ -233,8 +342,9 @@ reconciliation. This repository intentionally provides no broad cleanup command.
 
 Build the active generation independently on every node that should host it.
 Record node, storage IDs, VMID, name, source commit, contract digest, lock
-digest, and build ownership tag in an operator-controlled receipt. Do not assume
-that a template or linked clone can move between node-local backends.
+digest, trusted SCSI/EFI logical hashes and sizes, and build ownership tag in an
+operator-controlled receipt. Do not assume that a template or linked clone can
+move between node-local backends.
 
 Keep the active validated generation indefinitely. Keep the immediately
 replaced known-good generation for at least 30 days and until the replacement

@@ -37,6 +37,14 @@ for name in PROXMOX_URL PROXMOX_USERNAME PROXMOX_TOKEN NELOS_PACKER_STATE_DIR; d
 done
 
 for name in \
+  NELOS_BASE_ATTESTATION_SSH_TARGET \
+  NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE \
+  NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE \
+  NELOS_BASE_ATTESTATION_BASELINE_FILE; do
+  require_env "$name"
+done
+
+for name in \
   PKR_VAR_proxmox_node \
   PKR_VAR_base_template_vmid \
   PKR_VAR_base_template_name \
@@ -50,6 +58,10 @@ for command in awk chmod curl dirname env find grep id install jq mktemp node re
   require_command "$command"
 done
 [[ -x /usr/bin/git ]] || die "required fixed Git executable not found: /usr/bin/git"
+[[ -x /usr/bin/perl && -f /usr/bin/perl && ! -L /usr/bin/perl ]] || \
+  die "required fixed Perl executable not found: /usr/bin/perl"
+[[ -x /usr/bin/ssh && -f /usr/bin/ssh && ! -L /usr/bin/ssh ]] || \
+  die "required fixed SSH executable not found: /usr/bin/ssh"
 
 [[ -z ${PROXMOX_PASSWORD:-} ]] || die "PROXMOX_PASSWORD must be unset; use a scoped API token"
 for name in PACKER_LOG PACKER_LOG_PATH; do
@@ -85,6 +97,10 @@ readonly OUTPUT_TEMPLATE_NAME="${PKR_VAR_output_template_name}"
 readonly PROXMOX_NODE="${PKR_VAR_proxmox_node}"
 readonly PROXMOX_POOL="${PKR_VAR_proxmox_pool:-}"
 readonly CLOUD_INIT_STORAGE="${PKR_VAR_cloud_init_storage}"
+readonly BASE_ATTESTATION_SSH_TARGET="${NELOS_BASE_ATTESTATION_SSH_TARGET}"
+readonly BASE_ATTESTATION_SSH_IDENTITY_FILE="${NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE}"
+readonly BASE_ATTESTATION_KNOWN_HOSTS_FILE="${NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE}"
+readonly BASE_ATTESTATION_BASELINE_FILE="${NELOS_BASE_ATTESTATION_BASELINE_FILE}"
 
 [[ ${PROXMOX_URL} =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?/api2/json$ ]] || \
   die "PROXMOX_URL must be an HTTPS hostname URL ending in /api2/json"
@@ -101,6 +117,48 @@ readonly CLOUD_INIT_STORAGE="${PKR_VAR_cloud_init_storage}"
 [[ ${OUTPUT_TEMPLATE_NAME} =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || die "output template name must be a DNS-safe single label"
 [[ ${CLOUD_INIT_STORAGE} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Cloud-Init storage ID is unsafe"
 [[ -z ${PROXMOX_POOL} || ${PROXMOX_POOL} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Proxmox pool name is unsafe"
+[[ ${BASE_ATTESTATION_SSH_TARGET} =~ ^[a-z_][a-z0-9_-]*@([A-Za-z0-9][A-Za-z0-9.-]*|\[[A-Fa-f0-9:]+\])$ ]] || \
+  die "NELOS_BASE_ATTESTATION_SSH_TARGET must be an exact user@host target without a port or options"
+
+assert_controller_attestation_file() {
+  local path="$1"
+  local label="$2"
+  local exact_mode="${3:-}"
+  local canonical current owner mode link_count permission_bits controller_uid fixed_path
+
+  [[ $path == /* && $path =~ ^/[A-Za-z0-9._/-]+$ ]] || die "${label} must be a specific absolute path without whitespace"
+  [[ -f $path && ! -L $path ]] || die "${label} must be a regular non-symlink file"
+  for fixed_path in /usr/bin/dirname /usr/bin/id /usr/bin/realpath /usr/bin/stat; do
+    [[ -x $fixed_path && -f $fixed_path && ! -L $fixed_path ]] || die "required fixed executable is unavailable: ${fixed_path}"
+  done
+  canonical="$(/usr/bin/realpath -e -- "$path")" || die "could not resolve ${label}"
+  [[ $canonical == "$path" ]] || die "${label} must use its canonical path"
+  case "${canonical}/" in
+    "${REPOSITORY_ROOT}/"*) die "${label} must be outside the source checkout" ;;
+  esac
+  controller_uid="$(/usr/bin/id -u)"
+  owner="$(/usr/bin/stat -c '%u' -- "$path")" || die "could not inspect ${label} ownership"
+  mode="$(/usr/bin/stat -c '%a' -- "$path")" || die "could not inspect ${label} permissions"
+  link_count="$(/usr/bin/stat -c '%h' -- "$path")" || die "could not inspect ${label} link count"
+  [[ $owner == "$controller_uid" && $mode =~ ^[0-7]{3,4}$ ]] || die "${label} must be owned by the controller user"
+  [[ $link_count == 1 ]] || die "${label} must have exactly one hard link"
+  permission_bits=$((8#$mode))
+  (( (permission_bits & 0022) == 0 )) || die "${label} must not be group- or world-writable"
+  [[ -z $exact_mode || $mode == "$exact_mode" ]] || die "${label} must have mode ${exact_mode}"
+
+  current="$(/usr/bin/dirname -- "$canonical")"
+  while true; do
+    [[ -d $current && ! -L $current ]] || die "${label} ancestor must be a non-symlink directory: ${current}"
+    owner="$(/usr/bin/stat -c '%u' -- "$current")" || die "could not inspect ${label} ancestor ownership"
+    mode="$(/usr/bin/stat -c '%a' -- "$current")" || die "could not inspect ${label} ancestor permissions"
+    [[ ($owner == 0 || $owner == "$controller_uid") && $mode =~ ^[0-7]{3,4}$ ]] || \
+      die "${label} ancestor ownership or permissions are invalid: ${current}"
+    permission_bits=$((8#$mode))
+    (( (permission_bits & 0022) == 0 )) || die "${label} ancestor must not be group- or world-writable: ${current}"
+    [[ $current == / ]] && break
+    current="$(/usr/bin/dirname -- "$current")"
+  done
+}
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
@@ -181,6 +239,33 @@ readonly SOURCE_REVISION
 [[ ${SOURCE_REVISION} =~ ^[a-f0-9]+$ && ${#SOURCE_REVISION} -eq $GIT_OBJECT_ID_WIDTH ]] || \
   die "source revision is not a full object ID for the repository Git object format"
 [[ -z $(git_readonly status --porcelain=v1 --untracked-files=all) ]] || die "source checkout must be clean, including untracked files"
+
+assert_controller_attestation_file "$BASE_ATTESTATION_SSH_IDENTITY_FILE" "attestation SSH identity" 600
+assert_controller_attestation_file "$BASE_ATTESTATION_KNOWN_HOSTS_FILE" "attestation known_hosts file" 400
+assert_controller_attestation_file "$BASE_ATTESTATION_BASELINE_FILE" "trusted base disk baseline receipt" 600
+BASE_ATTESTATION_BASELINE_JSON="$(/usr/bin/perl -e '
+  binmode(STDIN);
+  binmode(STDOUT);
+  my $receipt = q{};
+  while (1) {
+    my $count = sysread(STDIN, my $chunk, 8192);
+    die "read" unless defined($count);
+    last if $count == 0;
+    $receipt .= $chunk;
+    die "size" if length($receipt) > 4097;
+  }
+  die "framing" unless length($receipt) >= 2 && substr($receipt, -1, 1) eq qq{\n};
+  chop($receipt);
+  die "framing" if index($receipt, qq{\n}) >= 0 || index($receipt, qq{\0}) >= 0;
+  print $receipt;
+' <"$BASE_ATTESTATION_BASELINE_FILE")" || die "trusted base disk baseline receipt envelope is malformed"
+readonly BASE_ATTESTATION_BASELINE_JSON
+unset \
+  NELOS_BASE_ATTESTATION_SSH_TARGET \
+  NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE \
+  NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE \
+  NELOS_BASE_ATTESTATION_BASELINE_FILE
+unset SSH_AGENT_PID SSH_AUTH_SOCK
 
 readonly -a EXPECTED_PACKER_SOURCES=(
   build.pkr.hcl
@@ -405,6 +490,136 @@ api_get() {
       --config - "${API_ROOT}/${endpoint}"
 }
 
+run_base_disk_attestation() {
+  local attestation_nonce="$1"
+  local request response response_path fresh_config fresh_pending
+
+  [[ $attestation_nonce =~ ^build-[a-f0-9]{32}$ ]] || die "base disk attestation nonce is invalid"
+  [[ -x /usr/bin/timeout && -f /usr/bin/timeout && ! -L /usr/bin/timeout ]] || \
+    die "required fixed timeout executable not found: /usr/bin/timeout"
+  request="$(jq -cn \
+    --arg nonce "$attestation_nonce" \
+    --arg node "$PROXMOX_NODE" \
+    --argjson vmid "$BASE_TEMPLATE_VMID" \
+    --arg name "$BASE_TEMPLATE_NAME" \
+    --arg digest "$base_config_digest" \
+    '{
+      schemaVersion: 1,
+      nonce: $nonce,
+      node: $node,
+      baseTemplateVmid: $vmid,
+      baseTemplateName: $name,
+      configDigest: $digest
+    }')" || die "could not create base disk attestation request"
+  [[ $request != *$'\n'* && ${#request} -le 2048 ]] || die "base disk attestation request is malformed"
+
+  response_path="${RUN_ROOT}/base-disk-attestation.json"
+  [[ ! -e $response_path && ! -L $response_path ]] || die "base disk attestation output path already exists"
+  if ! printf '%s\n' "$request" | \
+    /usr/bin/timeout --foreground --signal=TERM --kill-after=30s 2700s \
+    /usr/bin/env -i \
+      PATH=/usr/bin:/bin \
+      LC_ALL=C \
+      HOME=/nonexistent \
+      /usr/bin/ssh \
+        -F /dev/null \
+        -T \
+        -i "$BASE_ATTESTATION_SSH_IDENTITY_FILE" \
+        -o BatchMode=yes \
+        -o CanonicalizeHostname=no \
+        -o CheckHostIP=no \
+        -o ClearAllForwardings=yes \
+        -o ConnectionAttempts=1 \
+        -o ConnectTimeout=15 \
+        -o ControlMaster=no \
+        -o ControlPath=none \
+        -o EscapeChar=none \
+        -o ForwardAgent=no \
+        -o GlobalKnownHostsFile=/dev/null \
+        -o IdentitiesOnly=yes \
+        -o IdentityAgent=none \
+        -o KbdInteractiveAuthentication=no \
+        -o LocalCommand=none \
+        -o LogLevel=ERROR \
+        -o NumberOfPasswordPrompts=0 \
+        -o PasswordAuthentication=no \
+        -o PermitLocalCommand=no \
+        -o PreferredAuthentications=publickey \
+        -o ProxyCommand=none \
+        -o ProxyJump=none \
+        -o PubkeyAuthentication=yes \
+        -o RequestTTY=no \
+        -o ServerAliveCountMax=4 \
+        -o ServerAliveInterval=15 \
+        -o StrictHostKeyChecking=yes \
+        -o UpdateHostKeys=no \
+        -o UserKnownHostsFile="$BASE_ATTESTATION_KNOWN_HOSTS_FILE" \
+        -o VerifyHostKeyDNS=no \
+        "$BASE_ATTESTATION_SSH_TARGET" | \
+    /usr/bin/perl -e '
+      binmode(STDIN);
+      binmode(STDOUT);
+      my $response = q{};
+      while (1) {
+        my $count = sysread(STDIN, my $chunk, 8192);
+        die "read" unless defined($count);
+        last if $count == 0;
+        $response .= $chunk;
+        die "size" if length($response) > 4097;
+      }
+      die "framing" unless length($response) >= 2 && substr($response, -1, 1) eq qq{\n};
+      chop($response);
+      die "framing" if index($response, qq{\n}) >= 0 || index($response, qq{\0}) >= 0;
+      print $response;
+    ' >"$response_path"; then
+    die "base-template disk attestation command or response envelope failed"
+  fi
+  response="$(<"$response_path")"
+  [[ -n $response && ${#response} -le 4096 ]] || die "base-template disk attestation response is empty or oversized"
+  jq -e \
+    --arg nonce "$attestation_nonce" \
+    --arg node "$PROXMOX_NODE" \
+    --argjson vmid "$BASE_TEMPLATE_VMID" \
+    --arg name "$BASE_TEMPLATE_NAME" \
+    --arg digest "$base_config_digest" \
+    --arg scsi0_volume "$base_scsi0_volume" \
+    --arg efidisk0_volume "$base_efidisk0_volume" \
+    --argjson baseline "$BASE_ATTESTATION_BASELINE_JSON" '
+      type == "object" and
+      keys == ["baseTemplateName", "baseTemplateVmid", "configDigest", "disks", "node", "nonce", "schemaVersion"] and
+      .schemaVersion == 1 and
+      .nonce == $nonce and
+      .node == $node and
+      .baseTemplateVmid == $vmid and
+      .baseTemplateName == $name and
+      .configDigest == $digest and
+      (.disks | type == "object" and keys == ["efidisk0", "scsi0"]) and
+      (all(.disks[];
+        type == "object" and
+        keys == ["backend", "logicalSizeBytes", "nativeIdentity", "sha256", "volumeId"] and
+        (.backend == "lvmthin" or .backend == "zfspool") and
+        (.nativeIdentity | type == "string" and test("^[A-Za-z0-9:+._/-]+$")) and
+        (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
+        (.logicalSizeBytes | type == "number" and floor == . and . > 0) and
+        (.volumeId | type == "string"))) and
+      .disks == $baseline.disks and
+      .disks.scsi0.volumeId == $scsi0_volume and
+      .disks.efidisk0.volumeId == $efidisk0_volume
+    ' <<<"$response" >/dev/null || die "base-template disk attestation does not match the pinned baseline"
+
+  printf '%s\n' "$response" >"$response_path"
+  chmod 0600 "$response_path"
+
+  fresh_config="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config?current=1")" || \
+    die "could not re-read current base template configuration after disk attestation"
+  jq -e --arg digest "$base_config_digest" '.data.digest == $digest' <<<"$fresh_config" >/dev/null || \
+    die "base template configuration changed after disk attestation"
+  fresh_pending="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/pending")" || \
+    die "could not re-read pending base template configuration after disk attestation"
+  jq -e "$BASE_TEMPLATE_PENDING_CONFIG_JQ" <<<"$fresh_pending" >/dev/null || \
+    die "base template gained pending configuration after disk attestation"
+}
+
 version_response="$(api_get version)" || die "could not query Proxmox version"
 jq -e '.data.version | startswith("8.4.")' <<<"$version_response" >/dev/null || die "target must run Proxmox VE 8.4"
 
@@ -418,6 +633,43 @@ readonly BASE_TEMPLATE_REQUIRED_CONFIG_KEYS_JSON='["agent","balloon","bios","boo
 readonly BASE_TEMPLATE_OPTIONAL_CONFIG_KEYS_JSON='["arch","onboot"]'
 readonly BASE_TEMPLATE_API_METADATA_KEYS_JSON='["digest"]'
 readonly BASE_TEMPLATE_FORBIDDEN_CONFIG_KEYS_JSON='["amd-sev","args","bootdisk","cdrom","cicustom","cipassword","hookscript","ivshmem","nameserver","runningcpu","runningmachine","searchdomain","spice_enhancements","sshkeys","tablet","vmstate","watchdog"]'
+# shellcheck disable=SC2016
+readonly TRUSTED_BASELINE_JQ='
+  type == "object" and
+  keys == [
+    "baseTemplateName",
+    "baseTemplateVmid",
+    "configDigest",
+    "disks",
+    "node",
+    "nonce",
+    "receiptKind",
+    "schemaVersion",
+    "ubuntuImageSha256"
+  ] and
+  .schemaVersion == 1 and
+  (.nonce | type == "string" and test("^baseline-[a-f0-9]{32}$")) and
+  .receiptKind == "trusted-bootstrap-baseline" and
+  .node == $node and
+  .baseTemplateVmid == $vmid and
+  .baseTemplateName == $name and
+  .configDigest == $digest and
+  .ubuntuImageSha256 == $ubuntu_sha and
+  (.disks | type == "object" and keys == ["efidisk0", "scsi0"]) and
+  (all(.disks[];
+    type == "object" and
+    keys == ["backend", "logicalSizeBytes", "nativeIdentity", "sha256", "volumeId"] and
+    (.backend == "lvmthin" or .backend == "zfspool") and
+    (if .backend == "lvmthin"
+     then (.nativeIdentity | type == "string" and test("^[A-Za-z0-9-]+$"))
+     else (.nativeIdentity | type == "string" and test("^[0-9]+:[0-9]+$"))
+     end) and
+    (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
+    (.logicalSizeBytes | type == "number" and floor == . and . > 0) and
+    (.volumeId | type == "string"))) and
+  .disks.scsi0.volumeId == $scsi0_volume and
+  .disks.efidisk0.volumeId == $efidisk0_volume and
+  .disks.scsi0.sha256 != .disks.efidisk0.sha256'
 # shellcheck disable=SC2016
 readonly BASE_TEMPLATE_PENDING_CONFIG_JQ='
   (.data | type == "array") and
@@ -637,6 +889,25 @@ jq -e \
   "$BASE_CLOUD_INIT_DEVICE_JQ" \
   <<<"$base_config_response" >/dev/null || \
   die "base template Cloud-Init device contract does not match"
+base_config_digest="$(jq -er '.data.digest | select(test("^[a-f0-9]{40}$"))' <<<"$base_config_response")" || \
+  die "base template configuration digest is missing or malformed"
+base_scsi0_volume="$(jq -er '.data.scsi0 | split(",")[0]' <<<"$base_config_response")" || \
+  die "could not identify the base scsi0 volume"
+base_efidisk0_volume="$(jq -er '.data.efidisk0 | split(",")[0]' <<<"$base_config_response")" || \
+  die "could not identify the base efidisk0 volume"
+readonly base_config_digest base_scsi0_volume base_efidisk0_volume
+[[ $base_scsi0_volume != "$base_efidisk0_volume" ]] || die "base persistent disk volume IDs must be distinct"
+jq -e \
+  --arg node "$PROXMOX_NODE" \
+  --argjson vmid "$BASE_TEMPLATE_VMID" \
+  --arg name "$BASE_TEMPLATE_NAME" \
+  --arg digest "$base_config_digest" \
+  --arg ubuntu_sha "$UBUNTU_IMAGE_SHA256" \
+  --arg scsi0_volume "$base_scsi0_volume" \
+  --arg efidisk0_volume "$base_efidisk0_volume" \
+  "$TRUSTED_BASELINE_JQ" \
+  <<<"$BASE_ATTESTATION_BASELINE_JSON" >/dev/null || \
+  die "trusted base disk baseline receipt does not match the locked bootstrap or current template"
 persistent_storage_inventory="$(jq -er '
   [.data.scsi0, .data.efidisk0] |
   map(capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage) |
@@ -722,6 +993,10 @@ env \
   all_proxy="$OFFLINE_PROXY" \
   no_proxy= \
   "$PACKER_BIN" validate -var-file="$sealed_var_file" "$SEALED_PACKER_DIR"
+
+base_attestation_nonce="build-${build_nonce//-/}"
+readonly base_attestation_nonce
+run_base_disk_attestation "$base_attestation_nonce"
 
 printf 'starting source %s with ownership tag nelos-build-%s\n' "$SOURCE_REVISION" "${build_nonce:0:12}"
 

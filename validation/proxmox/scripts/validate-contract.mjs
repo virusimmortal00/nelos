@@ -40,6 +40,7 @@ const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
   "validation/proxmox/packer/versions.pkr.hcl",
   "validation/proxmox/packer/proxmox.pkr.hcl",
   "validation/proxmox/scripts/bootstrap-cloud-image-template.sh",
+  "validation/proxmox/scripts/attest-base-template-disks.sh",
   "validation/proxmox/scripts/provision-guest.sh",
   "validation/proxmox/scripts/build-template.sh",
   "plugin.json",
@@ -543,10 +544,11 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
       label,
     )).toString("utf8");
   };
-  const [versions, proxmox, bootstrap, provisionGuest, buildWrapper] = await Promise.all([
+  const [versions, proxmox, bootstrap, diskAttester, provisionGuest, buildWrapper] = await Promise.all([
     readRecipeSource("packer/versions.pkr.hcl", "Packer version contract"),
     readRecipeSource("packer/proxmox.pkr.hcl", "Packer Proxmox contract"),
     readRecipeSource("scripts/bootstrap-cloud-image-template.sh", "base template bootstrap"),
+    readRecipeSource("scripts/attest-base-template-disks.sh", "base-template disk attester"),
     readRecipeSource("scripts/provision-guest.sh", "validator guest provisioner"),
     readRecipeSource("scripts/build-template.sh", "template build wrapper"),
   ]);
@@ -583,6 +585,37 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   if (!provisionGuest.includes('-o APT::Snapshot="$UBUNTU_APT_SNAPSHOT"')) {
     fail("/recipe/provision-guest", "guest packages must come from the immutable Ubuntu snapshot");
   }
+  for (const requiredAttesterControl of [
+    "#!/usr/bin/bash",
+    'readonly ATTESTATION_CONFIG_DEFAULT="/etc/nelos-validator/base-disk-attester.json"',
+    '[[ -z ${SSH_ORIGINAL_COMMAND:-} ]]',
+    'baseTemplateName,baseTemplateVmid,node,schemaVersion',
+    'baseTemplateName,baseTemplateVmid,configDigest,node,nonce,schemaVersion',
+    "my $count = sysread(STDIN, my $chunk, 4096)",
+    "die \"size\" if length($request) > 2049",
+    "index($request, qq{\\0}) >= 0",
+    '/usr/bin/flock -n 9',
+    '/usr/bin/sha256sum -- "$canonical"',
+    "/usr/sbin/lvm lvchange",
+    "printf -v HASHED_DISK_ROW",
+    'expected_path="/dev/${vg}/${volume}"',
+    'expected_path="/dev/zvol/${dataset}"',
+    "storage identity changed while hashing",
+    'lvmthin)',
+    'zfspool)',
+    'written@__base__',
+    "my $response = {",
+  ]) {
+    if (!diskAttester.includes(requiredAttesterControl)) {
+      fail("/recipe/disk-attester", `missing fail-closed disk attestation control: ${requiredAttesterControl}`);
+    }
+  }
+  if (diskAttester.includes("ide2")) {
+    fail("/recipe/disk-attester", "Cloud-Init bytes must not be treated as inherited persistent disk content");
+  }
+  if (/\$\(hash_(?:lvmthin|zfspool)\b/u.test(diskAttester)) {
+    fail("/recipe/disk-attester", "disk hash functions must execute in the parent shell so EXIT cleanup retains activation state");
+  }
   for (const requiredSource of [
     'machine            = "q35"',
     'bios               = "ovmf"',
@@ -605,6 +638,66 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   }
   if (!buildWrapper.includes('[[ $(uname -s) == "Linux" ]]')) {
     fail("/recipe/build-wrapper", "build wrapper must enforce the dedicated Linux controller boundary");
+  }
+  for (const attestationControl of [
+    "NELOS_BASE_ATTESTATION_BASELINE_FILE",
+    "NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE",
+    "NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE",
+    'assert_controller_attestation_file "$BASE_ATTESTATION_KNOWN_HOSTS_FILE" "attestation known_hosts file" 400',
+    "/usr/bin/ssh",
+    "-F /dev/null",
+    "-o BatchMode=yes",
+    "-o IdentitiesOnly=yes",
+    "-o IdentityAgent=none",
+    "-o ProxyCommand=none",
+    "-o ProxyJump=none",
+    "-o CheckHostIP=no",
+    "-o StrictHostKeyChecking=yes",
+    "must be outside the source checkout",
+    'receiptKind == "trusted-bootstrap-baseline"',
+    ".ubuntuImageSha256 == $ubuntu_sha",
+    ".disks == $baseline.disks",
+    "run_base_disk_attestation",
+    "base template configuration changed after disk attestation",
+    "base template gained pending configuration after disk attestation",
+  ]) {
+    if (!buildWrapper.includes(attestationControl)) {
+      fail("/recipe/build-wrapper", `missing base disk attestation control: ${attestationControl}`);
+    }
+  }
+  for (const forbiddenLooseBaseline of [
+    "NELOS_BASE_SCSI0_SHA256",
+    "NELOS_BASE_SCSI0_SIZE_BYTES",
+    "NELOS_BASE_EFIDISK0_SHA256",
+    "NELOS_BASE_EFIDISK0_SIZE_BYTES",
+  ]) {
+    if (buildWrapper.includes(forbiddenLooseBaseline)) {
+      fail("/recipe/build-wrapper", `loose baseline authority is forbidden: ${forbiddenLooseBaseline}`);
+    }
+  }
+  const packerBuildIndex = buildWrapper.indexOf('"$PACKER_BIN" build -on-error=abort');
+  const attestationIndex = buildWrapper.lastIndexOf('run_base_disk_attestation "$base_attestation_nonce"');
+  if (attestationIndex === -1 || packerBuildIndex === -1 || attestationIndex > packerBuildIndex) {
+    fail("/recipe/build-wrapper", "base disk attestation must complete immediately before the Packer mutation");
+  }
+  const templateIndex = bootstrap.indexOf('qm template "$BASE_TEMPLATE_VMID"');
+  const baselineIndex = bootstrap.indexOf('"$DISK_ATTESTER" local-bootstrap');
+  if (templateIndex === -1 || baselineIndex === -1 || baselineIndex < templateIndex) {
+    fail("/recipe/bootstrap", "trusted disk baseline must be measured only after final template conversion");
+  }
+  for (const [source, path] of [
+    [bootstrap, "/recipe/bootstrap"],
+    [buildWrapper, "/recipe/build-wrapper"],
+  ]) {
+    for (const responseControl of [
+      "my $count = sysread(STDIN, my $chunk, 8192)",
+      "die \"size\" if length($response) > 4097",
+      "index($response, qq{\\0}) >= 0",
+    ]) {
+      if (!source.includes(responseControl)) {
+        fail(path, `missing bounded attestation response control: ${responseControl}`);
+      }
+    }
   }
   for (const sealedBuildControl of [
     "EXPECTED_PACKER_SOURCES",

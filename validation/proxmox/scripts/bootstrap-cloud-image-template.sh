@@ -165,6 +165,14 @@ for command in awk basename curl date dirname install mktemp perl pvesh pveversi
   require_command "$command"
 done
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+readonly DISK_ATTESTER="${SCRIPT_DIR}/attest-base-template-disks.sh"
+assert_root_owned_nonwritable_directory "$SCRIPT_DIR" "bootstrap script directory"
+assert_protected_directory_chain "$SCRIPT_DIR" "bootstrap script directory"
+assert_root_owned_nonwritable_file "$DISK_ATTESTER" "base disk attester"
+[[ -x $DISK_ATTESTER ]] || die "base disk attester must be executable"
+
 readonly IMAGE_CACHE_DIR="${IMAGE_CACHE_DIR:-/var/tmp/nelos-validator-images}"
 readonly IMAGE_PATH="${IMAGE_CACHE_DIR}/${UBUNTU_IMAGE_NAME}"
 BOOTSTRAP_TAG="nelos-bootstrap-${BASE_TEMPLATE_VMID}-$(date +%s)-${RANDOM}"
@@ -219,6 +227,7 @@ readonly SNIPPET_VOLUME="${PVE_SNIPPETS_STORAGE}:snippets/${SNIPPET_NAME}"
 readonly SNIPPET_PATH="${SNIPPET_DIR}/${SNIPPET_NAME}"
 
 partial_path=""
+baseline_response_path=""
 snippet_created=0
 created_vmid=0
 cleanup_on_exit() {
@@ -226,6 +235,9 @@ cleanup_on_exit() {
 
   if [[ -n $partial_path ]]; then
     rm -f -- "$partial_path"
+  fi
+  if [[ -n $baseline_response_path ]]; then
+    rm -f -- "$baseline_response_path"
   fi
   if ((snippet_created == 1)); then
     rm -f -- "$SNIPPET_PATH"
@@ -372,8 +384,93 @@ qm cloudinit update "$BASE_TEMPLATE_VMID"
 qm template "$BASE_TEMPLATE_VMID"
 qm set "$BASE_TEMPLATE_VMID" --tags "$BASE_TEMPLATE_TAGS"
 
+final_config="$(pvesh get "/nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config" --current 1 --output-format json)" || \
+  die "could not read final base-template configuration for attestation"
+final_config_digest="$(printf '%s' "$final_config" | perl -MJSON::PP -0777 -e '
+  my ($name) = @ARGV;
+  my $value = decode_json(<STDIN>);
+  my $json = JSON::PP->new->allow_nonref->canonical;
+  exit 1 unless ($json->encode($value->{name}) =~ m{\A"} && ($value->{name} // q{}) eq $name);
+  exit 1 unless $json->encode($value->{template}) eq q{1};
+  my $digest = $value->{digest} // q{};
+  exit 1 unless $json->encode($digest) =~ m{\A"} && $digest =~ m{\A[a-f0-9]{40}\z};
+  print $digest;
+' "$BASE_TEMPLATE_NAME")" || die "final base-template configuration identity is invalid"
+baseline_uuid="$(< /proc/sys/kernel/random/uuid)"
+baseline_nonce="baseline-${baseline_uuid//-/}"
+readonly baseline_nonce
+[[ $baseline_nonce =~ ^baseline-[a-f0-9]{32}$ ]] || die "could not generate a baseline attestation nonce"
+baseline_request="$(perl -MJSON::PP -e '
+  my ($nonce, $node, $vmid, $name, $digest) = @ARGV;
+  print JSON::PP->new->ascii->canonical->encode({
+    schemaVersion => 1,
+    nonce => $nonce,
+    node => $node,
+    baseTemplateVmid => 0 + $vmid,
+    baseTemplateName => $name,
+    configDigest => $digest,
+  }), qq{\n};
+' "$baseline_nonce" "$PROXMOX_NODE" "$BASE_TEMPLATE_VMID" "$BASE_TEMPLATE_NAME" "$final_config_digest")" || \
+  die "could not create baseline attestation request"
+baseline_response_path="$(mktemp --tmpdir=/run nelos-base-attestation.XXXXXXXXXX)" || \
+  die "could not create protected baseline attestation response file"
+if ! printf '%s\n' "$baseline_request" | \
+  "$DISK_ATTESTER" local-bootstrap "$PROXMOX_NODE" "$BASE_TEMPLATE_VMID" "$BASE_TEMPLATE_NAME" | \
+  /usr/bin/perl -e '
+    binmode(STDIN);
+    binmode(STDOUT);
+    my $response = q{};
+    while (1) {
+      my $count = sysread(STDIN, my $chunk, 8192);
+      die "read" unless defined($count);
+      last if $count == 0;
+      $response .= $chunk;
+      die "size" if length($response) > 4097;
+    }
+    die "framing" unless length($response) >= 2 && substr($response, -1, 1) eq qq{\n};
+    chop($response);
+    die "framing" if index($response, qq{\n}) >= 0 || index($response, qq{\0}) >= 0;
+    print $response;
+  ' >"$baseline_response_path"; then
+  die "base-template disk attestation command or response envelope failed"
+fi
+baseline_response="$(<"$baseline_response_path")"
+[[ -n $baseline_response && ${#baseline_response} -le 4096 ]] || \
+  die "base-template disk attestation response is empty or oversized"
+baseline_receipt="$(printf '%s' "$baseline_response" | perl -MJSON::PP -0777 -e '
+  my ($nonce, $node, $vmid, $name, $digest, $ubuntu_sha) = @ARGV;
+  my $value = decode_json(<STDIN>);
+  exit 1 unless ref($value) eq q{HASH};
+  my @keys = sort keys %{$value};
+  exit 1 unless join(q{,}, @keys) eq q{baseTemplateName,baseTemplateVmid,configDigest,disks,node,nonce,schemaVersion};
+  my $json = JSON::PP->new->allow_nonref->canonical;
+  exit 1 unless $json->encode($value->{schemaVersion}) eq q{1};
+  exit 1 unless $json->encode($value->{baseTemplateVmid}) =~ m{\A[0-9]+\z} && $value->{baseTemplateVmid} == $vmid;
+  exit 1 unless grep({ $json->encode($_) !~ m{\A"} } @{$value}{qw(nonce node baseTemplateName configDigest)}) == 0;
+  exit 1 unless (($value->{nonce} // q{}) eq $nonce && ($value->{node} // q{}) eq $node);
+  exit 1 unless (($value->{baseTemplateName} // q{}) eq $name && ($value->{configDigest} // q{}) eq $digest);
+  my $disks = $value->{disks};
+  exit 1 unless ref($disks) eq q{HASH} && keys(%{$disks}) == 2 && $disks->{scsi0} && $disks->{efidisk0};
+  for my $key (qw(scsi0 efidisk0)) {
+    my $disk = $disks->{$key};
+    my @disk_keys = sort keys %{$disk};
+    exit 1 unless join(q{,}, @disk_keys) eq q{backend,logicalSizeBytes,nativeIdentity,sha256,volumeId};
+    exit 1 unless grep({ $json->encode($_) !~ m{\A"} } @{$disk}{qw(backend nativeIdentity sha256 volumeId)}) == 0;
+    exit 1 unless ($disk->{backend} // q{}) eq q{lvmthin} || ($disk->{backend} // q{}) eq q{zfspool};
+    exit 1 unless ($disk->{sha256} // q{}) =~ m{\A[a-f0-9]{64}\z};
+    exit 1 unless $json->encode($disk->{logicalSizeBytes}) =~ m{\A[1-9][0-9]*\z};
+  }
+  $value->{receiptKind} = q{trusted-bootstrap-baseline};
+  $value->{ubuntuImageSha256} = $ubuntu_sha;
+  print JSON::PP->new->ascii->canonical->encode($value);
+' "$baseline_nonce" "$PROXMOX_NODE" "$BASE_TEMPLATE_VMID" "$BASE_TEMPLATE_NAME" "$final_config_digest" "$UBUNTU_IMAGE_SHA256")" || \
+  die "base-template disk attestation response is malformed"
+
 created_vmid=0
 rm -f -- "$SNIPPET_PATH"
 snippet_created=0
+rm -f -- "$baseline_response_path"
+baseline_response_path=""
 trap - EXIT
-printf 'created base template %s (VMID %s) from the verified Ubuntu image\n' "$BASE_TEMPLATE_NAME" "$BASE_TEMPLATE_VMID"
+printf 'created base template %s (VMID %s) from the verified Ubuntu image\n' "$BASE_TEMPLATE_NAME" "$BASE_TEMPLATE_VMID" >&2
+printf '%s\n' "$baseline_receipt"

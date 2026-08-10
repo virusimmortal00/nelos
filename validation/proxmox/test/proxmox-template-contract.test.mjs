@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, realpath as fsRealpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
@@ -40,6 +40,40 @@ const gitIdentityArguments = Object.freeze([
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function runProcessWithInput(executable, argumentsList, input, { env } = {}) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(executable, argumentsList, {
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    let spawnError;
+
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", (error) => {
+      spawnError = error;
+    });
+    child.on("close", (code, signal) => {
+      if (spawnError) {
+        rejectPromise(spawnError);
+        return;
+      }
+      resolvePromise({
+        code,
+        signal,
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        stdout: Buffer.concat(stdout).toString("utf8"),
+      });
+    });
+    child.stdin.on("error", (error) => {
+      if (error.code !== "EPIPE") spawnError = error;
+    });
+    child.stdin.end(input);
+  });
 }
 
 async function loadFixture() {
@@ -134,6 +168,15 @@ async function createCleanRepositoryFixture(context, { agentPluginLayout = true 
 }
 
 async function runBuildGitPreflight(artifactRoot, fixtureRoot) {
+  const canonicalArtifactRoot = await fsRealpath(artifactRoot);
+  const attestationDirectory = join(canonicalArtifactRoot, "attestation-ssh");
+  const attestationIdentity = join(attestationDirectory, "id_ed25519");
+  const attestationKnownHosts = join(attestationDirectory, "known_hosts");
+  const attestationBaseline = join(attestationDirectory, "trusted-baseline.json");
+  await mkdir(attestationDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(attestationIdentity, "test-private-key\n", { mode: 0o600 });
+  await writeFile(attestationKnownHosts, "pve.invalid ssh-ed25519 test-host-key\n", { mode: 0o400 });
+  await writeFile(attestationBaseline, "{}\n", { mode: 0o600 });
   const facadeBin = join(artifactRoot, "linux-facade-bin");
   await mkdir(facadeBin, { recursive: true });
   const unamePath = join(facadeBin, "uname");
@@ -181,6 +224,10 @@ async function runBuildGitPreflight(artifactRoot, fixtureRoot) {
       PROXMOX_USERNAME: "builder@pve!nelos",
       PROXMOX_TOKEN: "test-token",
       NELOS_PACKER_STATE_DIR: join(artifactRoot, "packer-state"),
+      NELOS_BASE_ATTESTATION_SSH_TARGET: "nelos-attester@192.0.2.10",
+      NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE: attestationIdentity,
+      NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE: attestationKnownHosts,
+      NELOS_BASE_ATTESTATION_BASELINE_FILE: attestationBaseline,
       PKR_VAR_proxmox_node: "prox2",
       PKR_VAR_base_template_vmid: "9020",
       PKR_VAR_base_template_name: "nelos-base",
@@ -447,9 +494,10 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   const { toolchainLock } = await loadFixture();
   assert.equal(await validateRecipeSources(root, toolchainLock), true);
 
-  const [buildWrapper, bootstrap, provisionGuest, proxmoxSource] = await Promise.all([
+  const [buildWrapper, bootstrap, diskAttester, provisionGuest, proxmoxSource] = await Promise.all([
     readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
+    readFile(join(validationRoot, "scripts", "attest-base-template-disks.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "provision-guest.sh"), "utf8"),
     readFile(join(validationRoot, "packer", "proxmox.pkr.hcl"), "utf8"),
   ]);
@@ -465,6 +513,31 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /GIT_NO_LAZY_FETCH=1/u);
   assert.match(buildWrapper, /GIT_NO_REPLACE_OBJECTS=1/u);
   assert.match(buildWrapper, /GIT_REF_PARANOIA=1/u);
+  assert.match(buildWrapper, /NELOS_BASE_ATTESTATION_BASELINE_FILE/u);
+  assert.match(
+    buildWrapper,
+    /assert_controller_attestation_file "\$BASE_ATTESTATION_KNOWN_HOSTS_FILE" "attestation known_hosts file" 400/u,
+  );
+  assert.match(buildWrapper, /receiptKind == "trusted-bootstrap-baseline"/u);
+  assert.match(buildWrapper, /\.ubuntuImageSha256 == \$ubuntu_sha/u);
+  assert.match(buildWrapper, /\.disks == \$baseline\.disks/u);
+  assert.doesNotMatch(buildWrapper, /NELOS_BASE_(?:SCSI0|EFIDISK0)_(?:SHA256|SIZE_BYTES)/u);
+  assert.match(buildWrapper, /run_base_disk_attestation "\$base_attestation_nonce"/u);
+  for (const sshControl of [
+    "-F /dev/null",
+    "-o BatchMode=yes",
+    "-o IdentitiesOnly=yes",
+    "-o IdentityAgent=none",
+    "-o ProxyCommand=none",
+    "-o ProxyJump=none",
+    "-o ClearAllForwardings=yes",
+    "-o CheckHostIP=no",
+    "-o StrictHostKeyChecking=yes",
+    "-o UserKnownHostsFile=\"$BASE_ATTESTATION_KNOWN_HOSTS_FILE\"",
+  ]) {
+    assert.equal(buildWrapper.includes(sshControl), true);
+  }
+  assert.doesNotMatch(buildWrapper, /-o CheckHostIP=yes/u);
   assert.match(buildWrapper, /\/usr\/bin\/git\s+\\\n\s+--no-replace-objects/u);
   for (const gitControl of [
     "--literal-pathspecs",
@@ -517,6 +590,24 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(bootstrap, /--net0 'virtio,bridge=vmbr0,firewall=1,queues=4'/u);
   assert.match(bootstrap, /pre-enrolled-keys=0/u);
   assert.match(bootstrap, /discard=on,iothread=1,ssd=1/u);
+  assert.match(bootstrap, /"\$DISK_ATTESTER" local-bootstrap/u);
+  assert.ok(
+    bootstrap.indexOf('qm template "$BASE_TEMPLATE_VMID"') <
+      bootstrap.indexOf('"$DISK_ATTESTER" local-bootstrap'),
+  );
+  assert.match(diskAttester, /ATTESTATION_CONFIG_DEFAULT="\/etc\/nelos-validator\/base-disk-attester\.json"/u);
+  assert.match(diskAttester, /^#!\/usr\/bin\/bash$/mu);
+  assert.match(diskAttester, /\[\[ -z \$\{SSH_ORIGINAL_COMMAND:-\} \]\]/u);
+  assert.match(diskAttester, /my \$count = sysread\(STDIN, my \$chunk, 4096\)/u);
+  assert.match(diskAttester, /\/usr\/bin\/flock -n 9/u);
+  assert.match(diskAttester, /\/usr\/sbin\/lvm lvchange/u);
+  assert.match(diskAttester, /\/usr\/bin\/sha256sum -- "\$canonical"/u);
+  assert.match(diskAttester, /written@__base__/u);
+  assert.match(diskAttester, /expected_path="\/dev\/\$\{vg\}\/\$\{volume\}"/u);
+  assert.match(diskAttester, /expected_path="\/dev\/zvol\/\$\{dataset\}"/u);
+  assert.match(diskAttester, /storage identity changed while hashing/u);
+  assert.match(diskAttester, /LVM base volume must be an inactive read-only activation-skip thin volume/u);
+  assert.doesNotMatch(diskAttester, /ide2/u);
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
   assert.match(bootstrap, /APT::Snapshot \\"\$\{UBUNTU_APT_SNAPSHOT\}\\";/u);
   assert.match(provisionGuest, /-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"/u);
@@ -527,6 +618,140 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(proxmoxSource, /bridge\s*=\s*"vmbr0"/u);
   assert.match(proxmoxSource, /firewall\s*=\s*true/u);
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
+});
+
+test("disk attester closes request framing, serve mode, and activation cleanup", async () => {
+  const diskAttester = await readFile(
+    join(validationRoot, "scripts", "attest-base-template-disks.sh"),
+    "utf8",
+  );
+  const parserPrefix = `request_fields="$(/usr/bin/perl -MJSON::PP -e '\n`;
+  const parserSuffix = `\n')" || die "attestation request is malformed"`;
+  const parserStart = diskAttester.indexOf(parserPrefix);
+  const parserEnd = diskAttester.indexOf(parserSuffix, parserStart + parserPrefix.length);
+  assert.notEqual(parserStart, -1, "production request parser start marker must remain exact");
+  assert.notEqual(parserEnd, -1, "production request parser end marker must remain exact");
+  assert.equal(
+    diskAttester.indexOf(parserPrefix, parserStart + parserPrefix.length),
+    -1,
+    "production request parser must have one extraction site",
+  );
+  const requestParser = diskAttester.slice(parserStart + parserPrefix.length, parserEnd);
+  const parserEnvironment = {
+    LC_ALL: "C",
+    PATH: "/usr/bin:/bin",
+    PERL5LIB: "",
+    PERL5OPT: "",
+  };
+  const validRequest = {
+    baseTemplateName: "nelos-ubuntu-2404-base",
+    baseTemplateVmid: 9020,
+    configDigest: "b".repeat(40),
+    node: "prox2",
+    nonce: `build-${"a".repeat(32)}`,
+    schemaVersion: 1,
+  };
+  const validJson = JSON.stringify(validRequest);
+  const runRequestParser = (input) => runProcessWithInput(
+    "/usr/bin/perl",
+    ["-MJSON::PP", "-e", requestParser],
+    input,
+    { env: parserEnvironment },
+  );
+  const assertParserRejects = async (input, errorPattern = undefined) => {
+    const result = await runRequestParser(input);
+    assert.notEqual(result.code, 0, "malformed request must be rejected");
+    assert.equal(result.stdout, "");
+    if (errorPattern) assert.match(result.stderr, errorPattern);
+  };
+
+  const accepted = await runRequestParser(Buffer.from(`${validJson}\n`, "utf8"));
+  assert.equal(accepted.code, 0);
+  assert.equal(accepted.stderr, "");
+  assert.equal(
+    accepted.stdout,
+    [
+      validRequest.nonce,
+      validRequest.node,
+      String(validRequest.baseTemplateVmid),
+      validRequest.baseTemplateName,
+      validRequest.configDigest,
+    ].join("\t"),
+  );
+
+  await assertParserRejects(Buffer.from(validJson, "utf8"), /framing/u);
+  await assertParserRejects(Buffer.from(`${validJson}\n\n`, "utf8"), /framing/u);
+  await assertParserRejects(Buffer.from(`${validJson}trailing\n`, "utf8"));
+  await assertParserRejects(
+    Buffer.concat([Buffer.from(validJson, "utf8"), Buffer.from([0, 10])]),
+    /framing/u,
+  );
+  await assertParserRejects(
+    Buffer.concat([Buffer.alloc(2049, 0x20), Buffer.from("\n", "ascii")]),
+    /size/u,
+  );
+  await assertParserRejects(
+    Buffer.from(`${JSON.stringify({ ...validRequest, schemaVersion: "1" })}\n`, "utf8"),
+    /schema/u,
+  );
+  await assertParserRejects(
+    Buffer.from(`${JSON.stringify({ ...validRequest, baseTemplateVmid: "9020" })}\n`, "utf8"),
+    /vmid/u,
+  );
+
+  const serveStart = diskAttester.indexOf("  serve)\n");
+  const serveGuardMatch = /^    (\[\[ -z \$\{SSH_ORIGINAL_COMMAND:-\} \]\] \|\| die "remote commands are disabled; send one JSON request on standard input")$/mu.exec(
+    diskAttester.slice(serveStart),
+  );
+  assert.notEqual(serveStart, -1);
+  assert.notEqual(serveGuardMatch, null, "serve mode must retain the exact forced-command guard");
+  const serveGuardIndex = diskAttester.indexOf(serveGuardMatch[1], serveStart);
+  const serveConfigIndex = diskAttester.indexOf(
+    'readonly attestation_config="$ATTESTATION_CONFIG_DEFAULT"',
+    serveStart,
+  );
+  assert.ok(serveGuardIndex < serveConfigIndex, "forced-command guard must run before config or PVE access");
+  const serveGuardProgram = [
+    "set -Eeuo pipefail",
+    "die() { printf 'error: %s\\n' \"$*\" >&2; exit 1; }",
+    serveGuardMatch[1],
+  ].join("\n");
+  const acceptedServe = await runProcessWithInput(
+    "/bin/bash",
+    ["-c", serveGuardProgram],
+    Buffer.alloc(0),
+    { env: { PATH: "/usr/bin:/bin", SSH_ORIGINAL_COMMAND: "" } },
+  );
+  assert.equal(acceptedServe.code, 0);
+  const rejectedServe = await runProcessWithInput(
+    "/bin/bash",
+    ["-c", serveGuardProgram],
+    Buffer.alloc(0),
+    { env: { PATH: "/usr/bin:/bin", SSH_ORIGINAL_COMMAND: "qm destroy 9020" } },
+  );
+  assert.notEqual(rejectedServe.code, 0);
+  assert.match(rejectedServe.stderr, /remote commands are disabled/u);
+
+  const activationInventoryIndex = diskAttester.indexOf("ACTIVATED_LVS=()");
+  const cleanupTrapIndex = diskAttester.indexOf("trap cleanup_activated_lvs EXIT");
+  const hashDispatchIndex = diskAttester.indexOf("while IFS=$'\\t' read -r disk_key");
+  assert.notEqual(activationInventoryIndex, -1);
+  assert.notEqual(cleanupTrapIndex, -1);
+  assert.notEqual(hashDispatchIndex, -1);
+  assert.ok(activationInventoryIndex < cleanupTrapIndex);
+  assert.ok(cleanupTrapIndex < hashDispatchIndex);
+  assert.equal((diskAttester.match(/printf -v HASHED_DISK_ROW/gu) ?? []).length, 2);
+  assert.match(
+    diskAttester,
+    /^      hash_lvmthin "\$disk_key" "\$disk_storage" "\$disk_volume" "\$storage_field_one" "\$storage_field_two"$/mu,
+  );
+  assert.match(
+    diskAttester,
+    /^      hash_zfspool "\$disk_key" "\$disk_storage" "\$disk_volume" "\$storage_field_one"$/mu,
+  );
+  assert.doesNotMatch(diskAttester, /\$\(\s*hash_(?:lvmthin|zfspool)\b/u);
+  assert.doesNotMatch(diskAttester, /`\s*hash_(?:lvmthin|zfspool)\b/u);
+  assert.match(diskAttester, /trap - EXIT\ncleanup_activated_lvs\n?$/u);
 });
 
 test("build Git preflight rejects packed replacements and nonlocal object backends", async (context) => {
@@ -744,6 +969,7 @@ test("Proxmox preflight closes storage types and base configuration", async () =
     return buildWrapper.slice(bodyStart, bodyEnd);
   };
   const baseTemplateConfigInventoryJq = extractJqProgram("BASE_TEMPLATE_CONFIG_INVENTORY_JQ");
+  const trustedBaselineJq = extractJqProgram("TRUSTED_BASELINE_JQ");
   const baseTemplatePendingConfigJq = extractJqProgram("BASE_TEMPLATE_PENDING_CONFIG_JQ");
   const baseTemplateApprovedConfigValuesJq = extractJqProgram(
     "BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ",
@@ -763,6 +989,9 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   );
   assert.match(baseTemplateConfigInventoryJq, /\$actualKeys - \(/u);
   assert.match(baseTemplateConfigInventoryJq, /\$forbidden_config_keys/u);
+  assert.match(trustedBaselineJq, /\.receiptKind == "trusted-bootstrap-baseline"/u);
+  assert.match(trustedBaselineJq, /\.ubuntuImageSha256 == \$ubuntu_sha/u);
+  assert.match(trustedBaselineJq, /\.disks\.scsi0\.volumeId == \$scsi0_volume/u);
   assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.balloon == 0/u);
   assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.boot == "order=scsi0"/u);
   assert.match(baseTemplateApprovedConfigValuesJq, /x86-64-v2-AES/u);
@@ -869,8 +1098,67 @@ test("Proxmox preflight closes storage types and base configuration", async () =
       ["--argjson", "config", JSON.stringify(config)],
       "$config | " + baseTemplateCloudInitConfigJq,
     );
+  const safeBaseline = {
+    baseTemplateName: "nelos-ubuntu-2404-base",
+    baseTemplateVmid: 9020,
+    configDigest: "a".repeat(40),
+    disks: {
+      efidisk0: {
+        backend: "lvmthin",
+        logicalSizeBytes: 4194304,
+        nativeIdentity: "efi-lvm-uuid",
+        sha256: "2".repeat(64),
+        volumeId: "local-lvm:base-9020-disk-0",
+      },
+      scsi0: {
+        backend: "lvmthin",
+        logicalSizeBytes: 68719476736,
+        nativeIdentity: "scsi-lvm-uuid",
+        sha256: "1".repeat(64),
+        volumeId: "local-lvm:base-9020-disk-1",
+      },
+    },
+    node: "prox2",
+    nonce: `baseline-${"3".repeat(32)}`,
+    receiptKind: "trusted-bootstrap-baseline",
+    schemaVersion: 1,
+    ubuntuImageSha256: imageDigest,
+  };
+  const acceptsTrustedBaseline = (receipt) =>
+    jqAccepts(
+      [
+        "--argjson", "receipt", JSON.stringify(receipt),
+        "--arg", "node", "prox2",
+        "--argjson", "vmid", "9020",
+        "--arg", "name", "nelos-ubuntu-2404-base",
+        "--arg", "digest", "a".repeat(40),
+        "--arg", "ubuntu_sha", imageDigest,
+        "--arg", "scsi0_volume", "local-lvm:base-9020-disk-1",
+        "--arg", "efidisk0_volume", "local-lvm:base-9020-disk-0",
+      ],
+      "$receipt | " + trustedBaselineJq,
+    );
 
   assert.equal(await acceptsBaseInventory(safeBaseConfig), true);
+  assert.equal(await acceptsTrustedBaseline(safeBaseline), true);
+  for (const mutateBaseline of [
+    (receipt) => { receipt.receiptKind = "ad-hoc-attestation"; },
+    (receipt) => { receipt.ubuntuImageSha256 = "f".repeat(64); },
+    (receipt) => { receipt.node = "prox3"; },
+    (receipt) => { receipt.baseTemplateVmid = "9020"; },
+    (receipt) => { receipt.baseTemplateName = "another-base"; },
+    (receipt) => { receipt.configDigest = "b".repeat(40); },
+    (receipt) => { receipt.disks.scsi0.volumeId = "local-lvm:base-9020-disk-9"; },
+    (receipt) => { receipt.disks.scsi0.backend = "lvm"; },
+    (receipt) => { receipt.disks.efidisk0.nativeIdentity = "unsafe:identity"; },
+    (receipt) => { receipt.disks.scsi0.sha256 = receipt.disks.efidisk0.sha256; },
+    (receipt) => { receipt.disks.scsi0.logicalSizeBytes = "68719476736"; },
+    (receipt) => { receipt.unexpected = true; },
+  ]) {
+    const invalidBaseline = structuredClone(safeBaseline);
+    mutateBaseline(invalidBaseline);
+    assert.equal(await acceptsTrustedBaseline(invalidBaseline), false, JSON.stringify(invalidBaseline));
+  }
   const healthyPendingResponse = {
     data: [
       { key: "balloon", value: 0 },
