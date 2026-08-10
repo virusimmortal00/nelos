@@ -854,11 +854,13 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(bootstrap, /"\$DISK_ATTESTER" local-bootstrap/u);
   const bootstrapStdoutGuard = 'bootstrap_main "$@" >&2';
   const bootstrapReceiptWrite = `printf '%s\\n' "$baseline_receipt"`;
+  const bootstrapCreateIndex = bootstrap.indexOf('qm create "$BASE_TEMPLATE_VMID"');
   const bootstrapStdoutGuardIndex = bootstrap.indexOf(bootstrapStdoutGuard);
   const bootstrapReceiptWriteIndex = bootstrap.indexOf(bootstrapReceiptWrite);
+  assert.notEqual(bootstrapCreateIndex, -1);
   assert.notEqual(bootstrapStdoutGuardIndex, -1);
   assert.notEqual(bootstrapReceiptWriteIndex, -1);
-  assert.ok(bootstrapStdoutGuardIndex > bootstrap.indexOf('qm create "$BASE_TEMPLATE_VMID"'));
+  assert.ok(bootstrapStdoutGuardIndex > bootstrapCreateIndex);
   assert.ok(bootstrapReceiptWriteIndex > bootstrapStdoutGuardIndex);
   assert.doesNotMatch(bootstrap, /exec 3>&1|>&3/u);
 
@@ -886,6 +888,9 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.equal(stdoutProbe.code, 0);
   assert.equal(stdoutProbe.stdout, '{"receiptKind":"trusted-bootstrap-baseline"}\n');
   assert.equal(stdoutProbe.stderr, "update VM 9024: progress\n");
+
+  const bootstrapCleanupTrap = "trap 'cleanup_on_exit >&2' EXIT";
+  assert.notEqual(bootstrap.indexOf(bootstrapCleanupTrap), -1);
 
   const failureProbe = await runProcessWithInput(
     "/bin/bash",
