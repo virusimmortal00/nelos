@@ -222,7 +222,9 @@ cleanup_activated_lvs() {
   local index lv
   for ((index=${#ACTIVATED_LVS[@]} - 1; index >= 0; index--)); do
     lv="${ACTIVATED_LVS[$index]}"
-    [[ -n $lv ]] && /usr/sbin/lvm lvchange -an -- "$lv" >/dev/null 2>&1 || true
+    if [[ -n $lv ]]; then
+      /usr/sbin/lvm lvchange -an -- "$lv" >/dev/null 2>&1 || true
+    fi
   done
 }
 trap cleanup_activated_lvs EXIT
