@@ -852,6 +852,60 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(bootstrap, /pre-enrolled-keys=0/u);
   assert.match(bootstrap, /discard=on,iothread=1,ssd=1/u);
   assert.match(bootstrap, /"\$DISK_ATTESTER" local-bootstrap/u);
+  const bootstrapStdoutGuard = 'bootstrap_main "$@" >&2';
+  const bootstrapReceiptWrite = `printf '%s\\n' "$baseline_receipt"`;
+  const bootstrapStdoutGuardIndex = bootstrap.indexOf(bootstrapStdoutGuard);
+  const bootstrapReceiptWriteIndex = bootstrap.indexOf(bootstrapReceiptWrite);
+  assert.notEqual(bootstrapStdoutGuardIndex, -1);
+  assert.notEqual(bootstrapReceiptWriteIndex, -1);
+  assert.ok(bootstrapStdoutGuardIndex > bootstrap.indexOf('qm create "$BASE_TEMPLATE_VMID"'));
+  assert.ok(bootstrapReceiptWriteIndex > bootstrapStdoutGuardIndex);
+  assert.doesNotMatch(bootstrap, /exec 3>&1|>&3/u);
+
+  const stdoutProbe = await runProcessWithInput(
+    "/bin/bash",
+    [
+      "-c",
+      [
+        "set -Eeuo pipefail",
+        "bootstrap_main() {",
+        "  qm() {",
+        "    printf 'update VM 9024: progress\\n'",
+        "    if printf 'child-contamination\\n' 2>/dev/null >&3; then return 97; fi",
+        "  }",
+        "  qm set",
+        `  baseline_receipt='{"receiptKind":"trusted-bootstrap-baseline"}'`,
+        "}",
+        bootstrapStdoutGuard,
+        bootstrapReceiptWrite,
+        "",
+      ].join("\n"),
+    ],
+    "",
+  );
+  assert.equal(stdoutProbe.code, 0);
+  assert.equal(stdoutProbe.stdout, '{"receiptKind":"trusted-bootstrap-baseline"}\n');
+  assert.equal(stdoutProbe.stderr, "update VM 9024: progress\n");
+
+  const failureProbe = await runProcessWithInput(
+    "/bin/bash",
+    [
+      "-c",
+      [
+        "set -Eeuo pipefail",
+        "cleanup_on_exit() { printf 'cleanup progress\\n'; }",
+        "trap 'cleanup_on_exit >&2' EXIT",
+        "bootstrap_main() { printf 'bootstrap failure\\n'; return 42; }",
+        bootstrapStdoutGuard,
+        bootstrapReceiptWrite,
+        "",
+      ].join("\n"),
+    ],
+    "",
+  );
+  assert.equal(failureProbe.code, 42);
+  assert.equal(failureProbe.stdout, "");
+  assert.equal(failureProbe.stderr, "bootstrap failure\ncleanup progress\n");
   assert.ok(
     bootstrap.indexOf('qm template "$BASE_TEMPLATE_VMID"') <
       bootstrap.indexOf('"$DISK_ATTESTER" local-bootstrap'),
