@@ -1,9 +1,10 @@
 # Proxmox validator template
 
-Status: source-only foundation. The repository contains an executable,
-checksum-pinned recipe; it does not contain a VM image, Proxmox backup, live
-cluster configuration, credential, generated variable file, or live validation
-receipt. Nothing in ordinary CI contacts or mutates Proxmox.
+Status: bounded pilot source. The repository contains an executable,
+checksum-pinned template recipe and an explicit-operator live runner; it does
+not contain a VM image, Proxmox backup, live cluster configuration, credential,
+generated variable file, or live validation receipt. Nothing in ordinary CI
+contacts or mutates Proxmox.
 
 The target is a Proxmox VE 8.4, Ubuntu 24.04, x86_64 VM for Linux Codex CLI
 plugin validation. macOS, Codex Desktop, IDE integrations, Windows, and arm64
@@ -30,16 +31,19 @@ are outside this template's scope.
 - The `0.12.12` release payload ships both the legacy Codex plugin layout and
   the portable Agent Plugins v1 root `plugin.json`/`mcp.json` layout. Both are
   covered by the same distribution integrity digest.
+- `scripts/run-live-validation.mjs` controls one explicitly selected prox2
+  disposable clone, while `scripts/run-plugin-evidence.mjs` performs the two
+  isolated offline Codex/plugin probes inside that guest.
+- Evidence schema v2 binds candidate, template, clone safety, network denial,
+  QGA and Cloud-Init readiness, both plugin lanes, cleanup, and post-cleanup
+  cluster absence without exporting credentials or raw infrastructure logs.
 - The offline validator, tests, ShellCheck, and Packer syntax checks run without
   Proxmox credentials or a lab endpoint.
 
-The live validation runner is intentionally not implemented yet. In
-particular, this slice does not create the disposable validation clone, enforce
-deny-all validation networking, install both Nelos plugin formats, start Codex,
-collect MCP evidence, or delete the clone. The current checkout still uses the
-legacy `.codex-plugin/plugin.json` and `.mcp.json` layout for codex-cli 0.144.6
-and now also ships the root Agent Plugins v1 layout for the 0.147.0 migration
-lane. Neither Proxmox lane is a current live-validation pass claim.
+The runner source and its simulated failure-path tests are not live evidence.
+Only a schema-valid receipt produced from an exact candidate, after the owned
+clone is destroyed and cluster-wide absence is verified, can support a Linux
+CLI result. This remains a provisional prox2 pilot until that run is completed.
 
 ## Dedicated Linux controller VM
 
@@ -65,7 +69,12 @@ store and use an API hostname covered by its certificate. TLS verification is
 mandatory; the Packer source fixes `insecure_skip_tls_verify = false`.
 Authenticated preflight reads use the verified fixed `/usr/bin/curl` under an
 otherwise empty process environment, so they use that operating-system trust
-store without ambient proxy, curl-config, loader, or shell-wrapper state.
+store without ambient proxy, curl-config, loader, or shell-wrapper state. The
+live Node.js controller must be started with `NODE_USE_SYSTEM_CA=1`, because the
+official Node.js binary otherwise uses its bundled CA set. The runner rejects
+ambient `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, and
+`SSL_CERT_DIR` overrides so the approved operating-system trust store remains
+the explicit source of the internal PVE CA.
 
 Controller prerequisites are Bash, Git, OpenSSH, curl, jq, unzip, SHA-256
 utilities, and the lock-pinned Node.js 24.18.0. The build wrapper downloads and
@@ -102,8 +111,9 @@ bound without a text round trip or sort. Gitlinks are forbidden. SHA-1 and
 SHA-256 repositories intentionally have different digest domains; this is not
 a cross-object-format identity, and its object binding inherits the security
 properties of the repository's storage object format. It is not a digest of a
-Git-generated tar archive. A future live-runner archive must record a separate
-`archiveSha256`.
+Git-generated tar archive. The live runner records the exact transferred tar
+bytes separately as `archiveSha256`; the guest verifies that transfer digest
+while `treeSha256` continues to identify the canonical tracked tree.
 
 Evidence inspection uses the fixed system Git with system/global configuration,
 lazy fetches, fsmonitor, commit graphs, multi-pack indexes, and replacement
@@ -305,7 +315,10 @@ From an exact, clean source commit on the controller:
 node validation/proxmox/scripts/validate-contract.mjs
 NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs \
   node --import ./scripts/test-bootstrap.mjs \
-  --test validation/proxmox/test/proxmox-template-contract.test.mjs
+  --test \
+  validation/proxmox/test/proxmox-template-contract.test.mjs \
+  validation/proxmox/test/live-validation-runner.test.mjs \
+  validation/proxmox/test/plugin-evidence-runner.test.mjs
 bash -n validation/proxmox/scripts/*.sh
 shellcheck validation/proxmox/scripts/*.sh
 ```
@@ -425,18 +438,25 @@ move between node-local backends.
 Keep the active validated generation indefinitely. Keep the immediately
 replaced known-good generation for at least 30 days and until the replacement
 has passed live clone, boot, validation, evidence export, exact cleanup, and
-rollback-readiness checks. Disposable build VMs and future validation clones
+rollback-readiness checks. Disposable build VMs and validation clones
 are not retained.
 
-## Live-validation handoff
+## Bounded prox2 live pilot
 
-Before this can produce a valid evidence document, a follow-on Linux runner must:
+The live command is an explicit controller operation, never a CI job. It fails
+before mutation unless all of these fixed pilot identities match:
 
-1. Create a same-node, disposable linked clone with a newly reserved VMID and a
-   unique ownership marker.
+Do not invoke it until prox2 source template `9021` has been rebuilt from the
+merged contract/toolchain generation, its retained base disks have been
+re-attested, and the externally enforced `nelosbld` policy has been tested. An
+older provisional `9021` cannot satisfy the exact installed lock digest and
+must not be treated as compatible merely because its VMID and name match.
+
+1. Create a same-node, disposable linked clone with an explicitly selected,
+   authoritatively unused VMID and a unique ownership marker.
 2. Enforce and attest validation-time network denial using PVE firewall rules or
    a quarantine bridge; `firewall=1` alone is not a deny policy. Derive
-   `observations.networkDeniedDuringValidation` from checks before the lanes,
+   `lifecycle.networkDeniedDuringValidation` from guest checks before the lanes,
    during each lane, and after the lanes; report `false` whenever denial cannot
    be observed across that complete window.
 3. Create each run and lane root from `contract.json` with no shared mutable
@@ -465,6 +485,81 @@ Before this can produce a valid evidence document, a follow-on Linux runner must
    `tools/list`, `nelos_config_get`, and exact tool parity.
 7. Export only schema-valid, sanitized evidence and then reconcile and delete
    the exact owned clone.
+
+The fixed pilot identities are:
+
+- Node `prox2` and source validator template VMID `9021`.
+- One operator-selected disposable VMID from `9030` through `9039`; the runner
+  never discovers or claims a next free ID.
+- One exact clean candidate revision, canonical Git-tree manifest digest, and
+  separate exact candidate-archive transfer digest.
+- A cluster-wide unused VMID, established with PVE 8's authoritative,
+  unfiltered `GET /cluster/nextid?vmid=<id>` check. The runner does not claim
+  global clone-name uniqueness from the permission-filtered resource listing.
+
+The runner generates an opaque `run-<128-bit-random-hex>` receipt ID and a
+separate cryptographically random ownership nonce for every invocation. It
+creates a same-node linked clone (`full=0`) with the random name and
+nonce-bearing description atomically, adds the matching ownership tag, and
+reads every identity field back before starting it. It removes every `netN`
+device before first boot and verifies that the guest sees no non-loopback
+interface. Candidate transfer and evidence return use QGA rather than SSH or
+guest networking.
+
+Each lane receives an independent mode-0700 run root, `HOME`, `CODEX_HOME`,
+temporary directory, XDG directories, app-server process, and MCP process. The
+probe uses app-server MCP status/list and a direct `nelos_config_get` tool call;
+it does not make a model request or require OpenAI authentication. Only safe
+process classifications, allowlisted environment-key names, tool names, and
+booleans enter the public receipt.
+
+Run the controller entry point with `--help` first and supply every requested
+pilot value explicitly:
+
+```bash
+node validation/proxmox/scripts/run-live-validation.mjs --help
+
+unset NODE_OPTIONS NODE_EXTRA_CA_CERTS SSL_CERT_FILE SSL_CERT_DIR
+export NODE_USE_SYSTEM_CA=1
+node validation/proxmox/scripts/run-live-validation.mjs \
+  --disposable-vmid 9030 \
+  --candidate-revision "$(/usr/bin/git --no-replace-objects -c core.useReplaceRefs=false -c core.commitGraph=false rev-parse --verify --end-of-options 'HEAD^{commit}')" \
+  --template-version 1.0.0 \
+  --output /var/lib/nelos-evidence/prox2-9030.json
+```
+
+The controller reads the private guest result, reconciles the clone, and only
+then assembles evidence schema v2. Clone mutation attempt and settlement are
+recorded separately. An ambiguous clone POST or task wait enters
+`manual-reconcile`, never authorizes destruction, and never claims cluster
+absence. Successful destruction is followed by multiple consecutive
+authoritative VMID-absence reads. The first `SIGINT` or `SIGTERM` is handled
+cooperatively at stage boundaries so ownership-gated cleanup still runs.
+
+After the clone task is terminal, early cleanup may destroy only a stopped VM
+whose VMID, node, non-template state, random name, and atomic description all
+match. After ownership readback, cleanup additionally requires the exact tag
+and candidate binding. If early identity cannot be read, the VM is left stopped
+as last observed but may still have its inherited NIC. If ownership later
+drifts, the VM is left completely untouched and may still be running. Both
+states require explicit operator reconciliation. Broad cleanup, `purge`,
+`skiplock`, VMID ranges, and unreferenced-volume deletion are forbidden.
+
+The pilot API identity needs narrowly scoped source-template clone/audit access,
+disposable-VM allocation and audit, option/network configuration, power, and
+`VM.Monitor` on only the disposable VMIDs or validator pool for QGA on PVE 8,
+plus node-local datastore allocation and `SDN.Use` for the source NIC that
+exists only until detachment. `VM.GuestAgent.Unrestricted` is a PVE 9+
+privilege and must not be used in the PVE 8.4 role. The token also reads
+`/cluster/nextid?vmid=<id>`, whose requested-ID result is unfiltered, while
+`/cluster/resources` is used only for visible source and owned-object details.
+The source template's current configuration must retain `onboot=0`. The API
+token remains process-scoped from the approved secret store and must never be
+written to the checkout, evidence, or logs.
+
+Promotion remains evidence-gated: do not expand to prox3 until a prox2 receipt
+passes and proves exact cleanup. The failed pve2 validator path remains frozen
+and is outside this pilot.
 
 A Linux VM can establish Linux CLI behavior only. macOS and Codex Desktop need
 a separate, disposable real-Mac validation lane; successful Proxmox results

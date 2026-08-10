@@ -57,7 +57,10 @@ jobs:
           unset CODEX_API_KEY OPENAI_API_KEY
           node validation/proxmox/scripts/validate-contract.mjs
           node --import ./scripts/test-bootstrap.mjs \
-            --test validation/proxmox/test/proxmox-template-contract.test.mjs
+            --test \
+            validation/proxmox/test/proxmox-template-contract.test.mjs \
+            validation/proxmox/test/live-validation-runner.test.mjs \
+            validation/proxmox/test/plugin-evidence-runner.test.mjs
 
       - name: Check shell sources
         run: |
