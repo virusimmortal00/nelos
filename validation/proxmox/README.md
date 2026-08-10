@@ -71,12 +71,16 @@ Each invocation creates a fresh mode-0700 child beneath the operator-supplied
 `NELOS_PACKER_STATE_DIR`, which must itself be a mode-0700 absolute directory
 outside the checkout. Packer config, plugin, cache, XDG, and temporary paths are
 isolated there and deleted on exit. The wrapper requires an exact clean Git
-commit, materializes only the four expected HCL files and their allowlisted
-inputs directly from that commit into the run directory, and executes the
-sealed copy. Git replacement objects are disabled and any loose or packed
-`refs/replace/*` entry is rejected before the source revision is resolved. It
-refuses macOS, arm64, a PVE host, proxy variables, command-line overrides,
-unknown `PKR_VAR_*` values, extra HCL source, or an unclean checkout.
+commit, rejects every symlink, gitlink, or other non-regular entry in that exact
+candidate tree before Node can load repository code, and binds contract
+validation to the frozen candidate revision. Validation inputs are read from
+the candidate Git blobs. The wrapper then materializes only the four expected
+HCL files and their allowlisted inputs directly from that commit into the run
+directory and executes the sealed copy. Git replacement objects are disabled
+and any loose or packed `refs/replace/*` entry is rejected before the source
+revision is resolved. It refuses macOS, arm64, a PVE host, proxy variables,
+command-line overrides, unknown `PKR_VAR_*` values, extra HCL source, or an
+unclean checkout.
 The controller checkout is a trusted, single-purpose build input: no other
 process may mutate its common Git directory while the wrapper runs. The wrapper
 rejects alternates and partial/promisor repositories and verifies every
@@ -264,6 +268,12 @@ shellcheck validation/proxmox/scripts/*.sh
 These commands are read-only. The path-filtered GitHub workflow performs the
 same checks and checksum-installs its Linux Packer tooling into runner-temporary
 directories; it has no Proxmox secrets.
+
+The validator's no-argument form intentionally reads the working tree so it can
+lint uncommitted local edits. The build wrapper instead passes the frozen source
+revision through `--candidate-revision`; that exact-candidate mode requires a
+clean checkout, rejects non-regular tracked entries, and reads candidate inputs
+from Git blobs rather than following working-tree paths.
 
 ## 2. Bootstrap one base template
 

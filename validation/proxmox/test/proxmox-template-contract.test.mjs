@@ -584,6 +584,13 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /EXPECTED_PACKER_SOURCES/u);
   assert.match(buildWrapper, /SEALED_PACKER_DIR/u);
   assert.match(buildWrapper, /materialize_tracked/u);
+  assert.match(buildWrapper, /assert_candidate_tree_regular/u);
+  assert.match(
+    buildWrapper,
+    /git_readonly ls-tree -r -z --full-tree "\$SOURCE_REVISION" --/u,
+  );
+  assert.match(buildWrapper, /\/usr\/bin\/perl -0ne/u);
+  assert.match(buildWrapper, /--candidate-revision "\$SOURCE_REVISION"/u);
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /PATH=\/usr\/bin:\/bin/u);
   assert.match(
@@ -608,6 +615,13 @@ test("executable recipe matches the immutable lock and guarded contract", async 
     assert.equal(apiGetFunction.includes(authenticatedApiControl), true, authenticatedApiControl);
   }
   assert.equal((buildWrapper.match(/PVEAPIToken=/gu) ?? []).length, 1);
+  const candidateTreeGateIndex = buildWrapper.indexOf("\nassert_candidate_tree_regular\n");
+  const validatorStartIndex = buildWrapper.indexOf(
+    'node "${REPOSITORY_ROOT}/validation/proxmox/scripts/validate-contract.mjs"',
+  );
+  assert.notEqual(candidateTreeGateIndex, -1);
+  assert.notEqual(validatorStartIndex, -1);
+  assert.ok(candidateTreeGateIndex < validatorStartIndex);
   assert.match(buildWrapper, /GIT_ATTR_NOSYSTEM=1/u);
   assert.match(buildWrapper, /GIT_GRAFT_FILE=\/dev\/null/u);
   assert.match(buildWrapper, /GIT_NO_LAZY_FETCH=1/u);
@@ -959,6 +973,53 @@ test("build Git preflight rejects packed replacements and nonlocal object backen
           error?.stderr ?? "",
           /source checkout partial-clone and promisor configuration is forbidden/u,
         );
+        return true;
+      },
+    );
+  });
+
+  await context.test("regular candidate clears the tree mode gate", async (subcontext) => {
+    const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(subcontext);
+    await assert.rejects(
+      runBuildGitPreflight(artifactRoot, fixtureRoot),
+      (error) => {
+        assert.equal(error?.code, 1);
+        assert.doesNotMatch(
+          error?.stderr ?? "",
+          /source candidate tree must contain only regular tracked files/u,
+        );
+        return true;
+      },
+    );
+  });
+
+  await context.test("tracked symlink before validator startup", async (subcontext) => {
+    const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(subcontext);
+    const pluginManifestPath = join(fixtureRoot, ".codex-plugin", "plugin.json");
+    const externalManifestPath = join(artifactRoot, "external-plugin.json");
+    await cp(pluginManifestPath, externalManifestPath);
+    await rm(pluginManifestPath);
+    await symlink(externalManifestPath, pluginManifestPath);
+    await execFileAsync("git", ["add", "--all"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: commitGitEnvironment(),
+    });
+    await execFileAsync("git", ["commit", "--quiet", "--message", "add tracked symlink"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: commitGitEnvironment(),
+    });
+
+    await assert.rejects(
+      runBuildGitPreflight(artifactRoot, fixtureRoot),
+      (error) => {
+        assert.equal(error?.code, 1);
+        assert.match(
+          error?.stderr ?? "",
+          /source candidate tree must contain only regular tracked files/u,
+        );
+        assert.doesNotMatch(error?.stderr ?? "", /repository contract validation failed/u);
         return true;
       },
     );
@@ -2063,6 +2124,31 @@ test("repository validation binds the candidate version to its release build ide
   );
 });
 
+test("exact candidate validation binds the requested revision without changing dirty-tree linting", async (context) => {
+  const { fixtureRoot } = await createCleanRepositoryFixture(context);
+  const { stdout: sourceRevisionOutput } = await execFileAsync(
+    gitExecutable,
+    [...gitIdentityArguments, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+    { cwd: fixtureRoot, encoding: "utf8", env: cleanGitEnvironment() },
+  );
+  const sourceRevision = sourceRevisionOutput.trim();
+  await validateRepositoryContract(fixtureRoot, { candidateRevision: sourceRevision });
+
+  const wrongRevision = `${sourceRevision.startsWith("0") ? "1" : "0"}${sourceRevision.slice(1)}`;
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { candidateRevision: wrongRevision }),
+    /\/candidate\/sourceRevision: must match the requested exact candidate revision/u,
+  );
+
+  const contractPath = join(fixtureRoot, "validation", "proxmox", "contract.json");
+  await writeFile(contractPath, `${await readFile(contractPath, "utf8")}\n`, { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot);
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { candidateRevision: sourceRevision }),
+    /\/candidate\/dirty: exact candidate validation requires an exactly clean Git checkout/u,
+  );
+});
+
 test("candidate distribution and passed evidence require the exact Agent Plugins v1 root layout", async (context) => {
   const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
   const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
@@ -2592,7 +2678,7 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   assert.equal(packedReplacementRefs.trim(), replaceRefName);
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/replacements: replacement refs are forbidden for evidence candidates/u,
+    /\/candidate\/replacements: replacement refs are forbidden for exact candidates/u,
   );
   await runFixtureGit(["update-ref", "-d", replaceRefName]);
   await rm(replaceDirectory, { recursive: true, force: true });
@@ -2611,7 +2697,7 @@ test("repository evidence binds the exact clean candidate and contract bytes", a
   await writeFile(join(fixtureRoot, "untracked-dirty-sentinel"), "dirty\n", { mode: 0o600 });
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/dirty: evidence requires an exactly clean Git checkout/u,
+    /\/candidate\/dirty: exact candidate validation requires an exactly clean Git checkout/u,
   );
 });
 
@@ -2652,7 +2738,7 @@ test("repository evidence rejects gitlink candidates before accepting their iden
 
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/gitlinks: Gitlink and submodule entries are forbidden for evidence candidates/u,
+    /\/candidate\/gitlinks: Gitlink and submodule entries are forbidden for exact candidates/u,
   );
 });
 
@@ -2691,9 +2777,21 @@ test("repository evidence rejects tracked symlinks before reading their targets"
     env: commitGitEnvironment(),
   });
 
+  const { stdout: symlinkRevisionOutput } = await execFileAsync(
+    gitExecutable,
+    [...gitIdentityArguments, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+    { cwd: fixtureRoot, encoding: "utf8", env: cleanGitEnvironment() },
+  );
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, {
+      candidateRevision: symlinkRevisionOutput.trim(),
+    }),
+    /\/candidate\/symlinks: Tracked symlink entries are forbidden for exact candidates/u,
+  );
+
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/symlinks: Tracked symlink entries are forbidden for evidence candidates/u,
+    /\/candidate\/symlinks: Tracked symlink entries are forbidden for exact candidates/u,
   );
 });
 

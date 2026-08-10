@@ -196,6 +196,30 @@ git_readonly() {
       "$@"
 }
 
+assert_candidate_tree_regular() {
+  # shellcheck disable=SC2016 # Embedded Perl source must not be expanded by Bash.
+  if ! git_readonly ls-tree -r -z --full-tree "$SOURCE_REVISION" -- |
+    /usr/bin/env -i \
+      PATH=/usr/bin:/bin \
+      LC_ALL=C \
+      HOME=/nonexistent \
+      NELOS_CANDIDATE_OBJECT_ID_WIDTH="$GIT_OBJECT_ID_WIDTH" \
+      /usr/bin/perl -0ne '
+      BEGIN {
+        $expected_width = $ENV{NELOS_CANDIDATE_OBJECT_ID_WIDTH} // q{};
+        exit 65 unless $expected_width eq q{40} || $expected_width eq q{64};
+      }
+      s/\0\z// or exit 66;
+      /\A([0-7]{6}) (blob|commit) ([a-f0-9]+)\t(.+)\z/s or exit 66;
+      exit 66 unless
+        ($1 eq q{100644} || $1 eq q{100755}) &&
+        $2 eq q{blob} &&
+        length($3) == $expected_width;
+    '; then
+    die "source candidate tree must contain only regular tracked files"
+  fi
+}
+
 repository_top="$(git_readonly rev-parse --show-toplevel 2>/dev/null)" || die "source checkout is not a Git worktree"
 [[ $(realpath -e -- "$repository_top") == "$REPOSITORY_ROOT" ]] || die "script path and Git worktree root do not match"
 git_common_dir="$(git_readonly rev-parse --path-format=absolute --git-common-dir)" || \
@@ -243,6 +267,7 @@ readonly SOURCE_REVISION
 [[ ${SOURCE_REVISION} =~ ^[a-f0-9]+$ && ${#SOURCE_REVISION} -eq $GIT_OBJECT_ID_WIDTH ]] || \
   die "source revision is not a full object ID for the repository Git object format"
 [[ -z $(git_readonly status --porcelain=v1 --untracked-files=all) ]] || die "source checkout must be clean, including untracked files"
+assert_candidate_tree_regular
 
 assert_controller_attestation_file "$BASE_ATTESTATION_SSH_IDENTITY_FILE" "attestation SSH identity" 600
 assert_controller_attestation_file "$BASE_ATTESTATION_KNOWN_HOSTS_FILE" "attestation known_hosts file" 400
@@ -301,7 +326,9 @@ for source_name in "${EXPECTED_PACKER_SOURCES[@]}"; do
 done
 
 without_proxmox_auth env -u NODE_OPTIONS -u NODE_PATH \
-  node "${REPOSITORY_ROOT}/validation/proxmox/scripts/validate-contract.mjs" >/dev/null || \
+  node "${REPOSITORY_ROOT}/validation/proxmox/scripts/validate-contract.mjs" \
+    --root "$REPOSITORY_ROOT" \
+    --candidate-revision "$SOURCE_REVISION" >/dev/null || \
   die "repository contract validation failed"
 readonly SOURCE_LOCK_SPEC="${SOURCE_REVISION}:validation/proxmox/toolchain.lock.json"
 expected_node_version="$(git_readonly show "$SOURCE_LOCK_SPEC" | jq -er '.artifacts.node.version')"

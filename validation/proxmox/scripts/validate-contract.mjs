@@ -248,7 +248,7 @@ async function rejectUnsafeGitState(root) {
     rejectGitControlFile(root, "objects/info/alternates", "objects/info/alternates"),
   ]);
   if (await gitText(root, ["for-each-ref", "--format=%(refname)", "refs/replace/"]) !== "") {
-    fail("/candidate/replacements", "replacement refs are forbidden for evidence candidates");
+    fail("/candidate/replacements", "replacement refs are forbidden for exact candidates");
   }
 }
 
@@ -279,10 +279,10 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
     }
     const { mode, type, objectId } = headerMatch.groups;
     if (mode === "160000" || type === "commit") {
-      fail("/candidate/gitlinks", "Gitlink and submodule entries are forbidden for evidence candidates");
+      fail("/candidate/gitlinks", "Gitlink and submodule entries are forbidden for exact candidates");
     }
     if (mode === "120000") {
-      fail("/candidate/symlinks", "Tracked symlink entries are forbidden for evidence candidates");
+      fail("/candidate/symlinks", "Tracked symlink entries are forbidden for exact candidates");
     }
     if (
       type !== "blob"
@@ -355,7 +355,7 @@ async function computeCandidateDistributionIntegrity(root, distributionFiles) {
   return `sha256:${hash.digest("hex")}`;
 }
 
-async function inspectEvidenceCandidate(root) {
+async function inspectEvidenceCandidate(root, expectedSourceRevision = undefined) {
   let canonicalRoot;
   try {
     canonicalRoot = await realpath(root);
@@ -374,7 +374,9 @@ async function inspectEvidenceCandidate(root) {
   }
   await rejectUnsafeGitState(canonicalRoot);
   const status = await gitText(canonicalRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
-  if (status !== "") fail("/candidate/dirty", "evidence requires an exactly clean Git checkout");
+  if (status !== "") {
+    fail("/candidate/dirty", "exact candidate validation requires an exactly clean Git checkout");
+  }
   const sourceRevision = (await gitText(
     canonicalRoot,
     ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
@@ -389,6 +391,9 @@ async function inspectEvidenceCandidate(root) {
   }
   if (!GIT_OBJECT_ID.test(sourceRevision) || sourceRevision.length !== objectIdWidth) {
     fail("/candidate/sourceRevision", "Git HEAD must resolve to a full lowercase object ID");
+  }
+  if (expectedSourceRevision !== undefined && sourceRevision !== expectedSourceRevision) {
+    fail("/candidate/sourceRevision", "must match the requested exact candidate revision");
   }
   const treeManifest = await gitBuffer(
     canonicalRoot,
@@ -908,6 +913,7 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
     "EXPECTED_PACKER_SOURCES",
     "SEALED_PACKER_DIR",
     "materialize_tracked",
+    "assert_candidate_tree_regular",
     "download_verified",
     'export PACKER_CONFIG="${RUN_ROOT}/config/packer.json"',
     "PATH=/usr/bin:/bin",
@@ -934,8 +940,11 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
     "git_readonly for-each-ref --format='%(refname)' refs/replace/",
     "git_readonly rev-parse --show-object-format=storage",
     "git_readonly rev-parse --verify --end-of-options 'HEAD^{commit}'",
+    'git_readonly ls-tree -r -z --full-tree "$SOURCE_REVISION" --',
+    "/usr/bin/perl -0ne",
     "GIT_OBJECT_ID_WIDTH=40",
     "GIT_OBJECT_ID_WIDTH=64",
+    '--candidate-revision "$SOURCE_REVISION"',
     "sealed input must resolve to exactly one tree record",
     "git_readonly status --porcelain=v1 --untracked-files=all",
     'git_readonly hash-object --no-filters -- "$destination"',
@@ -1537,10 +1546,12 @@ function validateAgentPluginLayout(pluginManifest, mcpManifest, legacyPluginMani
 
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
   const resolvedRoot = resolve(root);
-  const candidateCheckoutIdentity = options.evidencePath
-    ? await inspectEvidenceCandidate(resolvedRoot)
+  const exactCandidateRequested =
+    options.candidateRevision !== undefined || options.evidencePath !== undefined;
+  const candidateCheckoutIdentity = exactCandidateRequested
+    ? await inspectEvidenceCandidate(resolvedRoot, options.candidateRevision)
     : undefined;
-  const externalEvidence = options.evidencePath
+  const externalEvidence = options.evidencePath !== undefined
     ? await readJson(resolve(options.evidencePath), "evidence")
     : undefined;
   const [
@@ -1614,7 +1625,7 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
   validateToolchainLock(toolchainLock, contract);
   await validateRecipeSources(resolvedRoot, toolchainLock, candidateCheckoutIdentity);
   validateEvidenceDocument(createEvidenceProbe(contract, repositoryInputs), evidenceSchema, contract, repositoryInputs);
-  if (options.evidencePath) {
+  if (options.evidencePath !== undefined) {
     if (externalEvidence?.result?.status === "passed") {
       const [legacyMcpManifest, agentPluginManifest, agentMcpManifest] = await Promise.all([
         readCandidateJsonWithBytes(
@@ -1668,11 +1679,14 @@ function parseArguments(argumentsList) {
   const options = { root: repositoryRoot };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
-    if (argument !== "--root" && argument !== "--evidence") fail("", `unknown argument: ${argument}`);
+    if (!["--root", "--evidence", "--candidate-revision"].includes(argument)) {
+      fail("", `unknown argument: ${argument}`);
+    }
     const value = argumentsList[index + 1];
     if (!value) fail("", `${argument} requires a value`);
     if (argument === "--root") options.root = resolve(value);
-    else options.evidencePath = resolve(value);
+    else if (argument === "--evidence") options.evidencePath = resolve(value);
+    else options.candidateRevision = value;
     index += 1;
   }
   return options;
