@@ -24,6 +24,9 @@ are outside this template's scope.
   the immutable SCSI and EFI clone sources through a node-local forced command.
 - `packer/` plus `scripts/build-template.sh` create an immutable validator
   template from that base on an isolated Linux controller.
+- The `0.12.12` release payload ships both the legacy Codex plugin layout and
+  the portable Agent Plugins v1 root `plugin.json`/`mcp.json` layout. Both are
+  covered by the same distribution integrity digest.
 - The offline validator, tests, ShellCheck, and Packer syntax checks run without
   Proxmox credentials or a lab endpoint.
 
@@ -31,9 +34,9 @@ The live validation runner is intentionally not implemented yet. In
 particular, this slice does not create the disposable validation clone, enforce
 deny-all validation networking, install both Nelos plugin formats, start Codex,
 collect MCP evidence, or delete the clone. The current checkout still uses the
-legacy `.codex-plugin/plugin.json` and `.mcp.json` layout; the root
-`plugin.json`/`mcp.json` agent-plugin layout in the contract is a migration
-target, not a current pass claim.
+legacy `.codex-plugin/plugin.json` and `.mcp.json` layout for codex-cli 0.144.6
+and now also ships the root Agent Plugins v1 layout for the 0.147.0 migration
+lane. Neither Proxmox lane is a current live-validation pass claim.
 
 ## Dedicated Linux controller VM
 

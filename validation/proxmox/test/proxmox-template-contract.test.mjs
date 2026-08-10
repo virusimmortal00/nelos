@@ -164,7 +164,7 @@ async function refreshFixtureDistributionProvenance(fixtureRoot) {
   );
 }
 
-async function createCleanRepositoryFixture(context, { agentPluginLayout = true } = {}) {
+async function createCleanRepositoryFixture(context) {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-repository-"));
   context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const fixtureRoot = join(temporaryRoot, "repository");
@@ -176,14 +176,12 @@ async function createCleanRepositoryFixture(context, { agentPluginLayout = true 
     join(fixtureRoot, ".codex-plugin", "plugin.json"),
   );
   await cp(join(root, ".mcp.json"), join(fixtureRoot, ".mcp.json"));
-  if (agentPluginLayout) {
-    const legacyPluginManifest = await readJson(join(fixtureRoot, ".codex-plugin", "plugin.json"));
-    const { pluginManifest, mcpManifest } = createAgentPluginLayout(legacyPluginManifest);
-    await Promise.all([
-      writeFile(join(fixtureRoot, "plugin.json"), `${JSON.stringify(pluginManifest, null, 2)}\n`, { mode: 0o600 }),
-      writeFile(join(fixtureRoot, "mcp.json"), `${JSON.stringify(mcpManifest, null, 2)}\n`, { mode: 0o600 }),
-    ]);
-  }
+  const legacyPluginManifest = await readJson(join(fixtureRoot, ".codex-plugin", "plugin.json"));
+  const { pluginManifest, mcpManifest } = createAgentPluginLayout(legacyPluginManifest);
+  await Promise.all([
+    writeFile(join(fixtureRoot, "plugin.json"), `${JSON.stringify(pluginManifest, null, 2)}\n`, { mode: 0o600 }),
+    writeFile(join(fixtureRoot, "mcp.json"), `${JSON.stringify(mcpManifest, null, 2)}\n`, { mode: 0o600 }),
+  ]);
   for (const entry of DISTRIBUTION_ENTRIES) {
     const target = join(fixtureRoot, entry);
     try {
@@ -1899,10 +1897,8 @@ test("repository validation binds the candidate version to its release build ide
   );
 });
 
-test("passed repository evidence requires the exact Agent Plugins v1 root layout", async (context) => {
-  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context, {
-    agentPluginLayout: false,
-  });
+test("candidate distribution and passed evidence require the exact Agent Plugins v1 root layout", async (context) => {
+  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
   const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
   const [contractBytes, toolchainLockBytes, contract, pluginManifest, candidateIdentity] = await Promise.all([
     readFile(join(fixtureValidationRoot, "contract.json")),
@@ -1919,27 +1915,87 @@ test("passed repository evidence requires the exact Agent Plugins v1 root layout
   });
   const evidencePath = join(artifactRoot, "agent-layout-evidence.json");
   await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
 
   const { pluginManifest: agentPluginManifest, mcpManifest } = createAgentPluginLayout(pluginManifest);
-  await writeFile(join(fixtureRoot, ".git", "info", "exclude"), "/plugin.json\n/mcp.json\n", {
-    mode: 0o600,
+  await execFileAsync("git", ["rm", "--quiet", "plugin.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
   });
-  await Promise.all([
-    writeFile(
-      join(fixtureRoot, "plugin.json"),
-      `${JSON.stringify(agentPluginManifest, null, 2)}\n`,
-      { mode: 0o600 },
-    ),
-    writeFile(
-      join(fixtureRoot, "mcp.json"),
-      `${JSON.stringify(mcpManifest, null, 2)}\n`,
-      { mode: 0o600 },
-    ),
-  ]);
-
+  await execFileAsync("git", ["commit", "--quiet", "--message", "remove agent plugin manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/trackedInputs\/plugin\.json: Agent Plugins v1 plugin\.json must be a regular file tracked by the exact candidate revision/u,
+    /\/candidate\/distributionIntegrity: candidate distribution entry is missing: plugin\.json/u,
+  );
+
+  await writeFile(
+    join(fixtureRoot, "plugin.json"),
+    `${JSON.stringify(agentPluginManifest, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  await refreshFixtureDistributionProvenance(fixtureRoot);
+  await execFileAsync("git", ["add", "plugin.json", "distribution-provenance.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "restore agent plugin manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  const restoredIdentity = await readGitCandidateIdentity(fixtureRoot);
+  Object.assign(evidence.candidate, restoredIdentity);
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity = restoredIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = restoredIdentity.distributionIntegrity;
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+
+  await execFileAsync("git", ["rm", "--quiet", "mcp.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "remove agent MCP manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/distributionIntegrity: candidate distribution entry is missing: mcp\.json/u,
+  );
+
+  mcpManifest.mcpServers.nelos.command = "bash";
+  await writeFile(
+    join(fixtureRoot, "mcp.json"),
+    `${JSON.stringify(mcpManifest, null, 2)}\n`,
+      { mode: 0o600 },
+  );
+  await refreshFixtureDistributionProvenance(fixtureRoot);
+  await execFileAsync("git", ["add", "mcp.json", "distribution-provenance.json"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "add invalid agent MCP manifest"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  const invalidIdentity = await readGitCandidateIdentity(fixtureRoot);
+  Object.assign(evidence.candidate, invalidIdentity);
+  evidence.lanes["legacy-01446"].installedDistributionIntegrity = invalidIdentity.distributionIntegrity;
+  evidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = invalidIdentity.distributionIntegrity;
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/agentPluginLayout\/mcp\.json: must exactly launch the candidate MCP release/u,
   );
 
   const failedEvidence = structuredClone(evidence);
@@ -1953,50 +2009,10 @@ test("passed repository evidence requires the exact Agent Plugins v1 root layout
   failedEvidence.lanes["legacy-01446"].checks.laneParity = false;
   failedEvidence.result = {
     status: "failed",
-    failures: ["agent-plugin.layout.missing"],
+    failures: ["agent-plugin.layout.invalid"],
   };
   await writeFile(evidencePath, `${JSON.stringify(failedEvidence)}\n`, { mode: 0o600 });
   await validateRepositoryContract(fixtureRoot, { evidencePath });
-
-  await execFileAsync("git", ["add", "--force", "plugin.json"], {
-    cwd: fixtureRoot,
-    encoding: "utf8",
-    env: commitGitEnvironment(),
-  });
-  await execFileAsync("git", ["commit", "--quiet", "--message", "add agent plugin manifest"], {
-    cwd: fixtureRoot,
-    encoding: "utf8",
-    env: commitGitEnvironment(),
-  });
-  Object.assign(evidence.candidate, await readGitCandidateIdentity(fixtureRoot));
-  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
-  await assert.rejects(
-    validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/trackedInputs\/mcp\.json: Agent Plugins v1 mcp\.json must be a regular file tracked by the exact candidate revision/u,
-  );
-
-  mcpManifest.mcpServers.nelos.command = "bash";
-  await writeFile(
-    join(fixtureRoot, "mcp.json"),
-    `${JSON.stringify(mcpManifest, null, 2)}\n`,
-    { mode: 0o600 },
-  );
-  await execFileAsync("git", ["add", "--force", "mcp.json"], {
-    cwd: fixtureRoot,
-    encoding: "utf8",
-    env: commitGitEnvironment(),
-  });
-  await execFileAsync("git", ["commit", "--quiet", "--message", "add invalid agent MCP manifest"], {
-    cwd: fixtureRoot,
-    encoding: "utf8",
-    env: commitGitEnvironment(),
-  });
-  Object.assign(evidence.candidate, await readGitCandidateIdentity(fixtureRoot));
-  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
-  await assert.rejects(
-    validateRepositoryContract(fixtureRoot, { evidencePath }),
-    /\/candidate\/agentPluginLayout\/mcp\.json: must exactly launch the candidate MCP release/u,
-  );
 });
 
 test("passed repository evidence requires the exact tracked legacy MCP layout", async (context) => {
