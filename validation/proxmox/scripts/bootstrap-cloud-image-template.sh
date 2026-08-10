@@ -147,6 +147,7 @@ guest_exec_cloud_init_wait() {
   esac
 }
 
+bootstrap_main() {
 [[ ${EUID} -eq 0 ]] || die "run this bootstrap on the selected Proxmox node as root"
 (($# == 0)) || die "arguments are disabled; use the documented environment variables"
 
@@ -266,7 +267,7 @@ cleanup_on_exit() {
   fi
   exit "$status"
 }
-trap cleanup_on_exit EXIT
+trap 'cleanup_on_exit >&2' EXIT
 
 [[ $IMAGE_CACHE_DIR =~ ^/[A-Za-z0-9._/-]+$ && $IMAGE_CACHE_DIR != / && ! -L $IMAGE_CACHE_DIR ]] || \
   die "IMAGE_CACHE_DIR must be a specific absolute non-symlink directory without whitespace or backslashes"
@@ -473,4 +474,9 @@ rm -f -- "$baseline_response_path"
 baseline_response_path=""
 trap - EXIT
 printf 'created base template %s (VMID %s) from the verified Ubuntu image\n' "$BASE_TEMPLATE_NAME" "$BASE_TEMPLATE_VMID" >&2
+}
+
+# Proxmox CLI commands emit progress on stdout. Scope the complete bootstrap body
+# to stderr so the caller's stdout contains only the validated baseline receipt.
+bootstrap_main "$@" >&2
 printf '%s\n' "$baseline_receipt"
