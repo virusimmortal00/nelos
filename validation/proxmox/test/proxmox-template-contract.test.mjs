@@ -1560,7 +1560,58 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
         `/var/lib/nelos-validator/runs/another-run/${laneId}/${suffix}`;
       assert.throws(
         () => validateEvidenceDocument(mismatchedObservedPath, evidenceSchema, contract),
-        new RegExp(`observedEnvironmentPaths/${environmentKey}: must equal the isolated`, "u"),
+        new RegExp(`observedEnvironmentPaths/${environmentKey}: must be null or equal the isolated`, "u"),
+        `${laneId} ${environmentKey}`,
+      );
+    }
+  }
+
+  for (const laneId of ["legacy-01446", "agent-plugin-01470"]) {
+    for (const [environmentKey, field] of Object.entries({
+      HOME: "home",
+      CODEX_HOME: "codexHome",
+      TMPDIR: "tmpDir",
+      XDG_CONFIG_HOME: "xdgConfigHome",
+      XDG_CACHE_HOME: "xdgCacheHome",
+      XDG_DATA_HOME: "xdgDataHome",
+    })) {
+      const failedWithMissingEnvironment = structuredClone(evidence);
+      failedWithMissingEnvironment.lanes[laneId]
+        .processObservation.observedEnvironmentPaths[environmentKey] = null;
+      failedWithMissingEnvironment.lanes[laneId].processObservation.observedEnvironmentKeys =
+        failedWithMissingEnvironment.lanes[laneId].processObservation.observedEnvironmentKeys
+          .filter((key) => key !== environmentKey);
+      failedWithMissingEnvironment.result = {
+        status: "failed",
+        failures: [`${laneId}.process.required-environment-missing`],
+      };
+      validateEvidenceDocument(failedWithMissingEnvironment, evidenceSchema, contract);
+
+      const failedWithMismatchedEnvironment = structuredClone(evidence);
+      failedWithMismatchedEnvironment.lanes[laneId]
+        .processObservation.observedEnvironmentPaths[environmentKey] = null;
+      failedWithMismatchedEnvironment.result = {
+        status: "failed",
+        failures: [`${laneId}.process.required-environment-mismatch`],
+      };
+      validateEvidenceDocument(failedWithMismatchedEnvironment, evidenceSchema, contract);
+
+      const failedWithContradictoryEnvironment = structuredClone(failedWithMissingEnvironment);
+      failedWithContradictoryEnvironment.lanes[laneId]
+        .processObservation.observedEnvironmentPaths[environmentKey] =
+          failedWithContradictoryEnvironment.lanes[laneId][field];
+      assert.throws(
+        () => validateEvidenceDocument(failedWithContradictoryEnvironment, evidenceSchema, contract),
+        new RegExp(`observedEnvironmentKeys: must include ${environmentKey} when its isolated path was observed`, "u"),
+        `${laneId} ${environmentKey}`,
+      );
+
+      const passedWithoutVerifiedEnvironment = structuredClone(evidence);
+      passedWithoutVerifiedEnvironment.lanes[laneId]
+        .processObservation.observedEnvironmentPaths[environmentKey] = null;
+      assert.throws(
+        () => validateEvidenceDocument(passedWithoutVerifiedEnvironment, evidenceSchema, contract),
+        new RegExp(`observedEnvironmentPaths/${environmentKey}: must equal the isolated ${field} for passed evidence`, "u"),
         `${laneId} ${environmentKey}`,
       );
     }

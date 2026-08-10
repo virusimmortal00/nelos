@@ -369,7 +369,10 @@ Before this can produce a valid evidence document, a follow-on Linux runner must
    `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, not only report
    that those variable names were present. Read only those six process values,
    compare them before projection, and never serialize a mismatched or arbitrary
-   environment value.
+   environment value. Passed evidence requires all six exact paths. Failed
+   evidence uses `null` for a missing or mismatched value and omits the key name
+   only when the variable itself was absent, so launch failures remain truthful
+   without exposing the unexpected value.
 4. Recompute the candidate distribution integrity from the exact candidate
    bytes, require its tracked provenance to match, and recompute the installed
    distribution integrity in each lane. A version or release-build string alone

@@ -327,6 +327,7 @@
               "uniqueItems": true
             },
             "observedEnvironmentPaths": {
+              "description": "Sanitized projection of the six isolation paths. Passed evidence requires exact strings; failed evidence uses null for absent or non-matching values.",
               "type": "object",
               "required": [
                 "HOME",
@@ -493,6 +494,7 @@
               "uniqueItems": true
             },
             "observedEnvironmentPaths": {
+              "description": "Sanitized projection of the six isolation paths. Passed evidence requires exact strings; failed evidence uses null for absent or non-matching values.",
               "type": "object",
               "required": [
                 "HOME",

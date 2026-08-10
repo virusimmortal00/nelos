@@ -1158,16 +1158,30 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
       continue;
     }
     for (const [environmentKey, field] of Object.entries(ISOLATED_ENVIRONMENT_FIELDS)) {
-      if (lane.processObservation.observedEnvironmentPaths[environmentKey] !== lane[field]) {
+      const observedPath = lane.processObservation.observedEnvironmentPaths[environmentKey];
+      const observedKey = lane.processObservation.observedEnvironmentKeys.includes(environmentKey);
+      if (observedPath !== null && observedPath !== lane[field]) {
         fail(
           `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
-          `must equal the isolated ${field} reported for the observed process`,
+          `must be null or equal the isolated ${field} reported for the observed process`,
         );
       }
-      if (!lane.processObservation.observedEnvironmentKeys.includes(environmentKey)) {
+      if (observedPath !== null && !observedKey) {
         fail(
           `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
-          `must include ${environmentKey} when a fresh process is observed`,
+          `must include ${environmentKey} when its isolated path was observed`,
+        );
+      }
+      if (evidence.result.status === "passed" && observedPath !== lane[field]) {
+        fail(
+          `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+          `must equal the isolated ${field} for passed evidence`,
+        );
+      }
+      if (evidence.result.status === "passed" && !observedKey) {
+        fail(
+          `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
+          `must include ${environmentKey} for passed evidence`,
         );
       }
     }
