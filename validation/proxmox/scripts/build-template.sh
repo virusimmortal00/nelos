@@ -58,6 +58,10 @@ for command in awk chmod curl dirname env find grep id install jq mktemp node re
   require_command "$command"
 done
 [[ -x /usr/bin/git ]] || die "required fixed Git executable not found: /usr/bin/git"
+[[ -x /usr/bin/curl && -f /usr/bin/curl && ! -L /usr/bin/curl ]] || \
+  die "required fixed curl executable not found: /usr/bin/curl"
+[[ -x /usr/bin/env && -f /usr/bin/env && ! -L /usr/bin/env ]] || \
+  die "required fixed env executable not found: /usr/bin/env"
 [[ -x /usr/bin/perl && -f /usr/bin/perl && ! -L /usr/bin/perl ]] || \
   die "required fixed Perl executable not found: /usr/bin/perl"
 [[ -x /usr/bin/ssh && -f /usr/bin/ssh && ! -L /usr/bin/ssh ]] || \
@@ -485,9 +489,15 @@ without_proxmox_auth env \
 readonly API_ROOT="${PROXMOX_URL%/}"
 api_get() {
   local endpoint="$1"
-  printf 'header = "Authorization: PVEAPIToken=%s=%s"\n' "$PROXMOX_USERNAME" "$PROXMOX_TOKEN" |
-    curl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \
-      --config - "${API_ROOT}/${endpoint}"
+  command builtin printf \
+    'header = "Authorization: PVEAPIToken=%s=%s"\n' \
+    "$PROXMOX_USERNAME" "$PROXMOX_TOKEN" |
+    /usr/bin/env -i \
+      PATH=/usr/bin:/bin \
+      LC_ALL=C \
+      HOME=/nonexistent \
+      /usr/bin/curl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \
+        --config - "${API_ROOT}/${endpoint}"
 }
 
 run_base_disk_attestation() {

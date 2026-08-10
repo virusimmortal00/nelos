@@ -586,6 +586,28 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /materialize_tracked/u);
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /PATH=\/usr\/bin:\/bin/u);
+  assert.match(
+    buildWrapper,
+    /\[\[ -x \/usr\/bin\/curl && -f \/usr\/bin\/curl && ! -L \/usr\/bin\/curl \]\]/u,
+  );
+  assert.match(
+    buildWrapper,
+    /\[\[ -x \/usr\/bin\/env && -f \/usr\/bin\/env && ! -L \/usr\/bin\/env \]\]/u,
+  );
+  const apiGetFunction = /^api_get\(\) \{\n[\s\S]*?^\}\n/mu.exec(buildWrapper)?.[0];
+  assert.notEqual(apiGetFunction, undefined);
+  for (const authenticatedApiControl of [
+    "command builtin printf",
+    "/usr/bin/env -i",
+    "PATH=/usr/bin:/bin",
+    "LC_ALL=C",
+    "HOME=/nonexistent",
+    "/usr/bin/curl --disable",
+    "--config -",
+  ]) {
+    assert.equal(apiGetFunction.includes(authenticatedApiControl), true, authenticatedApiControl);
+  }
+  assert.equal((buildWrapper.match(/PVEAPIToken=/gu) ?? []).length, 1);
   assert.match(buildWrapper, /GIT_ATTR_NOSYSTEM=1/u);
   assert.match(buildWrapper, /GIT_GRAFT_FILE=\/dev\/null/u);
   assert.match(buildWrapper, /GIT_NO_LAZY_FETCH=1/u);
@@ -601,6 +623,53 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /\.disks == \$baseline\.disks/u);
   assert.doesNotMatch(buildWrapper, /NELOS_BASE_(?:SCSI0|EFIDISK0)_(?:SHA256|SIZE_BYTES)/u);
   assert.match(buildWrapper, /run_base_disk_attestation "\$base_attestation_nonce"/u);
+
+  const hostileCurlRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-hostile-curl-"));
+  try {
+    const capturePath = join(hostileCurlRoot, "credential-capture");
+    const curlWrapper = join(hostileCurlRoot, "curl");
+    await writeFile(
+      curlWrapper,
+      [
+        "#!/bin/sh",
+        'printf "%s\\n" wrapper >"${CAPTURE_PATH:?}"',
+        "exit 97",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+    await chmod(curlWrapper, 0o700);
+    const apiProbe = [
+      "set -o pipefail",
+      'CAPTURE_PATH="$1"',
+      "export CAPTURE_PATH",
+      'curl() { command builtin printf "%s\\n" function-curl >"$CAPTURE_PATH"; return 97; }',
+      'env() { command builtin printf "%s\\n" function-env >"$CAPTURE_PATH"; return 97; }',
+      'printf() { command builtin printf "%s\\n" function-printf >"$CAPTURE_PATH"; return 97; }',
+      apiGetFunction,
+      'API_ROOT="https://127.0.0.1:9/api2/json"',
+      'PROXMOX_USERNAME="builder@pve!nelos"',
+      'PROXMOX_TOKEN="test-secret-token"',
+      "api_get version",
+      "",
+    ].join("\n");
+    const apiProbeResult = await runProcessWithInput(
+      "/bin/bash",
+      ["-c", apiProbe, "--", capturePath],
+      "",
+      { env: { PATH: `${hostileCurlRoot}:${process.env.PATH ?? "/usr/bin:/bin"}` } },
+    );
+    assert.notEqual(apiProbeResult.code, 0);
+    await assert.rejects(
+      lstat(capturePath),
+      (error) => error?.code === "ENOENT",
+    );
+    assert.doesNotMatch(apiProbeResult.stdout, /PVEAPIToken|test-secret-token/u);
+    assert.doesNotMatch(apiProbeResult.stderr, /PVEAPIToken|test-secret-token/u);
+  } finally {
+    await rm(hostileCurlRoot, { recursive: true, force: true });
+  }
+
   for (const sshControl of [
     "-F /dev/null",
     "-o BatchMode=yes",
@@ -1486,6 +1555,22 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   assert.equal(evidence.observations.networkDeniedDuringValidation, true);
   assert.equal(evidence.lanes["legacy-01446"].checks.laneParity, true);
   assert.equal(evidence.lanes["agent-plugin-01470"].checks.laneParity, true);
+  const agentLane = evidence.lanes["agent-plugin-01470"];
+  const expectedAgentPluginDataIdentity = createHash("sha256")
+    .update("nelos-marketplace", "utf8")
+    .update(Buffer.from([0]))
+    .update("nelos", "utf8")
+    .digest("hex");
+  assert.equal(
+    agentLane.processObservation.observedEnvironmentPaths.PLUGIN_ROOT,
+    `${agentLane.codexHome}/plugins/cache/nelos-marketplace/nelos/${pluginVersion}`,
+  );
+  assert.equal(
+    agentLane.processObservation.observedEnvironmentPaths.PLUGIN_DATA,
+    `${agentLane.codexHome}/plugins/data/agent-plugins/${expectedAgentPluginDataIdentity}`,
+  );
+  assert.equal(evidence.lanes["legacy-01446"].processObservation.observedEnvironmentPaths.PLUGIN_ROOT, null);
+  assert.equal(evidence.lanes["legacy-01446"].processObservation.observedEnvironmentPaths.PLUGIN_DATA, null);
 
   const staleTemplateVersion = structuredClone(evidence);
   staleTemplateVersion.template.templateVersion = "9.9.9";
@@ -1674,10 +1759,15 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
       .filter((key) => key !== "PLUGIN_DATA");
   assert.throws(
     () => validateEvidenceDocument(missingPluginData, evidenceSchema, contract),
-    /must include PLUGIN_DATA/u,
+    /must include PLUGIN_DATA when its exact injected path was observed/u,
   );
 
-  const failedWithMissingPluginData = structuredClone(missingPluginData);
+  const failedWithMissingPluginData = structuredClone(evidence);
+  failedWithMissingPluginData.lanes["agent-plugin-01470"]
+    .processObservation.observedEnvironmentPaths.PLUGIN_DATA = null;
+  failedWithMissingPluginData.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys =
+    failedWithMissingPluginData.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys
+      .filter((key) => key !== "PLUGIN_DATA");
   failedWithMissingPluginData.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
   failedWithMissingPluginData.lanes["agent-plugin-01470"].checks.laneParity = false;
   failedWithMissingPluginData.lanes["legacy-01446"].checks.laneParity = false;
@@ -1686,6 +1776,80 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     failures: ["agent-plugin.process.required-environment-missing"],
   };
   validateEvidenceDocument(failedWithMissingPluginData, evidenceSchema, contract);
+
+  const failedWithMismatchedPluginRoot = structuredClone(evidence);
+  failedWithMismatchedPluginRoot.lanes["agent-plugin-01470"]
+    .processObservation.observedEnvironmentPaths.PLUGIN_ROOT = null;
+  failedWithMismatchedPluginRoot.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  failedWithMismatchedPluginRoot.lanes["agent-plugin-01470"].checks.laneParity = false;
+  failedWithMismatchedPluginRoot.lanes["legacy-01446"].checks.laneParity = false;
+  failedWithMismatchedPluginRoot.result = {
+    status: "failed",
+    failures: ["agent-plugin.process.required-environment-mismatch"],
+  };
+  validateEvidenceDocument(failedWithMismatchedPluginRoot, evidenceSchema, contract);
+
+  for (const [environmentKey, replacement] of [
+    [
+      "PLUGIN_ROOT",
+      `${agentLane.codexHome}/plugins/cache/nelos-marketplace/nelos/9.9.9`,
+    ],
+    [
+      "PLUGIN_DATA",
+      `${agentLane.codexHome}/plugins/data/agent-plugins/${"f".repeat(64)}`,
+    ],
+  ]) {
+    const staleInjectedPluginPath = structuredClone(evidence);
+    staleInjectedPluginPath.lanes["agent-plugin-01470"]
+      .processObservation.observedEnvironmentPaths[environmentKey] = replacement;
+    assert.throws(
+      () => validateEvidenceDocument(staleInjectedPluginPath, evidenceSchema, contract),
+      /must be null or equal the exact injected path derived from the verified installation/u,
+      environmentKey,
+    );
+  }
+
+  const unverifiedPluginRoot = structuredClone(evidence);
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].checks.pluginInstall = false;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].installedDistributionIntegrity = null;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].checks.toolsList = false;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].checks.laneParity = false;
+  unverifiedPluginRoot.lanes["agent-plugin-01470"].toolNames = [];
+  unverifiedPluginRoot.lanes["legacy-01446"].checks.laneParity = false;
+  unverifiedPluginRoot.result = {
+    status: "failed",
+    failures: ["agent-plugin.plugin.install-failed"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(unverifiedPluginRoot, evidenceSchema, contract),
+    /must be null until exact plugin installation is verified/u,
+  );
+
+  const legacyPluginEnvironmentPresent = structuredClone(evidence);
+  legacyPluginEnvironmentPresent.lanes["legacy-01446"].processObservation.observedEnvironmentKeys.push(
+    "PLUGIN_ROOT",
+  );
+  assert.throws(
+    () => validateEvidenceDocument(legacyPluginEnvironmentPresent, evidenceSchema, contract),
+    /must omit forbidden legacy environment key PLUGIN_ROOT/u,
+  );
+  legacyPluginEnvironmentPresent.lanes["legacy-01446"].checks.laneParity = false;
+  legacyPluginEnvironmentPresent.lanes["agent-plugin-01470"].checks.laneParity = false;
+  legacyPluginEnvironmentPresent.result = {
+    status: "failed",
+    failures: ["legacy.process.forbidden-environment-present"],
+  };
+  validateEvidenceDocument(legacyPluginEnvironmentPresent, evidenceSchema, contract);
+
+  const legacyPluginEnvironmentValue = structuredClone(evidence);
+  legacyPluginEnvironmentValue.lanes["legacy-01446"]
+    .processObservation.observedEnvironmentPaths.PLUGIN_DATA = "/unsafe/plugin-data";
+  assert.throws(
+    () => validateEvidenceDocument(legacyPluginEnvironmentValue, evidenceSchema, contract),
+    /PLUGIN_DATA: must equal null/u,
+  );
 
   const pluginInstallFailedWithMcpSuccess = structuredClone(evidence);
   pluginInstallFailedWithMcpSuccess.lanes["agent-plugin-01470"].checks.pluginInstall = false;
@@ -1758,6 +1922,8 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     XDG_CONFIG_HOME: null,
     XDG_CACHE_HOME: null,
     XDG_DATA_HOME: null,
+    PLUGIN_DATA: null,
+    PLUGIN_ROOT: null,
   };
   failedBeforeProcessStart.lanes["agent-plugin-01470"].toolNames = [];
   failedBeforeProcessStart.lanes["agent-plugin-01470"].checks.freshProcessStart = false;
@@ -1999,13 +2165,20 @@ test("candidate distribution and passed evidence require the exact Agent Plugins
   );
 
   const failedEvidence = structuredClone(evidence);
-  failedEvidence.lanes["agent-plugin-01470"].toolNames = [];
-  failedEvidence.lanes["agent-plugin-01470"].checks.pluginInstall = false;
-  failedEvidence.lanes["agent-plugin-01470"].installedDistributionIntegrity = null;
-  failedEvidence.lanes["agent-plugin-01470"].checks.mcpInitialize = false;
-  failedEvidence.lanes["agent-plugin-01470"].checks.toolsList = false;
-  failedEvidence.lanes["agent-plugin-01470"].checks.nelosConfigGet = false;
-  failedEvidence.lanes["agent-plugin-01470"].checks.laneParity = false;
+  const failedAgentLane = failedEvidence.lanes["agent-plugin-01470"];
+  failedAgentLane.toolNames = [];
+  failedAgentLane.freshProcess = false;
+  failedAgentLane.checks.pluginInstall = false;
+  failedAgentLane.installedDistributionIntegrity = null;
+  failedAgentLane.checks.freshProcessStart = false;
+  failedAgentLane.checks.mcpInitialize = false;
+  failedAgentLane.checks.toolsList = false;
+  failedAgentLane.checks.nelosConfigGet = false;
+  failedAgentLane.checks.laneParity = false;
+  failedAgentLane.processObservation.observedEnvironmentKeys = [];
+  for (const environmentKey of Object.keys(failedAgentLane.processObservation.observedEnvironmentPaths)) {
+    failedAgentLane.processObservation.observedEnvironmentPaths[environmentKey] = null;
+  }
   failedEvidence.lanes["legacy-01446"].checks.laneParity = false;
   failedEvidence.result = {
     status: "failed",

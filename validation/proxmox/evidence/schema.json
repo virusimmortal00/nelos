@@ -321,13 +321,15 @@
                   "XDG_CONFIG_HOME",
                   "XDG_DATA_HOME",
                   "NELOS_PLUGIN_VERSION",
-                  "NELOS_RELEASE_BUILD_IDENTITY"
+                  "NELOS_RELEASE_BUILD_IDENTITY",
+                  "PLUGIN_DATA",
+                  "PLUGIN_ROOT"
                 ]
               },
               "uniqueItems": true
             },
             "observedEnvironmentPaths": {
-              "description": "Sanitized projection of the six isolation paths. Passed evidence requires exact strings; failed evidence uses null for absent or non-matching values.",
+              "description": "Sanitized eight-key path projection. Legacy PLUGIN_ROOT and PLUGIN_DATA are always null; failed evidence may retain their names to report unexpected presence without exposing values.",
               "type": "object",
               "required": [
                 "HOME",
@@ -335,7 +337,9 @@
                 "TMPDIR",
                 "XDG_CONFIG_HOME",
                 "XDG_CACHE_HOME",
-                "XDG_DATA_HOME"
+                "XDG_DATA_HOME",
+                "PLUGIN_DATA",
+                "PLUGIN_ROOT"
               ],
               "properties": {
                 "HOME": {
@@ -361,6 +365,12 @@
                 "XDG_DATA_HOME": {
                   "type": ["string", "null"],
                   "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/data$"
+                },
+                "PLUGIN_DATA": {
+                  "const": null
+                },
+                "PLUGIN_ROOT": {
+                  "const": null
                 }
               },
               "additionalProperties": false
@@ -494,7 +504,7 @@
               "uniqueItems": true
             },
             "observedEnvironmentPaths": {
-              "description": "Sanitized projection of the six isolation paths. Passed evidence requires exact strings; failed evidence uses null for absent or non-matching values.",
+              "description": "Sanitized eight-key path projection. Passed evidence requires exact isolated and plugin paths; failed evidence uses null for absent or non-matching values.",
               "type": "object",
               "required": [
                 "HOME",
@@ -502,7 +512,9 @@
                 "TMPDIR",
                 "XDG_CONFIG_HOME",
                 "XDG_CACHE_HOME",
-                "XDG_DATA_HOME"
+                "XDG_DATA_HOME",
+                "PLUGIN_DATA",
+                "PLUGIN_ROOT"
               ],
               "properties": {
                 "HOME": {
@@ -528,6 +540,14 @@
                 "XDG_DATA_HOME": {
                   "type": ["string", "null"],
                   "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/data$"
+                },
+                "PLUGIN_DATA": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/home/\\.codex/plugins/data/agent-plugins/[a-f0-9]{64}$"
+                },
+                "PLUGIN_ROOT": {
+                  "type": ["string", "null"],
+                  "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/home/\\.codex/plugins/cache/nelos-marketplace/nelos/[0-9A-Za-z.+-]+$"
                 }
               },
               "additionalProperties": false

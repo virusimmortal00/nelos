@@ -58,6 +58,9 @@ Recommended controller sizing:
 Install the internal Proxmox CA into the controller operating system's trust
 store and use an API hostname covered by its certificate. TLS verification is
 mandatory; the Packer source fixes `insecure_skip_tls_verify = false`.
+Authenticated preflight reads use the verified fixed `/usr/bin/curl` under an
+otherwise empty process environment, so they use that operating-system trust
+store without ambient proxy, curl-config, loader, or shell-wrapper state.
 
 Controller prerequisites are Bash, Git, OpenSSH, curl, jq, unzip, SHA-256
 utilities, and the lock-pinned Node.js 24.18.0. The build wrapper downloads and
@@ -370,12 +373,18 @@ Before this can produce a valid evidence document, a follow-on Linux runner must
    home, Codex home, cache, temporary directory, or plugin cache. Evidence must
    bind the exact lane-local values of `HOME`, `CODEX_HOME`, `TMPDIR`,
    `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, not only report
-   that those variable names were present. Read only those six process values,
-   compare them before projection, and never serialize a mismatched or arbitrary
-   environment value. Passed evidence requires all six exact paths. Failed
-   evidence uses `null` for a missing or mismatched value and omits the key name
-   only when the variable itself was absent, so launch failures remain truthful
-   without exposing the unexpected value.
+   that those variable names were present. The Agent Plugins lane must also bind
+   `PLUGIN_ROOT` to the exact versioned cache root whose bytes produced
+   `installedDistributionIntegrity`, and bind `PLUGIN_DATA` to the pinned
+   0.147.0 data root derived from the marketplace and plugin identities. The
+   legacy lane records both plugin-path values as `null` and must omit their
+   names on a pass; a failed legacy receipt may retain a name to report
+   unexpected presence safely. Read only those eight allowlisted process
+   values, compare them before projection, and never serialize a mismatched or
+   arbitrary environment value. Passed evidence requires every applicable
+   exact path. Failed evidence uses `null` for a missing or mismatched value and
+   omits the key name only when the variable itself was absent, so launch
+   failures remain truthful without exposing the unexpected value.
 4. Recompute the candidate distribution integrity from the exact candidate
    bytes, require its tracked provenance to match, and recompute the installed
    distribution integrity in each lane. A version or release-build string alone

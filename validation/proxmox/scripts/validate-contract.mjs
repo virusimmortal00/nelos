@@ -53,6 +53,7 @@ const ISOLATED_ENVIRONMENT_FIELDS = Object.freeze({
   XDG_CACHE_HOME: "xdgCacheHome",
   XDG_DATA_HOME: "xdgDataHome",
 });
+const PLUGIN_ENVIRONMENT_KEYS = Object.freeze(["PLUGIN_DATA", "PLUGIN_ROOT"]);
 const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
   ".codex-plugin/plugin.json",
   ".mcp.json",
@@ -79,6 +80,25 @@ const DISTRIBUTION_ENTRY_BUFFERS = Object.freeze(
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function deriveAgentPluginEnvironmentPaths({ codexHome, pluginVersion }, contract) {
+  const selector = /^(?<plugin>[A-Za-z0-9._-]+)@(?<marketplace>[A-Za-z0-9._-]+)$/u.exec(
+    contract?.validation?.marketplaceSelector ?? "",
+  );
+  if (selector === null) {
+    fail("/validation/marketplaceSelector", "must identify one bounded plugin and marketplace");
+  }
+  const { marketplace, plugin } = selector.groups;
+  const pluginDataIdentity = createHash("sha256")
+    .update(marketplace, "utf8")
+    .update(Buffer.from([0]))
+    .update(plugin, "utf8")
+    .digest("hex");
+  return Object.freeze({
+    PLUGIN_DATA: `${codexHome}/plugins/data/agent-plugins/${pluginDataIdentity}`,
+    PLUGIN_ROOT: `${codexHome}/plugins/cache/${marketplace}/${plugin}/${pluginVersion}`,
+  });
 }
 
 async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024) {
@@ -791,6 +811,39 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   if (!buildWrapper.includes('[[ $(uname -s) == "Linux" ]]')) {
     fail("/recipe/build-wrapper", "build wrapper must enforce the dedicated Linux controller boundary");
   }
+  const apiGetFunction = /^api_get\(\) \{\n(?<body>[\s\S]*?)^\}\n/mu.exec(buildWrapper)?.groups?.body;
+  if (apiGetFunction === undefined) {
+    fail("/recipe/build-wrapper", "authenticated Proxmox API helper must have one inspectable function body");
+  }
+  for (const authenticatedApiControl of [
+    "command builtin printf",
+    "/usr/bin/env -i",
+    "PATH=/usr/bin:/bin",
+    "LC_ALL=C",
+    "HOME=/nonexistent",
+    "/usr/bin/curl --disable",
+    "--config -",
+  ]) {
+    if (!apiGetFunction.includes(authenticatedApiControl)) {
+      fail(
+        "/recipe/build-wrapper",
+        `authenticated Proxmox API helper is missing a fixed execution control: ${authenticatedApiControl}`,
+      );
+    }
+  }
+  for (const fixedApiExecutable of ["/usr/bin/curl", "/usr/bin/env"]) {
+    if (!buildWrapper.includes(
+      `[[ -x ${fixedApiExecutable} && -f ${fixedApiExecutable} && ! -L ${fixedApiExecutable} ]]`,
+    )) {
+      fail(
+        "/recipe/build-wrapper",
+        `authenticated Proxmox API helper must verify its fixed executable: ${fixedApiExecutable}`,
+      );
+    }
+  }
+  if ((buildWrapper.match(/PVEAPIToken=/gu) ?? []).length !== 1) {
+    fail("/recipe/build-wrapper", "the Proxmox API authorization header must have one closed construction site");
+  }
   for (const attestationControl of [
     "NELOS_BASE_ATTESTATION_BASELINE_FILE",
     "NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE",
@@ -897,6 +950,11 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
 export function createEvidenceProbe(contract, repositoryIdentity = {}) {
   const pluginVersion = repositoryIdentity.pluginVersion ?? "0.0.0";
   const distributionIntegrity = repositoryIdentity.distributionIntegrity ?? `sha256:${"4".repeat(64)}`;
+  const agentCodexHome = "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex";
+  const agentPluginEnvironmentPaths = deriveAgentPluginEnvironmentPaths(
+    { codexHome: agentCodexHome, pluginVersion },
+    contract,
+  );
   const checks = {
     marketplaceInstall: true,
     pluginInstall: true,
@@ -960,6 +1018,8 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
             XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/config",
             XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
             XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
+            PLUGIN_DATA: null,
+            PLUGIN_ROOT: null,
           },
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
@@ -971,7 +1031,7 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         codexVersion: "0.147.0",
         freshProcess: true,
         home: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
-        codexHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex",
+        codexHome: agentCodexHome,
         tmpDir: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
         xdgConfigHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
         xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
@@ -996,11 +1056,12 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
           ],
           observedEnvironmentPaths: {
             HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
-            CODEX_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex",
+            CODEX_HOME: agentCodexHome,
             TMPDIR: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
             XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
             XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
             XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
+            ...agentPluginEnvironmentPaths,
           },
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
@@ -1055,6 +1116,7 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   }
   const legacy = evidence.lanes["legacy-01446"];
   const agent = evidence.lanes["agent-plugin-01470"];
+  const expectedAgentPluginEnvironmentPaths = deriveAgentPluginEnvironmentPaths(agent, contract);
   const expectedRunRoot = `/var/lib/nelos-validator/runs/${evidence.runId}`;
   if (legacy.home !== `${expectedRunRoot}/legacy-01446/home`) {
     fail("/lanes/legacy-01446/home", "must be isolated beneath this evidence run ID");
@@ -1183,6 +1245,61 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
           `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
           `must include ${environmentKey} for passed evidence`,
         );
+      }
+    }
+    if (laneId === "legacy-01446") {
+      for (const environmentKey of PLUGIN_ENVIRONMENT_KEYS) {
+        if (lane.processObservation.observedEnvironmentPaths[environmentKey] !== null) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+            "must be null because the legacy lane forbids injected plugin paths",
+          );
+        }
+        if (
+          evidence.result.status === "passed" &&
+          lane.processObservation.observedEnvironmentKeys.includes(environmentKey)
+        ) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
+            `must omit forbidden legacy environment key ${environmentKey}`,
+          );
+        }
+      }
+    } else {
+      for (const environmentKey of PLUGIN_ENVIRONMENT_KEYS) {
+        const observedPath = lane.processObservation.observedEnvironmentPaths[environmentKey];
+        const observedKey = lane.processObservation.observedEnvironmentKeys.includes(environmentKey);
+        const expectedPath = expectedAgentPluginEnvironmentPaths[environmentKey];
+        if (observedPath !== null && !lane.checks.pluginInstall) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+            "must be null until exact plugin installation is verified",
+          );
+        }
+        if (observedPath !== null && observedPath !== expectedPath) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+            "must be null or equal the exact injected path derived from the verified installation",
+          );
+        }
+        if (observedPath !== null && !observedKey) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
+            `must include ${environmentKey} when its exact injected path was observed`,
+          );
+        }
+        if (evidence.result.status === "passed" && observedPath !== expectedPath) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentPaths/${environmentKey}`,
+            "must equal the exact injected path for passed evidence",
+          );
+        }
+        if (evidence.result.status === "passed" && !observedKey) {
+          fail(
+            `/lanes/${laneId}/processObservation/observedEnvironmentKeys`,
+            `must include ${environmentKey} for passed evidence`,
+          );
+        }
       }
     }
     if (!lane.checks.mcpInitialize && (lane.checks.toolsList || lane.checks.nelosConfigGet || lane.checks.laneParity)) {
