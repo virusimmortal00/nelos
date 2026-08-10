@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,6 +20,14 @@ import {
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const validationRoot = join(root, "validation", "proxmox");
 const execFileAsync = promisify(execFile);
+const gitIdentityArguments = Object.freeze([
+  "--no-replace-objects",
+  "-c", "core.useReplaceRefs=false",
+  "-c", "core.attributesFile=/dev/null",
+  "-c", "core.autocrlf=false",
+  "-c", "core.eol=lf",
+  "-c", "tar.umask=0002",
+]);
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -33,6 +41,70 @@ async function loadFixture() {
     readJson(join(validationRoot, "evidence", "schema.json")),
   ]);
   return { contract, contractSchema, toolchainLock, evidenceSchema };
+}
+
+function cleanGitEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    LC_ALL: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_ATTR_NOSYSTEM: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+  };
+}
+
+function commitGitEnvironment() {
+  return {
+    ...cleanGitEnvironment(),
+    GIT_AUTHOR_NAME: "Nelos Contract Test",
+    GIT_AUTHOR_EMAIL: "nelos-contract@example.invalid",
+    GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+    GIT_COMMITTER_NAME: "Nelos Contract Test",
+    GIT_COMMITTER_EMAIL: "nelos-contract@example.invalid",
+    GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+  };
+}
+
+async function createCleanRepositoryFixture(context) {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-repository-"));
+  context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixtureRoot = join(temporaryRoot, "repository");
+  await mkdir(join(fixtureRoot, "validation"), { recursive: true });
+  await cp(validationRoot, join(fixtureRoot, "validation", "proxmox"), { recursive: true });
+  const env = commitGitEnvironment();
+  await execFileAsync("git", ["init", "--quiet"], { cwd: fixtureRoot, env });
+  await execFileAsync("git", ["add", "--all"], { cwd: fixtureRoot, env });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "contract fixture"], { cwd: fixtureRoot, env });
+  return { artifactRoot: temporaryRoot, fixtureRoot };
+}
+
+async function readGitCandidateIdentity(fixtureRoot) {
+  const env = cleanGitEnvironment();
+  const { stdout: revisionOutput } = await execFileAsync("git", [
+    ...gitIdentityArguments,
+    "rev-parse",
+    "HEAD^{commit}",
+  ], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env,
+  });
+  const sourceRevision = revisionOutput.trim();
+  const { stdout: archive } = await execFileAsync(
+    "git",
+    [...gitIdentityArguments, "archive", "--format=tar", sourceRevision],
+    {
+      cwd: fixtureRoot,
+      encoding: null,
+      env: { ...env, GIT_GRAFT_FILE: "/dev/null" },
+      maxBuffer: 256 * 1024 * 1024,
+    },
+  );
+  return {
+    sourceRevision,
+    treeSha256: createHash("sha256").update(archive).digest("hex"),
+  };
 }
 
 test("Proxmox contract pins the Linux CLI template and two Codex lanes", async () => {
@@ -172,9 +244,15 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.match(buildWrapper, /materialize_tracked/u);
   assert.match(buildWrapper, /download_verified/u);
   assert.match(buildWrapper, /git_readonly status --porcelain=v1 --untracked-files=all/u);
-  assert.equal(buildWrapper.includes('map(select(startswith("size=")))) == ["size=64G"]'), true);
-  assert.equal(buildWrapper.includes('map(select(startswith("discard=")))) == ["discard=on"]'), true);
-  assert.equal(buildWrapper.includes('map(select(startswith("iothread=")))) == ["iothread=1"]'), true);
+  assert.equal(
+    buildWrapper.includes(
+      '($scsiDisk[1:] | sort) == ["discard=on", "iothread=1", "size=64G", "ssd=1"]',
+    ),
+    true,
+  );
+  assert.match(bootstrap, /--net0 'virtio,bridge=vmbr0,firewall=1,queues=4'/u);
+  assert.match(bootstrap, /pre-enrolled-keys=0/u);
+  assert.match(bootstrap, /discard=on,iothread=1,ssd=1/u);
   assert.doesNotMatch(bootstrap, /--(?:destroy-unreferenced-disks|purge|skiplock)/u);
   assert.match(bootstrap, /APT::Snapshot \\"\$\{UBUNTU_APT_SNAPSHOT\}\\";/u);
   assert.match(provisionGuest, /-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"/u);
@@ -187,7 +265,7 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
 });
 
-test("Proxmox preflight closes storage types and inherited device inventory", async () => {
+test("Proxmox preflight closes storage types and base configuration", async () => {
   const [buildWrapper, bootstrap] = await Promise.all([
     readFile(join(validationRoot, "scripts", "build-template.sh"), "utf8"),
     readFile(join(validationRoot, "scripts", "bootstrap-cloud-image-template.sh"), "utf8"),
@@ -195,10 +273,12 @@ test("Proxmox preflight closes storage types and inherited device inventory", as
 
   const linkedCloneStorageTypeContract = 'readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"';
   const fullCopyStorageTypeContract = 'readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';
+  const blockCloudInitStorageTypeContract = 'readonly BLOCK_CLOUD_INIT_STORAGE_TYPES_CSV="lvm,lvmthin,zfspool"';
   assert.equal(buildWrapper.includes(linkedCloneStorageTypeContract), true);
   assert.equal(bootstrap.includes(linkedCloneStorageTypeContract), true);
   assert.equal(buildWrapper.includes(fullCopyStorageTypeContract), true);
   assert.equal(bootstrap.includes(fullCopyStorageTypeContract), true);
+  assert.equal(buildWrapper.includes(blockCloudInitStorageTypeContract), true);
   assert.equal(bootstrap.includes('readonly SNIPPET_STORAGE_TYPES_CSV="dir"'), true);
   assert.doesNotMatch(linkedCloneStorageTypeContract, /(?:^|[,="])lvm(?:[,"]|$)/u);
   assert.match(fullCopyStorageTypeContract, /(?:^|[,="])lvm(?:[,"]|$)/u);
@@ -211,43 +291,447 @@ test("Proxmox preflight closes storage types and inherited device inventory", as
   assert.equal((buildWrapper.match(/--arg allowed_storage_types/gu) ?? []).length, 1);
   assert.equal((buildWrapper.match(/\(\(\.data\.shared \/\/ 0\) == 0\)/gu) ?? []).length, 1);
   assert.match(buildWrapper, /\[\.data\.scsi0, \.data\.efidisk0\]/u);
-  assert.match(buildWrapper, /\.data\.ide2 \| capture/u);
+  assert.match(buildWrapper, /\.data\.ide2 \| split\(","\)\[0\]/u);
   assert.match(
     buildWrapper,
     /assert_api_storage "\$persistent_disk_storage" "\$LINKED_CLONE_STORAGE_TYPES_CSV"/u,
   );
-  assert.match(
-    buildWrapper,
-    /assert_api_storage "\$inherited_cloud_init_storage" "\$FULL_COPY_STORAGE_TYPES_CSV"/u,
-  );
+  assert.match(buildWrapper, /"inherited Cloud-Init" \\\n  "\$inherited_cloud_init_volume"/u);
   assert.match(buildWrapper, /assert_api_storage "\$CLOUD_INIT_STORAGE" "\$FULL_COPY_STORAGE_TYPES_CSV"/u);
   assert.match(buildWrapper, /api_get "nodes\/\$\{PROXMOX_NODE\}\/storage\/\$\{storage\}\/status"/u);
   assert.match(buildWrapper, /\.data\.active == 1 and \.data\.enabled == 1/u);
 
   assert.match(buildWrapper, /\/config\?current=1/u);
-  assert.equal(
-    buildWrapper.includes(
-      "readonly BASE_TEMPLATE_DEVICE_KEYS_JSON='[\"efidisk0\",\"ide2\",\"ipconfig0\",\"net0\",\"scsi0\",\"serial0\",\"vga\"]'",
-    ),
-    true,
-  );
-  for (const inheritedDevicePrefix of [
-    "efidisk",
-    "hostpci",
-    "ide",
-    "sata",
-    "scsi",
-    "tpmstate",
-    "unused",
-    "usb",
-    "virtio",
+  assert.match(buildWrapper, /qemu\/\$\{BASE_TEMPLATE_VMID\}\/pending/u);
+  const requiredConfigKeys = [
+    "agent",
+    "balloon",
+    "bios",
+    "boot",
+    "citype",
+    "ciupgrade",
+    "ciuser",
+    "cores",
+    "cpu",
+    "description",
+    "efidisk0",
+    "ide2",
+    "ipconfig0",
+    "machine",
+    "memory",
+    "meta",
+    "name",
+    "net0",
+    "ostype",
+    "scsi0",
+    "scsihw",
+    "serial0",
+    "smbios1",
+    "sockets",
+    "tags",
+    "template",
+    "vga",
+    "vmgenid",
+  ];
+  const optionalConfigKeys = ["arch", "onboot"];
+  const apiMetadataKeys = ["digest"];
+  const forbiddenConfigKeys = [
+    "amd-sev",
+    "args",
+    "bootdisk",
+    "cdrom",
+    "cicustom",
+    "cipassword",
+    "hookscript",
+    "ivshmem",
+    "nameserver",
+    "runningcpu",
+    "runningmachine",
+    "searchdomain",
+    "spice_enhancements",
+    "sshkeys",
+    "tablet",
+    "vmstate",
+    "watchdog",
+  ];
+  for (const [constantName, keys] of [
+    ["BASE_TEMPLATE_REQUIRED_CONFIG_KEYS_JSON", requiredConfigKeys],
+    ["BASE_TEMPLATE_OPTIONAL_CONFIG_KEYS_JSON", optionalConfigKeys],
+    ["BASE_TEMPLATE_API_METADATA_KEYS_JSON", apiMetadataKeys],
+    ["BASE_TEMPLATE_FORBIDDEN_CONFIG_KEYS_JSON", forbiddenConfigKeys],
   ]) {
-    assert.match(buildWrapper, new RegExp(`\\|${inheritedDevicePrefix}\\|`, "u"));
+    assert.equal(
+      buildWrapper.includes(`readonly ${constantName}='${JSON.stringify(keys)}'`),
+      true,
+      constantName,
+    );
   }
-  for (const inheritedDeviceKey of ["args", "ivshmem", "tablet", "vmstate", "watchdog"]) {
-    assert.equal(buildWrapper.includes(`. == "${inheritedDeviceKey}"`), true);
+
+  const extractJqProgram = (name) => {
+    const marker = "readonly " + name + "='";
+    const start = buildWrapper.indexOf(marker);
+    assert.notEqual(start, -1);
+    const bodyStart = start + marker.length;
+    const bodyEnd = buildWrapper.indexOf("'\n", bodyStart);
+    assert.notEqual(bodyEnd, -1);
+    return buildWrapper.slice(bodyStart, bodyEnd);
+  };
+  const baseTemplateConfigInventoryJq = extractJqProgram("BASE_TEMPLATE_CONFIG_INVENTORY_JQ");
+  const baseTemplatePendingConfigJq = extractJqProgram("BASE_TEMPLATE_PENDING_CONFIG_JQ");
+  const baseTemplateApprovedConfigValuesJq = extractJqProgram(
+    "BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ",
+  );
+  const baseTemplateCloudInitConfigJq = extractJqProgram("BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ");
+  const cloudInitDeviceJq = extractJqProgram("BASE_CLOUD_INIT_DEVICE_JQ");
+  const cloudInitStorageJq = extractJqProgram("CLOUD_INIT_STORAGE_VOLUME_JQ");
+  assert.match(baseTemplatePendingConfigJq, /\.data \| type == "array"/u);
+  assert.match(
+    baseTemplatePendingConfigJq,
+    /\(has\("pending"\) or has\("delete"\)\) \| not/u,
+  );
+  assert.match(baseTemplatePendingConfigJq, /\(keys \| sort\) == \["key", "value"\]/u);
+  assert.match(
+    baseTemplateConfigInventoryJq,
+    /\$required_config_keys \+ \$api_metadata_keys\) - \$actualKeys/u,
+  );
+  assert.match(baseTemplateConfigInventoryJq, /\$actualKeys - \(/u);
+  assert.match(baseTemplateConfigInventoryJq, /\$forbidden_config_keys/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.balloon == 0/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.boot == "order=scsi0"/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /x86-64-v2-AES/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.ostype == "l26"/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.serial0 == "socket"/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.vga == "serial0"/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /\.data\.vmgenid/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /pre-enrolled-keys=0/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /"ssd=1"/u);
+  assert.match(baseTemplateApprovedConfigValuesJq, /"queues=4"/u);
+  for (const cloudInitKey of ["citype", "ciuser", "ciupgrade", "ipconfig0"]) {
+    assert.match(baseTemplateCloudInitConfigJq, new RegExp(`\\.data\\.${cloudInitKey}`, "u"));
   }
-  assert.match(buildWrapper, /\] \| sort\) == \(\$allowed_device_keys \| sort\)/u);
+  for (const forbiddenCloudInitKey of [
+    "cicustom",
+    "cipassword",
+    "nameserver",
+    "searchdomain",
+    "sshkeys",
+  ]) {
+    assert.equal(baseTemplateCloudInitConfigJq.includes(`. == "${forbiddenCloudInitKey}"`), true);
+  }
+  assert.match(cloudInitDeviceJq, /== \["media=cdrom"\]/u);
+  assert.match(cloudInitDeviceJq, /== \["media=cdrom", "size=4M"\]/u);
+  assert.match(cloudInitDeviceJq, /vm-" \+ \$vmidString \+ "-cloudinit/u);
+  assert.match(cloudInitDeviceJq, /-cloudinit\.qcow2/u);
+  assert.match(cloudInitStorageJq, /\$storageType == "dir"/u);
+  assert.match(cloudInitStorageJq, /index\(\$storageType\)/u);
+
+  const jqAccepts = async (argumentsList, program) => {
+    try {
+      await execFileAsync("jq", ["-n", "-e", ...argumentsList, program], { encoding: "utf8" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const imageDigest = "0".repeat(64);
+  const safeBaseConfig = {
+    data: {
+      agent: "enabled=1,fstrim_cloned_disks=1",
+      balloon: 0,
+      bios: "ovmf",
+      boot: "order=scsi0",
+      citype: "nocloud",
+      ciupgrade: 0,
+      ciuser: "ubuntu",
+      cores: 4,
+      cpu: "x86-64-v2-AES",
+      description: `Nelos validator base; Ubuntu 24.04 release-20260801; ubuntu-sha256:${imageDigest}`,
+      digest: "a".repeat(40),
+      efidisk0: "local-lvm:base-9020-disk-0,efitype=4m,pre-enrolled-keys=0,size=4M",
+      ide2: "local-lvm:vm-9020-cloudinit,media=cdrom",
+      ipconfig0: "ip=dhcp",
+      machine: "q35",
+      memory: 8192,
+      meta: "creation-qemu=9.2.0,ctime=1786233600",
+      name: "nelos-ubuntu-2404-base",
+      net0: "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4",
+      ostype: "l26",
+      scsi0: "local-lvm:base-9020-disk-1,discard=on,iothread=1,size=64G,ssd=1",
+      scsihw: "virtio-scsi-single",
+      serial0: "socket",
+      smbios1: "uuid=b3247ab1-1fe6-428e-965b-08a1b64a8746",
+      sockets: 1,
+      tags: "nelos-validator-base;ubuntu-24-04;ubuntu-release-20260801",
+      template: 1,
+      vga: "serial0",
+      vmgenid: "7079e97c-50e3-4079-afe7-23e67566b946",
+    },
+  };
+  const acceptsBaseInventory = (config) =>
+    jqAccepts(
+      [
+        "--argjson", "config", JSON.stringify(config),
+        "--argjson", "required_config_keys", JSON.stringify(requiredConfigKeys),
+        "--argjson", "optional_config_keys", JSON.stringify(optionalConfigKeys),
+        "--argjson", "api_metadata_keys", JSON.stringify(apiMetadataKeys),
+        "--argjson", "forbidden_config_keys", JSON.stringify(forbiddenConfigKeys),
+      ],
+      "$config | " + baseTemplateConfigInventoryJq,
+    );
+  const acceptsPendingConfig = (config) =>
+    jqAccepts(
+      ["--argjson", "config", JSON.stringify(config)],
+      "$config | " + baseTemplatePendingConfigJq,
+    );
+  const acceptsApprovedConfigValues = (config) =>
+    jqAccepts(
+      [
+        "--argjson", "config", JSON.stringify(config),
+        "--arg", "digest", imageDigest,
+        "--arg", "name", "nelos-ubuntu-2404-base",
+        "--argjson", "vmid", "9020",
+      ],
+      "$config | " + baseTemplateApprovedConfigValuesJq,
+    );
+  const acceptsCloudInitConfig = (config) =>
+    jqAccepts(
+      ["--argjson", "config", JSON.stringify(config)],
+      "$config | " + baseTemplateCloudInitConfigJq,
+    );
+
+  assert.equal(await acceptsBaseInventory(safeBaseConfig), true);
+  const healthyPendingResponse = {
+    data: [
+      { key: "balloon", value: 0 },
+      { key: "boot", value: "order=scsi0" },
+      { key: "template", value: 1 },
+    ],
+  };
+  assert.equal(await acceptsPendingConfig(healthyPendingResponse), true);
+  for (const invalidPendingResponse of [
+    { data: [{ key: "hostpci0", pending: "0000:01:00.0" }] },
+    { data: [{ delete: 1, key: "boot", value: "order=scsi0" }] },
+    { data: [] },
+    { data: {} },
+    { data: [{ key: "boot" }] },
+    { data: [{ value: "order=scsi0" }] },
+    { data: [{ extra: true, key: "boot", value: "order=scsi0" }] },
+    { data: [{ key: "boot", value: null }] },
+    { data: [{ key: "boot", value: "order=scsi0" }, { key: "boot", value: "order=scsi0" }] },
+  ]) {
+    assert.equal(
+      await acceptsPendingConfig(invalidPendingResponse),
+      false,
+      JSON.stringify(invalidPendingResponse),
+    );
+  }
+  assert.equal(await acceptsApprovedConfigValues(safeBaseConfig), true);
+  assert.equal(await acceptsCloudInitConfig(safeBaseConfig), true);
+
+  for (const forbiddenConfigKey of [...forbiddenConfigKeys, "hostpci0", "future-pve-key"]) {
+    const unexpectedConfig = structuredClone(safeBaseConfig);
+    unexpectedConfig.data[forbiddenConfigKey] = "unexpected";
+    assert.equal(await acceptsBaseInventory(unexpectedConfig), false, forbiddenConfigKey);
+  }
+  for (const requiredConfigKey of requiredConfigKeys) {
+    const incompleteConfig = structuredClone(safeBaseConfig);
+    delete incompleteConfig.data[requiredConfigKey];
+    assert.equal(await acceptsBaseInventory(incompleteConfig), false, requiredConfigKey);
+  }
+  for (const apiMetadataKey of apiMetadataKeys) {
+    const missingApiMetadata = structuredClone(safeBaseConfig);
+    delete missingApiMetadata.data[apiMetadataKey];
+    assert.equal(await acceptsBaseInventory(missingApiMetadata), false, apiMetadataKey);
+  }
+  for (const [optionalConfigKey, value] of [
+    ["arch", "x86_64"],
+    ["onboot", 0],
+  ]) {
+    const optionalConfig = structuredClone(safeBaseConfig);
+    optionalConfig.data[optionalConfigKey] = value;
+    assert.equal(await acceptsBaseInventory(optionalConfig), true, optionalConfigKey);
+    assert.equal(await acceptsApprovedConfigValues(optionalConfig), true, optionalConfigKey);
+  }
+
+  const reorderedAgentOptions = structuredClone(safeBaseConfig);
+  reorderedAgentOptions.data.agent = "fstrim_cloned_disks=1,enabled=1";
+  assert.equal(await acceptsApprovedConfigValues(reorderedAgentOptions), true);
+  const explicitCpuProperty = structuredClone(safeBaseConfig);
+  explicitCpuProperty.data.cpu = "cputype=x86-64-v2-AES";
+  assert.equal(await acceptsApprovedConfigValues(explicitCpuProperty), true);
+  const lowerCaseMac = structuredClone(safeBaseConfig);
+  lowerCaseMac.data.net0 = "queues=4,firewall=1,bridge=vmbr0,virtio=bc:24:11:22:33:44";
+  assert.equal(await acceptsApprovedConfigValues(lowerCaseMac), true);
+  for (const efiSize of ["528K", "1M", "4M"]) {
+    const validEfiVolume = structuredClone(safeBaseConfig);
+    validEfiVolume.data.efidisk0 =
+      `local-lvm:base-9020-disk-0,size=${efiSize},pre-enrolled-keys=0,efitype=4m`;
+    assert.equal(
+      await acceptsApprovedConfigValues(validEfiVolume),
+      true,
+      validEfiVolume.data.efidisk0,
+    );
+  }
+  const reorderedScsiOptions = structuredClone(safeBaseConfig);
+  reorderedScsiOptions.data.scsi0 =
+    "local-lvm:base-9020-disk-1,ssd=1,size=64G,iothread=1,discard=on";
+  assert.equal(await acceptsApprovedConfigValues(reorderedScsiOptions), true);
+  const distinctStorageScsi = structuredClone(safeBaseConfig);
+  distinctStorageScsi.data.scsi0 =
+    "local-zfs:base-9020-disk-0,discard=on,iothread=1,size=64G,ssd=1";
+  assert.equal(await acceptsApprovedConfigValues(distinctStorageScsi), true);
+
+  for (const [field, value] of [
+    ["agent", "enabled=1"],
+    ["agent", "enabled=1,fstrim_cloned_disks=1,type=isa"],
+    ["arch", "aarch64"],
+    ["balloon", 1],
+    ["balloon", "0"],
+    ["bios", "seabios"],
+    ["boot", "order=ide2;scsi0"],
+    ["cores", 8],
+    ["cpu", "host"],
+    ["cpu", "x86-64-v2-AES,flags=+aes"],
+    ["description", `${safeBaseConfig.data.description};unexpected`],
+    ["digest", "not-a-sha1"],
+    ["machine", "q35,viommu=intel"],
+    ["memory", 16384],
+    ["meta", "creation-qemu=9.2.0"],
+    ["meta", "creation-qemu=9.2.0,ctime=1786233600,unexpected=1"],
+    ["name", "another-template"],
+    ["onboot", 1],
+    ["onboot", "0"],
+    ["ostype", "other"],
+    ["scsihw", "virtio-scsi-pci"],
+    ["serial0", "/dev/ttyS0"],
+    ["smbios1", `${safeBaseConfig.data.smbios1},manufacturer=unexpected`],
+    ["smbios1", "uuid=00000000-0000-0000-0000-000000000000"],
+    ["sockets", 2],
+    ["tags", `${safeBaseConfig.data.tags};unexpected`],
+    ["template", 0],
+    ["vga", "qxl"],
+    ["vmgenid", "0"],
+    ["vmgenid", "00000000-0000-0000-0000-000000000000"],
+    ["vmgenid", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"],
+    ["vmgenid", safeBaseConfig.data.smbios1.slice("uuid=".length)],
+  ]) {
+    const invalidApprovedConfig = structuredClone(safeBaseConfig);
+    invalidApprovedConfig.data[field] = value;
+    assert.equal(await acceptsApprovedConfigValues(invalidApprovedConfig), false, `${field}=${value}`);
+  }
+
+  for (const invalidNetwork of [
+    "e1000=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4",
+    "virtio=BD:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4",
+    "virtio=00:00:00:00:00:00,bridge=vmbr0,firewall=1,queues=4",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr1,firewall=1,queues=4",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=0,queues=4",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=8",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4,tag=10",
+    "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4,queues=4",
+  ]) {
+    const invalidNetworkConfig = structuredClone(safeBaseConfig);
+    invalidNetworkConfig.data.net0 = invalidNetwork;
+    assert.equal(await acceptsApprovedConfigValues(invalidNetworkConfig), false, invalidNetwork);
+  }
+  for (const invalidEfiDisk of [
+    "local-lvm:vm-9020-disk-0,efitype=4m,pre-enrolled-keys=0,size=4M",
+    "local-lvm:base-9021-disk-0,efitype=4m,pre-enrolled-keys=0,size=4M",
+    "local-lvm:base-9020-disk-1,efitype=4m,pre-enrolled-keys=0,size=4M",
+    "local-lvm:base-9020-disk-0,efitype=2m,pre-enrolled-keys=0,size=4M",
+    "local-lvm:base-9020-disk-0,efitype=4m,pre-enrolled-keys=1,size=4M",
+    "local-lvm:base-9020-disk-0,efitype=4m,pre-enrolled-keys=0,size=8M",
+    "local-lvm:base-9020-disk-0,efitype=4m,pre-enrolled-keys=0",
+    "local-lvm:base-9020-disk-0,efitype=4m,pre-enrolled-keys=0,size=4M,format=raw",
+    "local-lvm:base-9020-disk-0,efitype=4m,efitype=4m,pre-enrolled-keys=0,size=4M",
+  ]) {
+    const invalidEfiConfig = structuredClone(safeBaseConfig);
+    invalidEfiConfig.data.efidisk0 = invalidEfiDisk;
+    assert.equal(await acceptsApprovedConfigValues(invalidEfiConfig), false, invalidEfiDisk);
+  }
+  for (const invalidScsiDisk of [
+    "local-lvm:vm-9020-disk-1,discard=on,iothread=1,size=64G,ssd=1",
+    "local-lvm:base-9021-disk-1,discard=on,iothread=1,size=64G,ssd=1",
+    "local-lvm:base-9020-disk-0,discard=on,iothread=1,size=64G,ssd=1",
+    "local-zfs:base-9020-disk-1,discard=on,iothread=1,size=64G,ssd=1",
+    "local-zfs:base-9020-disk-2,discard=on,iothread=1,size=64G,ssd=1",
+    "local-lvm:base-9020-disk-1,discard=off,iothread=1,size=64G,ssd=1",
+    "local-lvm:base-9020-disk-1,discard=on,iothread=0,size=64G,ssd=1",
+    "local-lvm:base-9020-disk-1,discard=on,iothread=1,size=32G,ssd=1",
+    "local-lvm:base-9020-disk-1,discard=on,iothread=1,size=64G",
+    "local-lvm:base-9020-disk-1,discard=on,iothread=1,size=64G,ssd=1,cache=none",
+    "local-lvm:base-9020-disk-1,discard=on,iothread=1,size=64G,ssd=1,ssd=1",
+  ]) {
+    const invalidScsiConfig = structuredClone(safeBaseConfig);
+    invalidScsiConfig.data.scsi0 = invalidScsiDisk;
+    assert.equal(await acceptsApprovedConfigValues(invalidScsiConfig), false, invalidScsiDisk);
+  }
+
+  for (const [field, value] of [
+    ["citype", "configdrive2"],
+    ["ciupgrade", 1],
+    ["ciuser", "root"],
+    ["ipconfig0", "ip6=auto,ip=dhcp"],
+  ]) {
+    const invalidCloudInitConfig = structuredClone(safeBaseConfig);
+    invalidCloudInitConfig.data[field] = value;
+    assert.equal(await acceptsCloudInitConfig(invalidCloudInitConfig), false, `${field}=${value}`);
+  }
+  for (const forbiddenCloudInitKey of [
+    "cicustom",
+    "cipassword",
+    "nameserver",
+    "searchdomain",
+    "sshkeys",
+  ]) {
+    const inheritedCloudInitValue = structuredClone(safeBaseConfig);
+    inheritedCloudInitValue.data[forbiddenCloudInitKey] = "unexpected";
+    assert.equal(await acceptsCloudInitConfig(inheritedCloudInitValue), false, forbiddenCloudInitKey);
+  }
+  const acceptsCloudInitDevice = async (storageType, ide2) => {
+    const deviceAccepted = await jqAccepts(
+      ["--argjson", "vmid", "9020", "--arg", "ide2", ide2],
+      '{"data":{"ide2":$ide2}} | ' + cloudInitDeviceJq,
+    );
+    if (!deviceAccepted) return false;
+    const volumeId = ide2.split(",", 1)[0];
+    const separator = volumeId.indexOf(":");
+    const volume = separator === -1 ? "" : volumeId.slice(separator + 1);
+    return jqAccepts(
+      [
+        "--argjson", "base_vmid", "9020",
+        "--arg", "block_storage_types", "lvm,lvmthin,zfspool",
+        "--arg", "cloud_init_volume", volume,
+        "--arg", "storage_type", storageType,
+      ],
+      '{"data":{"type":$storage_type}} | ' + cloudInitStorageJq,
+    );
+  };
+
+  for (const [storageType, ide2] of [
+    ["lvm", "local-lvm:vm-9020-cloudinit,media=cdrom"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit,media=cdrom,size=4M"],
+    ["zfspool", "local-zfs:vm-9020-cloudinit,size=4M,media=cdrom"],
+    ["dir", "local:9020/vm-9020-cloudinit.qcow2,media=cdrom"],
+  ]) {
+    assert.equal(await acceptsCloudInitDevice(storageType, ide2), true, ide2);
+  }
+  for (const [storageType, ide2] of [
+    ["dir", "local:iso/ubuntu.iso,media=cdrom"],
+    ["lvmthin", "local-lvm:vm-9020-disk-1,media=cdrom"],
+    ["lvmthin", "local-lvm:vm-9021-cloudinit,media=cdrom"],
+    ["dir", "local:9020/vm-9020-cloudinit.raw,media=cdrom"],
+    ["dir", "local:vm-9020-cloudinit,media=cdrom"],
+    ["lvmthin", "local-lvm:9020/vm-9020-cloudinit.qcow2,media=cdrom"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit,media=disk"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit,media=cdrom,media=cdrom"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit,media=cdrom,size=4096K"],
+    ["lvmthin", "local-lvm:vm-9020-cloudinit,media=cdrom,cache=none"],
+  ]) {
+    assert.equal(await acceptsCloudInitDevice(storageType, ide2), false, ide2);
+  }
 });
 
 test("sanitized evidence validates isolated fresh-process lane parity", async () => {
@@ -514,11 +998,14 @@ test("repository validator runs with network APIs blocked", async () => {
   });
 });
 
-test("repository evidence binds the exact contract and toolchain lock bytes", async (context) => {
-  const [contractBytes, toolchainLockBytes, { contract }] = await Promise.all([
-    readFile(join(validationRoot, "contract.json")),
-    readFile(join(validationRoot, "toolchain.lock.json")),
-    loadFixture(),
+test("repository evidence binds the exact clean candidate and contract bytes", async (context) => {
+  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
+  const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
+  const [contractBytes, toolchainLockBytes, contract, candidateIdentity] = await Promise.all([
+    readFile(join(fixtureValidationRoot, "contract.json")),
+    readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
+    readJson(join(fixtureValidationRoot, "contract.json")),
+    readGitCandidateIdentity(fixtureRoot),
   ]);
   const contractSha256 = createHash("sha256").update(contractBytes).digest("hex");
   const toolchainLockSha256 = createHash("sha256").update(toolchainLockBytes).digest("hex");
@@ -526,18 +1013,22 @@ test("repository evidence binds the exact contract and toolchain lock bytes", as
   const evidence = createEvidenceProbe(contract, {
     contractSha256,
     toolchainLockSha256,
+    ...candidateIdentity,
   });
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-evidence-"));
-  context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
-  const evidencePath = join(temporaryRoot, "evidence.json");
+  const evidencePath = join(artifactRoot, "evidence.json");
+  const runFixtureGit = (argumentsList, env = cleanGitEnvironment()) => execFileAsync(
+    "git",
+    argumentsList,
+    { cwd: fixtureRoot, encoding: "utf8", env },
+  );
   await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
 
-  await validateRepositoryContract(root, { evidencePath });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
   const blocker = fileURLToPath(new URL("../../../scripts/offline-network-blocker.cjs", import.meta.url));
   const validator = fileURLToPath(new URL("../scripts/validate-contract.mjs", import.meta.url));
   const { stderr } = await execFileAsync(
     process.execPath,
-    ["--require", blocker, validator, "--root", root, "--evidence", evidencePath],
+    ["--require", blocker, validator, "--root", fixtureRoot, "--evidence", evidencePath],
     { cwd: root, encoding: "utf8" },
   );
   assert.equal(stderr, "");
@@ -545,7 +1036,7 @@ test("repository evidence binds the exact contract and toolchain lock bytes", as
   evidence.template.contractSha256 = tamperDigest(contractSha256);
   await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
   await assert.rejects(
-    validateRepositoryContract(root, { evidencePath }),
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
     /\/template\/contractSha256: must match the SHA-256 digest of the repository contract\.json bytes/u,
   );
 
@@ -553,8 +1044,107 @@ test("repository evidence binds the exact contract and toolchain lock bytes", as
   evidence.template.toolchainLockSha256 = tamperDigest(toolchainLockSha256);
   await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
   await assert.rejects(
-    validateRepositoryContract(root, { evidencePath }),
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
     /\/template\/toolchainLockSha256: must match the SHA-256 digest of the repository toolchain\.lock\.json bytes/u,
+  );
+
+  evidence.template.toolchainLockSha256 = toolchainLockSha256;
+  evidence.candidate.sourceRevision = tamperDigest(candidateIdentity.sourceRevision);
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/sourceRevision: must match the exact clean repository checkout/u,
+  );
+
+  evidence.candidate.sourceRevision = candidateIdentity.sourceRevision;
+  evidence.candidate.treeSha256 = tamperDigest(candidateIdentity.treeSha256);
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/treeSha256: must match the exact clean repository checkout/u,
+  );
+
+  evidence.candidate.treeSha256 = candidateIdentity.treeSha256;
+  await writeFile(evidencePath, JSON.stringify(evidence) + "\n", { mode: 0o600 });
+
+  await runFixtureGit(["config", "core.autocrlf", "true"]);
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+  const externalAttributes = join(artifactRoot, "external-attributes");
+  await writeFile(externalAttributes, "* export-ignore\n", { mode: 0o600 });
+  await runFixtureGit(["config", "core.attributesFile", externalAttributes]);
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+  await runFixtureGit(["config", "--unset-all", "core.autocrlf"]);
+  await runFixtureGit(["config", "--unset-all", "core.attributesFile"]);
+
+  await runFixtureGit(["config", "tar.umask", "0077"]);
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/archiveConfig: repository and worktree tar\.\* configuration is forbidden/u,
+  );
+  await runFixtureGit(["config", "--unset-all", "tar.umask"]);
+
+  await runFixtureGit(["config", "extensions.worktreeConfig", "true"]);
+  await runFixtureGit(["config", "--worktree", "tar.tar.command", "cat"]);
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/archiveConfig: repository and worktree tar\.\* configuration is forbidden/u,
+  );
+  await runFixtureGit(["config", "--worktree", "--unset-all", "tar.tar.command"]);
+
+  const infoAttributes = join(fixtureRoot, ".git", "info", "attributes");
+  await writeFile(infoAttributes, "", { mode: 0o600 });
+  await validateRepositoryContract(fixtureRoot, { evidencePath });
+  await writeFile(infoAttributes, "* export-ignore\n", { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/gitMetadata: repository-local info\/attributes must be absent or an empty regular file/u,
+  );
+  await rm(infoAttributes, { force: true });
+  const symlinkTarget = join(artifactRoot, "empty-attributes-target");
+  await writeFile(symlinkTarget, "", { mode: 0o600 });
+  await symlink(symlinkTarget, infoAttributes);
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/gitMetadata: repository-local info\/attributes must be absent or an empty regular file/u,
+  );
+  await rm(infoAttributes, { force: true });
+
+  const grafts = join(fixtureRoot, ".git", "info", "grafts");
+  await writeFile(grafts, candidateIdentity.sourceRevision + "\n", { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/gitMetadata: repository-local info\/grafts must be absent or an empty regular file/u,
+  );
+  await rm(grafts, { force: true });
+
+  const replaceDirectory = join(fixtureRoot, ".git", "refs", "replace");
+  await mkdir(replaceDirectory, { recursive: true });
+  await writeFile(
+    join(replaceDirectory, candidateIdentity.sourceRevision),
+    candidateIdentity.sourceRevision + "\n",
+    { mode: 0o600 },
+  );
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/replacements: replacement refs are forbidden for evidence candidates/u,
+  );
+  await rm(replaceDirectory, { recursive: true, force: true });
+
+  await writeFile(join(fixtureRoot, ".gitattributes"), "* export-ignore\n", { mode: 0o600 });
+  await runFixtureGit(["add", ".gitattributes"], commitGitEnvironment());
+  await runFixtureGit(
+    ["commit", "--quiet", "--message", "add archive attributes"],
+    commitGitEnvironment(),
+  );
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/attributes: tracked \.gitattributes files require an explicit archive policy/u,
+  );
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+  await writeFile(join(fixtureRoot, "untracked-dirty-sentinel"), "dirty\n", { mode: 0o600 });
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/dirty: evidence requires an exactly clean Git checkout/u,
   );
 });
 

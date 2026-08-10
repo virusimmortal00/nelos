@@ -1,19 +1,150 @@
 #!/usr/bin/env node
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { isDeepStrictEqual } from "node:util";
-import { dirname, join, resolve } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual, promisify } from "node:util";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(scriptPath), "../../..");
+const execFileAsync = promisify(execFile);
+const GIT_IDENTITY_ARGUMENTS = Object.freeze([
+  "--no-replace-objects",
+  "-c", "core.useReplaceRefs=false",
+  "-c", "core.attributesFile=/dev/null",
+  "-c", "core.autocrlf=false",
+  "-c", "core.eol=lf",
+  "-c", "tar.umask=0002",
+]);
+const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function gitBuffer(root, argumentsList, maxBuffer = 256 * 1024 * 1024, environment = {}) {
+  try {
+    const { stdout } = await execFileAsync("git", [...GIT_IDENTITY_ARGUMENTS, ...argumentsList], {
+      cwd: root,
+      encoding: null,
+      maxBuffer,
+      env: {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        LC_ALL: "C",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_NO_REPLACE_OBJECTS: "1",
+        ...environment,
+      },
+    });
+    return Buffer.from(stdout);
+  } catch {
+    fail("/candidate", "exact Git checkout inspection failed");
+  }
+}
+
+async function gitText(root, argumentsList) {
+  return (await gitBuffer(root, argumentsList, 8 * 1024 * 1024)).toString("utf8");
+}
+
+async function rejectGitControlFile(root, gitPath, label) {
+  const output = await gitText(root, ["rev-parse", "--git-path", gitPath]);
+  const lines = output.endsWith("\n") ? output.slice(0, -1).split("\n") : output.split("\n");
+  if (lines.length !== 1 || lines[0] === "") {
+    fail("/candidate/gitMetadata", `cannot resolve repository-local ${label} exactly`);
+  }
+  const controlPath = isAbsolute(lines[0]) ? lines[0] : resolve(root, lines[0]);
+  let stats;
+  try {
+    stats = await lstat(controlPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    fail("/candidate/gitMetadata", `cannot inspect repository-local ${label} exactly`);
+  }
+  if (stats.isSymbolicLink() || !stats.isFile() || stats.size !== 0) {
+    fail("/candidate/gitMetadata", `repository-local ${label} must be absent or an empty regular file`);
+  }
+}
+
+async function rejectArchiveAffectingGitState(root) {
+  const configParts = (await gitBuffer(root, [
+    "config",
+    "--includes",
+    "--show-scope",
+    "--name-only",
+    "--null",
+    "--list",
+  ], 8 * 1024 * 1024)).toString("utf8").split("\0");
+  if (configParts.at(-1) === "") configParts.pop();
+  if (configParts.length % 2 !== 0) {
+    fail("/candidate/archiveConfig", "cannot inspect repository Git configuration exactly");
+  }
+  for (let index = 0; index < configParts.length; index += 2) {
+    const scope = configParts[index];
+    const key = configParts[index + 1].toLowerCase();
+    if ((scope === "local" || scope === "worktree") && key.startsWith("tar.")) {
+      fail("/candidate/archiveConfig", "repository and worktree tar.* configuration is forbidden");
+    }
+  }
+  await Promise.all([
+    rejectGitControlFile(root, "info/attributes", "info/attributes"),
+    rejectGitControlFile(root, "info/grafts", "info/grafts"),
+  ]);
+  if (await gitText(root, ["for-each-ref", "--format=%(refname)", "refs/replace/"]) !== "") {
+    fail("/candidate/replacements", "replacement refs are forbidden for evidence candidates");
+  }
+}
+
+async function inspectEvidenceCandidate(root) {
+  let canonicalRoot;
+  try {
+    canonicalRoot = await realpath(root);
+  } catch {
+    fail("/candidate", "repository root cannot be resolved exactly");
+  }
+  const discoveredRoot = (await gitText(canonicalRoot, ["rev-parse", "--show-toplevel"])).trim();
+  let canonicalDiscoveredRoot;
+  try {
+    canonicalDiscoveredRoot = await realpath(discoveredRoot);
+  } catch {
+    fail("/candidate", "Git worktree root cannot be resolved exactly");
+  }
+  if (canonicalDiscoveredRoot !== canonicalRoot) {
+    fail("/candidate", "repository root must be the exact Git worktree root");
+  }
+  await rejectArchiveAffectingGitState(canonicalRoot);
+  const status = await gitText(canonicalRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  if (status !== "") fail("/candidate/dirty", "evidence requires an exactly clean Git checkout");
+  const sourceRevision = (await gitText(canonicalRoot, ["rev-parse", "HEAD^{commit}"])).trim();
+  if (!GIT_OBJECT_ID.test(sourceRevision)) {
+    fail("/candidate/sourceRevision", "Git HEAD must resolve to a full lowercase object ID");
+  }
+  const treePaths = (await gitBuffer(canonicalRoot, [
+    "ls-tree",
+    "-r",
+    "--name-only",
+    "-z",
+    sourceRevision,
+  ], 256 * 1024 * 1024)).toString("utf8").split("\0");
+  if (treePaths.some((path) => path === ".gitattributes" || path.endsWith("/.gitattributes"))) {
+    fail("/candidate/attributes", "tracked .gitattributes files require an explicit archive policy");
+  }
+  const archive = await gitBuffer(
+    canonicalRoot,
+    ["archive", "--format=tar", sourceRevision],
+    256 * 1024 * 1024,
+    { GIT_GRAFT_FILE: "/dev/null" },
+  );
+  return Object.freeze({
+    sourceRevision,
+    treeSha256: sha256(archive),
+  });
 }
 
 const EXPECTED_ARTIFACTS = Object.freeze({
@@ -371,7 +502,7 @@ export async function validateRecipeSources(root, lock) {
   return true;
 }
 
-export function createEvidenceProbe(contract, templateDigests = {}) {
+export function createEvidenceProbe(contract, repositoryIdentity = {}) {
   const checks = {
     marketplaceInstall: true,
     pluginInstall: true,
@@ -386,8 +517,8 @@ export function createEvidenceProbe(contract, templateDigests = {}) {
     contractVersion: contract.contractVersion,
     runId: "contract-probe",
     candidate: {
-      sourceRevision: "0".repeat(40),
-      treeSha256: "1".repeat(64),
+      sourceRevision: repositoryIdentity.sourceRevision ?? "0".repeat(40),
+      treeSha256: repositoryIdentity.treeSha256 ?? "1".repeat(64),
       dirty: false,
     },
     template: {
@@ -395,8 +526,8 @@ export function createEvidenceProbe(contract, templateDigests = {}) {
       proxmoxVeVersion: contract.scope.proxmoxVeBaseline,
       operatingSystem: "ubuntu-24.04-lts",
       architecture: contract.scope.guest.architecture,
-      contractSha256: templateDigests.contractSha256 ?? "2".repeat(64),
-      toolchainLockSha256: templateDigests.toolchainLockSha256 ?? "3".repeat(64),
+      contractSha256: repositoryIdentity.contractSha256 ?? "2".repeat(64),
+      toolchainLockSha256: repositoryIdentity.toolchainLockSha256 ?? "3".repeat(64),
     },
     lanes: {
       "legacy-01446": {
@@ -451,20 +582,25 @@ export function createEvidenceProbe(contract, templateDigests = {}) {
   };
 }
 
-export function validateEvidenceDocument(evidence, evidenceSchema, contract, templateDigests = undefined) {
+export function validateEvidenceDocument(evidence, evidenceSchema, contract, repositoryIdentity = undefined) {
   assertOnlyLocalReferences(evidenceSchema);
   validateAgainstSchema(evidence, evidenceSchema);
   assertNoUserSpecificMaterial(evidence);
   if (evidence.contractVersion !== contract.contractVersion) {
     fail("/contractVersion", "must match the validator contract");
   }
-  if (templateDigests !== undefined) {
+  if (repositoryIdentity !== undefined) {
     for (const [field, repositoryFile] of [
       ["contractSha256", "contract.json"],
       ["toolchainLockSha256", "toolchain.lock.json"],
     ]) {
-      if (evidence.template[field] !== templateDigests[field]) {
+      if (Object.hasOwn(repositoryIdentity, field) && evidence.template[field] !== repositoryIdentity[field]) {
         fail(`/template/${field}`, `must match the SHA-256 digest of the repository ${repositoryFile} bytes`);
+      }
+    }
+    for (const field of ["sourceRevision", "treeSha256"]) {
+      if (Object.hasOwn(repositoryIdentity, field) && evidence.candidate[field] !== repositoryIdentity[field]) {
+        fail(`/candidate/${field}`, "must match the exact clean repository checkout");
       }
     }
   }
@@ -585,7 +721,8 @@ async function readJson(path, label) {
 }
 
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
-  const validationRoot = join(resolve(root), "validation", "proxmox");
+  const resolvedRoot = resolve(root);
+  const validationRoot = join(resolvedRoot, "validation", "proxmox");
   const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema] = await Promise.all([
     readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
     readJson(join(validationRoot, "contract.schema.json"), "contract.schema.json"),
@@ -600,14 +737,24 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
   });
   validateProxmoxContract(contract, contractSchema);
   validateToolchainLock(toolchainLock, contract);
-  await validateRecipeSources(root, toolchainLock);
+  await validateRecipeSources(resolvedRoot, toolchainLock);
   validateEvidenceDocument(createEvidenceProbe(contract, templateDigests), evidenceSchema, contract, templateDigests);
   if (options.evidencePath) {
+    const repositoryIdentity = Object.freeze({
+      ...templateDigests,
+      ...await inspectEvidenceCandidate(resolvedRoot),
+    });
+    validateEvidenceDocument(
+      createEvidenceProbe(contract, repositoryIdentity),
+      evidenceSchema,
+      contract,
+      repositoryIdentity,
+    );
     validateEvidenceDocument(
       await readJson(resolve(options.evidencePath), "evidence"),
       evidenceSchema,
       contract,
-      templateDigests,
+      repositoryIdentity,
     );
   }
   return {

@@ -342,13 +342,156 @@ jq -e '.data | type == "array"' <<<"$resources_response" >/dev/null || die "unex
 
 readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"
 readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"
-readonly BASE_TEMPLATE_DEVICE_KEYS_JSON='["efidisk0","ide2","ipconfig0","net0","scsi0","serial0","vga"]'
-readonly PROXMOX_INDEXED_DEVICE_KEY_PATTERN='^(audio|efidisk|hostpci|ide|ipconfig|net|numa|parallel|rng|sata|scsi|serial|tpmstate|unused|usb|virtio|virtiofs)[0-9]+$'
+readonly BLOCK_CLOUD_INIT_STORAGE_TYPES_CSV="lvm,lvmthin,zfspool"
+readonly BASE_TEMPLATE_REQUIRED_CONFIG_KEYS_JSON='["agent","balloon","bios","boot","citype","ciupgrade","ciuser","cores","cpu","description","efidisk0","ide2","ipconfig0","machine","memory","meta","name","net0","ostype","scsi0","scsihw","serial0","smbios1","sockets","tags","template","vga","vmgenid"]'
+readonly BASE_TEMPLATE_OPTIONAL_CONFIG_KEYS_JSON='["arch","onboot"]'
+readonly BASE_TEMPLATE_API_METADATA_KEYS_JSON='["digest"]'
+readonly BASE_TEMPLATE_FORBIDDEN_CONFIG_KEYS_JSON='["amd-sev","args","bootdisk","cdrom","cicustom","cipassword","hookscript","ivshmem","nameserver","runningcpu","runningmachine","searchdomain","spice_enhancements","sshkeys","tablet","vmstate","watchdog"]'
+# shellcheck disable=SC2016
+readonly BASE_TEMPLATE_PENDING_CONFIG_JQ='
+  (.data | type == "array") and
+  (.data | length) > 0 and
+  all(.data[];
+    type == "object" and
+    ((has("pending") or has("delete")) | not) and
+    ((keys | sort) == ["key", "value"]) and
+    ((.key | type) == "string") and
+    (.key | length) > 0 and
+    ((.value | type) as $valueType |
+      (["boolean", "number", "string"] | index($valueType)) != null)
+  ) and
+  ([.data[].key] | length) == ([.data[].key] | unique | length)'
+# shellcheck disable=SC2016
+readonly BASE_TEMPLATE_CONFIG_INVENTORY_JQ='
+  (.data | keys) as $actualKeys |
+  ((($required_config_keys + $api_metadata_keys) - $actualKeys) | length) == 0 and
+  (($actualKeys - (
+    $required_config_keys +
+    $optional_config_keys +
+    $api_metadata_keys
+  )) | length) == 0 and
+  (($forbidden_config_keys - ($forbidden_config_keys - $actualKeys)) | length) == 0'
+# shellcheck disable=SC2016
+readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
+  ($vmid | tostring) as $vmidString |
+  (.data.efidisk0 // "" | split(",")) as $efiDisk |
+  ($efiDisk[0] |
+    capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
+  ) as $efiVolume |
+  ($efiDisk[1:] | sort) as $efiOptions |
+  (.data.net0 // "" | split(",")) as $networkOptions |
+  ($networkOptions |
+    map(select(test("^virtio=[0-9A-Fa-f][02468AaCcEe](?::[0-9A-Fa-f]{2}){5}$")))
+  ) as $networkMacOptions |
+  (($networkMacOptions[0] // "") | sub("^virtio="; "") | ascii_downcase) as $networkMac |
+  (.data.meta // "" | split(",")) as $metaOptions |
+  (.data.scsi0 // "" | split(",")) as $scsiDisk |
+  ($scsiDisk[0] |
+    capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
+  ) as $scsiVolume |
+  ((.data.smbios1 // "") |
+    capture("^uuid=(?<uuid>[a-f0-9]{8}-[a-f0-9]{4}-[14][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$").uuid
+  ) as $smbiosUuid |
+  ((.data.vmgenid // "") |
+    capture("^(?<uuid>[a-f0-9]{8}-[a-f0-9]{4}-[14][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$").uuid
+  ) as $vmGenerationId |
+  (((.data.agent // "") | split(",") | sort) == ["enabled=1", "fstrim_cloned_disks=1"]) and
+  ((.data | has("arch") | not) or .data.arch == "x86_64") and
+  .data.balloon == 0 and
+  .data.bios == "ovmf" and
+  .data.boot == "order=scsi0" and
+  .data.cores == 4 and
+  (.data.cpu == "x86-64-v2-AES" or .data.cpu == "cputype=x86-64-v2-AES") and
+  .data.description == ("Nelos validator base; Ubuntu 24.04 release-20260801; ubuntu-sha256:" + $digest) and
+  ((.data.digest // "") | test("^[a-f0-9]{40}$")) and
+  ($efiVolume.volume | test("^base-" + $vmidString + "-disk-0$")) and
+  (
+    $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=528K"] or
+    $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=1M"] or
+    $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=4M"]
+  ) and
+  .data.machine == "q35" and
+  .data.memory == 8192 and
+  ($metaOptions | length) == 2 and
+  (($metaOptions | map(select(test("^creation-qemu=[0-9]+(?:[.][0-9]+)+$")))) | length) == 1 and
+  (($metaOptions | map(select(test("^ctime=[0-9]+$")))) | length) == 1 and
+  .data.name == $name and
+  ($networkOptions | length) == 4 and
+  ($networkMacOptions | length) == 1 and
+  $networkMac != "00:00:00:00:00:00" and
+  (($networkOptions | map(select(. == "bridge=vmbr0"))) == ["bridge=vmbr0"]) and
+  (($networkOptions | map(select(. == "firewall=1"))) == ["firewall=1"]) and
+  (($networkOptions | map(select(. == "queues=4"))) == ["queues=4"]) and
+  ((.data | has("onboot") | not) or .data.onboot == 0) and
+  .data.ostype == "l26" and
+  (
+    (
+      $scsiVolume.storage == $efiVolume.storage and
+      ($scsiVolume.volume | test("^base-" + $vmidString + "-disk-1$"))
+    ) or
+    (
+      $scsiVolume.storage != $efiVolume.storage and
+      ($scsiVolume.volume | test("^base-" + $vmidString + "-disk-0$"))
+    )
+  ) and
+  (($scsiDisk[1:] | sort) == ["discard=on", "iothread=1", "size=64G", "ssd=1"]) and
+  .data.scsihw == "virtio-scsi-single" and
+  $smbiosUuid != "00000000-0000-0000-0000-000000000000" and
+  .data.serial0 == "socket" and
+  .data.sockets == 1 and
+  (((.data.tags // "") | split(";") | sort) ==
+    ["nelos-validator-base", "ubuntu-24-04", "ubuntu-release-20260801"]) and
+  .data.template == 1 and
+  .data.vga == "serial0" and
+  $vmGenerationId != "00000000-0000-0000-0000-000000000000" and
+  $vmGenerationId != $smbiosUuid'
+# shellcheck disable=SC2016
+readonly BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ='
+  .data.citype == "nocloud" and
+  .data.ciuser == "ubuntu" and
+  .data.ciupgrade == 0 and
+  .data.ipconfig0 == "ip=dhcp" and
+  ([.data | keys[] |
+    select(
+      . == "cicustom" or
+      . == "cipassword" or
+      . == "nameserver" or
+      . == "searchdomain" or
+      . == "sshkeys"
+    )
+  ] | length) == 0'
+# shellcheck disable=SC2016
+readonly BASE_CLOUD_INIT_DEVICE_JQ='
+  (.data.ide2 // "" | split(",")) as $cloudInit |
+  ($vmid | tostring) as $vmidString |
+  ($cloudInit[0] |
+    capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$")
+  ) as $cloudInitVolume |
+  (
+    $cloudInitVolume.volume == ("vm-" + $vmidString + "-cloudinit") or
+    $cloudInitVolume.volume == ($vmidString + "/vm-" + $vmidString + "-cloudinit.qcow2")
+  ) and
+  (
+    (($cloudInit[1:] | sort) == ["media=cdrom"]) or
+    (($cloudInit[1:] | sort) == ["media=cdrom", "size=4M"])
+  )'
+# shellcheck disable=SC2016
+readonly CLOUD_INIT_STORAGE_VOLUME_JQ='
+  .data.type as $storageType |
+  ($base_vmid | tostring) as $vmidString |
+  if $storageType == "dir" then
+    $cloud_init_volume == ($vmidString + "/vm-" + $vmidString + "-cloudinit.qcow2")
+  elif (($block_storage_types | split(",") | index($storageType)) != null) then
+    $cloud_init_volume == ("vm-" + $vmidString + "-cloudinit")
+  else
+    false
+  end'
 
 assert_api_storage() {
   local storage="$1"
   local allowed_types_csv="$2"
   local role="$3"
+  local cloud_init_volume="${4:-}"
   local config_response status_response
 
   config_response="$(api_get "storage/${storage}")" || die "could not query ${role} storage configuration"
@@ -362,6 +505,15 @@ assert_api_storage() {
      ((.data.nodes // $node) | split(",") | index($node) != null)' \
     <<<"$config_response" >/dev/null || \
     die "${role} storage type, node-local scope, image content, or node restriction does not match"
+  if [[ -n $cloud_init_volume ]]; then
+    jq -e \
+      --arg cloud_init_volume "$cloud_init_volume" \
+      --arg block_storage_types "$BLOCK_CLOUD_INIT_STORAGE_TYPES_CSV" \
+      --argjson base_vmid "$BASE_TEMPLATE_VMID" \
+      "$CLOUD_INIT_STORAGE_VOLUME_JQ" \
+      <<<"$config_response" >/dev/null || \
+      die "${role} volume name does not match the base VMID and storage backend"
+  fi
   status_response="$(api_get "nodes/${PROXMOX_NODE}/storage/${storage}/status")" || \
     die "could not query ${role} node storage status"
   jq -e '.data.active == 1 and .data.enabled == 1' <<<"$status_response" >/dev/null || \
@@ -382,35 +534,35 @@ jq -e \
   )' <<<"$resources_response" >/dev/null || die "base VMID, name, node, template state, or ownership tag does not match"
 
 base_config_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/config?current=1")" || die "could not query current base template configuration"
+base_pending_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${BASE_TEMPLATE_VMID}/pending")" || die "could not query pending base template configuration"
+jq -e \
+  "$BASE_TEMPLATE_PENDING_CONFIG_JQ" \
+  <<<"$base_pending_response" >/dev/null || \
+  die "base template must not have pending configuration changes"
+jq -e \
+  --argjson required_config_keys "$BASE_TEMPLATE_REQUIRED_CONFIG_KEYS_JSON" \
+  --argjson optional_config_keys "$BASE_TEMPLATE_OPTIONAL_CONFIG_KEYS_JSON" \
+  --argjson api_metadata_keys "$BASE_TEMPLATE_API_METADATA_KEYS_JSON" \
+  --argjson forbidden_config_keys "$BASE_TEMPLATE_FORBIDDEN_CONFIG_KEYS_JSON" \
+  "$BASE_TEMPLATE_CONFIG_INVENTORY_JQ" \
+  <<<"$base_config_response" >/dev/null || \
+  die "base template current configuration key inventory does not match"
 jq -e \
   --arg digest "$UBUNTU_IMAGE_SHA256" \
-  --arg indexed_device_key_pattern "$PROXMOX_INDEXED_DEVICE_KEY_PATTERN" \
-  --argjson allowed_device_keys "$BASE_TEMPLATE_DEVICE_KEYS_JSON" \
-  '(.data.scsi0 // "") as $disk |
-   ($disk | split(",")) as $diskOptions |
-   .data.machine == "q35" and
-   .data.bios == "ovmf" and
-   .data.scsihw == "virtio-scsi-single" and
-   ((.data.agent // "") | contains("enabled=1")) and
-   ((.data.description // "") | contains("ubuntu-sha256:" + $digest)) and
-   ($disk | test("^[A-Za-z0-9][A-Za-z0-9._-]*:")) and
-   (($diskOptions | map(select(startswith("size=")))) == ["size=64G"]) and
-   (($diskOptions | map(select(startswith("discard=")))) == ["discard=on"]) and
-   (($diskOptions | map(select(startswith("iothread=")))) == ["iothread=1"]) and
-   ([.data | keys[] |
-     select(
-       test($indexed_device_key_pattern) or
-       . == "args" or
-       . == "ivshmem" or
-       . == "tablet" or
-       . == "vmstate" or
-       . == "vga" or
-       . == "watchdog"
-     )
-   ] | sort) == ($allowed_device_keys | sort)' \
+  --arg name "$BASE_TEMPLATE_NAME" \
+  --argjson vmid "$BASE_TEMPLATE_VMID" \
+  "$BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ" \
   <<<"$base_config_response" >/dev/null || \
-  die "base template hardware, guest-agent, provenance, or inherited device contract does not match"
-
+  die "base template approved configuration values do not match"
+jq -e \
+  "$BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ" \
+  <<<"$base_config_response" >/dev/null || \
+  die "base template Cloud-Init configuration does not match"
+jq -e \
+  --argjson vmid "$BASE_TEMPLATE_VMID" \
+  "$BASE_CLOUD_INIT_DEVICE_JQ" \
+  <<<"$base_config_response" >/dev/null || \
+  die "base template Cloud-Init device contract does not match"
 persistent_storage_inventory="$(jq -er '
   [.data.scsi0, .data.efidisk0] |
   map(capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage) |
@@ -419,20 +571,23 @@ persistent_storage_inventory="$(jq -er '
 mapfile -t persistent_disk_storages <<<"$persistent_storage_inventory"
 readonly -a persistent_disk_storages
 [[ ${#persistent_disk_storages[@]} -ge 1 ]] || die "base template has no inherited persistent disk storage"
-inherited_cloud_init_storage="$(jq -er '
-  .data.ide2 | capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):").storage
-' <<<"$base_config_response")" || die "could not identify the inherited Cloud-Init storage"
-readonly inherited_cloud_init_storage
-inherited_cloud_init_checked=0
+inherited_cloud_init_inventory="$(jq -er '
+  .data.ide2 | split(",")[0] |
+  capture("^(?<storage>[A-Za-z0-9][A-Za-z0-9._-]*):(?<volume>.+)$") |
+  [.storage, .volume] | @tsv
+' <<<"$base_config_response")" || die "could not identify the inherited Cloud-Init volume"
+IFS=$'\t' read -r inherited_cloud_init_storage inherited_cloud_init_volume <<<"$inherited_cloud_init_inventory"
+readonly inherited_cloud_init_storage inherited_cloud_init_volume
+[[ -n $inherited_cloud_init_storage && -n $inherited_cloud_init_volume ]] || \
+  die "could not identify the inherited Cloud-Init volume"
 for persistent_disk_storage in "${persistent_disk_storages[@]}"; do
   assert_api_storage "$persistent_disk_storage" "$LINKED_CLONE_STORAGE_TYPES_CSV" "inherited persistent disk"
-  if [[ $persistent_disk_storage == "$inherited_cloud_init_storage" ]]; then
-    inherited_cloud_init_checked=1
-  fi
 done
-if ((inherited_cloud_init_checked == 0)); then
-  assert_api_storage "$inherited_cloud_init_storage" "$FULL_COPY_STORAGE_TYPES_CSV" "inherited Cloud-Init"
-fi
+assert_api_storage \
+  "$inherited_cloud_init_storage" \
+  "$FULL_COPY_STORAGE_TYPES_CSV" \
+  "inherited Cloud-Init" \
+  "$inherited_cloud_init_volume"
 
 if jq -e \
   --argjson vmid "$OUTPUT_TEMPLATE_VMID" \
