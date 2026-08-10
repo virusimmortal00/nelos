@@ -45,6 +45,20 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const DISTRIBUTION_INTEGRITY = /^sha256:[a-f0-9]{64}$/u;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const UBUNTU_APT_SNAPSHOT = /^\d{8}T\d{6}Z$/u;
+const EXPECTED_BUILD_NETWORK = Object.freeze({
+  mode: "preconfigured-restricted-vnet",
+  bridge: "nelosbld",
+  dhcpSource: "restricted-vnet",
+  defaultEgressPolicy: "deny",
+  dnsPolicy: "restricted-host-allowlist-only",
+  allowedTcpPorts: Object.freeze([443]),
+  allowedGuestHosts: Object.freeze([
+    "github.com",
+    "nodejs.org",
+    "release-assets.githubusercontent.com",
+    "snapshot.ubuntu.com",
+  ]),
+});
 const ISOLATED_ENVIRONMENT_FIELDS = Object.freeze({
   HOME: "home",
   CODEX_HOME: "codexHome",
@@ -66,6 +80,7 @@ const EVIDENCE_REPOSITORY_INPUTS = Object.freeze([
   "validation/proxmox/packer/proxmox.pkr.hcl",
   "validation/proxmox/scripts/bootstrap-cloud-image-template.sh",
   "validation/proxmox/scripts/attest-base-template-disks.sh",
+  "validation/proxmox/scripts/validate-build-network-attestation.sh",
   "validation/proxmox/scripts/provision-guest.sh",
   "validation/proxmox/scripts/build-template.sh",
   "plugin.json",
@@ -658,8 +673,15 @@ export function validateProxmoxContract(contract, contractSchema) {
   if (!contract.validation.offline || contract.validation.validationNetwork !== "denied") {
     fail("/validation", "validation must be offline with network denied");
   }
-  if (contract.validation.buildNetwork !== "allowlisted") {
-    fail("/validation/buildNetwork", "template build downloads must be allowlisted");
+  if (!isDeepStrictEqual(contract.validation.buildNetwork, EXPECTED_BUILD_NETWORK)) {
+    fail("/validation/buildNetwork", "must require the exact preconfigured restricted VNet policy");
+  }
+  if (
+    contract.hardware.network.bridge !== EXPECTED_BUILD_NETWORK.bridge ||
+    contract.hardware.network.addressing !== "dhcp" ||
+    contract.validation.buildNetwork.dhcpSource !== "restricted-vnet"
+  ) {
+    fail("/hardware/network", "DHCP must be supplied only by the restricted build VNet");
   }
   assertExactSet(
     contract.validation.requiredObservations,
@@ -699,10 +721,10 @@ export function validateToolchainLock(lock, contract) {
   if (
     lock.policy.allowFloatingVersions !== false ||
     lock.policy.requireSha256 !== true ||
-    lock.policy.buildNetwork !== contract.validation.buildNetwork ||
+    !isDeepStrictEqual(lock.policy.buildNetwork, contract.validation.buildNetwork) ||
     lock.policy.validationNetwork !== contract.validation.validationNetwork
   ) {
-    fail("/policy", "must require immutable checksums, allowlisted builds, and offline validation");
+    fail("/policy", "must require immutable checksums, the restricted build VNet, and offline validation");
   }
   assertNoUserSpecificMaterial(lock);
   return lock;
@@ -721,11 +743,12 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
       label,
     )).toString("utf8");
   };
-  const [versions, proxmox, bootstrap, diskAttester, provisionGuest, buildWrapper] = await Promise.all([
+  const [versions, proxmox, bootstrap, diskAttester, networkAttestationValidator, provisionGuest, buildWrapper] = await Promise.all([
     readRecipeSource("packer/versions.pkr.hcl", "Packer version contract"),
     readRecipeSource("packer/proxmox.pkr.hcl", "Packer Proxmox contract"),
     readRecipeSource("scripts/bootstrap-cloud-image-template.sh", "base template bootstrap"),
     readRecipeSource("scripts/attest-base-template-disks.sh", "base-template disk attester"),
+    readRecipeSource("scripts/validate-build-network-attestation.sh", "build-network attestation validator"),
     readRecipeSource("scripts/provision-guest.sh", "validator guest provisioner"),
     readRecipeSource("scripts/build-template.sh", "template build wrapper"),
   ]);
@@ -762,6 +785,23 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   if (!provisionGuest.includes('-o APT::Snapshot="$UBUNTU_APT_SNAPSHOT"')) {
     fail("/recipe/provision-guest", "guest packages must come from the immutable Ubuntu snapshot");
   }
+  for (const buildNetworkControl of [
+    '.policy.buildNetwork == {',
+    'mode: "preconfigured-restricted-vnet"',
+    'bridge: "nelosbld"',
+    'dhcpSource: "restricted-vnet"',
+    'defaultEgressPolicy: "deny"',
+    'dnsPolicy: "restricted-host-allowlist-only"',
+    'allowedTcpPorts: [443]',
+    '"github.com"',
+    '"nodejs.org"',
+    '"release-assets.githubusercontent.com"',
+    '"snapshot.ubuntu.com"',
+  ]) {
+    if (!provisionGuest.includes(buildNetworkControl)) {
+      fail("/recipe/provision-guest", `missing locked build-network control: ${buildNetworkControl}`);
+    }
+  }
   for (const requiredAttesterControl of [
     "#!/usr/bin/bash",
     'readonly ATTESTATION_CONFIG_DEFAULT="/etc/nelos-validator/base-disk-attester.json"',
@@ -790,6 +830,23 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   if (diskAttester.includes("ide2")) {
     fail("/recipe/disk-attester", "Cloud-Init bytes must not be treated as inherited persistent disk content");
   }
+  for (const networkAttestationControl of [
+    "nelos-build-network-readiness",
+    "preconfigured-restricted-vnet",
+    "restricted-host-allowlist-only",
+    "release-assets.githubusercontent.com",
+    "validUntilEpoch",
+    "buildGuestVmbr0Excluded",
+    "86400",
+    '$json->encode($value->{schemaVersion}) eq q{1}',
+    '$json->encode($policy->{allowedTcpPorts}->[0]) eq q{443}',
+    '$current == "/tmp" || $current == "/var/tmp"',
+    '(permission_bits & 01000)',
+  ]) {
+    if (!networkAttestationValidator.includes(networkAttestationControl)) {
+      fail("/recipe/build-network-attestation", `missing fail-closed readiness control: ${networkAttestationControl}`);
+    }
+  }
   if (/\$\(hash_(?:lvmthin|zfspool)\b/u.test(diskAttester)) {
     fail("/recipe/disk-attester", "disk hash functions must execute in the parent shell so EXIT cleanup retains activation state");
   }
@@ -797,11 +854,31 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
     'machine            = "q35"',
     'bios               = "ovmf"',
     'cpu_type           = "x86-64-v2-AES"',
-    'bridge        = "vmbr0"',
+    'bridge        = "nelosbld"',
     "firewall      = true",
     "insecure_skip_tls_verify  = false",
   ]) {
     if (!proxmox.includes(requiredSource)) fail("/recipe/packer", `missing fixed contract source: ${requiredSource}`);
+  }
+  if (proxmox.includes("vmbr0") || !bootstrap.includes("bridge=vmbr0") || bootstrap.includes("bridge=nelosbld")) {
+    fail("/recipe/network", "the bootstrap base must stay on vmbr0 while the Packer clone uses nelosbld");
+  }
+  const baseNetworkPreflight = /readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='(?<body>[\s\S]*?)'\n# shellcheck disable=SC2016\nreadonly FINAL_TEMPLATE_NETWORK_JQ=/u.exec(buildWrapper)?.groups?.body;
+  const finalNetworkReadback = /readonly FINAL_TEMPLATE_NETWORK_JQ='(?<body>[\s\S]*?)'\n# shellcheck disable=SC2016\nreadonly BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ=/u.exec(buildWrapper)?.groups?.body;
+  if (
+    baseNetworkPreflight === undefined ||
+    !baseNetworkPreflight.includes('select(. == "bridge=vmbr0")') ||
+    baseNetworkPreflight.includes("nelosbld")
+  ) {
+    fail("/recipe/network", "base-template preflight must accept only the existing vmbr0 bootstrap base");
+  }
+  if (
+    finalNetworkReadback === undefined ||
+    !finalNetworkReadback.includes('select(. == "bridge=nelosbld")') ||
+    finalNetworkReadback.includes("vmbr0") ||
+    !finalNetworkReadback.includes('select(test("^net[0-9]+$"))] == ["net0"]')
+  ) {
+    fail("/recipe/network", "post-build readback must require one nelosbld-only final adapter");
   }
   for (const forbiddenSource of [
     "--destroy-unreferenced-disks",
@@ -812,6 +889,44 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
   }
   if (!buildWrapper.includes('"$PACKER_BIN" build -on-error=abort')) {
     fail("/recipe/build-wrapper", "Packer failures must stop for operator reconciliation");
+  }
+  if (
+    !buildWrapper.includes("NELOS_BUILD_NETWORK_ATTESTATION_FILE") ||
+    !buildWrapper.includes('readonly SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR="${SEALED_SOURCE}/scripts/validate-build-network-attestation.sh"') ||
+    !buildWrapper.includes('"validation/proxmox/scripts/validate-build-network-attestation.sh" \\\n  "$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR"') ||
+    (buildWrapper.match(/^"\$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \\$/gmu) ?? []).length !== 2 ||
+    !buildWrapper.includes("BUILD_NETWORK_ATTESTATION_SHA256") ||
+    !buildWrapper.includes("hash_build_network_attestation") ||
+    !buildWrapper.includes("/usr/bin/perl -MDigest::SHA") ||
+    bootstrap.includes("NELOS_BUILD_NETWORK_ATTESTATION_FILE") ||
+    bootstrap.includes("validate-build-network-attestation.sh")
+  ) {
+    fail("/recipe/network", "Packer must validate a fresh receipt twice with the exact sealed restricted-VNet validator");
+  }
+  const finalNetworkValidationIndex = buildWrapper.lastIndexOf('"$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \\\n');
+  const finalNetworkHashIndex = buildWrapper.lastIndexOf('[[ $(hash_build_network_attestation) == "$BUILD_NETWORK_ATTESTATION_SHA256" ]]');
+  const packerBuildIndex = buildWrapper.indexOf('"$PACKER_BIN" build -on-error=abort');
+  if (
+    finalNetworkValidationIndex === -1 ||
+    finalNetworkHashIndex === -1 ||
+    packerBuildIndex === -1 ||
+    !(finalNetworkValidationIndex < finalNetworkHashIndex && finalNetworkHashIndex < packerBuildIndex)
+  ) {
+    fail("/recipe/network", "fresh receipt validation and hash binding must occur immediately before Packer mutation");
+  }
+  const finalConfigReadbackIndex = buildWrapper.indexOf(
+    'api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/config?current=1"',
+  );
+  const finalStatusReadbackIndex = buildWrapper.indexOf(
+    'api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/status/current"',
+  );
+  if (
+    finalConfigReadbackIndex <= packerBuildIndex ||
+    finalStatusReadbackIndex <= finalConfigReadbackIndex ||
+    !buildWrapper.includes('jq -e \'.data.status == "stopped"\'') ||
+    !buildWrapper.includes('"$FINAL_TEMPLATE_NETWORK_JQ"')
+  ) {
+    fail("/recipe/network", "successful Packer output must be read back as a stopped nelosbld-only template");
   }
   if (!buildWrapper.includes('[[ $(uname -s) == "Linux" ]]')) {
     fail("/recipe/build-wrapper", "build wrapper must enforce the dedicated Linux controller boundary");
@@ -885,7 +1000,6 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
       fail("/recipe/build-wrapper", `loose baseline authority is forbidden: ${forbiddenLooseBaseline}`);
     }
   }
-  const packerBuildIndex = buildWrapper.indexOf('"$PACKER_BIN" build -on-error=abort');
   const attestationIndex = buildWrapper.lastIndexOf('run_base_disk_attestation "$base_attestation_nonce"');
   if (attestationIndex === -1 || packerBuildIndex === -1 || attestationIndex > packerBuildIndex) {
     fail("/recipe/build-wrapper", "base disk attestation must complete immediately before the Packer mutation");

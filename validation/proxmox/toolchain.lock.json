@@ -51,7 +51,22 @@
     "allowFloatingVersions": false,
     "requireSha256": true,
     "ubuntuAptSnapshot": "20260801T120000Z",
-    "buildNetwork": "allowlisted",
+    "buildNetwork": {
+      "mode": "preconfigured-restricted-vnet",
+      "bridge": "nelosbld",
+      "dhcpSource": "restricted-vnet",
+      "defaultEgressPolicy": "deny",
+      "dnsPolicy": "restricted-host-allowlist-only",
+      "allowedTcpPorts": [
+        443
+      ],
+      "allowedGuestHosts": [
+        "github.com",
+        "nodejs.org",
+        "release-assets.githubusercontent.com",
+        "snapshot.ubuntu.com"
+      ]
+    },
     "validationNetwork": "denied"
   }
 }

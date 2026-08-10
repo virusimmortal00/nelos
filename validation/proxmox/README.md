@@ -22,6 +22,9 @@ are outside this template's scope.
   template on one explicitly selected PVE node.
 - `scripts/attest-base-template-disks.sh` measures the exact logical bytes of
   the immutable SCSI and EFI clone sources through a node-local forced command.
+- `scripts/validate-build-network-attestation.sh` fails closed unless an
+  operator supplies a fresh, exact-node and exact-source readiness receipt for
+  the externally enforced `nelosbld` build VNet policy.
 - `packer/` plus `scripts/build-template.sh` create an immutable validator
   template from that base on an isolated Linux controller.
 - The `0.12.12` release payload ships both the legacy Codex plugin layout and
@@ -50,6 +53,8 @@ Recommended controller sizing:
 - 8 GiB RAM; 4 GiB is a practical minimum.
 - 40 GiB thin-provisioned disk.
 - One untagged `vmbr0` NIC using DHCP.
+- Reachability from the controller to the cluster-spanning `nelosbld` VNet so
+  Packer can SSH to its VNet-only temporary guest.
 - Outbound HTTPS to the immutable artifact hosts in `toolchain.lock.json`.
 - HTTPS access to the selected PVE API hostname, public-key-only SSH access to
   the selected node's forced-command disk attester, and SSH reachability to the
@@ -114,7 +119,47 @@ For each target node, identify:
 - A node-local, active, enabled, `images`-capable EFI storage.
 - A node-local, active, enabled, `images`-capable Cloud-Init storage.
 - A node-local, active, enabled `dir` storage with `snippets` enabled.
-- An untagged `vmbr0` with DHCP and provisioning-time outbound internet.
+- An untagged `vmbr0` with DHCP and provisioning-time outbound internet for
+  the retained Ubuntu base template.
+- The preconfigured, cluster-spanning VNet named `nelosbld`, with DHCP supplied
+  by that VNet for Packer's temporary clone and resulting validator template.
+
+`nelosbld` is an external enforcement boundary, not merely a bridge name. Its
+default guest egress policy must be deny. DNS must resolve only the approved
+guest destinations, and the only allowed outbound transport is TCP 443 to
+`snapshot.ubuntu.com`, `nodejs.org`, `github.com`, and
+`release-assets.githubusercontent.com`. The two locked GitHub release URLs
+currently redirect from `github.com` to `release-assets.githubusercontent.com`;
+`objects.githubusercontent.com` is not in that observed redirect closure and is
+not allowed. The PVE NIC `firewall=1` flag remains eligibility for filtering;
+it is not the enforcement policy.
+
+The Packer clone may use DHCP only from `nelosbld` and must have no `vmbr0`
+adapter. DHCP must not install a route or resolver that bypasses the preceding
+restrictions. The retained bootstrap base remains on `vmbr0`; it is not the
+guest on which the restricted build policy is enforced. Controller-side Packer
+and Proxmox-plugin downloads and the hypervisor-side Ubuntu image download are
+checksum-pinned but are also outside this guest-egress policy; their outbound
+policy remains an operator infrastructure responsibility.
+
+Live Packer builds are blocked until homelab orchestration tests this policy and
+writes a mode-`0400` readiness receipt based on
+`examples/build-network-attestation.json.example`. The receipt is intentionally
+valid for at most 24 hours and binds the node, exact source revision, complete
+policy, and seven readiness assertions. It is operator-authored evidence, not a
+cryptographic signature or an independent live network measurement. The node
+operator is the trust anchor and must create it only after verifying the actual
+VNet policy. Before issuing it, use a disposable VNet-only probe to verify DHCP
+and the restricted resolver; positive HTTPS access to all four approved hosts;
+and rejection of a non-approved hostname, a direct non-approved destination,
+TCP 80, and direct DNS to any non-approved resolver. Also verify that the probe
+has no `vmbr0` adapter or alternate default route and that the controller can
+reach a Packer guest on `nelosbld`. These are external operator procedures; the
+repository script does not perform or cryptographically prove them. The build
+wrapper rejects a missing, stale, mismatched, or unprotected receipt, executes
+the validator bytes sealed from the exact source revision, hashes the receipt,
+and repeats validation and the hash comparison immediately before Packer
+mutates Proxmox.
 
 The persistent VM and EFI disks require node-local `lvmthin` or `zfspool`
 backends so the validator template can provide snapshots and linked clones.
@@ -278,7 +323,7 @@ from Git blobs rather than following working-tree paths.
 ## 2. Bootstrap one base template
 
 Review and copy `examples/bootstrap.env.example` to a private temporary file.
-Set its values for exactly one target node. Copy the bootstrap and attester
+Set its values for exactly one target node. Copy the bootstrap and disk attester
 scripts together to a protected directory on that node and run the bootstrap
 there as root with no positional arguments.
 
@@ -313,8 +358,12 @@ only writable-ancestor exception is a root-owned sticky `/tmp` or `/var/tmp`.
 
 Secure Boot enrollment is disabled (`pre-enrolled-keys=0`) because this lane
 does not yet test Secure Boot. The hardware contract is fixed to q35/OVMF,
-`x86-64-v2-AES`, 4 vCPUs, 8 GiB RAM, a 64 GiB SCSI disk, `vmbr0`, DHCP, and the
-PVE firewall flag.
+`x86-64-v2-AES`, 4 vCPUs, 8 GiB RAM, a 64 GiB SCSI disk, DHCP on `vmbr0`, and
+the PVE firewall flag. During Packer's full clone, the pinned source replaces
+that adapter with VNet-only DHCP on `nelosbld`; the resulting validator
+template retains `nelosbld`. This split keeps an existing conforming base
+eligible while preventing its ordinary bridge from satisfying the build-egress
+contract.
 
 On failure, cleanup re-reads the exact VMID, name, and unique ownership tag.
 Only a matching, owned incomplete VM is stopped and destroyed. There is no
@@ -334,15 +383,26 @@ validation/proxmox/scripts/build-template.sh
 ```
 
 The wrapper validates the repository contract before querying PVE, verifies the
-exact base VMID/name/node/ownership tag, verifies the output VMID and name are
-unused cluster-wide, and checks the Cloud-Init storage. It then requires a
-fresh, baseline-matching node attestation for the exact inherited SCSI and EFI
-bytes. Before any mutation, it
+exact base VMID/name/node/ownership tag and its `vmbr0` adapter, verifies the
+output VMID and name are unused cluster-wide, and checks the Cloud-Init storage.
+It requires the protected short-lived `nelosbld` readiness receipt described
+above, then requires a fresh, baseline-matching node attestation for the exact
+inherited SCSI and EFI bytes. Before any mutation, it
 checksum-downloads the locked Linux Packer and plugin archives, installs the
 plugin into private one-run state, and performs a full semantic validation
 behind a dead proxy with synthetic credentials. It seals the inspected inputs
 into a mode-0600, highest-precedence temporary JSON variable file, so an ambient
 config or auto variable file cannot redirect the mutation after preflight.
+Immediately before mutation it revalidates the readiness receipt with the
+validator blob sealed from the exact source revision and compares the receipt
+with its initial SHA-256. This gate prevents the recipe from proceeding on the
+bridge name alone; it does not prevent a trusted operator from making a false
+assertion or convert that assertion into independent live or cryptographic
+proof. After Packer reports success, the wrapper reads the output's current
+configuration and status from PVE. It accepts only a stopped template with one
+`virtio` adapter on `nelosbld`, DHCP, `firewall=1`, four queues, the exact
+ownership tag, and no other `netN` device. A mismatch fails the run and leaves
+the owned output intact for explicit reconciliation.
 
 Root provisioning and identity cleanup inside the guest require a matching
 one-run UUID marker created by the active Packer communicator, plus Ubuntu

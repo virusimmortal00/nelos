@@ -38,9 +38,11 @@ source "proxmox-clone" "ubuntu_noble_validator" {
     type = "serial0"
   }
 
+  # Egress enforcement is supplied by the preconfigured nelosbld VNet. The
+  # build wrapper requires a fresh operator readiness receipt before Packer.
   network_adapters {
     model         = "virtio"
-    bridge        = "vmbr0"
+    bridge        = "nelosbld"
     packet_queues = 4
     firewall      = true
   }

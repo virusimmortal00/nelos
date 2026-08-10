@@ -128,6 +128,20 @@ jq -e '
   .policy.allowFloatingVersions == false and
   .policy.requireSha256 == true and
   .policy.ubuntuAptSnapshot == "20260801T120000Z" and
+  .policy.buildNetwork == {
+    mode: "preconfigured-restricted-vnet",
+    bridge: "nelosbld",
+    dhcpSource: "restricted-vnet",
+    defaultEgressPolicy: "deny",
+    dnsPolicy: "restricted-host-allowlist-only",
+    allowedTcpPorts: [443],
+    allowedGuestHosts: [
+      "github.com",
+      "nodejs.org",
+      "release-assets.githubusercontent.com",
+      "snapshot.ubuntu.com"
+    ]
+  } and
   .policy.validationNetwork == "denied" and
   (.artifacts.node | type == "object") and
   (.artifacts.codexLegacy | type == "object") and

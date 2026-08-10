@@ -444,8 +444,22 @@ test("Proxmox contract pins the Linux CLI template and two Codex lanes", async (
   );
   assert.equal(contract.hardware.disk.storageScope, "node-local");
   assert.equal(contract.hardware.network.model, "virtio");
-  assert.equal(contract.hardware.network.bridge, "vmbr0");
+  assert.equal(contract.hardware.network.bridge, "nelosbld");
   assert.equal(contract.hardware.network.addressing, "dhcp");
+  assert.deepEqual(contract.validation.buildNetwork, {
+    mode: "preconfigured-restricted-vnet",
+    bridge: "nelosbld",
+    dhcpSource: "restricted-vnet",
+    defaultEgressPolicy: "deny",
+    dnsPolicy: "restricted-host-allowlist-only",
+    allowedTcpPorts: [443],
+    allowedGuestHosts: [
+      "github.com",
+      "nodejs.org",
+      "release-assets.githubusercontent.com",
+      "snapshot.ubuntu.com",
+    ],
+  });
   assert.deepEqual(contract.retention, {
     activeGeneration: "indefinite",
     replacedGenerationMinimumDays: 30,
@@ -522,6 +536,28 @@ test("contract requires per-run state, a fresh process, and denied validation ne
     /\/hardware\/network\/staticAddress: unknown field/u,
   );
 
+  const ordinaryBuildBridge = structuredClone(contract);
+  ordinaryBuildBridge.hardware.network.bridge = "vmbr0";
+  ordinaryBuildBridge.validation.buildNetwork.bridge = "vmbr0";
+  assert.throws(
+    () => validateProxmoxContract(ordinaryBuildBridge, contractSchema),
+    /\/hardware\/network\/bridge: must equal "nelosbld"/u,
+  );
+
+  const openBuildEgress = structuredClone(contract);
+  openBuildEgress.validation.buildNetwork.defaultEgressPolicy = "allow";
+  assert.throws(
+    () => validateProxmoxContract(openBuildEgress, contractSchema),
+    /\/validation\/buildNetwork\/defaultEgressPolicy: must equal "deny"/u,
+  );
+
+  const extraGuestHost = structuredClone(contract);
+  extraGuestHost.validation.buildNetwork.allowedGuestHosts.push("objects.githubusercontent.com");
+  assert.throws(
+    () => validateProxmoxContract(extraGuestHost, contractSchema),
+    /\/validation\/buildNetwork\/allowedGuestHosts/u,
+  );
+
   const reusedProcess = structuredClone(contract);
   reusedProcess.isolation.freshCodexProcessPerVerification = false;
   assert.throws(
@@ -548,6 +584,7 @@ test("toolchain lock rejects drift from immutable artifacts and lane IDs", async
     assert.match(artifact.url, /^https:\/\//u);
   }
   assert.equal(toolchainLock.policy.ubuntuAptSnapshot, "20260801T120000Z");
+  assert.deepEqual(toolchainLock.policy.buildNetwork, contract.validation.buildNetwork);
 
   const floating = structuredClone(toolchainLock);
   floating.policy.allowFloatingVersions = true;
@@ -565,6 +602,13 @@ test("toolchain lock rejects drift from immutable artifacts and lane IDs", async
   assert.throws(
     () => validateToolchainLock(floatingSnapshot, contract),
     /\/policy\/ubuntuAptSnapshot: must be an immutable UTC snapshot ID/u,
+  );
+
+  const ordinaryBridge = structuredClone(toolchainLock);
+  ordinaryBridge.policy.buildNetwork.bridge = "vmbr0";
+  assert.throws(
+    () => validateToolchainLock(ordinaryBridge, contract),
+    /\/policy:/u,
   );
 });
 
@@ -742,6 +786,50 @@ test("executable recipe matches the immutable lock and guarded contract", async 
   assert.notEqual(catFileIndex, -1);
   assert.notEqual(hashObjectIndex, -1);
   assert.ok(catFileIndex < hashObjectIndex);
+  const networkValidationCalls = [
+    ...buildWrapper.matchAll(/^"\$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \\$/gmu),
+  ].map((match) => match.index);
+  const materializeNetworkValidatorIndex = buildWrapper.indexOf(
+    '"validation/proxmox/scripts/validate-build-network-attestation.sh" \\\n  "$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR"',
+  );
+  const cleanlinessIndex = buildWrapper.indexOf(
+    "git_readonly status --porcelain=v1 --untracked-files=all",
+  );
+  const initialNetworkHashIndex = buildWrapper.indexOf(
+    'BUILD_NETWORK_ATTESTATION_SHA256="$(hash_build_network_attestation)"',
+  );
+  const downloadIndex = buildWrapper.indexOf('download_verified "$packer_url"');
+  const baseDiskAttestationIndex = buildWrapper.indexOf(
+    'run_base_disk_attestation "$base_attestation_nonce"',
+  );
+  const finalNetworkHashIndex = buildWrapper.lastIndexOf(
+    '[[ $(hash_build_network_attestation) == "$BUILD_NETWORK_ATTESTATION_SHA256" ]]',
+  );
+  const packerBuildIndex = buildWrapper.indexOf('"$PACKER_BIN" build -on-error=abort');
+  assert.equal(networkValidationCalls.length, 2);
+  assert.ok(cleanlinessIndex < materializeNetworkValidatorIndex);
+  assert.ok(materializeNetworkValidatorIndex < networkValidationCalls[0]);
+  assert.ok(networkValidationCalls[0] < initialNetworkHashIndex);
+  assert.ok(initialNetworkHashIndex < downloadIndex);
+  assert.ok(baseDiskAttestationIndex < networkValidationCalls[1]);
+  assert.ok(networkValidationCalls[1] < finalNetworkHashIndex);
+  assert.ok(finalNetworkHashIndex < packerBuildIndex);
+  const finalConfigReadbackIndex = buildWrapper.indexOf(
+    'api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/config?current=1"',
+  );
+  const finalStatusReadbackIndex = buildWrapper.indexOf(
+    'api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/status/current"',
+  );
+  assert.ok(packerBuildIndex < finalConfigReadbackIndex);
+  assert.ok(finalConfigReadbackIndex < finalStatusReadbackIndex);
+  assert.match(buildWrapper, /readonly FINAL_TEMPLATE_NETWORK_JQ='/u);
+  assert.match(buildWrapper, /select\(test\("\^net\[0-9\]\+\$"\)\)\] == \["net0"\]/u);
+  assert.match(buildWrapper, /select\(\. == "bridge=nelosbld"\)/u);
+  assert.match(buildWrapper, /\.data\.status == "stopped"/u);
+  assert.doesNotMatch(
+    buildWrapper,
+    /^"\$\{REPOSITORY_ROOT\}\/validation\/proxmox\/scripts\/validate-build-network-attestation\.sh"/mu,
+  );
   assert.equal(
     buildWrapper.includes(
       '($scsiDisk[1:] | sort) == ["discard=on", "iothread=1", "size=64G", "ssd=1"]',
@@ -749,6 +837,18 @@ test("executable recipe matches the immutable lock and guarded contract", async 
     true,
   );
   assert.match(bootstrap, /--net0 'virtio,bridge=vmbr0,firewall=1,queues=4'/u);
+  assert.doesNotMatch(bootstrap, /nelosbld/u);
+  assert.doesNotMatch(bootstrap, /NELOS_BUILD_NETWORK_ATTESTATION_FILE/u);
+  assert.match(buildWrapper, /NELOS_BUILD_NETWORK_ATTESTATION_FILE/u);
+  assert.match(
+    buildWrapper,
+    /readonly SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR="\$\{SEALED_SOURCE\}\/scripts\/validate-build-network-attestation\.sh"/u,
+  );
+  assert.match(buildWrapper, /\/usr\/bin\/perl -MDigest::SHA/u);
+  assert.doesNotMatch(
+    buildWrapper,
+    /sha256sum "\$BUILD_NETWORK_ATTESTATION_FILE"\s*\|\s*awk/u,
+  );
   assert.match(bootstrap, /pre-enrolled-keys=0/u);
   assert.match(bootstrap, /discard=on,iothread=1,ssd=1/u);
   assert.match(bootstrap, /"\$DISK_ATTESTER" local-bootstrap/u);
@@ -776,9 +876,148 @@ test("executable recipe matches the immutable lock and guarded contract", async 
     provisionGuest,
     /apt-get\s+\\\n\s+--error-on=any\s+\\\n\s+-o DPkg::Lock::Timeout=300\s+\\\n\s+-o Acquire::Retries=3\s+\\\n\s+-o APT::Snapshot="\$UBUNTU_APT_SNAPSHOT"\s+\\\n\s+update/u,
   );
-  assert.match(proxmoxSource, /bridge\s*=\s*"vmbr0"/u);
+  assert.match(proxmoxSource, /bridge\s*=\s*"nelosbld"/u);
+  assert.doesNotMatch(proxmoxSource, /vmbr0/u);
   assert.match(proxmoxSource, /firewall\s*=\s*true/u);
   assert.doesNotMatch(proxmoxSource, /ssh_(?:agent_auth|private_key_file)/u);
+});
+
+test("build network readiness receipt is exact, protected, and short lived", {
+  skip: process.platform !== "linux",
+}, async () => {
+  const receiptRoot = await mkdtemp(join(tmpdir(), "nelos-build-network-attestation-"));
+  const receiptPath = join(receiptRoot, "readiness.json");
+  const validator = join(
+    validationRoot,
+    "scripts",
+    "validate-build-network-attestation.sh",
+  );
+  const sourceRevision = "a".repeat(40);
+  const now = Math.floor(Date.now() / 1000);
+  const receipt = {
+    schemaVersion: 1,
+    kind: "nelos-build-network-readiness",
+    node: "prox2",
+    sourceRevision,
+    validFromEpoch: now - 60,
+    validUntilEpoch: now + 300,
+    policy: {
+      mode: "preconfigured-restricted-vnet",
+      bridge: "nelosbld",
+      dhcpSource: "restricted-vnet",
+      defaultEgressPolicy: "deny",
+      dnsPolicy: "restricted-host-allowlist-only",
+      allowedTcpPorts: [443],
+      allowedGuestHosts: [
+        "github.com",
+        "nodejs.org",
+        "release-assets.githubusercontent.com",
+        "snapshot.ubuntu.com",
+      ],
+    },
+    checks: {
+      vnetExists: true,
+      clusterSpanning: true,
+      defaultEgressDenied: true,
+      dnsRestrictedToAllowedHosts: true,
+      tcp443Only: true,
+      dhcpProvidedByRestrictedVnet: true,
+      buildGuestVmbr0Excluded: true,
+    },
+  };
+  const writeReceipt = async (value) => {
+    await chmod(receiptPath, 0o600).catch(() => {});
+    await writeFile(receiptPath, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+    await chmod(receiptPath, 0o400);
+  };
+  const validateReceipt = async (value, node = "prox2", revision = sourceRevision) => {
+    await writeReceipt(value);
+    return runProcessWithInput(
+      "/bin/bash",
+      [validator, receiptPath, node, revision],
+      "",
+    );
+  };
+
+  try {
+    await chmod(receiptRoot, 0o700);
+    const accepted = await validateReceipt(receipt);
+    assert.equal(accepted.code, 0, accepted.stderr);
+
+    const ordinaryBridge = structuredClone(receipt);
+    ordinaryBridge.policy.bridge = "vmbr0";
+    const rejectedBridge = await validateReceipt(ordinaryBridge);
+    assert.notEqual(rejectedBridge.code, 0);
+
+    const stale = structuredClone(receipt);
+    stale.validFromEpoch = now - 90000;
+    stale.validUntilEpoch = now - 1;
+    const rejectedStale = await validateReceipt(stale);
+    assert.notEqual(rejectedStale.code, 0);
+
+    const stringSchemaVersion = structuredClone(receipt);
+    stringSchemaVersion.schemaVersion = "1";
+    assert.notEqual((await validateReceipt(stringSchemaVersion)).code, 0);
+
+    const stringPort = structuredClone(receipt);
+    stringPort.policy.allowedTcpPorts = ["443"];
+    assert.notEqual((await validateReceipt(stringPort)).code, 0);
+
+    const commaJoinedHosts = structuredClone(receipt);
+    commaJoinedHosts.policy.allowedGuestHosts = [
+      "github.com,nodejs.org,release-assets.githubusercontent.com,snapshot.ubuntu.com",
+    ];
+    assert.notEqual((await validateReceipt(commaJoinedHosts)).code, 0);
+
+    const mergedPolicyKeys = structuredClone(receipt);
+    delete mergedPolicyKeys.policy.allowedGuestHosts;
+    delete mergedPolicyKeys.policy.allowedTcpPorts;
+    mergedPolicyKeys.policy["allowedGuestHosts,allowedTcpPorts"] = [443];
+    assert.notEqual((await validateReceipt(mergedPolicyKeys)).code, 0);
+
+    const falseCheck = structuredClone(receipt);
+    falseCheck.checks.buildGuestVmbr0Excluded = false;
+    assert.notEqual((await validateReceipt(falseCheck)).code, 0);
+
+    const mergedCheckKeys = structuredClone(receipt);
+    delete mergedCheckKeys.checks.buildGuestVmbr0Excluded;
+    delete mergedCheckKeys.checks.clusterSpanning;
+    mergedCheckKeys.checks["buildGuestVmbr0Excluded,clusterSpanning"] = true;
+    assert.notEqual((await validateReceipt(mergedCheckKeys)).code, 0);
+
+    const mergedTopLevelKeys = structuredClone(receipt);
+    delete mergedTopLevelKeys.kind;
+    delete mergedTopLevelKeys.node;
+    mergedTopLevelKeys["kind,node"] = "nelos-build-network-readiness";
+    assert.notEqual((await validateReceipt(mergedTopLevelKeys)).code, 0);
+
+    assert.notEqual((await validateReceipt(receipt, "prox3")).code, 0);
+    assert.notEqual((await validateReceipt(receipt, "prox2", "b".repeat(40))).code, 0);
+
+    await writeReceipt(receipt);
+    await chmod(receiptPath, 0o600);
+    const writableReceipt = await runProcessWithInput(
+      "/bin/bash",
+      [validator, receiptPath, "prox2", sourceRevision],
+      "",
+    );
+    assert.notEqual(writableReceipt.code, 0);
+
+    const unsafeDirectory = join(receiptRoot, "unsafe-world-writable");
+    const unsafeReceiptPath = join(unsafeDirectory, "readiness.json");
+    await mkdir(unsafeDirectory, { mode: 0o777 });
+    await chmod(unsafeDirectory, 0o777);
+    await writeFile(unsafeReceiptPath, `${JSON.stringify(receipt)}\n`, { mode: 0o400 });
+    await chmod(unsafeReceiptPath, 0o400);
+    const unsafeAncestor = await runProcessWithInput(
+      "/bin/bash",
+      [validator, unsafeReceiptPath, "prox2", sourceRevision],
+      "",
+    );
+    assert.notEqual(unsafeAncestor.code, 0);
+  } finally {
+    await rm(receiptRoot, { recursive: true, force: true });
+  }
 });
 
 test("disk attester closes request framing, serve mode, and activation cleanup", async () => {
@@ -1182,6 +1421,7 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   const baseTemplateApprovedConfigValuesJq = extractJqProgram(
     "BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ",
   );
+  const finalTemplateNetworkJq = extractJqProgram("FINAL_TEMPLATE_NETWORK_JQ");
   const baseTemplateCloudInitConfigJq = extractJqProgram("BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ");
   const cloudInitDeviceJq = extractJqProgram("BASE_CLOUD_INIT_DEVICE_JQ");
   const cloudInitStorageJq = extractJqProgram("CLOUD_INIT_STORAGE_VOLUME_JQ");
@@ -1210,6 +1450,8 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   assert.match(baseTemplateApprovedConfigValuesJq, /pre-enrolled-keys=0/u);
   assert.match(baseTemplateApprovedConfigValuesJq, /"ssd=1"/u);
   assert.match(baseTemplateApprovedConfigValuesJq, /"queues=4"/u);
+  assert.match(finalTemplateNetworkJq, /bridge=nelosbld/u);
+  assert.match(finalTemplateNetworkJq, /\["net0"\]/u);
   for (const cloudInitKey of ["citype", "ciuser", "ciupgrade", "ipconfig0"]) {
     assert.match(baseTemplateCloudInitConfigJq, new RegExp(`\\.data\\.${cloudInitKey}`, "u"));
   }
@@ -1306,6 +1548,41 @@ test("Proxmox preflight closes storage types and base configuration", async () =
       ["--argjson", "config", JSON.stringify(config)],
       "$config | " + baseTemplateCloudInitConfigJq,
     );
+  const acceptsFinalTemplateNetwork = (config) =>
+    jqAccepts(
+      [
+        "--argjson", "config", JSON.stringify(config),
+        "--arg", "name", "nelos-validator-provisional-prox2",
+        "--arg", "ownership_tag", "nelos-build-12345678-abc",
+      ],
+      "$config | " + finalTemplateNetworkJq,
+    );
+  const safeFinalTemplateConfig = {
+    data: {
+      ipconfig0: "ip=dhcp",
+      name: "nelos-validator-provisional-prox2",
+      net0: "virtio=BC:24:11:22:33:44,bridge=nelosbld,firewall=1,queues=4",
+      tags: "nelos-validator;ubuntu-24-04;packer;nelos-build-12345678-abc",
+      template: 1,
+    },
+  };
+  assert.equal(await acceptsFinalTemplateNetwork(safeFinalTemplateConfig), true);
+  for (const [label, mutate] of [
+    ["ordinary bridge", (value) => { value.data.net0 = value.data.net0.replace("nelosbld", "vmbr0"); }],
+    ["extra adapter", (value) => { value.data.net1 = "virtio=BC:24:11:22:33:46,bridge=nelosbld,firewall=1,queues=4"; }],
+    ["firewall disabled", (value) => { value.data.net0 = value.data.net0.replace("firewall=1", "firewall=0"); }],
+    ["wrong addressing", (value) => { value.data.ipconfig0 = "ip=192.0.2.2/24,gw=192.0.2.1"; }],
+    ["not a template", (value) => { value.data.template = 0; }],
+    ["missing ownership", (value) => { value.data.tags = "nelos-validator;ubuntu-24-04;packer"; }],
+  ]) {
+    const driftedFinalTemplate = structuredClone(safeFinalTemplateConfig);
+    mutate(driftedFinalTemplate);
+    assert.equal(
+      await acceptsFinalTemplateNetwork(driftedFinalTemplate),
+      false,
+      label,
+    );
+  }
   const safeBaseline = {
     baseTemplateName: "nelos-ubuntu-2404-base",
     baseTemplateVmid: 9020,
@@ -1491,7 +1768,7 @@ test("Proxmox preflight closes storage types and base configuration", async () =
     "e1000=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4",
     "virtio=BD:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=4",
     "virtio=00:00:00:00:00:00,bridge=vmbr0,firewall=1,queues=4",
-    "virtio=BC:24:11:22:33:44,bridge=vmbr1,firewall=1,queues=4",
+    "virtio=BC:24:11:22:33:44,bridge=nelosbld,firewall=1,queues=4",
     "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=0,queues=4",
     "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1",
     "virtio=BC:24:11:22:33:44,bridge=vmbr0,firewall=1,queues=8",

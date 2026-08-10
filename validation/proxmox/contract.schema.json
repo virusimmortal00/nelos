@@ -242,7 +242,7 @@
               "const": "virtio"
             },
             "bridge": {
-              "const": "vmbr0"
+              "const": "nelosbld"
             },
             "addressing": {
               "const": "dhcp"
@@ -410,7 +410,57 @@
           "const": true
         },
         "buildNetwork": {
-          "const": "allowlisted"
+          "type": "object",
+          "required": [
+            "mode",
+            "bridge",
+            "dhcpSource",
+            "defaultEgressPolicy",
+            "dnsPolicy",
+            "allowedTcpPorts",
+            "allowedGuestHosts"
+          ],
+          "properties": {
+            "mode": {
+              "const": "preconfigured-restricted-vnet"
+            },
+            "bridge": {
+              "const": "nelosbld"
+            },
+            "dhcpSource": {
+              "const": "restricted-vnet"
+            },
+            "defaultEgressPolicy": {
+              "const": "deny"
+            },
+            "dnsPolicy": {
+              "const": "restricted-host-allowlist-only"
+            },
+            "allowedTcpPorts": {
+              "type": "array",
+              "items": {
+                "const": 443
+              },
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true
+            },
+            "allowedGuestHosts": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "github.com",
+                  "nodejs.org",
+                  "release-assets.githubusercontent.com",
+                  "snapshot.ubuntu.com"
+                ]
+              },
+              "minItems": 4,
+              "maxItems": 4,
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
         },
         "validationNetwork": {
           "const": "denied"

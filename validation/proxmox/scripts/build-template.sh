@@ -269,9 +269,12 @@ readonly SOURCE_REVISION
 [[ -z $(git_readonly status --porcelain=v1 --untracked-files=all) ]] || die "source checkout must be clean, including untracked files"
 assert_candidate_tree_regular
 
+require_env NELOS_BUILD_NETWORK_ATTESTATION_FILE
+readonly BUILD_NETWORK_ATTESTATION_FILE="${NELOS_BUILD_NETWORK_ATTESTATION_FILE}"
 assert_controller_attestation_file "$BASE_ATTESTATION_SSH_IDENTITY_FILE" "attestation SSH identity" 600
 assert_controller_attestation_file "$BASE_ATTESTATION_KNOWN_HOSTS_FILE" "attestation known_hosts file" 400
 assert_controller_attestation_file "$BASE_ATTESTATION_BASELINE_FILE" "trusted base disk baseline receipt" 600
+assert_controller_attestation_file "$BUILD_NETWORK_ATTESTATION_FILE" "build-network readiness attestation" 400
 BASE_ATTESTATION_BASELINE_JSON="$(/usr/bin/perl -e '
   binmode(STDIN);
   binmode(STDOUT);
@@ -293,7 +296,8 @@ unset \
   NELOS_BASE_ATTESTATION_SSH_TARGET \
   NELOS_BASE_ATTESTATION_SSH_IDENTITY_FILE \
   NELOS_BASE_ATTESTATION_KNOWN_HOSTS_FILE \
-  NELOS_BASE_ATTESTATION_BASELINE_FILE
+  NELOS_BASE_ATTESTATION_BASELINE_FILE \
+  NELOS_BUILD_NETWORK_ATTESTATION_FILE
 unset SSH_AGENT_PID SSH_AUTH_SOCK
 
 readonly -a EXPECTED_PACKER_SOURCES=(
@@ -314,6 +318,7 @@ done
 readonly -a SEALED_INPUTS=(
   "${TOOLCHAIN_LOCK}"
   "${REPOSITORY_ROOT}/validation/proxmox/cloud-init/99-nelos-validator.cfg"
+  "${REPOSITORY_ROOT}/validation/proxmox/scripts/validate-build-network-attestation.sh"
   "${REPOSITORY_ROOT}/validation/proxmox/scripts/provision-guest.sh"
   "${REPOSITORY_ROOT}/validation/proxmox/scripts/prepare-template.sh"
 )
@@ -443,6 +448,33 @@ materialize_tracked \
   "validation/proxmox/scripts/prepare-template.sh" \
   "${SEALED_SOURCE}/scripts/prepare-template.sh" \
   0555
+readonly SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR="${SEALED_SOURCE}/scripts/validate-build-network-attestation.sh"
+materialize_tracked \
+  "validation/proxmox/scripts/validate-build-network-attestation.sh" \
+  "$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \
+  0555
+
+hash_build_network_attestation() {
+  # shellcheck disable=SC2016 # Embedded Perl source must not be expanded by Bash.
+  /usr/bin/env -i \
+    PATH=/usr/bin:/bin \
+    LC_ALL=C \
+    HOME=/nonexistent \
+    /usr/bin/perl -MDigest::SHA -e '
+      binmode(STDIN);
+      my $digest = Digest::SHA->new(256);
+      $digest->addfile(*STDIN);
+      print $digest->hexdigest;
+    ' <"$BUILD_NETWORK_ATTESTATION_FILE"
+}
+
+"$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \
+  "$BUILD_NETWORK_ATTESTATION_FILE" "$PROXMOX_NODE" "$SOURCE_REVISION" || \
+  die "preconfigured restricted VNet readiness is not attested"
+BUILD_NETWORK_ATTESTATION_SHA256="$(hash_build_network_attestation)"
+readonly BUILD_NETWORK_ATTESTATION_SHA256
+[[ $BUILD_NETWORK_ATTESTATION_SHA256 =~ ^[a-f0-9]{64}$ ]] || \
+  die "could not bind the build-network readiness attestation"
 
 export CHECKPOINT_DISABLE=1
 export PACKER_CACHE_DIR="${RUN_ROOT}/cache"
@@ -809,6 +841,25 @@ readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
   $vmGenerationId != "00000000-0000-0000-0000-000000000000" and
   $vmGenerationId != $smbiosUuid'
 # shellcheck disable=SC2016
+readonly FINAL_TEMPLATE_NETWORK_JQ='
+  (((try ((.data.net0 // "") | split(",")) catch []) // [])) as $networkOptions |
+  ($networkOptions |
+    map(select(test("^virtio=[0-9A-Fa-f][02468AaCcEe](?::[0-9A-Fa-f]{2}){5}$")))
+  ) as $networkMacOptions |
+  (($networkMacOptions[0] // "") | sub("^virtio="; "") | ascii_downcase) as $networkMac |
+  .data.name == $name and
+  .data.template == 1 and
+  .data.ipconfig0 == "ip=dhcp" and
+  ([.data | keys[] | select(test("^net[0-9]+$"))] == ["net0"]) and
+  ($networkOptions | length) == 4 and
+  ($networkMacOptions | length) == 1 and
+  $networkMac != "00:00:00:00:00:00" and
+  (($networkOptions | map(select(. == "bridge=nelosbld"))) == ["bridge=nelosbld"]) and
+  (($networkOptions | map(select(. == "firewall=1"))) == ["firewall=1"]) and
+  (($networkOptions | map(select(. == "queues=4"))) == ["queues=4"]) and
+  (((try ((.data.tags // "") | split(";") | sort) catch []) // []) ==
+    (["nelos-validator", "ubuntu-24-04", "packer", $ownership_tag] | sort))'
+# shellcheck disable=SC2016
 readonly BASE_TEMPLATE_CLOUD_INIT_CONFIG_JQ='
   .data.citype == "nocloud" and
   .data.ciuser == "ubuntu" and
@@ -1035,8 +1086,29 @@ base_attestation_nonce="build-${build_nonce//-/}"
 readonly base_attestation_nonce
 run_base_disk_attestation "$base_attestation_nonce"
 
+"$SEALED_BUILD_NETWORK_ATTESTATION_VALIDATOR" \
+  "$BUILD_NETWORK_ATTESTATION_FILE" "$PROXMOX_NODE" "$SOURCE_REVISION" || \
+  die "restricted VNet readiness attestation expired or changed before mutation"
+[[ $(hash_build_network_attestation) == "$BUILD_NETWORK_ATTESTATION_SHA256" ]] || \
+  die "restricted VNet readiness attestation changed before mutation"
+
 printf 'starting source %s with ownership tag nelos-build-%s\n' "$SOURCE_REVISION" "${build_nonce:0:12}"
 
 # Packer cleanup is intentionally disabled. A failed build remains tagged with
 # its unique build nonce for explicit inventory reconciliation by an operator.
 "$PACKER_BIN" build -on-error=abort -var-file="$sealed_var_file" "$SEALED_PACKER_DIR"
+
+final_config_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/config?current=1")" || \
+  die "Packer succeeded but the final template configuration could not be read; leave the owned artifact for reconciliation"
+final_status_response="$(api_get "nodes/${PROXMOX_NODE}/qemu/${OUTPUT_TEMPLATE_VMID}/status/current")" || \
+  die "Packer succeeded but the final template status could not be read; leave the owned artifact for reconciliation"
+readonly final_config_response final_status_response
+readonly final_ownership_tag="nelos-build-${build_nonce:0:12}"
+jq -e \
+  --arg name "$OUTPUT_TEMPLATE_NAME" \
+  --arg ownership_tag "$final_ownership_tag" \
+  "$FINAL_TEMPLATE_NETWORK_JQ" \
+  <<<"$final_config_response" >/dev/null || \
+  die "Packer output is not the exact nelosbld-only validator template; leave the owned artifact for reconciliation"
+jq -e '.data.status == "stopped"' <<<"$final_status_response" >/dev/null || \
+  die "Packer output is not stopped; leave the owned artifact for reconciliation"

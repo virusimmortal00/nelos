@@ -56,7 +56,7 @@
     "network": {
       "interfaces": 1,
       "model": "virtio",
-      "bridge": "vmbr0",
+      "bridge": "nelosbld",
       "addressing": "dhcp",
       "firewall": true
     },
@@ -143,7 +143,22 @@
   },
   "validation": {
     "offline": true,
-    "buildNetwork": "allowlisted",
+    "buildNetwork": {
+      "mode": "preconfigured-restricted-vnet",
+      "bridge": "nelosbld",
+      "dhcpSource": "restricted-vnet",
+      "defaultEgressPolicy": "deny",
+      "dnsPolicy": "restricted-host-allowlist-only",
+      "allowedTcpPorts": [
+        443
+      ],
+      "allowedGuestHosts": [
+        "github.com",
+        "nodejs.org",
+        "release-assets.githubusercontent.com",
+        "snapshot.ubuntu.com"
+      ]
+    },
     "validationNetwork": "denied",
     "marketplaceSelector": "nelos@nelos-marketplace",
     "mcpServerId": "nelos",
