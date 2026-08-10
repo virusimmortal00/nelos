@@ -261,9 +261,10 @@ async function readGitCandidateIdentity(fixtureRoot) {
     assert.notEqual(headerMatch, null, "fixture tree manifest header must use the documented shape");
     const { mode, type, objectId } = headerMatch.groups;
     assert.notEqual(mode, "160000", "fixture candidates must not contain gitlinks");
+    assert.notEqual(mode, "120000", "fixture candidates must not contain tracked symlinks");
     assert.notEqual(type, "commit", "fixture candidates must not contain submodules");
     assert.equal(type, "blob");
-    assert.ok(["100644", "100755", "120000"].includes(mode));
+    assert.ok(["100644", "100755"].includes(mode));
     assert.equal(objectId.length, objectIdWidth);
     recordOffset = recordEnd + 1;
   }
@@ -1620,6 +1621,47 @@ test("repository evidence rejects gitlink candidates before accepting their iden
   await assert.rejects(
     validateRepositoryContract(fixtureRoot, { evidencePath }),
     /\/candidate\/gitlinks: Gitlink and submodule entries are forbidden for evidence candidates/u,
+  );
+});
+
+test("repository evidence rejects tracked symlinks before reading their targets", async (context) => {
+  const { artifactRoot, fixtureRoot } = await createCleanRepositoryFixture(context);
+  const fixtureValidationRoot = join(fixtureRoot, "validation", "proxmox");
+  const [contractBytes, toolchainLockBytes, contract, pluginManifest, candidateIdentity] = await Promise.all([
+    readFile(join(fixtureValidationRoot, "contract.json")),
+    readFile(join(fixtureValidationRoot, "toolchain.lock.json")),
+    readJson(join(fixtureValidationRoot, "contract.json")),
+    readJson(join(fixtureRoot, ".codex-plugin", "plugin.json")),
+    readGitCandidateIdentity(fixtureRoot),
+  ]);
+  const evidence = createEvidenceProbe(contract, {
+    contractSha256: createHash("sha256").update(contractBytes).digest("hex"),
+    toolchainLockSha256: createHash("sha256").update(toolchainLockBytes).digest("hex"),
+    pluginVersion: pluginManifest.version,
+    ...candidateIdentity,
+  });
+  const evidencePath = join(artifactRoot, "symlink-evidence.json");
+  await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, { mode: 0o600 });
+
+  const pluginManifestPath = join(fixtureRoot, ".codex-plugin", "plugin.json");
+  const externalTarget = join(artifactRoot, "invalid-external-plugin.json");
+  await writeFile(externalTarget, "not json\n", { mode: 0o600 });
+  await rm(pluginManifestPath);
+  await symlink(externalTarget, pluginManifestPath);
+  await execFileAsync("git", ["add", "--all"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+  await execFileAsync("git", ["commit", "--quiet", "--message", "add forbidden symlink"], {
+    cwd: fixtureRoot,
+    encoding: "utf8",
+    env: commitGitEnvironment(),
+  });
+
+  await assert.rejects(
+    validateRepositoryContract(fixtureRoot, { evidencePath }),
+    /\/candidate\/symlinks: Tracked symlink entries are forbidden for evidence candidates/u,
   );
 });
 

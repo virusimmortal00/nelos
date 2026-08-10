@@ -146,9 +146,12 @@ function inspectCanonicalGitTreeManifest(treeManifest, objectFormat) {
     if (mode === "160000" || type === "commit") {
       fail("/candidate/gitlinks", "Gitlink and submodule entries are forbidden for evidence candidates");
     }
+    if (mode === "120000") {
+      fail("/candidate/symlinks", "Tracked symlink entries are forbidden for evidence candidates");
+    }
     if (
       type !== "blob"
-      || !["100644", "100755", "120000"].includes(mode)
+      || !["100644", "100755"].includes(mode)
       || objectId.length !== objectIdWidth
     ) {
       fail("/candidate/treeManifest", "Git tree manifest object metadata is invalid");
@@ -857,6 +860,9 @@ function validateCandidatePluginManifest(manifest) {
 export async function validateRepositoryContract(root = repositoryRoot, options = {}) {
   const resolvedRoot = resolve(root);
   const validationRoot = join(resolvedRoot, "validation", "proxmox");
+  const candidateCheckoutIdentity = options.evidencePath
+    ? await inspectEvidenceCandidate(resolvedRoot)
+    : undefined;
   const [contractDocument, contractSchema, toolchainLockDocument, evidenceSchema, pluginManifest] =
     await Promise.all([
       readJsonWithBytes(join(validationRoot, "contract.json"), "contract.json"),
@@ -883,7 +889,7 @@ export async function validateRepositoryContract(root = repositoryRoot, options 
   if (options.evidencePath) {
     const repositoryIdentity = Object.freeze({
       ...repositoryInputs,
-      ...await inspectEvidenceCandidate(resolvedRoot),
+      ...candidateCheckoutIdentity,
     });
     validateEvidenceDocument(
       createEvidenceProbe(contract, repositoryIdentity),
