@@ -9,6 +9,7 @@
     "runId",
     "candidate",
     "template",
+    "observations",
     "lanes",
     "sanitization",
     "result"
@@ -74,6 +75,18 @@
         },
         "toolchainLockSha256": {
           "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "observations": {
+      "type": "object",
+      "required": [
+        "networkDeniedDuringValidation"
+      ],
+      "properties": {
+        "networkDeniedDuringValidation": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -209,6 +222,10 @@
         "freshProcess",
         "home",
         "codexHome",
+        "tmpDir",
+        "xdgConfigHome",
+        "xdgCacheHome",
+        "xdgDataHome",
         "pluginVersion",
         "pluginManifestPath",
         "mcpManifestPath",
@@ -231,6 +248,22 @@
         "codexHome": {
           "type": "string",
           "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/home/\\.codex$"
+        },
+        "tmpDir": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/tmp$"
+        },
+        "xdgConfigHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/config$"
+        },
+        "xdgCacheHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/cache$"
+        },
+        "xdgDataHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/legacy-01446/xdg/data$"
         },
         "pluginVersion": {
           "$ref": "#/$defs/semver"
@@ -266,6 +299,10 @@
                 "enum": [
                   "CODEX_HOME",
                   "HOME",
+                  "TMPDIR",
+                  "XDG_CACHE_HOME",
+                  "XDG_CONFIG_HOME",
+                  "XDG_DATA_HOME",
                   "NELOS_PLUGIN_VERSION",
                   "NELOS_RELEASE_BUILD_IDENTITY"
                 ]
@@ -302,6 +339,10 @@
         "freshProcess",
         "home",
         "codexHome",
+        "tmpDir",
+        "xdgConfigHome",
+        "xdgCacheHome",
+        "xdgDataHome",
         "pluginVersion",
         "pluginManifestPath",
         "mcpManifestPath",
@@ -324,6 +365,22 @@
         "codexHome": {
           "type": "string",
           "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/home/\\.codex$"
+        },
+        "tmpDir": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/tmp$"
+        },
+        "xdgConfigHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/config$"
+        },
+        "xdgCacheHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/cache$"
+        },
+        "xdgDataHome": {
+          "type": "string",
+          "pattern": "^/var/lib/nelos-validator/runs/[A-Za-z0-9._-]+/agent-plugin-01470/xdg/data$"
         },
         "pluginVersion": {
           "$ref": "#/$defs/semver"
@@ -359,6 +416,10 @@
                 "enum": [
                   "CODEX_HOME",
                   "HOME",
+                  "TMPDIR",
+                  "XDG_CACHE_HOME",
+                  "XDG_CONFIG_HOME",
+                  "XDG_DATA_HOME",
                   "NELOS_PLUGIN_VERSION",
                   "NELOS_RELEASE_BUILD_IDENTITY",
                   "PLUGIN_DATA",

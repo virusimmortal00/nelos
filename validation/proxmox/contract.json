@@ -108,7 +108,11 @@
       "pluginRootSource": "home-dot-codex-cache-discovery",
       "requiredEnvironment": [
         "HOME",
-        "CODEX_HOME"
+        "CODEX_HOME",
+        "TMPDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME"
       ],
       "forbiddenAssumptions": [
         "PLUGIN_DATA",
@@ -125,6 +129,10 @@
       "requiredEnvironment": [
         "HOME",
         "CODEX_HOME",
+        "TMPDIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
         "PLUGIN_ROOT",
         "PLUGIN_DATA"
       ],
@@ -148,6 +156,9 @@
       "nelos-config-get",
       "lane-parity"
     ],
+    "requiredObservations": [
+      "network-denied-during-validation"
+    ],
     "evidenceSchemaPath": "./evidence/schema.json",
     "sanitization": {
       "required": true,
@@ -158,6 +169,10 @@
       "allowedEnvironmentKeys": [
         "CODEX_HOME",
         "HOME",
+        "TMPDIR",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
         "NELOS_PLUGIN_VERSION",
         "NELOS_RELEASE_BUILD_IDENTITY",
         "PLUGIN_DATA",

@@ -401,6 +401,7 @@
         "marketplaceSelector",
         "mcpServerId",
         "requiredChecks",
+        "requiredObservations",
         "evidenceSchemaPath",
         "sanitization"
       ],
@@ -435,6 +436,15 @@
           },
           "minItems": 7,
           "maxItems": 7,
+          "uniqueItems": true
+        },
+        "requiredObservations": {
+          "type": "array",
+          "items": {
+            "const": "network-denied-during-validation"
+          },
+          "minItems": 1,
+          "maxItems": 1,
           "uniqueItems": true
         },
         "evidenceSchemaPath": {
@@ -472,14 +482,18 @@
                 "enum": [
                   "CODEX_HOME",
                   "HOME",
+                  "TMPDIR",
+                  "XDG_CACHE_HOME",
+                  "XDG_CONFIG_HOME",
+                  "XDG_DATA_HOME",
                   "NELOS_PLUGIN_VERSION",
                   "NELOS_RELEASE_BUILD_IDENTITY",
                   "PLUGIN_DATA",
                   "PLUGIN_ROOT"
                 ]
               },
-              "minItems": 6,
-              "maxItems": 6,
+              "minItems": 10,
+              "maxItems": 10,
               "uniqueItems": true
             }
           },
@@ -622,11 +636,15 @@
           "items": {
             "enum": [
               "HOME",
-              "CODEX_HOME"
+              "CODEX_HOME",
+              "TMPDIR",
+              "XDG_CONFIG_HOME",
+              "XDG_CACHE_HOME",
+              "XDG_DATA_HOME"
             ]
           },
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 6,
+          "maxItems": 6,
           "uniqueItems": true
         },
         "forbiddenAssumptions": {
@@ -681,12 +699,16 @@
             "enum": [
               "HOME",
               "CODEX_HOME",
+              "TMPDIR",
+              "XDG_CONFIG_HOME",
+              "XDG_CACHE_HOME",
+              "XDG_DATA_HOME",
               "PLUGIN_ROOT",
               "PLUGIN_DATA"
             ]
           },
-          "minItems": 4,
-          "maxItems": 4,
+          "minItems": 8,
+          "maxItems": 8,
           "uniqueItems": true
         },
         "forbiddenAssumptions": {

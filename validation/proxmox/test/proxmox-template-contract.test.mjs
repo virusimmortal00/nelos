@@ -423,12 +423,49 @@ test("Proxmox contract pins the Linux CLI template and two Codex lanes", async (
 test("contract requires per-run state, a fresh process, and denied validation network", async () => {
   const { contract, contractSchema } = await loadFixture();
 
-  assert.equal(contract.isolation.environment.HOME, "${LANE_ROOT}/home");
-  assert.equal(contract.isolation.environment.CODEX_HOME, "${LANE_ROOT}/home/.codex");
+  assert.deepEqual(contract.isolation.environment, {
+    HOME: "${LANE_ROOT}/home",
+    CODEX_HOME: "${LANE_ROOT}/home/.codex",
+    TMPDIR: "${LANE_ROOT}/tmp",
+    XDG_CONFIG_HOME: "${LANE_ROOT}/xdg/config",
+    XDG_CACHE_HOME: "${LANE_ROOT}/xdg/cache",
+    XDG_DATA_HOME: "${LANE_ROOT}/xdg/data",
+  });
   assert.equal(contract.isolation.freshCodexProcessPerVerification, true);
   assert.equal(contract.isolation.sharedMutableState, false);
   assert.equal(contract.validation.offline, true);
   assert.equal(contract.validation.validationNetwork, "denied");
+  assert.deepEqual(contract.validation.requiredObservations, ["network-denied-during-validation"]);
+  assert.deepEqual(contract.lanes["legacy-01446"].requiredEnvironment, [
+    "HOME",
+    "CODEX_HOME",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+  ]);
+  assert.deepEqual(contract.lanes["agent-plugin-01470"].requiredEnvironment, [
+    "HOME",
+    "CODEX_HOME",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "PLUGIN_ROOT",
+    "PLUGIN_DATA",
+  ]);
+  assert.deepEqual(contract.validation.sanitization.allowedEnvironmentKeys, [
+    "CODEX_HOME",
+    "HOME",
+    "TMPDIR",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "NELOS_PLUGIN_VERSION",
+    "NELOS_RELEASE_BUILD_IDENTITY",
+    "PLUGIN_DATA",
+    "PLUGIN_ROOT",
+  ]);
   assert.deepEqual(contract.isolation.forbiddenHostInputs, [
     "mac-authentication-state",
     "mac-codex-config",
@@ -1401,6 +1438,7 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   validateEvidenceDocument(evidence, evidenceSchema, contract, { pluginVersion });
   assert.equal(evidence.sanitization.status, "passed");
   assert.equal(evidence.sanitization.credentialsCaptured, false);
+  assert.equal(evidence.observations.networkDeniedDuringValidation, true);
   assert.equal(evidence.lanes["legacy-01446"].checks.laneParity, true);
   assert.equal(evidence.lanes["agent-plugin-01470"].checks.laneParity, true);
 
@@ -1442,12 +1480,63 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     /must be isolated beneath this evidence run ID/u,
   );
 
+  for (const laneId of ["legacy-01446", "agent-plugin-01470"]) {
+    for (const [field, suffix] of Object.entries({
+      tmpDir: "tmp",
+      xdgConfigHome: "xdg/config",
+      xdgCacheHome: "xdg/cache",
+      xdgDataHome: "xdg/data",
+    })) {
+      const wrongMutableRoot = structuredClone(evidence);
+      wrongMutableRoot.lanes[laneId][field] =
+        `/var/lib/nelos-validator/runs/another-run/${laneId}/${suffix}`;
+      assert.throws(
+        () => validateEvidenceDocument(wrongMutableRoot, evidenceSchema, contract),
+        /must be isolated beneath this evidence run and lane ID/u,
+        `${laneId} ${field}`,
+      );
+    }
+  }
+
+  for (const laneId of ["legacy-01446", "agent-plugin-01470"]) {
+    for (const environmentKey of ["TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"]) {
+      const missingMutableEnvironment = structuredClone(evidence);
+      missingMutableEnvironment.lanes[laneId].processObservation.observedEnvironmentKeys =
+        missingMutableEnvironment.lanes[laneId].processObservation.observedEnvironmentKeys
+          .filter((key) => key !== environmentKey);
+      assert.throws(
+        () => validateEvidenceDocument(missingMutableEnvironment, evidenceSchema, contract),
+        new RegExp(`must include ${environmentKey}`, "u"),
+        `${laneId} ${environmentKey}`,
+      );
+    }
+  }
+
+  const passedWithoutObservedNetworkDenial = structuredClone(evidence);
+  passedWithoutObservedNetworkDenial.observations.networkDeniedDuringValidation = false;
+  assert.throws(
+    () => validateEvidenceDocument(passedWithoutObservedNetworkDenial, evidenceSchema, contract),
+    /passed evidence requires observed network denial across the validation window/u,
+  );
+
+  const failedWithoutObservedNetworkDenial = structuredClone(passedWithoutObservedNetworkDenial);
+  failedWithoutObservedNetworkDenial.result = {
+    status: "failed",
+    failures: ["validation.network-denial-unproven"],
+  };
+  validateEvidenceDocument(failedWithoutObservedNetworkDenial, evidenceSchema, contract);
+
+  const invalidNetworkObservation = structuredClone(evidence);
+  invalidNetworkObservation.observations.networkDeniedDuringValidation = "yes";
+  assert.throws(
+    () => validateEvidenceDocument(invalidNetworkObservation, evidenceSchema, contract),
+    /networkDeniedDuringValidation: must have type boolean/u,
+  );
+
   const missingPluginData = structuredClone(evidence);
-  missingPluginData.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys = [
-    "CODEX_HOME",
-    "HOME",
-    "PLUGIN_ROOT",
-  ];
+  missingPluginData.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys =
+    missingPluginData.lanes["agent-plugin-01470"].processObservation.observedEnvironmentKeys
+      .filter((key) => key !== "PLUGIN_DATA");
   assert.throws(
     () => validateEvidenceDocument(missingPluginData, evidenceSchema, contract),
     /must include PLUGIN_DATA/u,
@@ -1632,15 +1721,12 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
     /passed evidence requires every lane check to pass/u,
   );
 
-  const failedWithAllChecks = structuredClone(evidence);
-  failedWithAllChecks.result = {
+  const failedAfterSuccessfulObservations = structuredClone(evidence);
+  failedAfterSuccessfulObservations.result = {
     status: "failed",
-    failures: ["synthetic.failure-without-failed-check"],
+    failures: ["candidate.changed-during-validation"],
   };
-  assert.throws(
-    () => validateEvidenceDocument(failedWithAllChecks, evidenceSchema, contract),
-    /failed evidence requires at least one failed lane check/u,
-  );
+  validateEvidenceDocument(failedAfterSuccessfulObservations, evidenceSchema, contract);
 
   const unsafeEvidence = structuredClone(evidence);
   unsafeEvidence.runId = "validator-192.0.2.10";

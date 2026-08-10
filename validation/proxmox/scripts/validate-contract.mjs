@@ -477,8 +477,16 @@ export function validateProxmoxContract(contract, contractSchema) {
     "/scope/excludedSurfaces",
   );
   const environment = contract.isolation.environment;
-  if (environment.HOME !== "${LANE_ROOT}/home" || environment.CODEX_HOME !== `${environment.HOME}/.codex`) {
-    fail("/isolation/environment/CODEX_HOME", "must resolve to HOME/.codex for the legacy bootstrap");
+  const expectedEnvironment = {
+    HOME: "${LANE_ROOT}/home",
+    CODEX_HOME: "${LANE_ROOT}/home/.codex",
+    TMPDIR: "${LANE_ROOT}/tmp",
+    XDG_CONFIG_HOME: "${LANE_ROOT}/xdg/config",
+    XDG_CACHE_HOME: "${LANE_ROOT}/xdg/cache",
+    XDG_DATA_HOME: "${LANE_ROOT}/xdg/data",
+  };
+  if (!isDeepStrictEqual(environment, expectedEnvironment)) {
+    fail("/isolation/environment", "must isolate HOME, CODEX_HOME, TMPDIR, and every XDG mutable-state directory per lane");
   }
   if (!contract.isolation.freshCodexProcessPerVerification) {
     fail("/isolation/freshCodexProcessPerVerification", "a fresh Codex process is required");
@@ -489,6 +497,11 @@ export function validateProxmoxContract(contract, contractSchema) {
   if (contract.validation.buildNetwork !== "allowlisted") {
     fail("/validation/buildNetwork", "template build downloads must be allowlisted");
   }
+  assertExactSet(
+    contract.validation.requiredObservations,
+    ["network-denied-during-validation"],
+    "/validation/requiredObservations",
+  );
   return contract;
 }
 
@@ -770,12 +783,19 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
       contractSha256: repositoryIdentity.contractSha256 ?? "2".repeat(64),
       toolchainLockSha256: repositoryIdentity.toolchainLockSha256 ?? "3".repeat(64),
     },
+    observations: {
+      networkDeniedDuringValidation: true,
+    },
     lanes: {
       "legacy-01446": {
         codexVersion: "0.144.6",
         freshProcess: true,
         home: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home",
         codexHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home/.codex",
+        tmpDir: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/tmp",
+        xdgConfigHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/config",
+        xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
+        xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
         pluginVersion,
         pluginManifestPath: ".codex-plugin/plugin.json",
         mcpManifestPath: ".mcp.json",
@@ -783,7 +803,14 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         processObservation: {
           commandClass: "node-inline-bootstrap",
           cwdClass: "task-workspace",
-          observedEnvironmentKeys: ["CODEX_HOME", "HOME"],
+          observedEnvironmentKeys: [
+            "CODEX_HOME",
+            "HOME",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+          ],
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
         },
@@ -795,6 +822,10 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         freshProcess: true,
         home: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
         codexHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex",
+        tmpDir: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
+        xdgConfigHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
+        xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
+        xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
         pluginVersion,
         pluginManifestPath: "plugin.json",
         mcpManifestPath: "mcp.json",
@@ -802,7 +833,16 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
         processObservation: {
           commandClass: "node-plugin-root-entrypoint",
           cwdClass: "plugin-root",
-          observedEnvironmentKeys: ["CODEX_HOME", "HOME", "PLUGIN_DATA", "PLUGIN_ROOT"],
+          observedEnvironmentKeys: [
+            "CODEX_HOME",
+            "HOME",
+            "PLUGIN_DATA",
+            "PLUGIN_ROOT",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+          ],
           fullCommandCaptured: false,
           fullEnvironmentCaptured: false,
         },
@@ -859,6 +899,22 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   }
   if (legacy.codexHome !== `${legacy.home}/.codex`) fail("/lanes/legacy-01446/codexHome", "must equal HOME/.codex");
   if (agent.codexHome !== `${agent.home}/.codex`) fail("/lanes/agent-plugin-01470/codexHome", "must equal HOME/.codex");
+  for (const [laneId, lane] of Object.entries({
+    "legacy-01446": legacy,
+    "agent-plugin-01470": agent,
+  })) {
+    const laneRoot = `${expectedRunRoot}/${laneId}`;
+    for (const [field, suffix] of Object.entries({
+      tmpDir: "tmp",
+      xdgConfigHome: "xdg/config",
+      xdgCacheHome: "xdg/cache",
+      xdgDataHome: "xdg/data",
+    })) {
+      if (lane[field] !== `${laneRoot}/${suffix}`) {
+        fail(`/lanes/${laneId}/${field}`, "must be isolated beneath this evidence run and lane ID");
+      }
+    }
+  }
   if (legacy.pluginVersion !== agent.pluginVersion) fail("/lanes", "plugin versions must match across lanes");
   if (repositoryIdentity !== undefined && Object.hasOwn(repositoryIdentity, "pluginVersion")) {
     for (const [laneId, lane] of Object.entries({
@@ -947,11 +1003,12 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
     fail("/result/failures", "failed evidence must describe at least one failure");
   }
   const checkValues = [legacy, agent].flatMap((lane) => Object.values(lane.checks));
+  const networkDeniedDuringValidation = evidence.observations.networkDeniedDuringValidation;
   if (evidence.result.status === "passed" && checkValues.some((value) => value !== true)) {
     fail("/lanes", "passed evidence requires every lane check to pass");
   }
-  if (evidence.result.status === "failed" && checkValues.every((value) => value === true)) {
-    fail("/lanes", "failed evidence requires at least one failed lane check");
+  if (evidence.result.status === "passed" && !networkDeniedDuringValidation) {
+    fail("/observations/networkDeniedDuringValidation", "passed evidence requires observed network denial across the validation window");
   }
   return evidence;
 }

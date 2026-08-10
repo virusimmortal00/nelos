@@ -359,9 +359,15 @@ Before this can produce a valid evidence document, a follow-on Linux runner must
 1. Create a same-node, disposable linked clone with a newly reserved VMID and a
    unique ownership marker.
 2. Enforce and attest validation-time network denial using PVE firewall rules or
-   a quarantine bridge; `firewall=1` alone is not a deny policy.
+   a quarantine bridge; `firewall=1` alone is not a deny policy. Derive
+   `observations.networkDeniedDuringValidation` from checks before the lanes,
+   during each lane, and after the lanes; report `false` whenever denial cannot
+   be observed across that complete window.
 3. Create each run and lane root from `contract.json` with no shared mutable
-   home, Codex home, cache, temporary directory, or plugin cache.
+   home, Codex home, cache, temporary directory, or plugin cache. Evidence must
+   bind the exact lane-local values of `HOME`, `CODEX_HOME`, `TMPDIR`,
+   `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, not only report
+   that those variable names were present.
 4. Install the exact source commit in both the legacy and agent-plugin layouts.
 5. Start a fresh Codex process for each lane and verify MCP initialize,
    `tools/list`, `nelos_config_get`, and exact tool parity.
