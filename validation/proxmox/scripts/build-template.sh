@@ -804,7 +804,7 @@ readonly BASE_TEMPLATE_APPROVED_CONFIG_VALUES_JQ='
     $efiOptions == ["efitype=4m", "pre-enrolled-keys=0", "size=4M"]
   ) and
   .data.machine == "q35" and
-  .data.memory == 8192 and
+  (.data.memory == 8192 or .data.memory == "8192") and
   ($metaOptions | length) == 2 and
   (($metaOptions | map(select(test("^creation-qemu=[0-9]+(?:[.][0-9]+)+$")))) | length) == 1 and
   (($metaOptions | map(select(test("^ctime=[0-9]+$")))) | length) == 1 and

@@ -1731,6 +1731,10 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   assert.equal(await acceptsApprovedConfigValues(safeBaseConfig), true);
   assert.equal(await acceptsCloudInitConfig(safeBaseConfig), true);
 
+  const stringMemoryConfig = structuredClone(safeBaseConfig);
+  stringMemoryConfig.data.memory = "8192";
+  assert.equal(await acceptsApprovedConfigValues(stringMemoryConfig), true);
+
   for (const forbiddenConfigKey of [...forbiddenConfigKeys, "hostpci0", "future-pve-key"]) {
     const unexpectedConfig = structuredClone(safeBaseConfig);
     unexpectedConfig.data[forbiddenConfigKey] = "unexpected";
@@ -1799,6 +1803,7 @@ test("Proxmox preflight closes storage types and base configuration", async () =
     ["digest", "not-a-sha1"],
     ["machine", "q35,viommu=intel"],
     ["memory", 16384],
+    ["memory", "16384"],
     ["meta", "creation-qemu=9.2.0"],
     ["meta", "creation-qemu=9.2.0,ctime=1786233600,unexpected=1"],
     ["name", "another-template"],
