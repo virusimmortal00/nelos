@@ -101,6 +101,31 @@ spawns no processes, and writes nothing. Any future tool that mutates state
 or reads live host state requires its own permission design and, for live
 state, the host contract in [Host-owned Codex control](host-owned-control.md).
 
+## Structured results and rollout lookup
+
+Each tool declares an `outputSchema` and returns `structuredContent` alongside
+the mirrored JSON text block, per MCP `2025-06-18`. The text block is retained
+for clients that predate structured content or negotiate an older supported
+revision; `initialize` honors the client's requested protocol version only when
+it is in the server's supported set and otherwise answers with the server's
+latest.
+
+`nelos_intelligence_verify` locates a task's rollout by walking the
+date-partitioned `sessions/YYYY/MM/DD` layout **newest-first** and stopping at
+the first day directory that holds the thread, so per-call cost stays flat as
+session history grows rather than scanning the whole tree. Consequences of the
+short-circuit, both intentional:
+
+- **Same-day** duplicate rollouts for one thread are still detected and fail
+  closed as ambiguous (the matched day is scanned in full).
+- **Cross-day** duplicates are not detected; the newest rollout wins. Thread
+  IDs are unique in practice, so this is a theoretical case, and taking the
+  most recent evidence is the correct resolution when it does occur.
+
+When the sessions root is not date-partitioned, or the date tree holds no
+match, verification falls back to an exhaustive bounded walk so a nonstandard
+placement is never reported as a false "not found" in this fail-closed path.
+
 ## User-visible install contract
 
 Marketplace install plus one documented config paste (the `enabled = true`

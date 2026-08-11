@@ -66,9 +66,16 @@ async function roundTrip(messages) {
 
 function toolBody(response) {
   assert.equal(response.error, undefined);
+  const body = JSON.parse(response.result.content[0].text);
+  // Whenever the tool declares an output schema it MUST also return
+  // structuredContent, and it must equal the mirrored text envelope.
+  if (response.result.structuredContent !== undefined) {
+    assert.deepEqual(response.result.structuredContent, body);
+  }
   return {
     isError: response.result.isError,
-    body: JSON.parse(response.result.content[0].text),
+    body,
+    structuredContent: response.result.structuredContent,
   };
 }
 
@@ -81,6 +88,27 @@ test("initialize returns the tools capability and server identity", async () => 
     name: "nelos",
     version: "0.0.0-test",
   });
+  assert.equal(typeof response.result.instructions, "string");
+  assert.ok(response.result.instructions.length > 0);
+});
+
+test("initialize negotiates the protocol version against the supported set", async () => {
+  const [supported] = await roundTrip([
+    { ...INITIALIZE, params: { ...INITIALIZE.params, protocolVersion: "2025-03-26" } },
+  ]);
+  // A supported revision is honored verbatim.
+  assert.equal(supported.result.protocolVersion, "2025-03-26");
+
+  const [unsupported] = await roundTrip([
+    { ...INITIALIZE, params: { ...INITIALIZE.params, protocolVersion: "1999-01-01" } },
+  ]);
+  // An unsupported request falls back to the server's latest, not an echo.
+  assert.equal(unsupported.result.protocolVersion, "2025-06-18");
+
+  const [missing] = await roundTrip([
+    { ...INITIALIZE, params: { capabilities: {} } },
+  ]);
+  assert.equal(missing.result.protocolVersion, "2025-06-18");
 });
 
 test("tools/list exposes exactly the three socket-free read-only tools", async () => {
@@ -102,6 +130,14 @@ test("tools/list exposes exactly the three socket-free read-only tools", async (
     assert.equal(tool.annotations.destructiveHint, false);
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.inputSchema.additionalProperties, false);
+    // Every tool advertises an output schema so hosts can consume
+    // structuredContent without re-parsing the text envelope.
+    assert.ok(tool.outputSchema, `${tool.name} must declare an outputSchema`);
+    assert.ok(
+      tool.outputSchema.type === "object" ||
+        (Array.isArray(tool.outputSchema.type) &&
+          tool.outputSchema.type.includes("object")),
+    );
   }
   assert.deepEqual(tools, listNelosMcpTools());
 });
@@ -116,13 +152,15 @@ test("nelos_plan_slices routes a valid plan into waves", async () => {
       params: { name: "nelos_plan_slices", arguments: { plan: validPlan() } },
     },
   ]);
-  const { isError, body } = toolBody(response);
+  const { isError, body, structuredContent } = toolBody(response);
   assert.equal(isError, false);
   assert.equal(body.command, "plan slices");
   assert.equal(body.plan.schemaVersion, 1);
   assert.equal(body.plan.summary.slices, 1);
   assert.ok(Array.isArray(body.plan.waves));
   assert.equal(body.plan.waves.length, 1);
+  // Success returns structuredContent mirroring the text envelope.
+  assert.deepEqual(structuredContent, body);
 });
 
 test("nelos_plan_slices reports invalid plans as tool errors", async () => {

@@ -14,6 +14,9 @@ const MAX_ROLLOUT_BYTES = 128 * 1024 * 1024;
 const MAX_JSONL_LINE_BYTES = 4 * 1024 * 1024;
 const MAX_TURN_CONTEXTS = 1_000;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+// Codex lays rollouts out as sessions/YYYY/MM/DD/rollout-<ts>-<thread>.jsonl.
+const ROLLOUT_YEAR_PATTERN = /^\d{4}$/;
+const ROLLOUT_MONTH_DAY_PATTERN = /^\d{2}$/;
 
 function assertIdentifier(value, field) {
   if (typeof value !== "string" || !IDENTIFIER_PATTERN.test(value)) {
@@ -37,38 +40,101 @@ export function defaultCodexSessionsRoot() {
 
 async function findRolloutFiles(root, threadId) {
   const suffix = `-${threadId}.jsonl`;
-  const matches = [];
   let visitedEntries = 0;
 
-  async function visit(directory, depth) {
-    if (depth > MAX_DIRECTORY_DEPTH) return;
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch (error) {
-      if (error.code === "ENOENT") return;
-      throw error;
-    }
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      visitedEntries += 1;
-      if (visitedEntries > MAX_DIRECTORY_ENTRIES) {
-        throw new Error(
-          `session discovery exceeded ${MAX_DIRECTORY_ENTRIES} entries`,
-        );
-      }
-      if (entry.isSymbolicLink()) continue;
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(path, depth + 1);
-      } else if (entry.isFile() && entry.name.endsWith(suffix)) {
-        matches.push(path);
-      }
+  function count() {
+    visitedEntries += 1;
+    if (visitedEntries > MAX_DIRECTORY_ENTRIES) {
+      throw new Error(
+        `session discovery exceeded ${MAX_DIRECTORY_ENTRIES} entries`,
+      );
     }
   }
 
-  await visit(root, 0);
-  return matches;
+  async function readEntries(directory) {
+    try {
+      const entries = await readdir(directory, { withFileTypes: true });
+      entries.sort((left, right) => left.name.localeCompare(right.name));
+      return entries;
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  // Suffix-matching files directly inside one directory (a day directory).
+  async function matchesIn(directory) {
+    const entries = await readEntries(directory);
+    if (!entries) return [];
+    const found = [];
+    for (const entry of entries) {
+      count();
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isFile() && entry.name.endsWith(suffix)) {
+        found.push(join(directory, entry.name));
+      }
+    }
+    return found;
+  }
+
+  // Numeric child directories (year/month/day segments), newest first.
+  async function descendingSegments(directory, pattern) {
+    const entries = await readEntries(directory);
+    if (!entries) return [];
+    const segments = [];
+    for (const entry of entries) {
+      count();
+      if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
+      if (pattern.test(entry.name)) segments.push(entry.name);
+    }
+    return segments.reverse();
+  }
+
+  // Fast path: walk sessions/YYYY/MM/DD newest-first and stop at the first
+  // day that holds the thread, so growth in older history costs nothing per
+  // call. Same-day duplicates are still surfaced (the whole day is scanned);
+  // cross-day duplicates are intentionally not — see docs/mcp-tool-surface.md.
+  // Returns null when the root is not date-partitioned so the caller can fall
+  // back to an exhaustive walk rather than risk a false "not found".
+  async function newestFirst() {
+    const years = await descendingSegments(root, ROLLOUT_YEAR_PATTERN);
+    if (years.length === 0) return null;
+    for (const year of years) {
+      const yearPath = join(root, year);
+      for (const month of await descendingSegments(yearPath, ROLLOUT_MONTH_DAY_PATTERN)) {
+        const monthPath = join(yearPath, month);
+        for (const day of await descendingSegments(monthPath, ROLLOUT_MONTH_DAY_PATTERN)) {
+          const matches = await matchesIn(join(monthPath, day));
+          if (matches.length > 0) return matches;
+        }
+      }
+    }
+    return [];
+  }
+
+  // Exhaustive bounded walk, used when the layout is not date-partitioned or
+  // the date tree held no match, so a nonstandard placement is still found.
+  async function walk(directory, depth) {
+    if (depth > MAX_DIRECTORY_DEPTH) return [];
+    const entries = await readEntries(directory);
+    if (!entries) return [];
+    const found = [];
+    for (const entry of entries) {
+      count();
+      if (entry.isSymbolicLink()) continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        found.push(...(await walk(path, depth + 1)));
+      } else if (entry.isFile() && entry.name.endsWith(suffix)) {
+        found.push(path);
+      }
+    }
+    return found;
+  }
+
+  const structured = await newestFirst();
+  if (structured && structured.length > 0) return structured;
+  return walk(root, 0);
 }
 
 async function readTurnContexts(path) {

@@ -10,12 +10,125 @@ import { verifyRuntimeIntelligenceV1 } from "./runtime-intelligence-verification
 
 export const MCP_SERVER_NAME = "nelos";
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-06-18";
+// Wire-compatible revisions we honor when a client negotiates. The default
+// (latest) must appear first; anything else the client asks for falls back to
+// the default per the initialize negotiation rule. structuredContent is a
+// 2025-06-18 feature, but it rides in a result field older clients ignore
+// while the mirrored text block keeps them working.
+export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
+  "2025-06-18",
+  "2025-03-26",
+]);
+const MCP_INSTRUCTIONS =
+  "Read-only planning and model-routing tools backed by the nelos CLI. " +
+  "Every tool is a pure function of its input or performs bounded local " +
+  "reads; none mutate state, spawn processes, or open sockets.";
 const MAX_MESSAGE_BYTES = 256 * 1024;
 
 const READ_ONLY_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
   openWorldHint: false,
+});
+
+// Output schemas describe the JSON envelope each tool returns as
+// structuredContent. They are intentionally permissive at nested levels
+// (no additionalProperties:false, nullable dimensions allowed) so a strict
+// client validator accepts every reachable result without pinning the full
+// planner/router contract, which evolves behind its own schemaVersion fields.
+const ROUTE_OUTPUT_SCHEMA = Object.freeze({
+  type: ["object", "null"],
+  description:
+    "Reviewed launch metadata, or null when no routing dimension was given " +
+    "and host defaults should stand.",
+  properties: {
+    schemaVersion: { type: "integer" },
+    policyVersion: {},
+    catalogVersion: {},
+    taskShape: { type: ["string", "null"] },
+    profile: { type: ["string", "null"] },
+    requestedModel: { type: ["string", "null"] },
+    requestedEffort: { type: ["string", "null"] },
+    modelSelection: { type: "string" },
+    effortSelection: { type: "string" },
+    launch: { type: "object" },
+    rationale: { type: "string" },
+    nativeFanoutAllowed: { type: "boolean" },
+  },
+});
+
+const PLAN_SLICES_OUTPUT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    command: { type: "string" },
+    plan: {
+      type: "object",
+      properties: {
+        schemaVersion: { type: "integer" },
+        objective: { type: "string" },
+        maxParallel: { type: "integer" },
+        catalogVersion: {},
+        summary: {
+          type: "object",
+          properties: {
+            slices: { type: "integer" },
+            waves: { type: "integer" },
+            spinoffs: { type: "integer" },
+            subagents: { type: "integer" },
+            models: { type: "object" },
+            efforts: { type: "object" },
+          },
+        },
+        waves: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              index: { type: "integer" },
+              parallel: { type: "boolean" },
+              slices: { type: "array", items: { type: "object" } },
+            },
+          },
+        },
+      },
+      required: ["schemaVersion", "objective", "summary", "waves"],
+    },
+  },
+  required: ["command", "plan"],
+});
+
+const ROUTE_ENVELOPE_OUTPUT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    command: { type: "string" },
+    route: ROUTE_OUTPUT_SCHEMA,
+  },
+  required: ["command", "route"],
+});
+
+const VERIFY_OUTPUT_SCHEMA = Object.freeze({
+  type: "object",
+  properties: {
+    command: { type: "string" },
+    schemaVersion: { type: "integer" },
+    threadId: { type: "string" },
+    turnId: { type: ["string", "null"] },
+    expected: { type: "object" },
+    observed: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          turnId: { type: "string" },
+          model: { type: "string" },
+          effort: { type: "string" },
+          matches: { type: "boolean" },
+        },
+      },
+    },
+    verified: { type: "boolean" },
+  },
+  required: ["command", "verified"],
 });
 
 const TOOLS = [
@@ -40,6 +153,7 @@ const TOOLS = [
       required: ["plan"],
       additionalProperties: false,
     },
+    outputSchema: PLAN_SLICES_OUTPUT_SCHEMA,
     async run(args) {
       return { command: "plan slices", plan: planWorkSlices(args.plan) };
     },
@@ -70,6 +184,7 @@ const TOOLS = [
       },
       additionalProperties: false,
     },
+    outputSchema: ROUTE_ENVELOPE_OUTPUT_SCHEMA,
     async run(args) {
       const input = {};
       if (args.taskShape !== undefined) input.taskShape = args.taskShape;
@@ -105,6 +220,7 @@ const TOOLS = [
       required: ["threadId", "model", "effort"],
       additionalProperties: false,
     },
+    outputSchema: VERIFY_OUTPUT_SCHEMA,
     async run(args) {
       const verification = await verifyRuntimeIntelligenceV1({
         threadId: args.threadId,
@@ -123,10 +239,11 @@ const TOOLS = [
 ];
 
 export function listNelosMcpTools() {
-  return TOOLS.map(({ name, description, inputSchema }) => ({
+  return TOOLS.map(({ name, description, inputSchema, outputSchema }) => ({
     name,
     description,
     inputSchema,
+    ...(outputSchema ? { outputSchema } : {}),
     annotations: READ_ONLY_ANNOTATIONS,
   }));
 }
@@ -179,26 +296,38 @@ export function startNelosMcpServer({
       };
     }
     const { isError = false, ...body } = result;
-    return {
+    const response = {
+      // The serialized text block is retained for clients that predate
+      // structuredContent or negotiated an older protocol revision.
       content: [{ type: "text", text: JSON.stringify(body) }],
       isError,
     };
+    // A tool that declares an outputSchema MUST return matching
+    // structuredContent; the run() envelope is that structured value.
+    if (tool.outputSchema) response.structuredContent = body;
+    return response;
   }
 
   async function handle(message) {
     const { id, method, params } = message;
     const isRequest = id !== undefined && id !== null;
     if (method === "initialize") {
+      // Negotiation rule: honor the client's version only when we support it;
+      // otherwise answer with our latest and let the client decide.
+      const requested = params?.protocolVersion;
+      const protocolVersion =
+        typeof requested === "string" &&
+        SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+          ? requested
+          : MCP_DEFAULT_PROTOCOL_VERSION;
       send({
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion:
-            typeof params?.protocolVersion === "string"
-              ? params.protocolVersion
-              : MCP_DEFAULT_PROTOCOL_VERSION,
+          protocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
+          instructions: MCP_INSTRUCTIONS,
         },
       });
       return;
