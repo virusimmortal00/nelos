@@ -8,9 +8,13 @@ import { assertWebId, titleLineageId } from "./task-web.mjs";
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v11.html";
+  "ui://nelos/execution-map-v15.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
+export const PLAN_SUMMARY_RESOURCE_URI =
+  "ui://nelos/plan-summary-v1.html";
+export const ACTION_RECEIPT_RESOURCE_URI =
+  "ui://nelos/action-receipt-v2.html";
 
 export const EXECUTION_MAP_STATUSES = Object.freeze([
   "planning",
@@ -41,6 +45,19 @@ export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
   "nelos_spinoff_cleanup",
   "nelos_execution_map_refresh",
   "nelos_execution_map_history",
+]));
+
+export const PLAN_SUMMARY_TOOL_NAMES = Object.freeze(new Set([
+  "nelos_plan_bootstrap",
+  "nelos_plan_lifecycle",
+  "nelos_plan_replan",
+  "nelos_plan_slices",
+]));
+
+export const ACTION_RECEIPT_TOOL_NAMES = Object.freeze(new Set([
+  "nelos_queen_decide",
+  "nelos_spinoff_complete",
+  "nelos_spinoff_cleanup",
 ]));
 
 const EXECUTION_MAP_PHASE_SCHEMA = Object.freeze({
@@ -277,8 +294,79 @@ export const EXECUTION_MAP_OUTPUT_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+function planSummaryOutputSchemaForToolV1(toolName) {
+  return {
+    type: "object",
+    properties: {
+      ...EXECUTION_MAP_PROPERTIES,
+      view: { const: "plan-summary" },
+      protocol: protocolSchemaV1(toolName),
+    },
+    required: [...EXECUTION_MAP_REQUIRED],
+    additionalProperties: false,
+  };
+}
+
+function actionReceiptOutputSchemaForToolV1(toolName) {
+  return {
+    type: "object",
+    properties: {
+      schemaVersion: { const: EXECUTION_MAP_SCHEMA_VERSION },
+      view: { const: "action-receipt" },
+      kind: { enum: ["decision", "completion", "cleanup"] },
+      status: EXECUTION_MAP_PHASE_SCHEMA,
+      title: { type: "string" },
+      detail: { type: "string" },
+      metrics: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string" },
+            value: {
+              anyOf: [{ type: "string" }, { type: "integer" }],
+            },
+          },
+          required: ["label", "value"],
+          additionalProperties: false,
+        },
+      },
+      protocol: protocolSchemaV1(toolName),
+    },
+    required: [
+      "schemaVersion",
+      "view",
+      "kind",
+      "status",
+      "title",
+      "detail",
+      "metrics",
+      "protocol",
+    ],
+    additionalProperties: false,
+  };
+}
+
+export function mcpVisualOutputSchemaForToolV1(toolName) {
+  if (PLAN_SUMMARY_TOOL_NAMES.has(toolName)) {
+    return planSummaryOutputSchemaForToolV1(toolName);
+  }
+  if (ACTION_RECEIPT_TOOL_NAMES.has(toolName)) {
+    return actionReceiptOutputSchemaForToolV1(toolName);
+  }
+  return executionMapOutputSchemaForToolV1(toolName);
+}
+
 const EXECUTION_MAP_HTML = readFileSync(
   new URL("../assets/execution-map.html", import.meta.url),
+  "utf8",
+);
+const PLAN_SUMMARY_HTML = readFileSync(
+  new URL("../assets/plan-summary.html", import.meta.url),
+  "utf8",
+);
+const ACTION_RECEIPT_HTML = readFileSync(
+  new URL("../assets/action-receipt.html", import.meta.url),
   "utf8",
 );
 
@@ -521,7 +609,10 @@ function orchestrationMap(result, args) {
   const workUnit = args?.workUnit;
   if (!workUnit || typeof workUnit !== "object") return null;
   const bound = result?.binding?.state === "bound";
-  const status = bound ? "created" : "launch-pending";
+  // A bound native-create receipt means the host dispatched the task's initial
+  // turn. "Created" remains readable for persisted legacy projections, but a
+  // newly bound worker is active work and should be presented as running.
+  const status = bound ? "running" : "launch-pending";
   return executionMap({
     phase: status,
     task: text(workUnit.objectiveSummary, workUnit.title),
@@ -567,14 +658,22 @@ function refreshedMap(result) {
   });
 }
 
+function cleanupRecords(result) {
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const pending = Array.isArray(result?.pending)
+    ? result.pending.map((record) => ({
+      ...record,
+      state: text(record?.state, "pending"),
+    }))
+    : [];
+  if (results.length > 0 || pending.length > 0) {
+    return [...results, ...pending];
+  }
+  return Array.isArray(result?.candidates) ? result.candidates : [];
+}
+
 function cleanupMap(result, args) {
-  const records = Array.isArray(result?.results)
-    ? result.results
-    : Array.isArray(result?.candidates)
-      ? result.candidates
-      : Array.isArray(result?.pending)
-        ? result.pending
-        : [];
+  const records = cleanupRecords(result);
   const phase =
     result?.state === "effects-required"
       ? "archiving"
@@ -636,11 +735,11 @@ function verificationMap(result) {
     lifecycle: member.lifecycle,
     model: "host-default",
     reasoning: "host-default",
-    status: member.verified ? "created" : "attention",
+    status: member.verified ? "running" : "attention",
     threadId: text(member.threadId, null),
   }));
   return executionMap({
-    phase: verification.allVerified ? "created" : "attention",
+    phase: verification.allVerified ? "running" : "attention",
     task: "Execute the planned task web",
     members,
   });
@@ -1060,43 +1159,190 @@ export async function projectExecutionMapForToolResultV1(
   });
 }
 
+function planSummary(map) {
+  if (!map) return null;
+  return {
+    ...map,
+    view: "plan-summary",
+  };
+}
+
+function metric(label, value) {
+  return { label, value };
+}
+
+function actionReceipt(toolName, args, result) {
+  const protocol = {
+    schemaVersion: 1,
+    tool: toolName,
+    result: structuredClone(result),
+  };
+  if (toolName === "nelos_queen_decide") {
+    const accepted = (result?.decision?.decision ?? args?.decision) ===
+      "accepted";
+    return {
+      schemaVersion: EXECUTION_MAP_SCHEMA_VERSION,
+      view: "action-receipt",
+      kind: "decision",
+      status: accepted ? "accepted" : "attention",
+      title: accepted ? "Result accepted" : "Result rejected",
+      detail: text(
+        result?.decision?.workUnitId ?? args?.receipt?.workUnitId,
+        "Queen review decision recorded",
+      ),
+      metrics: [],
+      protocol,
+    };
+  }
+  if (toolName === "nelos_spinoff_complete") {
+    const succeeded = args?.outcome === "succeeded";
+    return {
+      schemaVersion: EXECUTION_MAP_SCHEMA_VERSION,
+      view: "action-receipt",
+      kind: "completion",
+      status: succeeded ? "complete" : "attention",
+      title: succeeded ? "Task completed" : "Task needs attention",
+      detail: text(args?.workUnitId, "Spin-off completion recorded"),
+      metrics: args?.outcome
+        ? [metric("Outcome", String(args.outcome))]
+        : [],
+      protocol,
+    };
+  }
+  if (toolName === "nelos_spinoff_cleanup") {
+    const records = cleanupRecords(result);
+    const counts = new Map();
+    for (const record of records) {
+      const state = text(record?.state, "pending");
+      counts.set(state, (counts.get(state) ?? 0) + 1);
+    }
+    const status = result?.state === "effects-required"
+      ? "archiving"
+      : result?.state === "confirmation-required"
+        ? "authorization-required"
+        : ["attention", "not-ready"].includes(result?.state)
+          ? "attention"
+          : "complete";
+    const title = status === "archiving"
+      ? "Cleanup in progress"
+      : status === "authorization-required"
+        ? "Cleanup confirmation required"
+        : status === "attention"
+          ? "Cleanup needs attention"
+          : "Cleanup complete";
+    const metrics = [...counts.entries()].map(([label, value]) =>
+      metric(label, value)
+    );
+    return {
+      schemaVersion: EXECUTION_MAP_SCHEMA_VERSION,
+      view: "action-receipt",
+      kind: "cleanup",
+      status,
+      title,
+      detail: records.length === 1
+        ? "1 spin-off in this receipt"
+        : `${records.length} spin-offs in this receipt`,
+      metrics,
+      protocol,
+    };
+  }
+  return null;
+}
+
+export async function projectMcpVisualForToolResultV1(
+  toolName,
+  args,
+  result,
+  options = {},
+) {
+  const map = await projectExecutionMapForToolResultV1(
+    toolName,
+    args,
+    result,
+    options,
+  );
+  if (PLAN_SUMMARY_TOOL_NAMES.has(toolName)) return planSummary(map);
+  if (ACTION_RECEIPT_TOOL_NAMES.has(toolName)) {
+    return actionReceipt(toolName, args, result);
+  }
+  return map;
+}
+
 export function executionMapToolMetadataV1(toolName) {
+  return mcpVisualToolMetadataV1(toolName);
+}
+
+export function mcpVisualToolMetadataV1(toolName) {
   if (!EXECUTION_MAP_TOOL_NAMES.has(toolName)) return null;
+  const plan = PLAN_SUMMARY_TOOL_NAMES.has(toolName);
+  const action = ACTION_RECEIPT_TOOL_NAMES.has(toolName);
+  const resourceUri = plan
+    ? PLAN_SUMMARY_RESOURCE_URI
+    : action
+      ? ACTION_RECEIPT_RESOURCE_URI
+      : EXECUTION_MAP_RESOURCE_URI;
   const dispatch = toolName === "nelos_orchestrate_create";
   const cleanup = toolName === "nelos_spinoff_cleanup";
+  const decision = toolName === "nelos_queen_decide";
+  const completion = toolName === "nelos_spinoff_complete";
+  const verification = toolName === "nelos_launch_verify_batch";
+  const advance = toolName === "nelos_orchestrate_advance";
   const refresh = toolName === "nelos_execution_map_refresh";
   const history = toolName === "nelos_execution_map_history";
   return {
-    ui: { resourceUri: EXECUTION_MAP_RESOURCE_URI },
-    "openai/outputTemplate": EXECUTION_MAP_RESOURCE_URI,
+    ui: { resourceUri },
+    "openai/outputTemplate": resourceUri,
     "openai/toolInvocation/invoking": history
       ? "Loading full task-web history…"
       : refresh
       ? "Refreshing worker status…"
       : cleanup
       ? "Cleaning up spin-offs…"
+      : decision
+      ? "Recording queen decision…"
+      : completion
+      ? "Recording task completion…"
+      : verification
+      ? "Verifying launched workers…"
+      : advance
+      ? "Updating worker state…"
       : dispatch
         ? "Dispatching task…"
-        : "Planning task web…",
+        : plan
+          ? "Preparing task plan…"
+          : "Loading worker state…",
     "openai/toolInvocation/invoked": history
       ? "Full task-web history ready"
       : refresh
       ? "Worker status updated"
       : cleanup
-      ? "Cleanup receipt ready"
+      ? "Cleanup result ready"
+      : decision
+      ? "Queen decision recorded"
+      : completion
+      ? "Task completion recorded"
+      : verification
+      ? "Worker launch verified"
+      : advance
+      ? "Worker state updated"
       : dispatch
-        ? "Dispatch receipt ready"
-        : "Plan receipt ready",
+        ? "Task dispatched"
+        : plan
+          ? "Task plan ready"
+          : "Worker state ready",
   };
 }
 
 export function listExecutionMapResourcesV1() {
-  return [{
-    uri: EXECUTION_MAP_RESOURCE_URI,
-    name: "nelos-execution-map",
-    title: "Nelos execution map",
-    description:
-      "Compact inline receipt for Nelos task-web members, with full archived history available on explicit request.",
+  return listMcpVisualResourcesV1();
+}
+
+export function listMcpVisualResourcesV1() {
+  const resource = (uri, name, title, description, widgetDescription) => ({
+    uri,
+    name,
+    title,
+    description,
     mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE,
     _meta: {
       ui: {
@@ -1106,22 +1352,55 @@ export function listExecutionMapResourcesV1() {
           resourceDomains: [],
         },
       },
-      "openai/widgetDescription":
-        "Shows each Nelos task member's model, reasoning level, lifecycle, and current status.",
+      "openai/widgetDescription": widgetDescription,
     },
-  }];
+  });
+  return [
+    resource(
+      EXECUTION_MAP_RESOURCE_URI,
+      "nelos-execution-map",
+      "Nelos execution map",
+      "Compact worker-state view for active Nelos task webs.",
+      "Shows task members grouped by current execution status.",
+    ),
+    resource(
+      PLAN_SUMMARY_RESOURCE_URI,
+      "nelos-plan-summary",
+      "Nelos plan summary",
+      "Compact plan-oriented summary for Nelos planning actions.",
+      "Summarizes a task plan, its phase, routes, and member count.",
+    ),
+    resource(
+      ACTION_RECEIPT_RESOURCE_URI,
+      "nelos-action-receipt",
+      "Nelos action receipt",
+      "Compact outcome receipt for Nelos decisions and lifecycle actions.",
+      "Confirms a decision, completion, or cleanup outcome without showing a worker map.",
+    ),
+  ];
 }
 
 export function readExecutionMapResourceV1(uri) {
-  if (uri !== EXECUTION_MAP_RESOURCE_URI) {
+  return readMcpVisualResourceV1(uri);
+}
+
+export function readMcpVisualResourceV1(uri) {
+  const html = new Map([
+    [EXECUTION_MAP_RESOURCE_URI, EXECUTION_MAP_HTML],
+    [PLAN_SUMMARY_RESOURCE_URI, PLAN_SUMMARY_HTML],
+    [ACTION_RECEIPT_RESOURCE_URI, ACTION_RECEIPT_HTML],
+  ]).get(uri);
+  if (!html) {
     throw new Error(`unknown resource: ${uri}`);
   }
-  const [resource] = listExecutionMapResourcesV1();
+  const resource = listMcpVisualResourcesV1().find(
+    (candidate) => candidate.uri === uri,
+  );
   return {
     contents: [{
       uri,
       mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE,
-      text: EXECUTION_MAP_HTML,
+      text: html,
       _meta: resource._meta,
     }],
   };

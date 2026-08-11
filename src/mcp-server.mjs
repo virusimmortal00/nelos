@@ -73,11 +73,11 @@ import {
 import {
   EXECUTION_MAP_HISTORY_INPUT_SCHEMA,
   EXECUTION_MAP_REFRESH_INPUT_SCHEMA,
-  projectExecutionMapForToolResultV1,
-  executionMapOutputSchemaForToolV1,
-  executionMapToolMetadataV1,
-  listExecutionMapResourcesV1,
-  readExecutionMapResourceV1,
+  projectMcpVisualForToolResultV1,
+  mcpVisualOutputSchemaForToolV1,
+  mcpVisualToolMetadataV1,
+  listMcpVisualResourcesV1,
+  readMcpVisualResourceV1,
   readExecutionMapHistoryV1,
   refreshExecutionMapStatusV1,
 } from "./execution-map.mjs";
@@ -1302,10 +1302,10 @@ export function listNelosMcpTools() {
     inputSchema,
     annotations,
   }) => {
-    const uiMetadata = executionMapToolMetadataV1(name);
+    const uiMetadata = mcpVisualToolMetadataV1(name);
     const protocolMetadata = MCP_PROTOCOL_TOOL_CONTRACTS_V1[name];
     const outputSchema =
-      executionMapOutputSchemaForToolV1(name) ??
+      mcpVisualOutputSchemaForToolV1(name) ??
       MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[name] ??
       null;
     return {
@@ -1527,7 +1527,7 @@ export function startNelosMcpServer({
       };
     }
     const { isError = false, ...body } = result;
-    const structuredContent = await projectExecutionMapForToolResultV1(
+    const structuredContent = await projectMcpVisualForToolResultV1(
       tool.name,
       args,
       body,
@@ -1632,7 +1632,7 @@ export function startNelosMcpServer({
       send({
         jsonrpc: "2.0",
         id,
-        result: { resources: listExecutionMapResourcesV1() },
+        result: { resources: listMcpVisualResourcesV1() },
       });
       return;
     }
@@ -1641,7 +1641,7 @@ export function startNelosMcpServer({
         send({
           jsonrpc: "2.0",
           id,
-          result: readExecutionMapResourceV1(params?.uri),
+          result: readMcpVisualResourceV1(params?.uri),
         });
       } catch (error) {
         send({

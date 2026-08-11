@@ -7,9 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import { PROTOCOL_ACTION_SCHEMA_V1 } from "../src/protocol-contract/index.mjs";
 import {
+  ACTION_RECEIPT_RESOURCE_URI,
+  ACTION_RECEIPT_TOOL_NAMES,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
   EXECUTION_MAP_TOOL_NAMES,
+  PLAN_SUMMARY_RESOURCE_URI,
+  PLAN_SUMMARY_TOOL_NAMES,
 } from "../src/execution-map.mjs";
 
 const INSPECTOR_PACKAGE = "@modelcontextprotocol/inspector@2.0.0";
@@ -115,7 +119,12 @@ function verifyAppBindings() {
     const record = byTool.get(toolName);
     assert.ok(record, `Inspector omitted app-info for ${toolName}`);
     assert.equal(record.hasApp, true, `${toolName} did not advertise an app`);
-    assert.equal(record.resourceUri, EXECUTION_MAP_RESOURCE_URI);
+    const expectedUri = PLAN_SUMMARY_TOOL_NAMES.has(toolName)
+      ? PLAN_SUMMARY_RESOURCE_URI
+      : ACTION_RECEIPT_TOOL_NAMES.has(toolName)
+        ? ACTION_RECEIPT_RESOURCE_URI
+        : EXECUTION_MAP_RESOURCE_URI;
+    assert.equal(record.resourceUri, expectedUri);
     assert.equal(record.resourceMimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
     assert.equal(record.prefersBorder, true);
     assert.deepEqual(record.csp, {
@@ -157,14 +166,15 @@ function verifyOutputSchemas() {
 
   const cleanupSchema =
     byName.get("nelos_spinoff_cleanup")?.outputSchema?.properties;
-  assert.ok(cleanupSchema?.phase?.enum?.includes("archived"));
-  assert.ok(cleanupSchema?.summary?.properties?.archived);
+  assert.equal(cleanupSchema?.view?.const, "action-receipt");
+  assert.ok(cleanupSchema?.status?.enum?.includes("archiving"));
+  assert.equal(cleanupSchema?.metrics?.type, "array");
   assert.equal(
     cleanupSchema?.protocol?.properties?.tool?.const,
     "nelos_spinoff_cleanup",
   );
   console.log(
-    `✓ protocol output schemas expose all ${expectedActionMembers} action variants and archived cleanup receipts`,
+    `✓ protocol output schemas expose all ${expectedActionMembers} action variants and compact cleanup receipts`,
   );
 }
 
@@ -178,11 +188,20 @@ function verifyResource() {
     ]).stdout,
     "resources/list result",
   );
-  const resource = listed.result?.resources?.find(
-    ({ uri }) => uri === EXECUTION_MAP_RESOURCE_URI,
+  const resources = new Map(
+    (listed.result?.resources ?? []).map((resource) => [resource.uri, resource]),
   );
-  assert.ok(resource, "execution-map resource was not listed");
-  assert.equal(resource.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
+  for (const uri of [
+    EXECUTION_MAP_RESOURCE_URI,
+    PLAN_SUMMARY_RESOURCE_URI,
+    ACTION_RECEIPT_RESOURCE_URI,
+  ]) {
+    assert.ok(resources.has(uri), `${uri} was not listed`);
+    assert.equal(
+      resources.get(uri).mimeType,
+      EXECUTION_MAP_RESOURCE_MIME_TYPE,
+    );
+  }
 
   const read = parseJson(
     runInspector([
@@ -206,13 +225,21 @@ function verifyResource() {
   assert.match(content?.text ?? "", /root\.style\.height = "max-content"/u);
   assert.match(content?.text ?? "", /window\.openai\?\.toolOutput/u);
   assert.match(content?.text ?? "", /openai:set_globals/u);
-  assert.match(content?.text ?? "", /Waiting for task state/u);
+  assert.match(content?.text ?? "", /Loading worker state/u);
+  assert.match(content?.text ?? "", /Worker status unavailable/u);
   assert.match(content?.text ?? "", /--archived/u);
   assert.match(content?.text ?? "", /className = "member-heading"/u);
-  assert.match(content?.text ?? "", /Expand active/u);
-  assert.match(content?.text ?? "", /Collapse all/u);
+  assert.match(content?.text ?? "", /INTENT_GROUPS/u);
+  assert.match(content?.text ?? "", /title: "Needs input"/u);
+  assert.match(content?.text ?? "", /title: "In progress"/u);
+  assert.match(content?.text ?? "", /title: "Queued"/u);
+  assert.match(content?.text ?? "", /id="filter-current"/u);
+  assert.match(content?.text ?? "", /id="filter-done"/u);
+  assert.match(content?.text ?? "", /id="filter-history"/u);
+  assert.doesNotMatch(content?.text ?? "", /Expand active/u);
   assert.match(content?.text ?? "", /currentViewKey/u);
-  assert.match(content?.text ?? "", /bulkHadFocus/u);
+  assert.match(content?.text ?? "", /currentFilter/u);
+  assert.match(content?.text ?? "", /openGroupState/u);
   assert.match(content?.text ?? "", /applyHostContext/u);
   assert.match(content?.text ?? "", /id="host-fonts"/u);
   assert.match(content?.text ?? "", /styles\?\.css\?\.fonts/u);
@@ -238,7 +265,24 @@ function verifyResource() {
   assert.doesNotMatch(content?.text ?? "", /className = "metric"/u);
   assert.doesNotMatch(content?.text ?? "", /Current tasks/u);
   assert.doesNotMatch(content?.text ?? "", /Archived history/u);
-  console.log("✓ execution-map resource listed and read");
+  for (const [uri, pattern] of [
+    [PLAN_SUMMARY_RESOURCE_URI, /Preparing plan/u],
+    [ACTION_RECEIPT_RESOURCE_URI, /Processing action/u],
+  ]) {
+    const response = parseJson(
+      runInspector([
+        "--method",
+        "resources/read",
+        "--uri",
+        uri,
+        "--format",
+        "json",
+      ]).stdout,
+      `resources/read ${uri} result`,
+    );
+    assert.match(response.result?.contents?.[0]?.text ?? "", pattern);
+  }
+  console.log("✓ purpose-built visual resources listed and read");
 }
 
 function verifyRepresentativeCall() {
@@ -253,9 +297,9 @@ function verifyRepresentativeCall() {
     "json",
   ]);
   const envelope = parseJson(stdout, "tools/call result");
-  assert.equal(envelope.appInfo?.resourceUri, EXECUTION_MAP_RESOURCE_URI);
+  assert.equal(envelope.appInfo?.resourceUri, PLAN_SUMMARY_RESOURCE_URI);
   assert.equal(envelope.result?.isError, false);
-  assert.equal(envelope.result?.structuredContent?.view, "execution-map");
+  assert.equal(envelope.result?.structuredContent?.view, "plan-summary");
   assert.equal(envelope.result?.structuredContent?.phase, "planning");
   assert.equal(envelope.result?.structuredContent?.summary?.total, 1);
   assert.equal(

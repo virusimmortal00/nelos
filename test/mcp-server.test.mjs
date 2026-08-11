@@ -21,8 +21,10 @@ import {
 } from "../src/mcp-server.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
 import {
+  ACTION_RECEIPT_RESOURCE_URI,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
+  PLAN_SUMMARY_RESOURCE_URI,
 } from "../src/execution-map.mjs";
 import { McpOrchestrationAdapterV1 } from "../src/mcp-orchestration.mjs";
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
@@ -679,28 +681,40 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
   assert.deepEqual(tools, listNelosMcpTools());
 
   const planner = tools.find(({ name }) => name === "nelos_plan_slices");
-  for (const visualTool of tools.filter(({ name }) =>
-    [
+  const visualContracts = new Map([
+    ...[
       "nelos_plan_bootstrap",
       "nelos_plan_lifecycle",
       "nelos_plan_replan",
       "nelos_plan_slices",
+    ].map((name) => [name, [PLAN_SUMMARY_RESOURCE_URI, "plan-summary"]]),
+    ...[
       "nelos_orchestrate_create",
+      "nelos_orchestrate_advance",
+      "nelos_launch_verify_batch",
+      "nelos_execution_map_refresh",
+      "nelos_execution_map_history",
+    ].map((name) => [name, [EXECUTION_MAP_RESOURCE_URI, "execution-map"]]),
+    ...[
+      "nelos_queen_decide",
+      "nelos_spinoff_complete",
       "nelos_spinoff_cleanup",
-    ].includes(name),
-  )) {
+    ].map((name) => [name, [ACTION_RECEIPT_RESOURCE_URI, "action-receipt"]]),
+  ]);
+  for (const [name, [resourceUri, view]] of visualContracts) {
+    const visualTool = tools.find((tool) => tool.name === name);
     assert.equal(
       visualTool._meta.ui.resourceUri,
-      EXECUTION_MAP_RESOURCE_URI,
+      resourceUri,
     );
     assert.equal(
       visualTool._meta["openai/outputTemplate"],
-      EXECUTION_MAP_RESOURCE_URI,
+      resourceUri,
     );
     assert.equal(visualTool.outputSchema.additionalProperties, false);
     assert.equal(
       visualTool.outputSchema.properties.view.const,
-      "execution-map",
+      view,
     );
   }
   for (const name of Object.keys(MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1)) {
@@ -1349,6 +1363,14 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
     );
     const { isError, body } = toolBody(response);
     assert.equal(isError, false);
+    assert.equal(
+      response.result.structuredContent.phase,
+      allVerified ? "running" : "attention",
+    );
+    assert.equal(
+      response.result.structuredContent.members[0].status,
+      allVerified ? "running" : "attention",
+    );
     assert.equal(
       body.nextAction.kind,
       allVerified ? "native-wait-wave" : "attention",
@@ -2371,6 +2393,11 @@ test("nelos_queen_decide forwards the strict versioned decision lifecycle", asyn
     result.body.decision.decisionId,
     "queen-acceptance-v1/example",
   );
+  assert.equal(response.result.structuredContent.view, "action-receipt");
+  assert.equal(response.result.structuredContent.kind, "decision");
+  assert.equal(response.result.structuredContent.status, "accepted");
+  assert.equal(response.result.structuredContent.title, "Result accepted");
+  assert.equal(response.result.structuredContent.detail, "alpha");
   assert.deepEqual(
     protocolCompatibilityEnvelopeV1("nelos_queen_decide", result.body).value,
     result.body,
@@ -2463,21 +2490,24 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
   const cleaned = toolBody(cleanupResponse).body;
   assert.equal(completed.record.wakeState, "delivering");
   assert.equal(cleaned.state, "complete");
-  assert.equal(completeResponse.result.structuredContent.phase, "complete");
-  assert.equal(
-    completeResponse.result.structuredContent.members[0].status,
-    "complete",
-  );
+  assert.equal(completeResponse.result.structuredContent.view, "action-receipt");
+  assert.equal(completeResponse.result.structuredContent.kind, "completion");
+  assert.equal(completeResponse.result.structuredContent.status, "complete");
+  assert.equal(completeResponse.result.structuredContent.title, "Task completed");
+  assert.deepEqual(completeResponse.result.structuredContent.metrics, [
+    { label: "Outcome", value: "succeeded" },
+  ]);
   assert.deepEqual(
     completeResponse.result.structuredContent.protocol.result,
     completed,
   );
-  assert.equal(cleanupResponse.result.structuredContent.phase, "complete");
-  assert.equal(
-    cleanupResponse.result.structuredContent.summary.archived,
-    0,
-  );
-  assert.deepEqual(cleanupResponse.result.structuredContent.members, []);
+  assert.equal(cleanupResponse.result.structuredContent.view, "action-receipt");
+  assert.equal(cleanupResponse.result.structuredContent.kind, "cleanup");
+  assert.equal(cleanupResponse.result.structuredContent.status, "complete");
+  assert.equal(cleanupResponse.result.structuredContent.title, "Cleanup complete");
+  assert.deepEqual(cleanupResponse.result.structuredContent.metrics, [
+    { label: "archived", value: 1 },
+  ]);
   assert.deepEqual(
     cleanupResponse.result.structuredContent.protocol.result,
     cleaned,
@@ -2731,8 +2761,9 @@ test("stdio orchestration validates a host callback before binding and replays i
       requestedTitle: "Member A",
     },
   ]);
-  assert.equal(bound.result.structuredContent.phase, "created");
-  assert.equal(bound.result.structuredContent.summary.created, 1);
+  assert.equal(bound.result.structuredContent.phase, "running");
+  assert.equal(bound.result.structuredContent.summary.created, 0);
+  assert.equal(bound.result.structuredContent.summary.running, 1);
   assert.equal(
     bound.result.structuredContent.members[0].threadId,
     "thread-created-1",
@@ -4074,8 +4105,8 @@ test("nelos_intelligence_verify fails closed on any mismatch", async () => {
   });
 });
 
-test("MCP Apps resources expose the self-contained execution map", async () => {
-  const [, listed, read, templates] = await roundTrip([
+test("MCP Apps resources expose purpose-built self-contained visuals", async () => {
+  const [, listed, execution, plan, action, templates] = await roundTrip([
     INITIALIZE,
     { jsonrpc: "2.0", id: 2, method: "resources/list" },
     {
@@ -4087,21 +4118,39 @@ test("MCP Apps resources expose the self-contained execution map", async () => {
     {
       jsonrpc: "2.0",
       id: 4,
+      method: "resources/read",
+      params: { uri: PLAN_SUMMARY_RESOURCE_URI },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 5,
+      method: "resources/read",
+      params: { uri: ACTION_RECEIPT_RESOURCE_URI },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 6,
       method: "resources/templates/list",
     },
   ]);
   assert.deepEqual(
     listed.result.resources.map(({ uri, mimeType }) => ({ uri, mimeType })),
-    [{
-      uri: EXECUTION_MAP_RESOURCE_URI,
+    [
+      EXECUTION_MAP_RESOURCE_URI,
+      PLAN_SUMMARY_RESOURCE_URI,
+      ACTION_RECEIPT_RESOURCE_URI,
+    ].map((uri) => ({
+      uri,
       mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE,
-    }],
+    })),
   );
   assert.equal(
-    read.result.contents[0].mimeType,
+    execution.result.contents[0].mimeType,
     EXECUTION_MAP_RESOURCE_MIME_TYPE,
   );
-  assert.match(read.result.contents[0].text, /Nelos execution map/u);
+  assert.match(execution.result.contents[0].text, /Nelos execution map/u);
+  assert.match(plan.result.contents[0].text, /Nelos plan summary/u);
+  assert.match(action.result.contents[0].text, /Nelos action receipt/u);
   assert.deepEqual(templates.result.resourceTemplates, []);
 });
 

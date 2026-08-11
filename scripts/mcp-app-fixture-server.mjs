@@ -13,9 +13,11 @@ import { resolve } from "node:path";
 import { z } from "zod";
 
 import {
+  ACTION_RECEIPT_RESOURCE_URI,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
   EXECUTION_MAP_STATUSES,
+  PLAN_SUMMARY_RESOURCE_URI,
   readExecutionMapResourceV1,
 } from "../src/execution-map.mjs";
 
@@ -49,6 +51,23 @@ const EXECUTION_MAP_FIXTURE_SCHEMA = z.object({
     accepted: z.number().int().nonnegative(),
   }),
   members: z.array(MEMBER_SCHEMA),
+});
+
+const PLAN_SUMMARY_FIXTURE_SCHEMA = EXECUTION_MAP_FIXTURE_SCHEMA.extend({
+  view: z.literal("plan-summary"),
+});
+
+const ACTION_RECEIPT_FIXTURE_SCHEMA = z.object({
+  schemaVersion: z.literal(1),
+  view: z.literal("action-receipt"),
+  kind: z.enum(["decision", "completion", "cleanup"]),
+  status: z.enum(EXECUTION_MAP_STATUSES),
+  title: z.string(),
+  detail: z.string(),
+  metrics: z.array(z.object({
+    label: z.string(),
+    value: z.union([z.string(), z.number().int()]),
+  })),
 });
 
 function member({
@@ -174,6 +193,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
     key: "running_subagent",
     title: "Running sub-agent",
     phase: "running",
+    task: "Ship compact, purposeful MCP visuals",
     members: [
       member({
         id: "ui-running",
@@ -405,22 +425,86 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
   }),
 ]);
 
+export const PURPOSEFUL_VISUAL_FIXTURES = Object.freeze([
+  {
+    key: "plan_summary",
+    toolName: "show_plan_summary",
+    title: "Compact plan summary",
+    resourceUri: PLAN_SUMMARY_RESOURCE_URI,
+    schema: PLAN_SUMMARY_FIXTURE_SCHEMA,
+    map: {
+      schemaVersion: 1,
+      view: "plan-summary",
+      phase: "planned",
+      task: "Ship compact, purposeful MCP visuals",
+      summary: {
+        total: 2,
+        spinoffs: 1,
+        subagents: 1,
+        created: 0,
+        running: 0,
+        attention: 0,
+        complete: 0,
+        accepted: 0,
+        archived: 0,
+      },
+      members: [
+        member({
+          id: "review",
+          task: "Review the visual contract",
+          model: "gpt-5.6-sol",
+          reasoning: "medium",
+          status: "planned",
+        }),
+        member({
+          id: "implement",
+          task: "Implement the compact visual resources",
+          lifecycle: "spinoff",
+          reasoning: "high",
+          status: "planned",
+        }),
+      ],
+    },
+  },
+  {
+    key: "accepted_action_receipt",
+    toolName: "show_accepted_action_receipt",
+    title: "Compact accepted action receipt",
+    resourceUri: ACTION_RECEIPT_RESOURCE_URI,
+    schema: ACTION_RECEIPT_FIXTURE_SCHEMA,
+    map: {
+      schemaVersion: 1,
+      view: "action-receipt",
+      kind: "decision",
+      status: "accepted",
+      title: "Result accepted",
+      detail: "visual-contract-review",
+      metrics: [],
+    },
+  },
+]);
+
+export const MCP_APP_VISUAL_FIXTURES = Object.freeze([
+  ...EXECUTION_MAP_FIXTURES,
+  ...PURPOSEFUL_VISUAL_FIXTURES,
+]);
+
 export function createMcpAppFixtureServer() {
   const server = new McpServer({
     name: "Nelos execution map fixtures",
     version: "1.0.0",
   });
 
-  for (const current of EXECUTION_MAP_FIXTURES) {
+  for (const current of MCP_APP_VISUAL_FIXTURES) {
     registerAppTool(
       server,
       current.toolName,
       {
         title: current.title,
         description:
-          `Use this when visually testing the ${current.title.toLowerCase()} execution-map state.`,
+          `Use this when visually testing the ${current.title.toLowerCase()} visual.`,
         inputSchema: {},
-        outputSchema: EXECUTION_MAP_FIXTURE_SCHEMA,
+        outputSchema: current.schema ?? EXECUTION_MAP_FIXTURE_SCHEMA,
         annotations: {
           readOnlyHint: true,
           destructiveHint: false,
@@ -428,8 +512,11 @@ export function createMcpAppFixtureServer() {
           idempotentHint: true,
         },
         _meta: {
-          ui: { resourceUri: EXECUTION_MAP_RESOURCE_URI },
-          "openai/outputTemplate": EXECUTION_MAP_RESOURCE_URI,
+          ui: {
+            resourceUri: current.resourceUri ?? EXECUTION_MAP_RESOURCE_URI,
+          },
+          "openai/outputTemplate":
+            current.resourceUri ?? EXECUTION_MAP_RESOURCE_URI,
         },
       },
       async () => ({
@@ -443,13 +530,19 @@ export function createMcpAppFixtureServer() {
     );
   }
 
-  registerAppResource(
-    server,
-    "nelos-execution-map",
-    EXECUTION_MAP_RESOURCE_URI,
-    { mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE },
-    async () => readExecutionMapResourceV1(EXECUTION_MAP_RESOURCE_URI),
-  );
+  for (const [name, uri] of [
+    ["nelos-execution-map", EXECUTION_MAP_RESOURCE_URI],
+    ["nelos-plan-summary", PLAN_SUMMARY_RESOURCE_URI],
+    ["nelos-action-receipt", ACTION_RECEIPT_RESOURCE_URI],
+  ]) {
+    registerAppResource(
+      server,
+      name,
+      uri,
+      { mimeType: EXECUTION_MAP_RESOURCE_MIME_TYPE },
+      async () => readExecutionMapResourceV1(uri),
+    );
+  }
 
   return server;
 }
@@ -463,7 +556,7 @@ export async function startMcpAppFixtureServer({
   app.get("/healthz", (_request, response) => {
     response.json({
       ok: true,
-      fixtures: EXECUTION_MAP_FIXTURES.map(({ key }) => key),
+      fixtures: MCP_APP_VISUAL_FIXTURES.map(({ key }) => key),
     });
   });
   app.all("/mcp", async (request, response) => {

@@ -1,28 +1,42 @@
-# MCP Execution Map and Future Host Integration
+# MCP Visual Receipts and Future Host Integration
 
-Status: the installed plugin exposes a narrow inline execution-map resource for
-planning, dispatch, and spin-off cleanup receipts. Broad live-state UI
+Status: the installed plugin exposes narrow, purpose-built inline receipts for
+planning, worker execution, and lifecycle outcomes. Broad live-state UI
 integration is not implemented.
 
 ## Shipped receipt UI
 
-`nelos_plan_bootstrap`, `nelos_plan_lifecycle`, `nelos_plan_replan`,
-`nelos_plan_slices`, `nelos_orchestrate_create`,
-`nelos_execution_map_refresh`, `nelos_execution_map_history`, and
-`nelos_spinoff_cleanup` advertise the versioned
-`ui://nelos/execution-map-v11.html` MCP Apps resource. Successful calls preserve
-their existing complete text/JSON result and additionally return
-`structuredContent` containing a compact visual projection plus a versioned
-`protocol.result` copy of the complete tool result. The latter keeps
+The visual design follows three rules: compact enough to scan inside the host
+tool card, informative enough to explain the result without expanding raw JSON,
+and purposeful to the action that produced it. Tools route to three resources:
+
+- planning tools use `ui://nelos/plan-summary-v1.html`, showing the objective,
+  phase, worker mix, and an optional collapsed plan roster;
+- orchestration, launch verification, refresh, and history tools use
+  `ui://nelos/execution-map-v15.html`, showing a lone worker directly and
+  filtering larger maps into `Current`, `Done`, and `History`. The default
+  current view groups workers into `Needs input`, `In progress`, and `Queued`;
+- queen decisions, spin-off completion, and cleanup use
+  `ui://nelos/action-receipt-v2.html`, confirming the outcome, its affected
+  work unit or scope, and only its relevant metrics.
+
+See [MCP visual evidence](mcp-visual-evidence.md) for reference-host captures
+covering single workers, actionable groups, larger maps, plans, and outcomes.
+
+Successful calls preserve their complete text/JSON result and additionally
+return `structuredContent` containing the purpose-built visual projection plus
+a versioned `protocol.result` copy of the complete tool result. The latter keeps
 `nextAction`, receipts, identifiers, and other continuation fields visible to
 modern MCP clients that report only `structuredContent`.
 
 Every protocol-producing tool also publishes an exact per-tool `outputSchema`.
 Schemas for tools that return `nextAction` reference the complete discriminated
-action union rather than an untyped object. Visual tools correlate
+action union rather than an untyped object. Every visual correlates
 `protocol.tool` with the exact raw result schema nested under
 `protocol.result`; nonvisual protocol tools return their complete raw result as
-`structuredContent`. The visual projection contains:
+`structuredContent`.
+
+The execution-map projection contains:
 
 - the parent task or objective;
 - every non-archived member task in an ordinary receipt;
@@ -69,10 +83,13 @@ rows. Planning, launch-pending, running, and archiving dots pulse subtly while
 work is active; the animation is disabled when the host operating system
 requests reduced motion.
 
-The replaceable task tree is not itself a live region. A dedicated status node
-announces bounded receipt updates without replaying every row, and waiting or
-empty states use valid non-list markup. Native `details` and `summary` elements
-retain their built-in keyboard interaction.
+The replaceable execution-map tree is not itself a live region. A dedicated
+status node announces bounded receipt updates without replaying every row, and
+loading or empty states use valid non-list markup. Native `details` and
+`summary` elements retain their built-in keyboard interaction. Initial text is
+specific to the resource (`Preparing plan…`, `Loading worker state…`, or
+`Processing action…`); a delivered but non-renderable result becomes an
+explicit unavailable message rather than remaining in a loading state.
 
 Tool receipts remain immutable snapshots. After a native wait or result read,
 `nelos_execution_map_refresh` checks the exact supplied thread and turn
@@ -81,35 +98,43 @@ A matching completed latest turn renders `complete`; an in-progress turn
 renders `running`; unavailable, stale, failed, or mismatched evidence renders
 `attention`. The widget never guesses that launch-pending work completed.
 
-The component is self-contained, uses the MCP Apps bridge, loads no remote
+A successful bound create receipt or launch-batch verification renders
+`running`, reflecting that the host dispatched the worker's initial turn. The
+older `created` value remains readable for persisted projections and protocol
+compatibility, but new dispatch receipts do not use it. A later exact refresh
+is still authoritative for whether that turn remains active, completed, or
+needs attention.
+
+Each component is self-contained, uses the MCP Apps bridge, loads no remote
 resources, and renders only the tool result supplied by the host. It does not
 read Desktop state, discover tasks, poll, mutate native state, or treat widget
 state as authoritative. Clients that do not support MCP Apps continue to use
-the unchanged text/JSON result. The parent objective remains in the structured
-data for model context but the compact component does not render it.
+the unchanged text/JSON result. Plan summaries render the parent objective,
+execution maps render task context, and action receipts render the affected
+work unit or cleanup scope.
 
 The authorization status mirrors the launch gate exactly: an unapproved wave
 renders `authorization-required`, while replaying a valid native-host receipt
 changes the same planned members to `launch-pending`. The component does not
 approve or launch tasks itself.
 
-Cleanup remains host-owned and receipt-driven. Its first map can show
-`archiving` while native archive effects are outstanding; replaying the exact
-archive receipts removes those workers from subsequent ordinary maps. The
-cleanup protocol receipt still reports the exact archive outcome, and the
-explicit history tool shows those workers in the `Archive` rollup.
+Cleanup remains host-owned and receipt-driven. Its compact action receipt shows
+`archiving`, confirmation required, attention, or complete and includes only
+the relevant archived/kept/pending counts. Replaying exact archive receipts
+still updates the durable execution projection, and the explicit history tool
+shows those workers in the `Archive` rollup.
 
 Development verification is layered:
 
-1. `npm test` exercises the execution-map projection, resource contract,
-   lifecycle styling hooks, and deterministic fixture data.
+1. `npm test` exercises the visual routing, durable execution projection,
+   resource contracts, lifecycle styling hooks, and deterministic fixture data.
 2. `npm run verify:mcp-app` uses the official MCP Inspector for
    machine-readable initialization, app-binding, resource, representative-call,
    and invalid-input probes. `npm run inspect:mcp` opens its interactive UI.
 3. `npm run verify:mcp-app:host` builds the official MCP Apps `basic-host` at
    the repository-pinned commit and verifies its host, sandbox, and fixture MCP
    endpoints. `npm run dev:mcp-app-ui` keeps that stack running and prints a
-   direct link for every meaningful map state.
+   direct link for every meaningful execution-map state.
 4. A connected-browser review of those fixtures and a final smoke test in
    Codex cover visual presentation and product-host integration.
 

@@ -128,6 +128,7 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "bin/nelos-mcp",
     "docs/backlog.md",
     "docs/configuration.md",
+    "docs/mcp-visual-evidence.md",
     "docs/observation-join.md",
     "docs/slice-planning.md",
     "mcp.json",

@@ -22,7 +22,7 @@ import {
 import { fileURLToPath } from "node:url";
 
 import {
-  EXECUTION_MAP_FIXTURES,
+  MCP_APP_VISUAL_FIXTURES,
   MCP_APP_FIXTURE_PORT,
 } from "./mcp-app-fixture-server.mjs";
 
@@ -302,7 +302,7 @@ async function main() {
         `Sandbox: http://127.0.0.1:${sandboxPort}/sandbox.html`,
         `Fixture MCP: ${fixtureUrlValue}`,
         "",
-        ...EXECUTION_MAP_FIXTURES.map(
+        ...MCP_APP_VISUAL_FIXTURES.map(
           ({ title, toolName }) => `${title}: ${fixtureUrl(toolName)}`,
         ),
         "",
