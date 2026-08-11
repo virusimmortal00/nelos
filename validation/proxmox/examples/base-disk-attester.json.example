@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "node": "pve-node",
+  "baseTemplateVmid": 9000,
+  "baseTemplateName": "nelos-ubuntu-2404-base-pve-node"
+}

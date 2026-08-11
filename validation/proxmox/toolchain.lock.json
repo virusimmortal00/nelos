@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.0.0",
+  "platform": {
+    "operatingSystem": "linux",
+    "distribution": "ubuntu",
+    "release": "24.04 LTS",
+    "architecture": "x86_64"
+  },
+  "artifacts": {
+    "packer": {
+      "version": "1.15.4",
+      "fileName": "packer_1.15.4_linux_amd64.zip",
+      "url": "https://releases.hashicorp.com/packer/1.15.4/packer_1.15.4_linux_amd64.zip",
+      "sha256": "15f97a6a99645c7d5308c609973b5280837b38e112beac413ccbce80da927cf1"
+    },
+    "packerProxmoxPlugin": {
+      "version": "1.2.4",
+      "fileName": "packer-plugin-proxmox_v1.2.4_x5.0_linux_amd64.zip",
+      "url": "https://github.com/hashicorp/packer-plugin-proxmox/releases/download/v1.2.4/packer-plugin-proxmox_v1.2.4_x5.0_linux_amd64.zip",
+      "sha256": "84a50e8204180756708671809df0f4ec7bcdde9d702c74c7c4e005d3ce9d89e5"
+    },
+    "ubuntuCloudImage": {
+      "version": "release-20260801",
+      "fileName": "ubuntu-24.04-server-cloudimg-amd64.img",
+      "url": "https://cloud-images.ubuntu.com/releases/noble/release-20260801/ubuntu-24.04-server-cloudimg-amd64.img",
+      "sha256": "0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe"
+    },
+    "node": {
+      "version": "24.18.0",
+      "fileName": "node-v24.18.0-linux-x64.tar.xz",
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.xz",
+      "sha256": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+    },
+    "codexLegacy": {
+      "version": "0.144.6",
+      "fileName": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.144.6/codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "99ae48e4743da6c530ecd998ab2f7e66572c092f4190c88dca8236c07b06ce1d",
+      "laneId": "legacy-01446"
+    },
+    "codexAgentPlugin": {
+      "version": "0.147.0",
+      "fileName": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.147.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "bd758d53d56e41dc65e045f4589df79a038ed197a011adcb52a258e6ad64cfda",
+      "laneId": "agent-plugin-01470"
+    }
+  },
+  "policy": {
+    "allowFloatingVersions": false,
+    "requireSha256": true,
+    "ubuntuAptSnapshot": "20260801T120000Z",
+    "buildNetwork": {
+      "mode": "preconfigured-restricted-vnet",
+      "bridge": "nelosbld",
+      "dhcpSource": "restricted-vnet",
+      "defaultEgressPolicy": "deny",
+      "dnsPolicy": "restricted-host-allowlist-only",
+      "allowedTcpPorts": [
+        443
+      ],
+      "allowedGuestHosts": [
+        "github.com",
+        "nodejs.org",
+        "release-assets.githubusercontent.com",
+        "snapshot.ubuntu.com"
+      ]
+    },
+    "validationNetwork": "denied"
+  }
+}

@@ -9,3 +9,20 @@ dist/
 experiments/api-baseline/calibration-tranche-1/private-material/
 experiments/api-baseline/calibration-tranche-1/run-output/
 experiments/api-baseline/calibration-tranche-1/generated-public/
+
+# Proxmox validator build state and generated artifacts
+validation/proxmox/**/*.auto.pkrvars.hcl
+validation/proxmox/**/*.pkrvars.hcl
+validation/proxmox/**/*.auto.pkrvars.json
+validation/proxmox/**/*.pkrvars.json
+validation/proxmox/**/.packer.d/
+validation/proxmox/**/packer_cache/
+validation/proxmox/**/packer-manifest.json
+validation/proxmox/**/run-output/
+validation/proxmox/**/*.img
+validation/proxmox/**/*.iso
+validation/proxmox/**/*.qcow2
+validation/proxmox/**/*.raw
+validation/proxmox/**/*.vma
+validation/proxmox/**/*.vma.gz
+validation/proxmox/**/*.vma.zst

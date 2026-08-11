@@ -4,8 +4,9 @@ import { readFile } from "node:fs/promises";
 
 import { startNelosMcpServer } from "../src/mcp-server.mjs";
 
-// Development and test entry for the bundled MCP server. Installed plugins
-// launch the same module through the generated .mcp.json bootstrap; see
+// Development and test entry for the bundled MCP server. Legacy installs
+// reach the same module through the generated .mcp.json bootstrap; Agent
+// Plugins v1 launches this entry point directly from the plugin root. See
 // docs/mcp-tool-surface.md.
 
 let serverVersion = "0.0.0-dev";

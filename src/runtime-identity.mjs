@@ -410,6 +410,7 @@ export async function resolveRuntimeHealthV1({
     try {
       const recomputed = await computeIntegrity(loaded.modulePath, {
         allowLegacyWithoutCorpus: true,
+        allowLegacyWithoutAgentPluginLayout: true,
       });
       if (recomputed !== loaded.integrity) {
         integrityFailed = true;

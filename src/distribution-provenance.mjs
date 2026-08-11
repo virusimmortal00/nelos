@@ -52,6 +52,8 @@ export const MANAGED_CLI_COMMANDS = Object.freeze(Object.keys(MANAGED_CLI_BINS))
 export const DISTRIBUTION_ENTRIES = [
   ".codex-plugin",
   ".mcp.json",
+  "plugin.json",
+  "mcp.json",
   "CHANGELOG.md",
   "README.md",
   "assets",
@@ -242,10 +244,34 @@ async function listIntegrityFiles(root, entry) {
 
 export async function computeDistributionIntegrity(
   root,
-  { allowLegacyWithoutCorpus = false } = {},
+  {
+    allowLegacyWithoutCorpus = false,
+    allowLegacyWithoutAgentPluginLayout = false,
+  } = {},
 ) {
+  let omitLegacyAgentPluginLayout = false;
+  if (allowLegacyWithoutAgentPluginLayout) {
+    const presence = await Promise.all(
+      ["plugin.json", "mcp.json"].map(async (entry) => {
+        try {
+          await lstat(join(root, entry));
+          return true;
+        } catch (error) {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        }
+      }),
+    );
+    omitLegacyAgentPluginLayout = presence.every((entryPresent) => !entryPresent);
+  }
   const files = [];
   for (const entry of DISTRIBUTION_ENTRIES) {
+    if (
+      omitLegacyAgentPluginLayout &&
+      (entry === "plugin.json" || entry === "mcp.json")
+    ) {
+      continue;
+    }
     if (allowLegacyWithoutCorpus && entry === "corpus") {
       try {
         await lstat(join(root, entry));

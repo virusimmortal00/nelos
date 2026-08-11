@@ -1,0 +1,193 @@
+name: Proxmox validator source
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/proxmox-template.yml"
+      - ".codex-plugin/plugin.json"
+      - ".mcp.json"
+      - "distribution-provenance.json"
+      - "plugin.json"
+      - "mcp.json"
+      - "scripts/generate-mcp-config.mjs"
+      - "scripts/offline-network-blocker.cjs"
+      - "scripts/test-bootstrap.mjs"
+      - "src/distribution-provenance.mjs"
+      - "validation/proxmox/**"
+  push:
+    paths:
+      - ".github/workflows/proxmox-template.yml"
+      - ".codex-plugin/plugin.json"
+      - ".mcp.json"
+      - "distribution-provenance.json"
+      - "plugin.json"
+      - "mcp.json"
+      - "scripts/generate-mcp-config.mjs"
+      - "scripts/offline-network-blocker.cjs"
+      - "scripts/test-bootstrap.mjs"
+      - "src/distribution-provenance.mjs"
+      - "validation/proxmox/**"
+
+permissions:
+  contents: read
+
+jobs:
+  source-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CHECKPOINT_DISABLE: "1"
+      CI: "true"
+      PACKER_DIR: validation/proxmox/packer
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.18.0
+
+      - name: Validate the offline contract
+        env:
+          NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs
+        run: |
+          set -euo pipefail
+          unset CODEX_API_KEY OPENAI_API_KEY
+          node validation/proxmox/scripts/validate-contract.mjs
+          node --import ./scripts/test-bootstrap.mjs \
+            --test validation/proxmox/test/proxmox-template-contract.test.mjs
+
+      - name: Check shell sources
+        run: |
+          set -euo pipefail
+          command -v shellcheck
+          bash -n validation/proxmox/scripts/*.sh
+          shellcheck validation/proxmox/scripts/*.sh
+
+      - name: Install checksum-pinned Packer tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          lock=validation/proxmox/toolchain.lock.json
+          tools_root="${RUNNER_TEMP}/nelos-packer-tools"
+          mkdir -p \
+            "${tools_root}/bin" \
+            "${tools_root}/plugin-extract" \
+            "${tools_root}/plugins" \
+            "${tools_root}/cache" \
+            "${tools_root}/config"
+          chmod 0700 \
+            "${tools_root}/plugin-extract" \
+            "${tools_root}/plugins" \
+            "${tools_root}/cache" \
+            "${tools_root}/config"
+
+          download_verified() {
+            local url="$1"
+            local sha256="$2"
+            local destination="$3"
+            curl --disable --fail --silent --show-error --location \
+              --proto '=https' --tlsv1.2 \
+              --output "$destination" "$url"
+            printf '%s  %s\n' "$sha256" "$destination" | sha256sum --check
+          }
+
+          packer_url="$(jq -er '.artifacts.packer.url' "$lock")"
+          packer_sha="$(jq -er '.artifacts.packer.sha256' "$lock")"
+          packer_file="$(jq -er '.artifacts.packer.fileName' "$lock")"
+          packer_zip="${tools_root}/${packer_file}"
+          download_verified "$packer_url" "$packer_sha" "$packer_zip"
+          unzip -q "$packer_zip" -d "${tools_root}/bin"
+          chmod 0755 "${tools_root}/bin/packer"
+
+          plugin_url="$(jq -er '.artifacts.packerProxmoxPlugin.url' "$lock")"
+          plugin_sha="$(jq -er '.artifacts.packerProxmoxPlugin.sha256' "$lock")"
+          plugin_file="$(jq -er '.artifacts.packerProxmoxPlugin.fileName' "$lock")"
+          plugin_zip="${tools_root}/${plugin_file}"
+          plugin_binary="${tools_root}/plugin-extract/${plugin_file%.zip}"
+          download_verified "$plugin_url" "$plugin_sha" "$plugin_zip"
+          unzip -q "$plugin_zip" -d "${tools_root}/plugin-extract"
+          chmod 0755 "$plugin_binary"
+
+          export PACKER_PLUGIN_PATH="${tools_root}/plugins"
+          export PACKER_CACHE_DIR="${tools_root}/cache"
+          export PACKER_CONFIG_DIR="${tools_root}/config"
+          export PACKER_CONFIG="${tools_root}/config/packer.json"
+          printf '{}\n' > "$PACKER_CONFIG"
+          chmod 0600 "$PACKER_CONFIG"
+          offline_proxy="http://127.0.0.1:9"
+
+          env \
+            HTTP_PROXY="$offline_proxy" \
+            HTTPS_PROXY="$offline_proxy" \
+            ALL_PROXY="$offline_proxy" \
+            NO_PROXY= \
+            http_proxy="$offline_proxy" \
+            https_proxy="$offline_proxy" \
+            all_proxy="$offline_proxy" \
+            no_proxy= \
+            "${tools_root}/bin/packer" plugins install \
+              --path "$plugin_binary" github.com/hashicorp/proxmox
+
+          env \
+            HTTP_PROXY="$offline_proxy" \
+            HTTPS_PROXY="$offline_proxy" \
+            ALL_PROXY="$offline_proxy" \
+            NO_PROXY= \
+            http_proxy="$offline_proxy" \
+            https_proxy="$offline_proxy" \
+            all_proxy="$offline_proxy" \
+            no_proxy= \
+            "${tools_root}/bin/packer" init "$PACKER_DIR"
+
+          echo "${tools_root}/bin" >> "$GITHUB_PATH"
+          {
+            echo "PACKER_PLUGIN_PATH=${PACKER_PLUGIN_PATH}"
+            echo "PACKER_CACHE_DIR=${PACKER_CACHE_DIR}"
+            echo "PACKER_CONFIG_DIR=${PACKER_CONFIG_DIR}"
+            echo "PACKER_CONFIG=${PACKER_CONFIG}"
+          } >> "$GITHUB_ENV"
+
+      - name: Check Packer source without provider access
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset \
+            PROXMOX_URL \
+            PROXMOX_USERNAME \
+            PROXMOX_PASSWORD \
+            PROXMOX_TOKEN
+          packer version
+          packer fmt -check -diff -recursive "$PACKER_DIR"
+          packer validate -syntax-only "$PACKER_DIR"
+
+          synthetic_vars="${RUNNER_TEMP}/nelos-synthetic.pkrvars.json"
+          jq -n '{
+            proxmox_node: "pve-ci",
+            proxmox_pool: "",
+            base_template_vmid: 9000,
+            base_template_name: "nelos-base-ci",
+            output_template_vmid: 9001,
+            output_template_name: "nelos-validator-ci",
+            cloud_init_storage: "local-ci",
+            build_nonce: "00000000-0000-4000-8000-000000000000"
+          }' > "$synthetic_vars"
+          chmod 0600 "$synthetic_vars"
+
+          offline_proxy="http://127.0.0.1:9"
+          env \
+            PROXMOX_URL="https://proxmox.invalid:8006/api2/json" \
+            PROXMOX_USERNAME="validator@pve!synthetic" \
+            PROXMOX_TOKEN="synthetic" \
+            HTTP_PROXY="$offline_proxy" \
+            HTTPS_PROXY="$offline_proxy" \
+            ALL_PROXY="$offline_proxy" \
+            NO_PROXY= \
+            http_proxy="$offline_proxy" \
+            https_proxy="$offline_proxy" \
+            all_proxy="$offline_proxy" \
+            no_proxy= \
+            packer validate -var-file="$synthetic_vars" "$PACKER_DIR"

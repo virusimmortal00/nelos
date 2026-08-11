@@ -36,6 +36,9 @@ const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 const pluginManifestPath = fileURLToPath(
   new URL("../.codex-plugin/plugin.json", import.meta.url),
 );
+const agentPluginManifestPath = fileURLToPath(
+  new URL("../plugin.json", import.meta.url),
+);
 function runVerifier(environment) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [verifier], {
@@ -179,8 +182,12 @@ test("the provenance revision stays aligned with package and plugin releases", a
   const provenance = JSON.parse(await readFile(expectedPath, "utf8"));
   const packageMetadata = JSON.parse(await readFile(packagePath, "utf8"));
   const pluginMetadata = JSON.parse(await readFile(pluginManifestPath, "utf8"));
+  const agentPluginMetadata = JSON.parse(
+    await readFile(agentPluginManifestPath, "utf8"),
+  );
   assert.equal(provenance.revision, packageMetadata.version);
   assert.equal(provenance.revision, pluginMetadata.version);
+  assert.equal(provenance.revision, agentPluginMetadata.version);
   assert.equal(provenance.integrity, await computeDistributionIntegrity(packageRoot));
   assert.equal(
     provenance.skillIntegrity,
@@ -198,7 +205,11 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
   // runtime-dependency-free by design. The official MCP Apps SDK and host
   // packages are development-only test infrastructure.
   assert.ok(DISTRIBUTION_ENTRIES.includes(".mcp.json"));
+  assert.ok(DISTRIBUTION_ENTRIES.includes("mcp.json"));
+  assert.ok(DISTRIBUTION_ENTRIES.includes("plugin.json"));
   assert.ok(packageMetadata.files.includes(".mcp.json"));
+  assert.ok(packageMetadata.files.includes("mcp.json"));
+  assert.ok(packageMetadata.files.includes("plugin.json"));
   assert.deepEqual(
     packageMetadata.files
       .filter((path) => path.startsWith("corpus/"))

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nelos",
+  "version": "0.12.12",
+  "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
+  "author": {
+    "name": "Bobby Sayers",
+    "url": "https://github.com/virusimmortal00/nelos"
+  },
+  "homepage": "https://github.com/virusimmortal00/nelos",
+  "repository": "https://github.com/virusimmortal00/nelos",
+  "license": "MIT",
+  "keywords": [
+    "orchestration",
+    "tasks",
+    "coordination"
+  ]
+}
