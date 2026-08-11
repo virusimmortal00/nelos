@@ -120,6 +120,34 @@ subagents, or hand-run parallel chats:
 
 ## Nelos in action
 
+### Spinoffs wake the queen
+
+A durable spinoff does not depend on the queen staying in a wait loop or
+remembering to check back. Before the spinoff returns its final result, it
+reports completion through Nelos. Nelos validates the report against the exact
+bound work unit, persists it, and sends a receipt-bound completion message to
+the queen task through Codex.
+
+<p align="center">
+  <img
+    src="docs/assets/showcase/idle-queen-wakeup.png"
+    alt="A completed Nelos spinoff sending a succeeded completion message into its queen task from another Codex task"
+    width="100%">
+</p>
+
+<p align="center"><em>The queen receives the completion as a native cross-task message—even after its previous turn has ended.</em></p>
+
+If the queen is active, the callback steers its current turn. If it is idle or
+unloaded, Codex resumes it and starts a turn with the completion message. The
+queen can then collect the bounded result, apply the recorded acceptance gate,
+and release any dependent wave. Delivery is persisted and replay-safe, so an
+uncertain retry is reconciled instead of blindly sending a duplicate message.
+
+The result is event-like coordination without requiring the queen to remain
+blocked, poll every spinoff, or rely on memory to revisit them later. Native
+waiting remains the fallback if a spinoff terminates before completing the
+callback protocol.
+
 ### Dependencies wait for accepted work
 
 Nelos can run independent slices in parallel, but it does not release downstream
