@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="#nelos-in-action">See it work</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#install-nelos">Install</a> ·
   <a href="#configuration">Configuration</a> ·
   <a href="#whats-in-the-box">What's in the box</a> ·
   <a href="docs/webs.md">Docs</a>
@@ -29,6 +29,19 @@
 Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
 a task-management skill, an MCP orchestration server, and a dedicated official
 Codex app-server child process for native task control.
+
+## Install Nelos
+
+> **Codex CLI 0.144.5+** · macOS / Linux · Node.js 20+ · Windows not yet supported.
+
+```bash
+codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
+codex plugin add nelos@nelos-marketplace
+```
+
+New to Codex, missing Node.js, or using the desktop app? Follow the
+[complete installation guide](#installation-guide) for prerequisites, desktop
+steps, bundled-tool enablement, upgrades, and rollback.
 
 **A little Nelos vocabulary:**
 
@@ -144,16 +157,68 @@ acceptance gate first, and the orchestration state survives restarts.
 many of them *social*, cooperating on one shared web. That behavior inspired
 Nelos's name and vocabulary.
 
-## Quick start
+## Installation guide
 
 > **Codex only** · macOS / Linux · Node.js 20+ · Windows not yet supported.
 
-Install the plugin:
+### Prerequisites
+
+Nelos requires Codex CLI `0.144.5` or newer, even if you normally use Codex in
+the ChatGPT desktop app. The CLI is currently required once to register Nelos's
+custom GitHub marketplace source.
+
+Install the [Codex CLI](https://learn.chatgpt.com/docs/codex/cli#getting-started),
+verify the installed version, and sign in:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+codex --version
+codex login
+```
+
+The official guide also provides npm and Homebrew installation options. Before
+continuing, install [Node.js 20 or newer](https://nodejs.org/en/download) and
+confirm it is available:
+
+```bash
+node --version
+```
+
+### Install from the terminal
+
+Register Nelos's stable marketplace channel and install the plugin:
 
 ```bash
 codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
 codex plugin add nelos@nelos-marketplace
 ```
+
+Nelos's GitHub repository is itself a one-plugin marketplace; this does not add
+an unrelated catalog. Codex currently installs plugins only from configured
+marketplace snapshots: `codex plugin add` accepts `PLUGIN@MARKETPLACE`, not a
+GitHub URL. See [Why is a marketplace required?](#why-is-a-marketplace-required).
+
+### Desktop installation
+
+1. Install and sign in to the
+   [ChatGPT desktop app](https://chatgpt.com/download/), then select **Codex**.
+2. In a terminal, register the source once:
+
+   ```bash
+   codex plugin marketplace add virusimmortal00/nelos --ref marketplace/stable
+   ```
+
+3. Quit and reopen the desktop app.
+4. Open **Plugins**, select the **Nelos Marketplace** source, open **Nelos**,
+   and select the plus button to install it.
+5. Open **Settings > Configuration > Open config.toml** and add the bundled-tool
+   configuration shown below.
+
+Codex does not currently provide a graphical control for adding an arbitrary
+Git marketplace. Once that source has been registered, installation and later
+uninstallation can be done from the desktop Plugins directory.
+
+### Enable Nelos and finish setup
 
 `marketplace/stable` advances only to a published, validated stable release.
 To upgrade later, refresh that marketplace snapshot and reinstall the plugin:
@@ -180,6 +245,18 @@ Use Nelos to plan this feature into safe parallel slices.
 No installer, no manual copying, no `PATH` changes.
 Exact release tags remain available for reproducible installs and rollback; see
 [Installation and distribution trust](docs/installation.md#codex-marketplace-installs-upgrades-and-rollback).
+
+### Why is a marketplace required?
+
+Not because Nelos needs a large third-party catalog. It is a limitation of the
+current Codex plugin installer: Git repositories can be registered as
+marketplace sources, while individual plugins must be installed by their
+`PLUGIN@MARKETPLACE` selector. There is no supported equivalent of
+`codex plugin add https://github.com/virusimmortal00/nelos.git` today.
+
+A fully graphical, no-CLI installation becomes possible if Nelos is published
+in the universal plugin directory. Until then, the repository's single-plugin
+marketplace is the shortest supported GitHub installation path.
 
 ## Configuration
 
@@ -291,7 +368,7 @@ Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
 Nelos was previously published as **Fraktik** (through 0.2.1). The rename changes
 the install identity, so remove the old plugin and delete any
 `[plugins."fraktik@fraktik"...]` blocks from `~/.codex/config.toml`, then follow
-the [Quick start](#quick-start):
+the [installation guide](#installation-guide):
 
 ```bash
 codex plugin remove fraktik@fraktik

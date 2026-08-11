@@ -5,7 +5,7 @@ Nelos's transactional installer, the read-only `nelos doctor`
 diagnostic, and the distribution verifier. For the normal Codex installation —
 the marketplace plugin plus its bundled MCP tool surface
 ([docs/mcp-tool-surface.md](mcp-tool-surface.md)) — see
-[Quick start](../README.md#quick-start); this document also covers the
+[Installation guide](../README.md#installation-guide); this document also covers the
 maintainer-oriented source distribution path, which installs the optional
 `nelos` CLI that the installed plugin no longer depends on.
 
@@ -57,7 +57,7 @@ codex plugin add nelos@nelos-marketplace
 
 Restart Codex and open a fresh task after installation or upgrade. Enabling the
 bundled MCP server remains an explicit per-selector configuration step, as
-shown in the [Quick start](../README.md#quick-start).
+shown in the [installation guide](../README.md#enable-nelos-and-finish-setup).
 
 This restart is required, not advisory: an already-open task can retain the old
 skill text, and an already-running MCP worker can retain the old JavaScript
