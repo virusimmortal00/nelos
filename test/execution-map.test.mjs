@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ACTION_RECEIPT_RESOURCE_URI,
   EXECUTION_MAP_OUTPUT_SCHEMA,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
+  PLAN_SUMMARY_RESOURCE_URI,
   executionMapForToolResultV1,
   projectExecutionMapForToolResultV1,
+  projectMcpVisualForToolResultV1,
   executionMapOutputSchemaForToolV1,
   executionMapToolMetadataV1,
-  listExecutionMapResourcesV1,
+  listMcpVisualResourcesV1,
   readExecutionMapResourceV1,
   readExecutionMapHistoryV1,
   refreshExecutionMapStatusV1,
@@ -119,7 +122,7 @@ test("planned task webs project exact task, route, lifecycle, and count data", (
   );
 });
 
-test("planning and durable creation remain visibly distinct", () => {
+test("planning, launch pending, and running remain visibly distinct", () => {
   const planning = executionMapForToolResultV1(
     "nelos_plan_lifecycle",
     { objective: "Ship history" },
@@ -159,18 +162,19 @@ test("planning and durable creation remain visibly distinct", () => {
   assert.equal(pending.phase, "launch-pending");
   assert.equal(pending.summary.created, 0);
 
-  const created = executionMapForToolResultV1(
+  const running = executionMapForToolResultV1(
     "nelos_orchestrate_create",
     { workUnit, receipt: { type: "native-create" } },
     {
       binding: { state: "bound", memberThreadId: "thread-history" },
     },
   );
-  assert.equal(created.phase, "created");
-  assert.equal(created.summary.created, 1);
-  assert.equal(created.members[0].threadId, "thread-history");
-  assert.equal(created.members[0].model, "gpt-5.6-luna");
-  assert.equal(created.members[0].reasoning, "high");
+  assert.equal(running.phase, "running");
+  assert.equal(running.summary.created, 0);
+  assert.equal(running.summary.running, 1);
+  assert.equal(running.members[0].threadId, "thread-history");
+  assert.equal(running.members[0].model, "gpt-5.6-luna");
+  assert.equal(running.members[0].reasoning, "high");
 });
 
 test("planned task webs expose authorization and authorized launch phases", () => {
@@ -601,7 +605,7 @@ test("web-wide projection survives restart and rejects stale member regressions"
   );
   assert.equal(restarted.members.length, 3);
   assert.equal(restarted.members.find(({ id }) => id === "alpha").status, "running");
-  assert.equal(restarted.members.find(({ id }) => id === "beta").status, "created");
+  assert.equal(restarted.members.find(({ id }) => id === "beta").status, "running");
 
   const terminal = await projectExecutionMapForToolResultV1(
     "nelos_spinoff_complete",
@@ -637,12 +641,87 @@ test("web-wide projection survives restart and rejects stale member regressions"
   );
   assert.equal(
     correctedAttempt.members.find(({ id }) => id === "alpha").status,
-    "created",
+    "running",
   );
 });
 
-test("the execution map is a self-contained MCP Apps resource", () => {
-  const [listed] = listExecutionMapResourcesV1();
+test("public MCP visuals match the purpose of each action", async () => {
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Use purposeful MCP visuals",
+    slices: [plannedSlice("design")],
+  });
+  const planView = await projectMcpVisualForToolResultV1(
+    "nelos_plan_slices",
+    {},
+    { plan, nextAction: { kind: "authorization-required" } },
+  );
+  assert.equal(planView.view, "plan-summary");
+  assert.equal(planView.task, "Use purposeful MCP visuals");
+  assert.equal(planView.members.length, 1);
+
+  const executionView = await projectMcpVisualForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    {
+      verification: {
+        allVerified: true,
+        members: [{
+          sliceId: "design",
+          lifecycle: "subagent",
+          threadId: "thread-design",
+          verified: true,
+        }],
+      },
+    },
+  );
+  assert.equal(executionView.view, "execution-map");
+  assert.equal(executionView.members[0].status, "running");
+
+  const decisionView = await projectMcpVisualForToolResultV1(
+    "nelos_queen_decide",
+    {},
+    { decision: { workUnitId: "design", decision: "accepted" } },
+  );
+  assert.deepEqual(
+    {
+      view: decisionView.view,
+      kind: decisionView.kind,
+      status: decisionView.status,
+      title: decisionView.title,
+    },
+    {
+      view: "action-receipt",
+      kind: "decision",
+      status: "accepted",
+      title: "Result accepted",
+    },
+  );
+
+  const cleanupView = await projectMcpVisualForToolResultV1(
+    "nelos_spinoff_cleanup",
+    {},
+    {
+      state: "complete",
+      results: [{ state: "archived" }, { state: "kept" }],
+    },
+  );
+  assert.equal(cleanupView.view, "action-receipt");
+  assert.equal(cleanupView.kind, "cleanup");
+  assert.deepEqual(cleanupView.metrics, [
+    { label: "archived", value: 1 },
+    { label: "kept", value: 1 },
+  ]);
+});
+
+test("purpose-built MCP Apps resources stay compact and self-contained", () => {
+  const resources = listMcpVisualResourcesV1();
+  assert.deepEqual(resources.map(({ uri }) => uri), [
+    EXECUTION_MAP_RESOURCE_URI,
+    PLAN_SUMMARY_RESOURCE_URI,
+    ACTION_RECEIPT_RESOURCE_URI,
+  ]);
+  const [listed] = resources;
   assert.equal(listed.uri, EXECUTION_MAP_RESOURCE_URI);
   assert.equal(listed.mimeType, EXECUTION_MAP_RESOURCE_MIME_TYPE);
   assert.deepEqual(listed._meta.ui.csp, {
@@ -677,11 +756,17 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.match(resource.contents[0].text, /title: "Launch pending"/u);
   assert.match(resource.contents[0].text, /title: "Archive"/u);
   assert.match(resource.contents[0].text, /className = "member-group"/u);
-  assert.match(resource.contents[0].text, /Expand active/u);
-  assert.match(resource.contents[0].text, /Collapse all/u);
+  assert.match(resource.contents[0].text, /INTENT_GROUPS/u);
+  assert.match(resource.contents[0].text, /title: "Needs input"/u);
+  assert.match(resource.contents[0].text, /title: "In progress"/u);
+  assert.match(resource.contents[0].text, /title: "Queued"/u);
+  assert.match(resource.contents[0].text, /id="filter-current"/u);
+  assert.match(resource.contents[0].text, /id="filter-done"/u);
+  assert.match(resource.contents[0].text, /id="filter-history"/u);
+  assert.doesNotMatch(resource.contents[0].text, /Expand active/u);
   assert.match(resource.contents[0].text, /currentViewKey/u);
-  assert.match(resource.contents[0].text, /nearestSummary/u);
-  assert.match(resource.contents[0].text, /bulkHadFocus/u);
+  assert.match(resource.contents[0].text, /currentFilter/u);
+  assert.match(resource.contents[0].text, /openGroupState/u);
   assert.match(resource.contents[0].text, /applyHostContext/u);
   assert.match(resource.contents[0].text, /id="host-fonts"/u);
   assert.match(resource.contents[0].text, /styles\?\.css\?\.fonts/u);
@@ -689,14 +774,16 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.match(resource.contents[0].text, /--nelos-safe-area-top/u);
   assert.match(
     resource.contents[0].text,
-    /\.member-group\[data-status="created"\]\s*>\s*\.group-summary::marker,[^{}]*\{[^{}]*color:\s*var\(--success\);[^{}]*\}/u,
+    /\.member-group\[data-group="needs-input"\]\s*>\s*\.group-summary::marker\s*\{[^{}]*color:\s*var\(--warning\);[^{}]*\}/u,
   );
   assert.match(resource.contents[0].text, /id="members"[\s\S]*?role="group"[\s\S]*?aria-label="Nelos task workers"/u);
   assert.match(resource.contents[0].text, /role="status"/u);
   assert.match(
     resource.contents[0].text,
-    /const waiting = document\.createElement\("p"\)/u,
+    /const loading = document\.createElement\("p"\)/u,
   );
+  assert.match(resource.contents[0].text, /Loading worker state…/u);
+  assert.match(resource.contents[0].text, /Worker status unavailable\./u);
   assert.match(
     resource.contents[0].text,
     /const empty = document\.createElement\("p"\)/u,
@@ -708,7 +795,7 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.match(resource.contents[0].text, /@keyframes status-pulse/u);
   assert.doesNotMatch(resource.contents[0].text, /Current tasks/u);
   assert.doesNotMatch(resource.contents[0].text, /Archived history/u);
-  assert.doesNotMatch(resource.contents[0].text, /className = "tag status"/u);
+  assert.match(resource.contents[0].text, /tag\(definition\.title, "status"\)/u);
   assert.doesNotMatch(resource.contents[0].text, /"Joined subagent"/u);
   assert.doesNotMatch(resource.contents[0].text, /--danger/u);
   assert.doesNotMatch(resource.contents[0].text, /<main aria-live=/u);
@@ -718,20 +805,41 @@ test("the execution map is a self-contained MCP Apps resource", () => {
   assert.doesNotMatch(resource.contents[0].text, /phaseElement/u);
   assert.doesNotMatch(resource.contents[0].text, /id="summary"/u);
   assert.doesNotMatch(resource.contents[0].text, /className = "metric"/u);
-  assert.doesNotMatch(resource.contents[0].text, /id="task"/u);
-  assert.doesNotMatch(resource.contents[0].text, /taskElement/u);
+  assert.match(resource.contents[0].text, /id="task-context"/u);
+  assert.match(resource.contents[0].text, /members\.length === 1/u);
+  assert.match(resource.contents[0].text, /"member single-member"/u);
+  assert.match(resource.contents[0].text, /standalone \? "article" : "li"/u);
   assert.doesNotMatch(resource.contents[0].text, /https?:\/\//u);
   assert.throws(
     () => readExecutionMapResourceV1("ui://nelos/unknown.html"),
     /unknown resource/u,
   );
 
+  const planResource = readExecutionMapResourceV1(PLAN_SUMMARY_RESOURCE_URI);
+  assert.match(planResource.contents[0].text, /Nelos plan summary/u);
+  assert.match(planResource.contents[0].text, /Preparing plan…/u);
+  assert.match(planResource.contents[0].text, /Review.*planned/u);
+  assert.doesNotMatch(planResource.contents[0].text, /Waiting for task state/u);
+  const actionResource = readExecutionMapResourceV1(
+    ACTION_RECEIPT_RESOURCE_URI,
+  );
+  assert.match(actionResource.contents[0].text, /Nelos action receipt/u);
+  assert.match(actionResource.contents[0].text, /Processing action…/u);
+  assert.match(actionResource.contents[0].text, /Action result unavailable\./u);
+  assert.match(actionResource.contents[0].text, /"Work unit"/u);
+  assert.match(actionResource.contents[0].text, /"Scope"/u);
+  assert.doesNotMatch(actionResource.contents[0].text, /Waiting for task state/u);
+
   assert.deepEqual(executionMapToolMetadataV1("nelos_plan_slices").ui, {
-    resourceUri: EXECUTION_MAP_RESOURCE_URI,
+    resourceUri: PLAN_SUMMARY_RESOURCE_URI,
   });
   assert.deepEqual(
     executionMapToolMetadataV1("nelos_spinoff_cleanup").ui,
-    { resourceUri: EXECUTION_MAP_RESOURCE_URI },
+    { resourceUri: ACTION_RECEIPT_RESOURCE_URI },
+  );
+  assert.deepEqual(
+    executionMapToolMetadataV1("nelos_queen_decide").ui,
+    { resourceUri: ACTION_RECEIPT_RESOURCE_URI },
   );
   assert.deepEqual(
     executionMapToolMetadataV1("nelos_execution_map_refresh").ui,

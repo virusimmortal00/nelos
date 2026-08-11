@@ -8,6 +8,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 import {
   EXECUTION_MAP_FIXTURES,
+  MCP_APP_VISUAL_FIXTURES,
+  PURPOSEFUL_VISUAL_FIXTURES,
   startMcpAppFixtureServer,
 } from "../scripts/mcp-app-fixture-server.mjs";
 import {
@@ -16,9 +18,11 @@ import {
   resolveSandboxPort,
 } from "../scripts/dev-mcp-app-ui.mjs";
 import {
+  ACTION_RECEIPT_RESOURCE_URI,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
   EXECUTION_MAP_RESOURCE_URI,
   EXECUTION_MAP_STATUSES,
+  PLAN_SUMMARY_RESOURCE_URI,
 } from "../src/execution-map.mjs";
 
 async function mountExecutionMapWidget(source, {
@@ -172,29 +176,63 @@ async function mountExecutionMapWidget(source, {
   head.append(hostFontsElement);
   const body = makeElement("body");
   const main = makeElement("main");
-  const groupActionsElement = makeElement("div", "group-actions");
-  groupActionsElement.className = "group-actions";
-  groupActionsElement.hidden = true;
-  const bulkToggleElement = makeElement("button", "bulk-toggle");
-  bulkToggleElement.className = "bulk-toggle";
-  bulkToggleElement.textContent = "Expand active";
-  bulkToggleElement.setAttribute("aria-expanded", "false");
+  const taskContextElement = makeElement("div", "task-context");
+  taskContextElement.className = "task-context";
+  taskContextElement.hidden = true;
+  const taskContextLabelElement = makeElement("span", "task-context-label");
+  taskContextLabelElement.className = "task-context-label";
+  taskContextLabelElement.textContent = "Task";
+  const taskContextValueElement = makeElement("strong", "task-context-value");
+  taskContextValueElement.className = "task-context-value";
+  const filtersElement = makeElement("nav", "filters");
+  filtersElement.className = "filters";
+  filtersElement.hidden = true;
+  const filterCurrentElement = makeElement("button", "filter-current");
+  filterCurrentElement.className = "filter-button";
+  filterCurrentElement.textContent = "Current";
+  filterCurrentElement.setAttribute("aria-pressed", "true");
+  const filterDoneElement = makeElement("button", "filter-done");
+  filterDoneElement.className = "filter-button";
+  filterDoneElement.textContent = "Done";
+  filterDoneElement.setAttribute("aria-pressed", "false");
+  const filterHistoryElement = makeElement("button", "filter-history");
+  filterHistoryElement.className = "filter-button";
+  filterHistoryElement.textContent = "History";
+  filterHistoryElement.setAttribute("aria-pressed", "false");
   const membersElement = makeElement("div", "members");
   membersElement.className = "groups";
   membersElement.setAttribute("role", "group");
   const updateStatusElement = makeElement("p", "update-status");
   updateStatusElement.className = "sr-only";
-  groupActionsElement.append(bulkToggleElement);
-  main.append(groupActionsElement, membersElement, updateStatusElement);
+  taskContextElement.append(
+    taskContextLabelElement,
+    taskContextValueElement,
+  );
+  filtersElement.append(
+    filterCurrentElement,
+    filterDoneElement,
+    filterHistoryElement,
+  );
+  main.append(
+    taskContextElement,
+    filtersElement,
+    membersElement,
+    updateStatusElement,
+  );
   body.append(main);
   documentElement.append(head, body);
 
   const syntheticHeight = () => {
     let height = 28;
-    if (!groupActionsElement.hidden) height += 26;
+    if (!taskContextElement.hidden) height += 24;
+    if (!filtersElement.hidden) height += 26;
     for (const child of membersElement.children) {
       if (hasClass(child, "empty")) {
         height += 50;
+        continue;
+      }
+      if (hasClass(child, "single-member")) {
+        height += 44;
         continue;
       }
       if (!hasClass(child, "member-group")) continue;
@@ -329,11 +367,13 @@ async function mountExecutionMapWidget(source, {
   flushAnimationFrames();
 
   return {
-    bulkToggleElement,
     document,
     documentElement,
+    filterCurrentElement,
+    filterDoneElement,
+    filterHistoryElement,
+    filtersElement,
     flushAnimationFrames,
-    groupActionsElement,
     hostFontsElement,
     membersElement,
     observers,
@@ -341,6 +381,9 @@ async function mountExecutionMapWidget(source, {
     sendHostContext,
     sendOpenAIResult,
     sendToolResult,
+    taskContextElement,
+    taskContextLabelElement,
+    taskContextValueElement,
     triggerResize,
     updateStatusElement,
     window,
@@ -407,6 +450,19 @@ test("execution-map visual fixtures cover the meaningful lifecycle states", () =
   );
 });
 
+test("purpose-built fixtures cover plan and outcome receipts", () => {
+  assert.deepEqual(
+    PURPOSEFUL_VISUAL_FIXTURES.map(({ map, resourceUri }) => [
+      map.view,
+      resourceUri,
+    ]),
+    [
+      ["plan-summary", PLAN_SUMMARY_RESOURCE_URI],
+      ["action-receipt", ACTION_RECEIPT_RESOURCE_URI],
+    ],
+  );
+});
+
 test("reference-host cache containment is platform-aware", () => {
   assert.equal(
     isPathWithin(
@@ -457,15 +513,15 @@ test("official MCP SDK reaches every fixture and the production UI resource", as
     const listed = await client.listTools();
     assert.deepEqual(
       listed.tools.map(({ name }) => name).sort(),
-      EXECUTION_MAP_FIXTURES.map(({ toolName }) => toolName).sort(),
+      MCP_APP_VISUAL_FIXTURES.map(({ toolName }) => toolName).sort(),
     );
-    for (const current of EXECUTION_MAP_FIXTURES) {
+    for (const current of MCP_APP_VISUAL_FIXTURES) {
       const descriptor = listed.tools.find(
         ({ name }) => name === current.toolName,
       );
       assert.equal(
         descriptor?._meta?.ui?.resourceUri,
-        EXECUTION_MAP_RESOURCE_URI,
+        current.resourceUri ?? EXECUTION_MAP_RESOURCE_URI,
       );
       const result = await client.callTool({
         name: current.toolName,
@@ -486,8 +542,15 @@ test("official MCP SDK reaches every fixture and the production UI resource", as
     assert.match(resource.contents[0]?.text ?? "", /member-heading/u);
     assert.match(
       resource.contents[0]?._meta?.["openai/widgetDescription"] ?? "",
-      /model, reasoning level, lifecycle, and current status/u,
+      /grouped by current execution status/u,
     );
+    for (const [uri, pattern] of [
+      [PLAN_SUMMARY_RESOURCE_URI, /Nelos plan summary/u],
+      [ACTION_RECEIPT_RESOURCE_URI, /Nelos action receipt/u],
+    ]) {
+      const purposeful = await client.readResource({ uri });
+      assert.match(purposeful.contents[0]?.text ?? "", pattern);
+    }
   } finally {
     await client.close();
     await running.close();
@@ -515,11 +578,13 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
 
     const widget = await mountExecutionMapWidget(source);
     const {
-      bulkToggleElement,
       document,
       documentElement,
+      filterCurrentElement,
+      filterDoneElement,
+      filterHistoryElement,
+      filtersElement,
       flushAnimationFrames,
-      groupActionsElement,
       hostFontsElement,
       membersElement,
       observers,
@@ -527,13 +592,18 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       sendHostContext,
       sendOpenAIResult,
       sendToolResult,
+      taskContextElement,
+      taskContextLabelElement,
+      taskContextValueElement,
       triggerResize,
       updateStatusElement,
     } = widget;
     assert.equal(membersElement.tagName, "div");
     assert.equal(membersElement.attributes.role, "group");
     assert.equal(membersElement.children[0]?.tagName, "p");
-    assert.equal(membersElement.children[0]?.textContent, "Waiting for task state…");
+    assert.equal(membersElement.children[0]?.textContent, "Loading worker state…");
+    assert.equal(taskContextElement.hidden, true);
+    assert.equal(filtersElement.hidden, true);
     assert.equal(documentElement.dataset.theme, "light");
     assert.equal(documentElement.style.colorScheme, "light");
     assert.equal(
@@ -555,18 +625,25 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       ({ key }) => key === "running_subagent",
     ).map;
     sendToolResult(runningMap);
+    assert.equal(taskContextElement.hidden, false);
+    assert.equal(taskContextLabelElement.textContent, "Task");
+    assert.equal(taskContextValueElement.textContent, runningMap.task);
+    assert.equal(
+      taskContextValueElement.title,
+      `Task: ${runningMap.task}`,
+    );
     assert.equal(membersElement.children.length, 1);
-    assert.equal(membersElement.children[0].className, "member-group");
-    assert.equal(membersElement.children[0].open, false);
-    assert.equal(groupActionsElement.hidden, true);
+    assert.equal(membersElement.children[0].tagName, "article");
+    assert.equal(membersElement.children[0].className, "member single-member");
+    assert.equal(filtersElement.hidden, true);
     assert.equal(membersElement.children[0].dataset.status, "running");
     assert.equal(
-      membersElement.children[0].children[0].textContent,
-      "Running (1)",
+      membersElement.children[0].children[1].children[0].children[0].textContent,
+      runningMap.members[0].task,
     );
     assert.equal(
-      membersElement.children[0].children[1].children[0].dataset.status,
-      "running",
+      membersElement.children[0].children[1].children[1].children[0].textContent,
+      "Running",
     );
 
     const acceptedMap = EXECUTION_MAP_FIXTURES.find(
@@ -574,69 +651,73 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     ).map;
     sendOpenAIResult(acceptedMap);
     assert.equal(membersElement.children.length, 1);
-    assert.equal(membersElement.children[0].open, false);
+    assert.equal(membersElement.children[0].className, "member single-member");
+    assert.equal(membersElement.children[0].dataset.status, "accepted");
     assert.equal(
-      membersElement.children[0].children[0].textContent,
-      "Accepted (1)",
-    );
-    assert.equal(
-      membersElement.children[0].children[1].children[0].dataset.status,
-      "accepted",
+      membersElement.children[0].children[1].children[1].children[0].textContent,
+      "Accepted",
     );
 
     const archivedMap = EXECUTION_MAP_FIXTURES.find(
       ({ key }) => key === "archived_spinoff",
     ).map;
     sendOpenAIResult(archivedMap);
-    assert.equal(membersElement.children[0].open, false);
+    assert.equal(membersElement.children[0].className, "member single-member");
+    assert.equal(membersElement.children[0].dataset.status, "archived");
     assert.equal(
-      membersElement.children[0].children[0].textContent,
-      "Archive (1)",
+      membersElement.children[0].children[1].children[1].children[0].textContent,
+      "Archive",
     );
 
     const mixedMap = EXECUTION_MAP_FIXTURES.find(
       ({ key }) => key === "mixed_statuses",
     ).map;
     sendOpenAIResult(mixedMap);
+    filterCurrentElement.click();
+    flushAnimationFrames();
+    assert.equal(taskContextLabelElement.textContent, "Task");
+    assert.equal(taskContextValueElement.textContent, mixedMap.task);
+    assert.equal(filtersElement.hidden, false);
+    assert.equal(filterCurrentElement.textContent, "Current 10");
+    assert.equal(filterDoneElement.textContent, "Done 3");
+    assert.equal(filterHistoryElement.textContent, "History 2");
+    assert.equal(filterCurrentElement.attributes["aria-pressed"], "true");
     const expectedGroups = [
-      ["planning", "Planning (1)"],
-      ["planned", "Planned (1)"],
-      ["authorization-required", "Authorization required (1)"],
-      ["launch-pending", "Launch pending (1)"],
-      ["created", "Created (1)"],
-      ["unknown", "Unknown (1)"],
-      ["running", "Running (2)"],
-      ["attention", "Attention (1)"],
-      ["complete", "Complete (1)"],
-      ["accepted", "Accepted (1)"],
-      ["archiving", "Archiving (1)"],
-      ["archived", "Archive (2)"],
-      ["kept", "Kept (1)"],
+      ["needs-input", "Needs input (3)", true],
+      ["in-progress", "In progress (4)", false],
+      ["queued", "Queued (3)", false],
     ];
     assert.equal(membersElement.children.length, expectedGroups.length);
-    for (const [index, [status, summary]] of expectedGroups.entries()) {
+    for (const [index, [groupKey, summary, open]] of expectedGroups.entries()) {
       const group = membersElement.children[index];
       assert.equal(group.tagName, "details");
       assert.equal(group.className, "member-group");
-      assert.equal(group.dataset.status, status);
-      assert.equal(group.open, false);
+      assert.equal(group.dataset.group, groupKey);
+      assert.equal(group.open, open);
       assert.equal(group.children[0].tagName, "summary");
       assert.equal(group.children[0].textContent, summary);
       assert.equal(
         group.children[1].attributes["aria-label"],
-        `${summary.replace(/ \(\d+\)$/u, "")} tasks`,
-      );
-      assert.ok(
-        group.children[1].children.every(
-          ({ dataset }) => dataset.status === status,
-        ),
+        `${summary.replace(/ \(\d+\)$/u, "")} workers`,
       );
     }
-    const runningGroup = membersElement.children.find(
+    const needsInputGroup = membersElement.children.find(
+      ({ dataset }) => dataset.group === "needs-input",
+    );
+    assert.deepEqual(
+      needsInputGroup.children[1].children
+        .map(({ dataset }) => dataset.status)
+        .sort(),
+      ["attention", "authorization-required", "unknown"],
+    );
+    const inProgressGroup = membersElement.children.find(
+      ({ dataset }) => dataset.group === "in-progress",
+    );
+    const runningRows = inProgressGroup.children[1].children.filter(
       ({ dataset }) => dataset.status === "running",
     );
     assert.deepEqual(
-      runningGroup.children[1].children.map(
+      runningRows.map(
         ({ children }) => children[1].children[0].children[0].textContent,
       ),
       [
@@ -644,16 +725,13 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
         "Verify status rollup interaction",
       ],
     );
-    const firstRunningRow = runningGroup.children[1].children[0];
+    const firstRunningRow = runningRows[0];
     const firstRunningContent = firstRunningRow.children[1];
     const firstRunningMeta = firstRunningContent.children[1];
-    assert.equal(firstRunningMeta.children.length, 4);
-    assert.ok(
-      firstRunningMeta.children.every(
-        ({ className }) => className !== "tag status",
-      ),
-    );
-    const taskIdTag = firstRunningMeta.children[3];
+    assert.equal(firstRunningMeta.children.length, 5);
+    assert.equal(firstRunningMeta.children[0].className, "tag status");
+    assert.equal(firstRunningMeta.children[0].textContent, "Running");
+    const taskIdTag = firstRunningMeta.children[4];
     const fullTaskId = "019fb49b-b447-7840-ace3-187079ef4e58";
     assert.equal(taskIdTag.className, "tag task-id");
     assert.equal(taskIdTag.textContent, `Task ${fullTaskId}`);
@@ -666,11 +744,70 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       taskIdTag.attributes["aria-label"],
       `Native Codex task identifier ${fullTaskId}`,
     );
-    const archiveGroup = membersElement.children.find(
-      ({ dataset }) => dataset.status === "archived",
+    assert.equal(
+      updateStatusElement.textContent,
+      "Execution map updated: 10 workers shown in Current.",
+    );
+
+    const sizeMessages = () => postedMessages.filter(
+      ({ method }) => method === "ui/notifications/size-changed",
+    );
+    const currentHeight = sizeMessages().at(-1).params.height;
+    const inProgressSummary = inProgressGroup.children[0];
+    inProgressSummary.focus();
+    inProgressSummary.click();
+    flushAnimationFrames();
+    assert.equal(inProgressGroup.open, true);
+    assert.ok(sizeMessages().at(-1).params.height > currentHeight);
+
+    const updatedMixedMap = JSON.parse(JSON.stringify(mixedMap));
+    updatedMixedMap.members.find(({ id }) => id === "running-b").task =
+      "Verify retained status rollup interaction";
+    sendOpenAIResult(updatedMixedMap);
+    const updatedInProgressGroup = membersElement.children.find(
+      ({ dataset }) => dataset.group === "in-progress",
+    );
+    assert.notEqual(updatedInProgressGroup, inProgressGroup);
+    assert.equal(updatedInProgressGroup.open, true);
+    assert.equal(document.activeElement, updatedInProgressGroup.children[0]);
+    const updatedRunningRows = updatedInProgressGroup.children[1].children.filter(
+      ({ dataset }) => dataset.status === "running",
+    );
+    assert.equal(
+      updatedRunningRows[1]
+        .children[1].children[0].children[0].textContent,
+      "Verify retained status rollup interaction",
+    );
+
+    filterDoneElement.click();
+    flushAnimationFrames();
+    assert.equal(filterDoneElement.attributes["aria-pressed"], "true");
+    assert.equal(membersElement.children.length, 3);
+    assert.ok(
+      membersElement.children.every(
+        ({ className }) => className === "member single-member",
+      ),
     );
     assert.deepEqual(
-      archiveGroup.children[1].children.map(
+      membersElement.children.map(({ dataset }) => dataset.status).sort(),
+      ["accepted", "complete", "kept"],
+    );
+    assert.equal(
+      updateStatusElement.textContent,
+      "Execution map updated: 3 workers shown in Done.",
+    );
+
+    filterHistoryElement.click();
+    flushAnimationFrames();
+    assert.equal(filterHistoryElement.attributes["aria-pressed"], "true");
+    assert.equal(membersElement.children.length, 2);
+    assert.ok(
+      membersElement.children.every(
+        ({ dataset }) => dataset.status === "archived",
+      ),
+    );
+    assert.deepEqual(
+      membersElement.children.map(
         ({ children }) => children[1].children[0].children[0].textContent,
       ),
       [
@@ -678,84 +815,37 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
         "Archive the historical verification task",
       ],
     );
-    assert.equal(groupActionsElement.hidden, false);
-    assert.equal(bulkToggleElement.textContent, "Expand active");
-    assert.equal(bulkToggleElement.attributes["aria-expanded"], "false");
+
+    filterCurrentElement.click();
+    flushAnimationFrames();
+    assert.equal(filterCurrentElement.attributes["aria-pressed"], "true");
     assert.equal(
-      updateStatusElement.textContent,
-      "Execution map updated: 15 tasks in 13 statuses.",
+      membersElement.children.find(
+        ({ dataset }) => dataset.group === "in-progress",
+      ).open,
+      true,
     );
-
-    const sizeMessages = () => postedMessages.filter(
-      ({ method }) => method === "ui/notifications/size-changed",
-    );
-    const collapsedHeight = sizeMessages().at(-1).params.height;
-    const runningSummary = runningGroup.children[0];
-    runningSummary.focus();
-    runningSummary.click();
-    flushAnimationFrames();
-    assert.equal(runningGroup.open, true);
-    assert.equal(archiveGroup.open, false);
-    assert.equal(bulkToggleElement.textContent, "Collapse all");
-    assert.ok(sizeMessages().at(-1).params.height > collapsedHeight);
-
-    const updatedMixedMap = JSON.parse(JSON.stringify(mixedMap));
-    updatedMixedMap.members.find(({ id }) => id === "running-b").task =
-      "Verify retained status rollup interaction";
-    sendOpenAIResult(updatedMixedMap);
-    const updatedRunningGroup = membersElement.children.find(
-      ({ dataset }) => dataset.status === "running",
-    );
-    assert.notEqual(updatedRunningGroup, runningGroup);
-    assert.equal(updatedRunningGroup.open, true);
-    assert.equal(document.activeElement, updatedRunningGroup.children[0]);
-    assert.equal(
-      updatedRunningGroup.children[1].children[1]
-        .children[1].children[0].children[0].textContent,
-      "Verify retained status rollup interaction",
-    );
-
-    bulkToggleElement.click();
-    flushAnimationFrames();
-    assert.ok(membersElement.children.every(({ open }) => open === false));
-    assert.equal(bulkToggleElement.textContent, "Expand active");
-    assert.equal(sizeMessages().at(-1).params.height, collapsedHeight);
-
-    bulkToggleElement.click();
-    flushAnimationFrames();
-    const terminalStatuses = new Set([
-      "complete",
-      "accepted",
-      "archived",
-      "kept",
-    ]);
-    for (const group of membersElement.children) {
-      assert.equal(group.open, !terminalStatuses.has(group.dataset.status));
-    }
-    assert.equal(bulkToggleElement.textContent, "Collapse all");
-    assert.equal(bulkToggleElement.attributes["aria-expanded"], "true");
-    assert.ok(sizeMessages().at(-1).params.height > collapsedHeight);
-
-    bulkToggleElement.click();
-    flushAnimationFrames();
-    assert.ok(membersElement.children.every(({ open }) => open === false));
-    assert.equal(sizeMessages().at(-1).params.height, collapsedHeight);
     const sizeCountBeforeDuplicate = sizeMessages().length;
     triggerResize();
     assert.equal(sizeMessages().length, sizeCountBeforeDuplicate);
 
-    const attentionGroup = membersElement.children.find(
-      ({ dataset }) => dataset.status === "attention",
+    const focusedNeedsInputGroup = membersElement.children.find(
+      ({ dataset }) => dataset.group === "needs-input",
     );
-    attentionGroup.children[0].focus();
-    const withoutAttentionMap = JSON.parse(JSON.stringify(updatedMixedMap));
-    withoutAttentionMap.members = withoutAttentionMap.members.filter(
-      ({ status }) => status !== "attention",
+    focusedNeedsInputGroup.children[0].focus();
+    const withoutNeedsInputMap = JSON.parse(JSON.stringify(updatedMixedMap));
+    const needsInputStatuses = new Set([
+      "authorization-required",
+      "attention",
+      "unknown",
+    ]);
+    withoutNeedsInputMap.members = withoutNeedsInputMap.members.filter(
+      ({ status }) => !needsInputStatuses.has(status),
     );
-    withoutAttentionMap.summary.total = withoutAttentionMap.members.length;
-    withoutAttentionMap.summary.attention = 0;
-    sendOpenAIResult(withoutAttentionMap);
-    assert.equal(document.activeElement.dataset.status, "complete");
+    withoutNeedsInputMap.summary.total = withoutNeedsInputMap.members.length;
+    withoutNeedsInputMap.summary.attention = 0;
+    sendOpenAIResult(withoutNeedsInputMap);
+    assert.equal(document.activeElement.dataset.group, "in-progress");
 
     sendHostContext({
       theme: "dark",
@@ -806,30 +896,37 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       "rgb(180, 83, 9)",
     );
 
-    const oneGroupMap = JSON.parse(JSON.stringify(withoutAttentionMap));
+    const oneGroupMap = JSON.parse(JSON.stringify(withoutNeedsInputMap));
     oneGroupMap.members = oneGroupMap.members.filter(
       ({ status }) => status === "complete",
     );
     oneGroupMap.summary.total = oneGroupMap.members.length;
-    bulkToggleElement.focus();
     sendOpenAIResult(oneGroupMap);
-    assert.equal(groupActionsElement.hidden, true);
-    assert.equal(document.activeElement, membersElement.children[0].children[0]);
+    assert.equal(filtersElement.hidden, true);
+    assert.equal(membersElement.children[0].className, "member single-member");
+    assert.equal(membersElement.children[0].dataset.status, "complete");
 
     const largeHistoryMap = EXECUTION_MAP_FIXTURES.find(
       ({ key }) => key === "large_history",
     ).map;
     sendOpenAIResult(largeHistoryMap);
-    assert.equal(membersElement.children.length, 2);
-    assert.equal(membersElement.children[0].open, false);
-    assert.equal(membersElement.children[1].open, false);
+    assert.equal(filtersElement.hidden, false);
+    assert.equal(filterCurrentElement.textContent, "Current 5");
+    assert.equal(filterHistoryElement.textContent, "History 5");
+    assert.equal(filterDoneElement.hidden, true);
+    assert.equal(membersElement.children.length, 1);
+    assert.equal(membersElement.children[0].dataset.group, "in-progress");
     assert.equal(
       membersElement.children[0].children[0].textContent,
-      "Running (5)",
+      "In progress (5)",
     );
-    assert.equal(
-      membersElement.children[1].children[0].textContent,
-      "Archive (5)",
+    filterHistoryElement.click();
+    flushAnimationFrames();
+    assert.equal(membersElement.children.length, 5);
+    assert.ok(
+      membersElement.children.every(
+        ({ dataset }) => dataset.status === "archived",
+      ),
     );
 
     const terminalOnlyMap = JSON.parse(JSON.stringify(mixedMap));
@@ -838,10 +935,13 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     );
     terminalOnlyMap.summary.total = terminalOnlyMap.members.length;
     sendOpenAIResult(terminalOnlyMap);
-    assert.equal(bulkToggleElement.textContent, "Expand all");
-    bulkToggleElement.click();
+    assert.equal(filterDoneElement.textContent, "Done 1");
+    assert.equal(filterHistoryElement.textContent, "History 2");
+    assert.equal(membersElement.children.length, 2);
+    filterDoneElement.click();
     flushAnimationFrames();
-    assert.ok(membersElement.children.every(({ open }) => open === true));
+    assert.equal(membersElement.children.length, 1);
+    assert.equal(membersElement.children[0].dataset.status, "complete");
 
     const emptyMap = {
       ...terminalOnlyMap,
@@ -861,7 +961,7 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
       },
     };
     sendToolResult(emptyMap);
-    assert.equal(groupActionsElement.hidden, true);
+    assert.equal(filtersElement.hidden, true);
     assert.equal(membersElement.children.length, 1);
     assert.equal(membersElement.children[0].tagName, "p");
     assert.equal(
@@ -870,7 +970,7 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     );
     assert.equal(
       updateStatusElement.textContent,
-      "Execution map updated: 0 tasks in 0 statuses.",
+      "Execution map updated: 0 workers shown in Current.",
     );
   } finally {
     await client.close();

@@ -5,6 +5,30 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+### User-facing changes
+
+- MCP visuals now use purpose-built compact views: planning actions show a plan
+  summary, worker-oriented actions show the execution map, and queen decisions,
+  completion, and cleanup show a concise action receipt.
+- Successfully dispatched and launch-verified workers render as `Running`
+  instead of the less intuitive `Created`; legacy `created` projections remain
+  readable.
+- Visual loading copy is specific to the action. Delivered but non-renderable
+  worker results now show `Worker status unavailable` instead of remaining on a
+  misleading loading placeholder.
+- Execution receipts keep the parent task visible, render a lone worker as a
+  direct status-bearing row, and organize larger maps by user intent. The
+  default `Current` view prioritizes `Needs input`, `In progress`, and `Queued`
+  workers, while `Done` and `History` remain one click away. Outcome receipts
+  explicitly label the affected work unit or cleanup scope.
+
+### Compatibility requirements
+
+- The execution-map URI advances to `ui://nelos/execution-map-v15.html`, and
+  planning and outcome tools advertise the new `plan-summary-v1.html` and
+  `action-receipt-v2.html` resources so hosts cannot reuse an incompatible
+  cached widget.
+
 ## [0.12.11] - 2026-08-07
 
 ### User-facing changes

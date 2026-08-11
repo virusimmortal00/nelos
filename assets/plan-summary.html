@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nelos plan summary</title>
+    <style id="host-fonts"></style>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --ink: var(--color-text-primary, #1a1d24);
+        --muted: var(--color-text-secondary, #667085);
+        --surface: var(--color-background-primary, #fff);
+        --subtle: var(--color-background-secondary, #f5f6f8);
+        --border: var(--color-border-primary, #e3e5e9);
+        --accent: var(--color-ring-primary, #6457d9);
+        --warning: var(--color-text-warning, #9a6700);
+        --top: 0px;
+        --right: 0px;
+        --bottom: 0px;
+        --left: 0px;
+        font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) {
+          --ink: #f4f4f5;
+          --muted: #a1a1aa;
+          --surface: #18181b;
+          --subtle: #242429;
+          --border: #34343b;
+          --accent: #a79cf8;
+          --warning: #f3c969;
+        }
+      }
+      :root[data-theme="dark"] {
+        --ink: #f4f4f5;
+        --muted: #a1a1aa;
+        --surface: #18181b;
+        --subtle: #242429;
+        --border: #34343b;
+        --accent: #a79cf8;
+        --warning: #f3c969;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-width: 0; }
+      body {
+        background: transparent;
+        color: var(--ink);
+        padding: calc(12px + var(--top)) calc(12px + var(--right))
+          calc(12px + var(--bottom)) calc(12px + var(--left));
+      }
+      main { display: grid; gap: 8px; max-width: 720px; margin: 0 auto; }
+      .overview { display: grid; grid-template-columns: 8px 1fr auto; gap: 9px; align-items: center; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+      .overview[data-status="authorization-required"] .dot,
+      .overview[data-status="attention"] .dot { background: var(--warning); }
+      .copy { min-width: 0; }
+      h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.35; }
+      .counts { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+      .phase { border-radius: var(--border-radius-sm, 5px); background: var(--subtle); color: var(--muted); padding: 3px 6px; font-size: 10px; font-weight: 650; white-space: nowrap; }
+      details { border-top: 1px solid var(--border); padding-top: 6px; }
+      summary { color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 650; }
+      ol { display: grid; gap: 5px; margin: 7px 0 0; padding: 0; list-style: none; }
+      li { display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
+      .task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+      .route { color: var(--muted); flex: 0 0 auto; font-size: 10px; white-space: nowrap; }
+      .message { margin: 0; border: 1px dashed var(--border); border-radius: 9px; color: var(--muted); padding: 12px; text-align: center; font-size: 12px; }
+      @media (max-width: 520px) {
+        .overview { grid-template-columns: 8px minmax(0, 1fr); }
+        .phase { grid-column: 2; justify-self: start; }
+        .route { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="root"><p class="message">Preparing plan…</p></main>
+    <script type="module">
+      const root = document.querySelector("#root");
+      const hostFonts = document.querySelector("#host-fonts");
+      const pending = new Map();
+      let nextId = 0;
+      const HOST_STYLE_VARIABLES = new Set([
+        "--color-background-primary",
+        "--color-background-secondary",
+        "--color-text-primary",
+        "--color-text-secondary",
+        "--color-text-warning",
+        "--color-border-primary",
+        "--color-ring-primary",
+        "--font-sans",
+        "--border-radius-sm",
+      ]);
+      const label = (value) => String(value ?? "")
+        .replaceAll("-", " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+      const node = (name, className, text) => {
+        const element = document.createElement(name);
+        if (className) element.className = className;
+        if (text !== undefined) element.textContent = text;
+        return element;
+      };
+      const render = (value) => {
+        if (!value) return;
+        if (value.view !== "plan-summary") {
+          root.replaceChildren(node("p", "message", "Plan summary unavailable."));
+          reportSize();
+          return;
+        }
+        const members = Array.isArray(value.members) ? value.members : [];
+        const overview = node("section", "overview");
+        overview.dataset.status = String(value.phase ?? "planned");
+        const dot = node("span", "dot");
+        dot.setAttribute("aria-hidden", "true");
+        const copy = node("div", "copy");
+        const title = node("h2", "", String(value.task || "Task plan"));
+        title.title = title.textContent;
+        const summary = value.summary ?? {};
+        const taskWord = members.length === 1 ? "task" : "tasks";
+        copy.append(
+          title,
+          node(
+            "p",
+            "counts",
+            `${members.length} ${taskWord} · ${summary.spinoffs ?? 0} spin-offs · ` +
+              `${summary.subagents ?? 0} sub-agents`,
+          ),
+        );
+        overview.append(
+          dot,
+          copy,
+          node("span", "phase", label(value.phase || "planned")),
+        );
+        const children = [overview];
+        if (members.length > 0) {
+          const details = document.createElement("details");
+          const disclosure = document.createElement("summary");
+          disclosure.textContent = `Review ${members.length} planned ${taskWord}`;
+          const list = document.createElement("ol");
+          for (const member of members) {
+            const item = document.createElement("li");
+            const task = node("span", "task", String(member.task || member.id || "Task"));
+            task.title = task.textContent;
+            item.append(
+              task,
+              node(
+                "span",
+                "route",
+                `${member.lifecycle === "spinoff" ? "Spin-off" : "Sub-agent"} · ` +
+                  `${member.model || "host-default"} · ${label(member.reasoning || "host-default")}`,
+              ),
+            );
+            list.append(item);
+          }
+          details.append(disclosure, list);
+          details.addEventListener("toggle", reportSize);
+          children.push(details);
+        }
+        root.replaceChildren(...children);
+        reportSize();
+      };
+      const renderToolResult = (value) => render(value?.structuredContent ?? value);
+      const notify = (method, params) => window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+      const request = (method, params) => new Promise((resolve, reject) => {
+        const id = ++nextId;
+        pending.set(id, { resolve, reject });
+        window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+      });
+      let scheduled = false;
+      let lastWidth = 0;
+      let lastHeight = 0;
+      const reportSize = () => {
+        if (scheduled) return;
+        scheduled = true;
+        window.requestAnimationFrame(() => {
+          scheduled = false;
+          const documentRoot = document.documentElement;
+          const previousHeight = documentRoot.style.height;
+          documentRoot.style.height = "max-content";
+          const height = Math.ceil(documentRoot.getBoundingClientRect().height);
+          documentRoot.style.height = previousHeight;
+          const width = Math.ceil(window.innerWidth);
+          if (height <= 0 || (width === lastWidth && height === lastHeight)) return;
+          lastWidth = width;
+          lastHeight = height;
+          notify("ui/notifications/size-changed", { width, height });
+        });
+      };
+      const applyContext = (context) => {
+        if (!context || typeof context !== "object") return;
+        const documentRoot = document.documentElement;
+        if (["light", "dark"].includes(context.theme)) {
+          documentRoot.dataset.theme = context.theme;
+          documentRoot.style.colorScheme = context.theme;
+        }
+        if (Object.prototype.hasOwnProperty.call(context.styles ?? {}, "variables")) {
+          for (const name of HOST_STYLE_VARIABLES) documentRoot.style.removeProperty(name);
+          for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+            if (HOST_STYLE_VARIABLES.has(name) && typeof value === "string") {
+              documentRoot.style.setProperty(name, value);
+            }
+          }
+        }
+        if (typeof context.styles?.css?.fonts === "string") hostFonts.textContent = context.styles.css.fonts;
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const value = Number(context.safeAreaInsets?.[side]);
+          if (Number.isFinite(value) && value >= 0) documentRoot.style.setProperty(`--${side}`, `${value}px`);
+        }
+        reportSize();
+      };
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (message.id !== undefined && pending.has(message.id)) {
+          const entry = pending.get(message.id);
+          pending.delete(message.id);
+          if (message.error) entry.reject(message.error); else entry.resolve(message.result);
+        } else if (message.method === "ui/notifications/tool-result") {
+          renderToolResult(message.params);
+        } else if (message.method === "ui/notifications/host-context-changed") {
+          applyContext(message.params);
+        }
+      }, { passive: true });
+      window.addEventListener("openai:set_globals", (event) => {
+        renderToolResult(event.detail?.globals?.toolOutput);
+      }, { passive: true });
+      renderToolResult(window.openai?.toolOutput);
+      try {
+        const initialized = await request("ui/initialize", {
+          appInfo: { name: "nelos-plan-summary", version: "1.0.0" },
+          appCapabilities: {},
+          protocolVersion: "2026-01-26",
+        });
+        applyContext(initialized?.hostContext);
+        notify("ui/notifications/initialized", {});
+        if (typeof window.ResizeObserver === "function") {
+          const observer = new ResizeObserver(reportSize);
+          observer.observe(document.documentElement);
+          observer.observe(document.body);
+        }
+        reportSize();
+      } catch (error) {
+        console.debug("Nelos plan summary bridge unavailable", error);
+      }
+    </script>
+  </body>
+</html>
