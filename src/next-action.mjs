@@ -267,6 +267,10 @@ export function deriveNextAction(output) {
       });
     case "worktree provision":
       return action("complete");
+    case "handoff-claude":
+      return output.opened
+        ? action("complete")
+        : action("attention", { reason: "claude-deep-link-not-opened" });
     case "list":
     case "archive":
     case "title set":

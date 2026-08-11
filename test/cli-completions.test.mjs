@@ -14,7 +14,7 @@ function sortedSet(values) {
 function canonicalTopLevelCommands() {
   const match = cliSource.match(/const supported = \[([\s\S]*?)\];/);
   assert.ok(match, "could not find nelos's `supported` command array");
-  return sortedSet([...match[1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]));
+  return sortedSet([...match[1].matchAll(/"([a-z][a-z-]*)"/g)].map((m) => m[1]));
 }
 
 function canonicalSubcommands(name, pattern, source = cliSource) {
@@ -49,6 +49,7 @@ test("nelos's own command surface has the expected shape", () => {
   assert.deepEqual(CANONICAL.commands, [
     "archive",
     "doctor",
+    "handoff-claude",
     "intelligence",
     "list",
     "plan",

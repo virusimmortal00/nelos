@@ -333,6 +333,15 @@ task prompt. A queen may manage dependencies and integration, but each
 worktree must have a single writer. See
 [the worktree coordination model](docs/worktree-coordination.md).
 
+## Handing a task to Claude Code
+
+`nelos handoff-claude` hands a task to the Claude Code desktop app: it seeds
+a Claude Code CLI session whose first prompt line carries the task identity,
+then opens a `claude://resume` deep link so the session appears in the app's
+session list, ready to continue there. See
+[Claude Code handoff](docs/claude-handoff.md) for the mechanism, options, and
+fallbacks.
+
 ## Status and Scope
 
 Nelos is a working early-stage tool. The shipped product is a Codex

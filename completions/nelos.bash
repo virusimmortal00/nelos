@@ -9,7 +9,7 @@
 # COMMANDS and per-command SUBCOMMANDS/OPTIONS below are the canonical list;
 # test/cli-completions.test.mjs cross-checks them against bin/nelos's
 # own `supported` command array and fails on drift in either direction.
-_nelos_commands="start spinoff send status read watch list archive title web plan worktree intelligence doctor"
+_nelos_commands="start spinoff send status read watch list archive title web plan worktree intelligence doctor handoff-claude"
 
 _nelos_subcommands_title="set get"
 _nelos_subcommands_web="begin join collect readiness accept"
@@ -40,6 +40,7 @@ _nelos_opts_worktree_inspect="--action-id"
 _nelos_opts_worktree_launch="--work-unit-spec --prompt --prompt-file --source --worktree-root --worktree-path --branch --base --model --effort --sandbox --permissions --approval --wait --poll-ms --max-wait-ms"
 _nelos_opts_worktree_integration="--queen-thread-id --thread-id"
 _nelos_opts_doctor="--codex --socket"
+_nelos_opts_handoff_claude="--title --prompt --prompt-file --cwd --thread-id --session-id --claude-config-dir --no-open"
 
 _nelos_completions() {
   local cur prev command subcommand
@@ -64,6 +65,7 @@ _nelos_completions() {
     list) opts="$_nelos_opts_list $_nelos_common_opts" ;;
     archive) opts="$_nelos_opts_archive $_nelos_common_opts" ;;
     doctor) opts="$_nelos_opts_doctor" ;;
+    handoff-claude) opts="$_nelos_opts_handoff_claude -h --help" ;;
     title)
       if [[ "$COMP_CWORD" -eq 2 ]]; then
         COMPREPLY=($(compgen -W "$_nelos_subcommands_title" -- "$cur"))

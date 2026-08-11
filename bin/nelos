@@ -26,6 +26,12 @@ import {
   writeTaskRegistryRecord as writeRegistryRecord,
   writeWebRecord,
 } from "../src/task-state.mjs";
+import {
+  claudeConfigDirectory,
+  openClaudeDeepLink,
+  seedClaudeHandoff,
+  writeClaudeHandoffRecord,
+} from "../src/claude-handoff.mjs";
 import { readRequiredProvenance } from "../src/distribution-provenance.mjs";
 import { routeIntelligenceProfile } from "../src/intelligence-profile-router.mjs";
 import { verifyRuntimeIntelligenceV1 } from "../src/runtime-intelligence-verification.mjs";
@@ -119,6 +125,8 @@ const VALUE_OPTIONS = new Map([
   ["--source-turn-id", "sourceTurnId"],
   ["--decision", "decision"],
   ["--summary", "decisionSummary"],
+  ["--session-id", "claudeSessionId"],
+  ["--claude-config-dir", "claudeConfigDir"],
 ]);
 
 function printUsage() {
@@ -147,6 +155,7 @@ function printUsage() {
   nelos intelligence route [--task-shape SHAPE] [model/reasoning options]
   nelos intelligence verify --thread-id ID --model MODEL --effort LEVEL [--turn-id ID]
   nelos doctor [--codex PATH] [--socket PATH]
+  nelos handoff-claude --title TITLE (--prompt TEXT | --prompt-file PATH) [options]
 
 Start options:
   --cwd PATH          Workspace directory (default: current directory)
@@ -221,6 +230,20 @@ Acceptance options:
   --decision STATE       accepted (default) or rejected
   --summary TEXT         Bounded queen decision note
 
+Claude handoff options:
+  handoff-claude seeds a Claude Code CLI session transcript for --cwd whose
+  first prompt line carries the handoff title, then opens
+  claude://resume?session=ID so the Claude Code desktop app imports the
+  session and shows it in its session list. The prompt is not executed on
+  this side; the model turn runs when the user continues the session in the
+  Claude Code app.
+  --session-id UUID        Explicit Claude session ID (default: generated)
+  --claude-config-dir PATH Claude config directory (default: CLAUDE_CONFIG_DIR
+                            or ~/.claude)
+  --thread-id ID           Source Codex task recorded in the handoff prompt
+                            (defaults to CODEX_THREAD_ID)
+  --no-open                Seed only; skip the claude://resume deep link
+
 Common options:
   --thread-id ID      Task ID (defaults to CODEX_THREAD_ID where applicable)
   --socket PATH       Active app-server control socket
@@ -256,7 +279,8 @@ function parseArgs(argv) {
       argument === "--allow-native-fanout" ||
       argument === "--registry-only" ||
       argument === "--detach" ||
-      argument === "--restore-detached"
+      argument === "--restore-detached" ||
+      argument === "--no-open"
     ) {
       options[
         argument === "--wait"
@@ -269,7 +293,9 @@ function parseArgs(argv) {
                 ? "registryOnly"
                 : argument === "--detach"
                   ? "detach"
-                  : "restoreDetached"
+                  : argument === "--restore-detached"
+                    ? "restoreDetached"
+                    : "noOpen"
       ] = true;
       continue;
     }
@@ -2527,6 +2553,78 @@ async function runTitle(options, client) {
   };
 }
 
+async function runClaudeHandoff(options) {
+  assertNoPositionals(options);
+  assertOnlyOptions(
+    options,
+    new Set([
+      "title",
+      "prompt",
+      "promptFile",
+      "cwd",
+      "threadId",
+      "claudeSessionId",
+      "claudeConfigDir",
+    ]),
+    "handoff-claude",
+  );
+  const input = await resolveStartInput(options, "handoff-claude");
+  const sourceThreadId = options.threadId || process.env.CODEX_THREAD_ID || null;
+  const claudeConfigDir = options.claudeConfigDir
+    ? resolve(options.claudeConfigDir)
+    : claudeConfigDirectory();
+
+  const seeded = await seedClaudeHandoff({
+    title: input.title,
+    prompt: input.prompt,
+    cwd: input.cwd,
+    sessionId: options.claudeSessionId || null,
+    sourceThreadId,
+    claudeConfigDir,
+  });
+
+  let opened = false;
+  let openError = null;
+  if (options.noOpen !== true) {
+    try {
+      await openClaudeDeepLink(seeded.taskUrl);
+      opened = true;
+    } catch (error) {
+      openError = error.message;
+    }
+  }
+
+  await writeClaudeHandoffRecord({
+    sessionId: seeded.sessionId,
+    title: input.title,
+    cwd: input.cwd,
+    sourceThreadId,
+    taskUrl: seeded.taskUrl,
+    transcriptPath: seeded.transcriptPath,
+    createdAt: new Date().toISOString(),
+    opened,
+  });
+
+  return {
+    command: "handoff-claude",
+    sessionId: seeded.sessionId,
+    title: input.title,
+    cwd: input.cwd,
+    sourceThreadId,
+    taskUrl: seeded.taskUrl,
+    transcriptPath: seeded.transcriptPath,
+    opened,
+    ...(openError ? { openError } : {}),
+    ...(opened
+      ? {}
+      : {
+          openHint:
+            `open "${seeded.taskUrl}" imports the session into the Claude Code app; ` +
+            "the app's Import Claude Code CLI sessions action is the manual fallback",
+        }),
+  };
+}
+
 async function main() {
   if (
     process.argv.length === 3 &&
@@ -2561,6 +2659,7 @@ async function main() {
     "worktree",
     "intelligence",
     "doctor",
+    "handoff-claude",
   ];
   if (!supported.includes(options.command)) {
     throw new Error(`unknown command: ${options.command}`);
@@ -2585,6 +2684,11 @@ async function main() {
     ["plan", "provision", "inspect"].includes(options.positionals[0])
   ) {
     writeOutput(await runWorktree(options));
+    return;
+  }
+
+  if (options.command === "handoff-claude") {
+    writeOutput(await runClaudeHandoff(options));
     return;
   }
 
