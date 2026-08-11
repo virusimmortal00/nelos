@@ -596,9 +596,34 @@ test("purpose-built widgets render results, fallbacks, and resize disclosures", 
 });
 
 test("purpose-built widgets recover when the host initialization request times out", async () => {
-  for (const [uri, placeholder] of [
-    [PLAN_SUMMARY_RESOURCE_URI, "Preparing plan…"],
-    [ACTION_RECEIPT_RESOURCE_URI, "Processing action…"],
+  for (const [uri, placeholder, result, title] of [
+    [
+      PLAN_SUMMARY_RESOURCE_URI,
+      "Preparing plan…",
+      {
+        schemaVersion: 1,
+        view: "plan-summary",
+        phase: "planned",
+        task: "Late plan result",
+        summary: { total: 0, spinoffs: 0, subagents: 0 },
+        members: [],
+      },
+      "Late plan result",
+    ],
+    [
+      ACTION_RECEIPT_RESOURCE_URI,
+      "Processing action…",
+      {
+        schemaVersion: 1,
+        view: "action-receipt",
+        kind: "decision",
+        status: "accepted",
+        title: "Late action result",
+        detail: "review-late-result",
+        metrics: [],
+      },
+      "Late action result",
+    ],
   ]) {
     const widget = await mountExecutionMapWidget(
       moduleSourceForResource(uri),
@@ -613,6 +638,11 @@ test("purpose-built widgets recover when the host initialization request times o
     assert.ok(widget.postedMessages.some(
       ({ method }) => method === "ui/notifications/size-changed",
     ));
+    widget.sendToolResult(result);
+    assert.equal(
+      widget.rootElement.children[0].children[1].children[0].textContent,
+      title,
+    );
   }
 });
 

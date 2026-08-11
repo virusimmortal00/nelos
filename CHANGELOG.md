@@ -5,6 +5,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.13] - 2026-08-11
+
 ### User-facing changes
 
 - MCP visuals now use purpose-built compact views: planning actions show a plan
@@ -28,6 +30,18 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   planning and outcome tools advertise the new `plan-summary-v1.html` and
   `action-receipt-v2.html` resources so hosts cannot reuse an incompatible
   cached widget.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
 
 ## [0.12.12] - 2026-08-09
 
