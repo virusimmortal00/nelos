@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "shape-terra-low",
+      "queenTaskId": "019ff1f5-bfb2-7ba1-8814-8ec51f9383b6",
+      "orchestrationQueenTaskId": "019ff1f5-bfb2-7ba1-8814-8ec51f9383b6",
+      "workspaceId": "worktree-fc57",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": [
+        {
+          "sliceId": "write-terra-smoke",
+          "lifecycle": "spinoff",
+          "threadId": "019ff1fd-2853-7c00-ac6a-2ea4a54df220",
+          "turnId": "019ff1fd-2a2e-7db1-9804-d07ae295c9af",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "everyday",
+          "profile": "terra",
+          "modelSelection": "recommended",
+          "effortSelection": "recommended",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "low",
+          "observedModel": null,
+          "observedEffort": null,
+          "verified": false,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    }
+  ]
+}

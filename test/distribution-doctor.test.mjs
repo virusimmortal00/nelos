@@ -64,6 +64,8 @@ async function createDoctorFixture(
     join(releasePath, "completions"),
     ...(includeCorpus ? [join(releasePath, "corpus")] : []),
     join(releasePath, "docs"),
+    join(releasePath, "evals", "routing"),
+    join(releasePath, "scripts"),
     join(releasePath, "skills"),
     join(releasePath, "src"),
     binDir,
@@ -100,6 +102,14 @@ async function createDoctorFixture(
       ]
       : []),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
+    writeFile(
+      join(releasePath, "evals", "routing", "fixture.json"),
+      '{"schemaVersion":1}\n',
+    ),
+    writeFile(
+      join(releasePath, "scripts", "evaluate-routing-scenarios.mjs"),
+      "#!/usr/bin/env node\n",
+    ),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
     writeFile(
       join(codexHome, "config.toml"),

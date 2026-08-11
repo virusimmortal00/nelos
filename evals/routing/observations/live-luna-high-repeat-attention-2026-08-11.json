@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "override-luna-high",
+      "queenTaskId": "019ff1ec-c237-7011-870a-6c05d805705d",
+      "orchestrationQueenTaskId": "019ff1ec-c237-7011-870a-6c05d805705d",
+      "workspaceId": "worktree-8504",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    }
+  ]
+}

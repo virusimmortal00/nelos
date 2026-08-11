@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "auto-clear-repeatable",
+      "queenTaskId": "019fc827-9029-76c1-850b-591d6a7a3408",
+      "orchestrationQueenTaskId": null,
+      "workspaceId": "worktree-1d4d",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    },
+    {
+      "scenarioId": "auto-everyday-bounded",
+      "queenTaskId": "019fc827-905d-7722-92b8-25b50480a137",
+      "orchestrationQueenTaskId": null,
+      "workspaceId": "worktree-ee16",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    },
+    {
+      "scenarioId": "auto-complex-ambiguous",
+      "queenTaskId": "019fc827-9456-7c42-8623-8d0d0ce11bd5",
+      "orchestrationQueenTaskId": null,
+      "workspaceId": "worktree-baaf",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    },
+    {
+      "scenarioId": "challenge-critical-weak-oracle",
+      "queenTaskId": "019fc827-96e2-7453-9d7e-395010ac2ccd",
+      "orchestrationQueenTaskId": null,
+      "workspaceId": "worktree-6a3a",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    },
+    {
+      "scenarioId": "override-sol-high",
+      "queenTaskId": "019fc827-9a88-7951-b67e-4b78e9bde941",
+      "orchestrationQueenTaskId": null,
+      "workspaceId": "worktree-8a4c",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    },
+    {
+      "scenarioId": "override-luna-high",
+      "queenTaskId": "019fc827-9c5b-7ce3-bb2a-42ae65132723",
+      "orchestrationQueenTaskId": "019fc804-0327-76c1-988a-87e70527523c",
+      "workspaceId": "worktree-d659",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "write-luna-high-fixture",
+          "lifecycle": "spinoff",
+          "threadId": "019fc82a-a5f2-7c62-ab27-b765dcd79bc7",
+          "turnId": "019fc82e-364d-7b92-958d-ec3137da13b9",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "clear/repeatable",
+          "profile": "luna",
+          "modelSelection": "override",
+          "effortSelection": "override",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "high",
+          "observedModel": "gpt-5.6-luna",
+          "observedEffort": "high",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    }
+  ]
+}

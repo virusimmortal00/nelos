@@ -5,6 +5,44 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+### User-facing changes
+
+- Added a versioned isolated-queen routing evaluation suite with fresh-task
+  prompts covering Sol, Terra, Luna, low/medium/high/max effort, exact runtime
+  verification, unique queen/workspace evidence, eight natural-language
+  planning situations, and separately reported semantic challenges for the
+  current coupled model/effort policy.
+- Routing observations now grade task shape, profile, recommendation-versus-
+  override provenance, and route-schema/policy/catalog versions in addition to
+  requested-versus-observed model and effort.
+- Live prompts bind the fresh task as the orchestration queen, require lazy
+  plugin-tool discovery before an unavailable result, and preserve zero-worker
+  preflight failures as explicit `attention` observations.
+- Live prompt generation scopes durable work-unit IDs to a unique run by
+  default, preventing retained execution records from colliding with reruns;
+  `--run-id` keeps deliberate reconciliation reproducible.
+- Failed-closed observations can retain workers with unavailable runtime routes
+  as `null`, while creates that never return an identity remain visibly
+  `launch-pending` instead of fabricating worker evidence.
+
+### Compatibility requirements
+
+- No compatibility changes.
+
+### Migrations
+
+- No migrations.
+
+### Security fixes
+
+- No security fixes.
+
+### Known limitations
+
+- Automatic task-shape routing still selects only Sol/medium, Terra/low, or
+  Luna/low. High and max are explicit-route probes until adaptive routing is
+  implemented.
+
 ## [0.12.13] - 2026-08-11
 
 ### User-facing changes

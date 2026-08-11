@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "shape-luna-low",
+      "queenTaskId": "019ff1f5-cf8d-7c52-bcb1-e8c0eeb2d8f8",
+      "orchestrationQueenTaskId": "019ff1f5-cf8d-7c52-bcb1-e8c0eeb2d8f8",
+      "workspaceId": "worktree-b24d",
+      "freshQueen": true,
+      "terminalState": "launch-pending",
+      "members": []
+    }
+  ]
+}

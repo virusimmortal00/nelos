@@ -364,6 +364,10 @@ function defaultCheckRunners() {
         "test/experimentation-contract-semver.test.mjs",
       ]),
     ],
+    [
+      "repo.routing-evaluation",
+      ({ root }) => runNodeTests(root, ["test/routing-evaluation.test.mjs"]),
+    ],
     ["schema.app-server-v0144x", validateGeneratedSchema],
   ]);
 }

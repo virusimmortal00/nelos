@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "auto-clear-repeatable",
+      "queenTaskId": "019fc832-0fa3-7b32-b61c-caa12773636f",
+      "orchestrationQueenTaskId": "019fc832-0fa3-7b32-b61c-caa12773636f",
+      "workspaceId": "worktree-9dd0",
+      "freshQueen": true,
+      "terminalState": "attention",
+      "members": []
+    }
+  ]
+}
