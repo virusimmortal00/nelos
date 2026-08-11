@@ -1,9 +1,11 @@
 # MCP visual evidence
 
 These screenshots were captured from the production MCP Apps resources in the
-official reference host through the dedicated visual runner. Each capture uses
-the final source tree, reaches `Tool Result`, and reports no browser console
-errors.
+official reference host through optional maintainer-only infrastructure. Access
+to the visual runner is not required to build, test, or contribute to Nelos.
+Each capture uses the final source tree, reaches `Tool Result`, and reports no
+browser console errors. The public fixture and host contracts are checked in and
+covered by the repository test suite.
 
 ## Single running worker
 
