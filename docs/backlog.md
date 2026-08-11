@@ -86,6 +86,86 @@ unbound work units cannot receive task-scoped effects; identical reducer inputs
 produce identical output without duplicate effects; and no background service
 or unscoped host integration is introduced.
 
+### Route provenance and outcome join
+
+Establish the evidence needed to improve routing before any new policy is
+allowed to affect a launch. Today the router computes route provenance and the
+plan retains it, but the launch member carries only `nativeTask`, so an accepted
+or rejected outcome cannot be joined back to the decision that caused it. This
+slice adds that join and nothing else — it changes no route, per
+[Route provenance and outcome join](route-provenance-join.md).
+
+Identity is split in two so the router stays pure: `routePolicyDigest` is
+minted by the pure router and identifies one policy decision, while
+`routeDecisionId` is derived at the work-unit launch binding and identifies one
+attempt at one work unit.
+
+Delivery slices:
+
+- [ ] add `routePolicyDigest` to the pure route record, bump the route schema
+  version, and assert purity, determinism, and rationale-independence;
+- [ ] add `intelligence-route-identity.mjs` deriving and re-validating
+  `routeDecisionId`, mirroring `queenAcceptanceIdV1`;
+- [ ] add `WorkUnitSpecV2` carrying the route provenance block, with a lazy v1
+  reader that yields `route: null`;
+- [ ] thread `routeDecisionId` through the launch adapter and the runtime
+  verification receipt without granting it evidentiary weight;
+- [ ] add `QueenAcceptanceV2` with a required `routeDecisionId`, a retained v1
+  reader, and work-unit-mapped resolution for v1 records;
+- [ ] add `intelligence-observation-store.mjs` with strict content-free
+  validation and atomic private-state writes;
+- [ ] add the read-only `nelos intelligence report` aggregate.
+
+Acceptance criteria: a route decision, its runtime verification, and its queen
+acceptance join on `routeDecisionId` with no task content persisted anywhere in
+the chain; the router remains pure, with no clock, randomness, or I/O; every
+current routing test passes without a changed expectation, because no route
+changed; v1 work-unit specs and v1 acceptance records still read, surfacing
+missing provenance as `null` rather than a fabricated identity; the observation
+validator rejects any field outside the content-free set; and the report
+performs no write, no network call, and no catalog or policy mutation.
+
+### Ultra authorization and fan-out containment
+
+Close the self-asserted `nativeFanoutAllowed` boolean. Ultra permits native
+subagent fan-out, so it changes execution topology rather than only reasoning
+depth, and fanned-out children are never routed, verified, or counted in plan
+accounting. Today a queen-authored plan can set the flag itself, so a model can
+authorize the one control that removes its own work from verification, per
+[Ultra authorization and fan-out containment](ultra-authorization.md).
+
+No host primitive can authenticate a user decision today, so this slice
+contains and audits Ultra without claiming to authenticate it, and names the
+missing upstream contract in the same register as
+[Host-owned Codex control lifecycle](host-owned-control.md).
+
+Delivery slices:
+
+- [ ] remove `nativeFanoutAllowed` from the slice-plan routing schema so a
+  queen-authored plan cannot reach Ultra, and reject the field as unknown;
+- [ ] add `intelligence-authorization.mjs` with pure `AuthorizationReceiptV1`
+  validation, caller-supplied `evaluatedAt`, and launch-scope binding;
+- [ ] require a validated receipt for `ultra` in the router and replace the MCP
+  `allowNativeFanout` boolean with a receipt argument;
+- [ ] add the default-deny user-owned enablement loader with symlink, mode, and
+  path-containment checks;
+- [ ] persist the bounded authorization audit record separately from the
+  content-free observation store;
+- [ ] record and surface that Ultra fan-out children are outside runtime
+  verification;
+- [ ] document the CLI flag as a developer affordance that does not satisfy
+  this contract.
+
+Acceptance criteria: no queen-authored plan can produce an Ultra route by any
+field combination; a missing, negative, expired, malformed, or wrongly-scoped
+receipt denies, and no path treats absence as permission; a receipt scoped to
+one work unit, revision, attempt, or route decision fails against any other;
+receipt validation is pure; the enablement loader rejects symlinks,
+group-or-other-writable files, and paths outside the expected root; the
+authorization audit record never enters the content-free observation store; an
+Ultra launch reports its fan-out children as unverified; and the documentation
+states plainly that this contains and audits Ultra without authenticating it.
+
 ## Leading candidates after Next
 
 1. **Result handoffs, acceptance, and synthesis:** validate current attempts,
@@ -151,7 +231,9 @@ permission design, confirmation path, and audit model.
 ## Proposed Adaptive Intelligence Routing
 
 - Instrument current route decisions with stable identity and content-free
-  outcome observations before changing launch behavior.
+  outcome observations before changing launch behavior (Phase 0, contracted in
+  [Route provenance and outcome join](route-provenance-join.md) and scheduled
+  under **Next**).
 - Replace the three-way task-shape input with an evidence-backed task profile,
   retaining a compatibility translation for persisted plans.
 - Add live host-capability filtering, a versioned deterministic scorecard,
@@ -159,6 +241,9 @@ permission design, confirmation path, and audit model.
 - Run the new policy in shadow and advisory modes before making it the default.
 - Add evidence-specific bounded escalation and empirical calibration only after
   evaluation and rollback gates are in place.
+- Replace the self-asserted native-fan-out boolean with a scoped, audited,
+  default-denied authorization
+  ([contract](ultra-authorization.md), scheduled under **Next**).
 
 See [Adaptive Intelligence Routing](intelligence-routing-v2.md) for contracts,
 module boundaries, safety rules, and rollout criteria.

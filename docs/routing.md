@@ -86,6 +86,11 @@ permits native **subagent fan-out**, so it's gated twice — it requires an expl
 or recommended **Sol or Terra** profile *and* explicit permission
 (`allowNativeFanout: true`). Requesting `ultra` any other way is an error.
 
+That permission is currently a boolean the caller asserts about itself, and
+fan-out children are outside the verification described below. Tightening it to
+a scoped, audited, default-denied authorization is contracted in
+[Ultra authorization and fan-out containment](ultra-authorization.md).
+
 ## Verification (fail-closed)
 
 Routing a task isn't the same as trusting it ran that way. After launch,

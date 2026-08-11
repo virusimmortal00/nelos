@@ -341,6 +341,14 @@ launch, then copies the bounded audit fields into `authorizations`. Raw
 the v2 contract. The compatibility facade may accept the existing fan-out flag
 only at a trusted host boundary that also supplies the equivalent receipt.
 
+The `native-fanout` half of this control is contracted in detail in
+[Ultra authorization and fan-out containment](ultra-authorization.md), which
+can land independently of the phases below. It also qualifies the "trusted
+issuer" requirement above: Codex exposes no primitive today that lets a plugin
+obtain an attested user decision, so that slice contains and audits the control
+and names the missing upstream contract rather than treating a file as proof of
+user intent.
+
 ## Adaptive Escalation
 
 Prompt correction and route escalation solve different failures and must remain
@@ -532,8 +540,15 @@ outcome writes must not be hidden inside that call.
 
 ### Phase 0 — Decision identity and observation
 
-- Add `routeDecisionId` to current route output without changing the existing
-  queen acceptance `decisionId`.
+Contracted in detail in
+[Route provenance and outcome join](route-provenance-join.md), which splits the
+identity below in two: a `routePolicyDigest` minted by the pure router, and a
+`routeDecisionId` derived at the work-unit launch binding. A single identifier
+on the route output cannot both preserve router purity and attribute two
+identical decisions in one plan separately.
+
+- Add route decision identity without changing the existing queen acceptance
+  `decisionId`.
 - Persist `routeDecisionId` on the work-unit launch binding and runtime
   verification receipt.
 - Introduce `QueenAcceptanceV2` with a required `routeDecisionId`; retain a v1
@@ -595,8 +610,8 @@ report and an explicit rollback target.
 The safest useful first slice is Phase 0 plus the profile schema from Phase 1:
 
 1. Define and test `TaskIntelligenceProfileV1`.
-2. Add stable `routeDecisionId` identity without changing current route
-   selection or queen acceptance identity.
+2. Add stable route decision identity without changing current route selection
+   or queen acceptance identity.
 3. Define the content-free observation envelope.
 4. Persist the route identity through launch, verification, and
    `QueenAcceptanceV2`, with a v1 migration reader.
