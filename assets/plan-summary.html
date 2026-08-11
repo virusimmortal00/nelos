@@ -116,12 +116,16 @@
         title.title = title.textContent;
         const summary = value.summary ?? {};
         const taskWord = members.length === 1 ? "task" : "tasks";
+        const prePlan = ["planning", "attention"].includes(value.phase);
+        const overviewNoun = prePlan
+          ? `plan ${members.length === 1 ? "member" : "members"}`
+          : taskWord;
         copy.append(
           title,
           node(
             "p",
             "counts",
-            `${members.length} ${taskWord} · ${summary.spinoffs ?? 0} spin-offs · ` +
+            `${members.length} ${overviewNoun} · ${summary.spinoffs ?? 0} spin-offs · ` +
               `${summary.subagents ?? 0} sub-agents`,
           ),
         );
@@ -134,7 +138,6 @@
         if (members.length > 0) {
           const details = document.createElement("details");
           const disclosure = document.createElement("summary");
-          const prePlan = ["planning", "attention"].includes(value.phase);
           const disclosureNoun = prePlan
             ? `plan ${members.length === 1 ? "member" : "members"}`
             : `planned ${taskWord}`;

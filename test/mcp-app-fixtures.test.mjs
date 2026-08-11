@@ -553,6 +553,10 @@ test("purpose-built widgets render results, fallbacks, and resize disclosures", 
   const planOverview = planWidget.rootElement.children[0];
   const planDetails = planWidget.rootElement.children[1];
   assert.equal(planOverview.children[1].children[0].textContent, "Plan the visual review");
+  assert.match(
+    planOverview.children[1].children[1].textContent,
+    /^1 plan member ·/u,
+  );
   assert.equal(planDetails.children[0].textContent, "Review 1 plan member");
   const planSizeMessages = () => planWidget.postedMessages.filter(
     ({ method }) => method === "ui/notifications/size-changed",
