@@ -1179,6 +1179,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "docs/configuration.md",
           "docs/codex-capability-audit.md",
           "docs/installation.md",
+          "docs/mcp-visual-evidence.md",
           "docs/mcp-web-ui.md",
           "docs/observation-join.md",
           "docs/mcp-tool-surface.md",
