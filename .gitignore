@@ -3,8 +3,7 @@ dist/
 *.log
 .DS_Store
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
 experiments/api-baseline/calibration-tranche-1/private-material/
 experiments/api-baseline/calibration-tranche-1/run-output/

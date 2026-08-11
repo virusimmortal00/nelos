@@ -109,8 +109,9 @@ Each component is self-contained, uses the MCP Apps bridge, loads no remote
 resources, and renders only the tool result supplied by the host. It does not
 read Desktop state, discover tasks, poll, mutate native state, or treat widget
 state as authoritative. Clients that do not support MCP Apps continue to use
-the unchanged text/JSON result. The parent objective remains in the structured
-data for model context but the compact component does not render it.
+the unchanged text/JSON result. Plan summaries render the parent objective,
+execution maps render task context, and action receipts render the affected
+work unit or cleanup scope.
 
 The authorization status mirrors the launch gate exactly: an unapproved wave
 renders `authorization-required`, while replaying a valid native-host receipt

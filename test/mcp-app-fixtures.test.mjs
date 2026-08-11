@@ -23,7 +23,17 @@ import {
   EXECUTION_MAP_RESOURCE_URI,
   EXECUTION_MAP_STATUSES,
   PLAN_SUMMARY_RESOURCE_URI,
+  readExecutionMapResourceV1,
 } from "../src/execution-map.mjs";
+
+function moduleSourceForResource(uri) {
+  const html = readExecutionMapResourceV1(uri).contents[0]?.text ?? "";
+  const source = html.match(
+    /<script type="module">([\s\S]*?)<\/script>/u,
+  )?.[1];
+  assert.ok(source, `${uri} module script was not found`);
+  return source;
+}
 
 async function mountExecutionMapWidget(source, {
   hostContext = {
@@ -41,12 +51,16 @@ async function mountExecutionMapWidget(source, {
     deviceCapabilities: { touch: false, hover: true },
     safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
   },
+  respondToInitialize = true,
+  rootPlaceholder = null,
 } = {}) {
   const windowListeners = new Map();
   const animationFrames = [];
   const observers = [];
   const postedMessages = [];
   const elementsById = new Map();
+  const timeouts = new Map();
+  let nextTimeoutId = 0;
   let document;
 
   const styleDeclaration = () => {
@@ -175,7 +189,7 @@ async function mountExecutionMapWidget(source, {
   const hostFontsElement = makeElement("style", "host-fonts");
   head.append(hostFontsElement);
   const body = makeElement("body");
-  const main = makeElement("main");
+  const main = makeElement("main", "root");
   const taskContextElement = makeElement("div", "task-context");
   taskContextElement.className = "task-context";
   taskContextElement.hidden = true;
@@ -213,16 +227,47 @@ async function mountExecutionMapWidget(source, {
     filterDoneElement,
     filterHistoryElement,
   );
-  main.append(
-    taskContextElement,
-    filtersElement,
-    membersElement,
-    updateStatusElement,
-  );
+  if (rootPlaceholder === null) {
+    main.append(
+      taskContextElement,
+      filtersElement,
+      membersElement,
+      updateStatusElement,
+    );
+  } else {
+    const placeholder = makeElement("p");
+    placeholder.className = "message";
+    placeholder.textContent = rootPlaceholder;
+    main.append(placeholder);
+  }
   body.append(main);
   documentElement.append(head, body);
 
   const syntheticHeight = () => {
+    if (!main.contains(membersElement)) {
+      const purposeHeight = (element) => {
+        if (element.hidden) return 0;
+        if (element.tagName === "details") {
+          return 22 + (element.open
+            ? element.children.slice(1).reduce(
+              (total, child) => total + purposeHeight(child),
+              0,
+            )
+            : 0);
+        }
+        if (element.tagName === "ol") return element.children.length * 26;
+        if (element.tagName === "section") return 46;
+        if (element.tagName === "p") return 24;
+        return element.children.reduce(
+          (total, child) => total + purposeHeight(child),
+          0,
+        );
+      };
+      return 20 + main.children.reduce(
+        (total, child) => total + purposeHeight(child),
+        0,
+      );
+    }
     let height = 28;
     if (!taskContextElement.hidden) height += 24;
     if (!filtersElement.hidden) height += 26;
@@ -273,7 +318,11 @@ async function mountExecutionMapWidget(source, {
   const parent = {
     postMessage(message) {
       postedMessages.push(message);
-      if (message.method !== "ui/initialize" || message.id === undefined) return;
+      if (
+        !respondToInitialize ||
+        message.method !== "ui/initialize" ||
+        message.id === undefined
+      ) return;
       dispatchWindowEvent("message", {
         source: parent,
         data: {
@@ -317,6 +366,20 @@ async function mountExecutionMapWidget(source, {
     requestAnimationFrame(callback) {
       animationFrames.push(callback);
       return animationFrames.length;
+    },
+    setTimeout(callback) {
+      const id = ++nextTimeoutId;
+      timeouts.set(id, callback);
+      queueMicrotask(() => {
+        const pendingCallback = timeouts.get(id);
+        if (!pendingCallback) return;
+        timeouts.delete(id);
+        pendingCallback();
+      });
+      return id;
+    },
+    clearTimeout(id) {
+      timeouts.delete(id);
     },
   };
 
@@ -378,6 +441,7 @@ async function mountExecutionMapWidget(source, {
     membersElement,
     observers,
     postedMessages,
+    rootElement: main,
     sendHostContext,
     sendOpenAIResult,
     sendToolResult,
@@ -461,6 +525,95 @@ test("purpose-built fixtures cover plan and outcome receipts", () => {
       ["action-receipt", ACTION_RECEIPT_RESOURCE_URI],
     ],
   );
+});
+
+test("purpose-built widgets render results, fallbacks, and resize disclosures", async () => {
+  const planWidget = await mountExecutionMapWidget(
+    moduleSourceForResource(PLAN_SUMMARY_RESOURCE_URI),
+    { rootPlaceholder: "Preparing plan…" },
+  );
+  assert.equal(planWidget.rootElement.children[0].textContent, "Preparing plan…");
+
+  planWidget.sendToolResult({
+    schemaVersion: 1,
+    view: "plan-summary",
+    phase: "planning",
+    task: "Plan the visual review",
+    summary: { total: 1, spinoffs: 0, subagents: 1 },
+    members: [{
+      id: "planner",
+      task: "Prepare the plan",
+      lifecycle: "subagent",
+      model: "gpt-5.6-sol",
+      reasoning: "medium",
+      status: "planning",
+      threadId: null,
+    }],
+  });
+  const planOverview = planWidget.rootElement.children[0];
+  const planDetails = planWidget.rootElement.children[1];
+  assert.equal(planOverview.children[1].children[0].textContent, "Plan the visual review");
+  assert.equal(planDetails.children[0].textContent, "Review 1 plan member");
+  const planSizeMessages = () => planWidget.postedMessages.filter(
+    ({ method }) => method === "ui/notifications/size-changed",
+  );
+  const closedHeight = planSizeMessages().at(-1).params.height;
+  planDetails.children[0].click();
+  planWidget.flushAnimationFrames();
+  assert.equal(planDetails.open, true);
+  assert.ok(planSizeMessages().at(-1).params.height > closedHeight);
+
+  planWidget.sendToolResult({ view: "execution-map" });
+  assert.equal(planWidget.rootElement.children[0].textContent, "Plan summary unavailable.");
+  planWidget.sendToolResult(null);
+  assert.equal(planWidget.rootElement.children[0].textContent, "Plan summary unavailable.");
+
+  const actionWidget = await mountExecutionMapWidget(
+    moduleSourceForResource(ACTION_RECEIPT_RESOURCE_URI),
+    { rootPlaceholder: "Processing action…" },
+  );
+  assert.equal(actionWidget.rootElement.children[0].textContent, "Processing action…");
+  actionWidget.sendToolResult({
+    schemaVersion: 1,
+    view: "action-receipt",
+    kind: "cleanup",
+    status: "archiving",
+    title: "Cleanup in progress",
+    detail: "2 spin-offs in this receipt",
+    metrics: [null, { label: "archiving", value: 1 }],
+  });
+  const receipt = actionWidget.rootElement.children[0];
+  assert.equal(receipt.dataset.status, "archiving");
+  assert.equal(receipt.children[1].children[0].textContent, "Cleanup in progress");
+  assert.equal(receipt.children[1].children[1].children[1].textContent, "2 spin-offs in this receipt");
+  assert.equal(receipt.children[2].children.length, 1);
+  assert.equal(receipt.children[2].children[0].children[1].textContent, "1");
+
+  actionWidget.sendToolResult({ view: "plan-summary" });
+  assert.equal(actionWidget.rootElement.children[0].textContent, "Action result unavailable.");
+  actionWidget.sendToolResult(undefined);
+  assert.equal(actionWidget.rootElement.children[0].textContent, "Action result unavailable.");
+});
+
+test("purpose-built widgets recover when the host initialization request times out", async () => {
+  for (const [uri, placeholder] of [
+    [PLAN_SUMMARY_RESOURCE_URI, "Preparing plan…"],
+    [ACTION_RECEIPT_RESOURCE_URI, "Processing action…"],
+  ]) {
+    const widget = await mountExecutionMapWidget(
+      moduleSourceForResource(uri),
+      { respondToInitialize: false, rootPlaceholder: placeholder },
+    );
+    assert.equal(widget.rootElement.children[0].textContent, placeholder);
+    assert.equal(widget.observers.length, 1);
+    assert.deepEqual(
+      widget.observers[0].observed,
+      [widget.documentElement, widget.document.body],
+    );
+    assert.ok(widget.postedMessages.some(
+      ({ method }) => method === "ui/notifications/size-changed",
+    ));
+  }
 });
 
 test("reference-host cache containment is platform-aware", () => {
@@ -971,6 +1124,15 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(
       updateStatusElement.textContent,
       "Execution map updated: 0 workers shown in Current.",
+    );
+
+    sendToolResult({ view: "plan-summary" });
+    assert.equal(taskContextElement.hidden, true);
+    assert.equal(filtersElement.hidden, true);
+    assert.equal(membersElement.children.length, 1);
+    assert.equal(
+      membersElement.children[0].textContent,
+      "Worker status unavailable.",
     );
   } finally {
     await client.close();

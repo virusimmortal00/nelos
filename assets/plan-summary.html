@@ -99,9 +99,9 @@
         if (text !== undefined) element.textContent = text;
         return element;
       };
-      const render = (value) => {
-        if (!value) return;
-        if (value.view !== "plan-summary") {
+      const render = (value, delivered = true) => {
+        if (!value && !delivered) return;
+        if (!value || value.view !== "plan-summary") {
           root.replaceChildren(node("p", "message", "Plan summary unavailable."));
           reportSize();
           return;
@@ -134,7 +134,11 @@
         if (members.length > 0) {
           const details = document.createElement("details");
           const disclosure = document.createElement("summary");
-          disclosure.textContent = `Review ${members.length} planned ${taskWord}`;
+          const prePlan = ["planning", "attention"].includes(value.phase);
+          const disclosureNoun = prePlan
+            ? `plan ${members.length === 1 ? "member" : "members"}`
+            : `planned ${taskWord}`;
+          disclosure.textContent = `Review ${members.length} ${disclosureNoun}`;
           const list = document.createElement("ol");
           for (const member of members) {
             const item = document.createElement("li");
@@ -158,11 +162,16 @@
         root.replaceChildren(...children);
         reportSize();
       };
-      const renderToolResult = (value) => render(value?.structuredContent ?? value);
+      const renderToolResult = (value, delivered = true) =>
+        render(value?.structuredContent ?? value, delivered);
       const notify = (method, params) => window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
       const request = (method, params) => new Promise((resolve, reject) => {
         const id = ++nextId;
-        pending.set(id, { resolve, reject });
+        const timeoutId = window.setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${method} timed out`));
+        }, 3000);
+        pending.set(id, { resolve, reject, timeoutId });
         window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
       });
       let scheduled = false;
@@ -214,6 +223,7 @@
         if (message.id !== undefined && pending.has(message.id)) {
           const entry = pending.get(message.id);
           pending.delete(message.id);
+          window.clearTimeout(entry.timeoutId);
           if (message.error) entry.reject(message.error); else entry.resolve(message.result);
         } else if (message.method === "ui/notifications/tool-result") {
           renderToolResult(message.params);
@@ -224,7 +234,7 @@
       window.addEventListener("openai:set_globals", (event) => {
         renderToolResult(event.detail?.globals?.toolOutput);
       }, { passive: true });
-      renderToolResult(window.openai?.toolOutput);
+      renderToolResult(window.openai?.toolOutput, false);
       try {
         const initialized = await request("ui/initialize", {
           appInfo: { name: "nelos-plan-summary", version: "1.0.0" },
@@ -233,15 +243,15 @@
         });
         applyContext(initialized?.hostContext);
         notify("ui/notifications/initialized", {});
-        if (typeof window.ResizeObserver === "function") {
-          const observer = new ResizeObserver(reportSize);
-          observer.observe(document.documentElement);
-          observer.observe(document.body);
-        }
-        reportSize();
       } catch (error) {
         console.debug("Nelos plan summary bridge unavailable", error);
       }
+      if (typeof window.ResizeObserver === "function") {
+        const observer = new window.ResizeObserver(reportSize);
+        observer.observe(document.documentElement);
+        observer.observe(document.body);
+      }
+      reportSize();
     </script>
   </body>
 </html>

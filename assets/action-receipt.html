@@ -90,9 +90,9 @@
         if (text !== undefined) element.textContent = text;
         return element;
       };
-      const render = (value) => {
-        if (!value) return;
-        if (value.view !== "action-receipt") {
+      const render = (value, delivered = true) => {
+        if (!value && !delivered) return;
+        if (!value || value.view !== "action-receipt") {
           root.replaceChildren(node("p", "message", "Action result unavailable."));
           reportSize();
           return;
@@ -118,6 +118,7 @@
         );
         const metrics = node("div", "metrics");
         for (const item of Array.isArray(value.metrics) ? value.metrics : []) {
+          if (!item || typeof item !== "object") continue;
           const metric = node("span", "metric");
           const label = node("span", "", `${String(item.label).replaceAll("-", " ")} `);
           const amount = node("strong", "", String(item.value));
@@ -128,11 +129,16 @@
         root.replaceChildren(receipt);
         reportSize();
       };
-      const renderToolResult = (value) => render(value?.structuredContent ?? value);
+      const renderToolResult = (value, delivered = true) =>
+        render(value?.structuredContent ?? value, delivered);
       const notify = (method, params) => window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
       const request = (method, params) => new Promise((resolve, reject) => {
         const id = ++nextId;
-        pending.set(id, { resolve, reject });
+        const timeoutId = window.setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${method} timed out`));
+        }, 3000);
+        pending.set(id, { resolve, reject, timeoutId });
         window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
       });
       let scheduled = false;
@@ -184,6 +190,7 @@
         if (message.id !== undefined && pending.has(message.id)) {
           const entry = pending.get(message.id);
           pending.delete(message.id);
+          window.clearTimeout(entry.timeoutId);
           if (message.error) entry.reject(message.error); else entry.resolve(message.result);
         } else if (message.method === "ui/notifications/tool-result") {
           renderToolResult(message.params);
@@ -194,7 +201,7 @@
       window.addEventListener("openai:set_globals", (event) => {
         renderToolResult(event.detail?.globals?.toolOutput);
       }, { passive: true });
-      renderToolResult(window.openai?.toolOutput);
+      renderToolResult(window.openai?.toolOutput, false);
       try {
         const initialized = await request("ui/initialize", {
           appInfo: { name: "nelos-action-receipt", version: "1.0.0" },
@@ -203,15 +210,15 @@
         });
         applyContext(initialized?.hostContext);
         notify("ui/notifications/initialized", {});
-        if (typeof window.ResizeObserver === "function") {
-          const observer = new ResizeObserver(reportSize);
-          observer.observe(document.documentElement);
-          observer.observe(document.body);
-        }
-        reportSize();
       } catch (error) {
         console.debug("Nelos action receipt bridge unavailable", error);
       }
+      if (typeof window.ResizeObserver === "function") {
+        const observer = new window.ResizeObserver(reportSize);
+        observer.observe(document.documentElement);
+        observer.observe(document.body);
+      }
+      reportSize();
     </script>
   </body>
 </html>

@@ -704,6 +704,7 @@ test("public MCP visuals match the purpose of each action", async () => {
     {
       state: "complete",
       results: [{ state: "archived" }, { state: "kept" }],
+      pending: [{ workUnitId: "pending-review" }],
     },
   );
   assert.equal(cleanupView.view, "action-receipt");
@@ -711,7 +712,9 @@ test("public MCP visuals match the purpose of each action", async () => {
   assert.deepEqual(cleanupView.metrics, [
     { label: "archived", value: 1 },
     { label: "kept", value: 1 },
+    { label: "pending", value: 1 },
   ]);
+  assert.equal(cleanupView.detail, "3 spin-offs in this receipt");
 });
 
 test("purpose-built MCP Apps resources stay compact and self-contained", () => {
@@ -818,7 +821,8 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
   const planResource = readExecutionMapResourceV1(PLAN_SUMMARY_RESOURCE_URI);
   assert.match(planResource.contents[0].text, /Nelos plan summary/u);
   assert.match(planResource.contents[0].text, /Preparing plan…/u);
-  assert.match(planResource.contents[0].text, /Review.*planned/u);
+  assert.match(planResource.contents[0].text, /const prePlan =/u);
+  assert.match(planResource.contents[0].text, /`planned \$\{taskWord\}`/u);
   assert.doesNotMatch(planResource.contents[0].text, /Waiting for task state/u);
   const actionResource = readExecutionMapResourceV1(
     ACTION_RECEIPT_RESOURCE_URI,

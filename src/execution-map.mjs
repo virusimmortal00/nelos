@@ -658,14 +658,22 @@ function refreshedMap(result) {
   });
 }
 
+function cleanupRecords(result) {
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const pending = Array.isArray(result?.pending)
+    ? result.pending.map((record) => ({
+      ...record,
+      state: text(record?.state, "pending"),
+    }))
+    : [];
+  if (results.length > 0 || pending.length > 0) {
+    return [...results, ...pending];
+  }
+  return Array.isArray(result?.candidates) ? result.candidates : [];
+}
+
 function cleanupMap(result, args) {
-  const records = Array.isArray(result?.results)
-    ? result.results
-    : Array.isArray(result?.candidates)
-      ? result.candidates
-      : Array.isArray(result?.pending)
-        ? result.pending
-        : [];
+  const records = cleanupRecords(result);
   const phase =
     result?.state === "effects-required"
       ? "archiving"
@@ -1202,13 +1210,7 @@ function actionReceipt(toolName, args, result) {
     };
   }
   if (toolName === "nelos_spinoff_cleanup") {
-    const records = Array.isArray(result?.results)
-      ? result.results
-      : Array.isArray(result?.candidates)
-        ? result.candidates
-        : Array.isArray(result?.pending)
-          ? result.pending
-          : [];
+    const records = cleanupRecords(result);
     const counts = new Map();
     for (const record of records) {
       const state = text(record?.state, "pending");
