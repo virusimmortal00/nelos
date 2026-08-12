@@ -310,7 +310,9 @@ function readEffect(member) {
 
 function correctionPrompt(member) {
   return [
-    "Correct the result rejected by the queen in this same task.",
+    member.result.state === "malformed"
+      ? "Correct the malformed result rejected by the orchestration contract in this same task."
+      : "Correct the result rejected by the queen in this same task.",
     `Preserve workUnitId ${member.workUnitId} and specRevision ${member.specRevision};`,
     `return attempt ${member.attempt + 1}.`,
     "Finish with exactly one valid final nelos-result block and no trailing prose.",
@@ -378,9 +380,13 @@ export function reduceObservationJoinV1(value) {
   const correctionMembers = activeRequired.filter(
     (member) =>
       member.coordination.state === "correction-pending" &&
-      member.result.state === "current" &&
+      ["current", "malformed"].includes(member.result.state) &&
       member.result.sourceTurnId !== null &&
+      member.result.sourceTurnId === member.execution.latestTurnId &&
       member.capabilities.includes("follow-up"),
+  );
+  const correctionMemberIds = new Set(
+    correctionMembers.map(({ workUnitId }) => workUnitId),
   );
   const impossibleMembers = activeRequired.filter(
     (member) =>
@@ -400,7 +406,11 @@ export function reduceObservationJoinV1(value) {
       member.title.state === "attention" ||
       member.execution.state === "attention" ||
       member.execution.attentionRequired ||
-      ["stale", "malformed"].includes(member.result.state) ||
+      member.result.state === "stale" ||
+      (member.coordination.state === "correction-pending" &&
+        !correctionMemberIds.has(member.workUnitId)) ||
+      (member.result.state === "malformed" &&
+        member.coordination.state !== "correction-pending") ||
       (member.result.state === "current" &&
         member.result.envelope.outcome !== "succeeded"),
   );
@@ -588,7 +598,7 @@ export function applyObservationReceiptV1(value, rawReceipt) {
     const member = matchingMember({ ...checkpoint, members }, receipt);
     if (
       member.coordination.state !== "correction-pending" ||
-      member.result.state !== "current" ||
+      !["current", "malformed"].includes(member.result.state) ||
       member.result.sourceTurnId !== receipt.rejectedSourceTurnId ||
       receipt.nextAttempt !== member.attempt + 1
     ) {

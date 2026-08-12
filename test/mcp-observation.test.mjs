@@ -362,6 +362,294 @@ test("acceptance advances collection to continuation without claiming Desktop wa
   });
 });
 
+test("a consumed malformed result enters bounded correction and joins the later valid turn", async (t) => {
+  const current = await fixture(t);
+  await bind(current.executionStore, workUnit({
+    capabilities: ["observe", "read-result", "follow-up"],
+  }));
+  const initial = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  const wait = initial.join.effects.find(({ type }) => type === "native-wait");
+  const terminal = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: wait.actionId,
+      webId: "A1",
+      queenThreadId: "queen",
+      status: "event",
+      targets: wait.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-malformed",
+        lifecycle: "completed",
+        latestTurnId: "turn-malformed",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const read = terminal.join.effects.find(
+    ({ type }) => type === "native-read-result",
+  );
+  const malformedReceipt = {
+    schemaVersion: 1,
+    type: "native-result-read",
+    actionId: read.actionId,
+    workUnitId: "alpha",
+    specRevision: 1,
+    attempt: 1,
+    bindingGeneration: 1,
+    memberThreadId: "thread-alpha",
+    requestedTurnId: "turn-malformed",
+    sourceTurnId: "turn-malformed",
+    resultEnvelope: {
+      schemaVersion: 1,
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 1,
+      outcome: "succeeded",
+      summary: "The work passed, but the evidence item has the wrong shape.",
+      artifacts: [],
+      verification: [{ command: "npm test", outcome: "passed" }],
+      blockers: [],
+      recoveryHint: null,
+    },
+  };
+  const malformed = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: malformedReceipt,
+  });
+  assert.equal(malformed.checkpoint.members[0].result.state, "malformed");
+  assert.equal(
+    malformed.checkpoint.members[0].coordination.state,
+    "correction-pending",
+  );
+  assert.deepEqual(malformed.join.boundary, {
+    type: "action",
+    reason: "rejected-results-require-correction",
+  });
+  assert.equal(
+    malformed.join.effects.some(({ type }) => type === "native-read-result"),
+    false,
+  );
+  const followUp = malformed.join.effects.find(
+    ({ type }) => type === "native-follow-up",
+  );
+  assert.equal(followUp.rejectedSourceTurnId, "turn-malformed");
+  assert.equal(followUp.nextAttempt, 2);
+  assert.match(followUp.prompt, /malformed result rejected by the orchestration contract/u);
+
+  const replayedMalformed = await current.adapter().advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: malformedReceipt,
+  });
+  assert.deepEqual(replayedMalformed, malformed);
+
+  const restarted = current.adapter();
+  const legacyCheckpoint = structuredClone(replayedMalformed.checkpoint);
+  legacyCheckpoint.checkpointRevision += 1;
+  legacyCheckpoint.members[0].coordination.state = "waiting";
+  legacyCheckpoint.members[0].execution.attentionRequired = false;
+  await current.checkpointStore.write(legacyCheckpoint, {
+    expectedRevision: replayedMalformed.checkpoint.checkpointRevision,
+  });
+  const migrated = await restarted.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: null,
+  });
+  assert.equal(
+    migrated.checkpoint.members[0].coordination.state,
+    "correction-pending",
+  );
+  assert.deepEqual(
+    migrated.checkpoint.consumedReceipts,
+    legacyCheckpoint.consumedReceipts,
+  );
+  assert.equal(
+    migrated.join.effects.find(({ type }) => type === "native-follow-up").actionId,
+    followUp.actionId,
+  );
+
+  const correctionWaiting = await restarted.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-follow-up-delivered",
+      actionId: followUp.actionId,
+      workUnitId: followUp.workUnitId,
+      specRevision: followUp.specRevision,
+      attempt: followUp.attempt,
+      bindingGeneration: followUp.bindingGeneration,
+      memberThreadId: followUp.memberThreadId,
+      rejectedSourceTurnId: followUp.rejectedSourceTurnId,
+      nextAttempt: followUp.nextAttempt,
+    },
+  });
+  assert.equal((await current.executionStore.read("alpha")).attempt, 2);
+  const correctionWait = correctionWaiting.join.effects.find(
+    ({ type }) => type === "native-wait",
+  );
+  const correctionTerminal = await restarted.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-wait",
+      actionId: correctionWait.actionId,
+      webId: "A1",
+      queenThreadId: "queen",
+      status: "event",
+      targets: correctionWait.targets.map((target) => ({
+        ...target,
+        nextCursor: "cursor-corrected",
+        lifecycle: "completed",
+        latestTurnId: "turn-corrected",
+        attentionRequired: false,
+      })),
+    },
+  });
+  const correctionRead = correctionTerminal.join.effects.find(
+    ({ type }) => type === "native-read-result",
+  );
+  const corrected = await restarted.advance({
+    webId: "A1",
+    queenThreadId: "queen",
+    receipt: {
+      schemaVersion: 1,
+      type: "native-result-read",
+      actionId: correctionRead.actionId,
+      workUnitId: "alpha",
+      specRevision: 1,
+      attempt: 2,
+      bindingGeneration: 1,
+      memberThreadId: "thread-alpha",
+      requestedTurnId: "turn-corrected",
+      sourceTurnId: "turn-corrected",
+      resultEnvelope: {
+        schemaVersion: 1,
+        workUnitId: "alpha",
+        specRevision: 1,
+        attempt: 2,
+        outcome: "succeeded",
+        summary: "The corrected result uses the contract shape.",
+        artifacts: [],
+        verification: ["npm test passed"],
+        blockers: [],
+        recoveryHint: null,
+      },
+    },
+  });
+  assert.equal(corrected.checkpoint.members[0].result.state, "current");
+  assert.equal(
+    corrected.checkpoint.members[0].result.sourceTurnId,
+    "turn-corrected",
+  );
+  assert.equal(corrected.join.boundary.type, "decide");
+  assert.equal(
+    corrected.checkpoint.consumedReceipts.some(
+      ({ actionId }) => actionId === malformedReceipt.actionId,
+    ),
+    true,
+    "the rejected receipt remains immutable audit evidence",
+  );
+});
+
+test("malformed results without a correction path remain fail-closed", async (t) => {
+  const scenarios = [
+    {
+      overrides: { capabilities: ["observe", "read-result"] },
+      sourceTurnId: "turn-malformed",
+    },
+    {
+      overrides: {
+        capabilities: ["observe", "read-result", "follow-up"],
+        policy: {
+          maxAttempts: 1,
+          onBlocked: "queen-review",
+          onFailure: "queen-review",
+        },
+      },
+      sourceTurnId: "turn-malformed",
+    },
+    {
+      overrides: {
+        capabilities: ["observe", "read-result", "follow-up"],
+      },
+      sourceTurnId: "stale-source-turn",
+    },
+  ];
+  for (const { overrides, sourceTurnId } of scenarios) {
+    const current = await fixture(t);
+    await bind(current.executionStore, workUnit(overrides));
+    const initial = await current.adapter().advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: null,
+    });
+    const wait = initial.join.effects.find(({ type }) => type === "native-wait");
+    const terminal = await current.adapter().advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: {
+        schemaVersion: 1,
+        type: "native-wait",
+        actionId: wait.actionId,
+        webId: "A1",
+        queenThreadId: "queen",
+        status: "event",
+        targets: wait.targets.map((target) => ({
+          ...target,
+          nextCursor: "cursor-malformed",
+          lifecycle: "completed",
+          latestTurnId: "turn-malformed",
+          attentionRequired: false,
+        })),
+      },
+    });
+    const read = terminal.join.effects.find(
+      ({ type }) => type === "native-read-result",
+    );
+    const malformed = await current.adapter().advance({
+      webId: "A1",
+      queenThreadId: "queen",
+      receipt: {
+        schemaVersion: 1,
+        type: "native-result-read",
+        actionId: read.actionId,
+        workUnitId: "alpha",
+        specRevision: 1,
+        attempt: 1,
+        bindingGeneration: 1,
+        memberThreadId: "thread-alpha",
+        requestedTurnId: "turn-malformed",
+        sourceTurnId,
+        resultEnvelope: { schemaVersion: 1 },
+      },
+    });
+    assert.equal(malformed.checkpoint.members[0].result.state, "malformed");
+    assert.equal(
+      malformed.checkpoint.members[0].execution.attentionRequired,
+      true,
+    );
+    assert.equal(
+      malformed.join.effects.some(({ type }) => type === "native-follow-up"),
+      false,
+    );
+    assert.deepEqual(malformed.join.boundary, {
+      type: "attention",
+      reason: "member-evidence-requires-review",
+    });
+  }
+});
+
 test("each accepted dependency wave is isolated and cleanup-scoped before the next wave", async (t) => {
   const current = await fixture(t);
   const planned = planWorkSlices({
