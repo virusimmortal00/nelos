@@ -128,6 +128,25 @@ test("live prompts scope work-unit IDs per run so retained executions do not col
   assert.doesNotMatch(first, /write-terra-smoke--run-two/);
 });
 
+test("an older routing evaluation run cannot satisfy a rerun with the same scenario", () => {
+  const planIds = (prompt) => {
+    const planStart = prompt.indexOf("\n\n{") + 2;
+    const planEnd = prompt.indexOf("\n\nLive evaluation protocol:", planStart);
+    const plan = JSON.parse(prompt.slice(planStart, planEnd));
+    return new Set(plan.slices.map(({ id }) => id));
+  };
+  const olderRun = planIds(createRoutingLivePromptV1(suite, "shape-terra-low", {
+    runId: "rerun-old",
+  }));
+  const newerRun = planIds(createRoutingLivePromptV1(suite, "shape-terra-low", {
+    runId: "rerun-new",
+  }));
+
+  assert.deepEqual([...olderRun], ["write-terra-smoke--rerun-old"]);
+  assert.deepEqual([...newerRun], ["write-terra-smoke--rerun-new"]);
+  assert.equal([...olderRun].some((id) => newerRun.has(id)), false);
+});
+
 test("must-pass routes gate while a solved semantic challenge is reported separately", () => {
   const report = gradeRoutingEvalSuiteV1(suite, completedObservation());
   assert.equal(report.passed, true);

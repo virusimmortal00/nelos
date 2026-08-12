@@ -264,6 +264,7 @@ test("batch verification treats identity resolution, batch read, missing topolog
     });
     assert.equal(inspected, false);
     assert.equal(result.members[0].attentionReason, "identity-resolution-unavailable");
+    assert.equal(result.members[0].checks.route, "not-attempted");
   });
 
   await t.test("read failure", async () => {

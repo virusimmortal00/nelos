@@ -177,10 +177,29 @@ test("spin-off completion persists before returning one host-owned wake effect",
   assert.equal(delivered.record.wakeState, "delivered");
   assert.equal(delivered.record.queenTurnId, null);
   assert.deepEqual(delivered.effects, []);
+  // Delivery means only that the host accepted the wake message.  It cannot
+  // attest to the task's route, which is verified by a separate observation.
+  assert.equal(Object.hasOwn(delivered.record, "route"), false);
+  assert.equal(Object.hasOwn(delivered.record, "routeVerified"), false);
 
   const replay = await adapter.complete(completion());
   assert.equal(replay.replayed, true);
   assert.equal(replay.record.wakeState, "delivered");
+});
+
+test("a cross-host completion remains delivered when route resolution is unavailable", async (t) => {
+  const { adapter } = await fixture(t);
+  const pending = await adapter.complete(completion());
+  const delivered = await adapter.complete(
+    completion({ receipt: wakeReceipt(pending.effects[0]) }),
+  );
+
+  // A lifecycle host can durably record its own send-message receipt even
+  // when the resolver needed for route verification lives on another host.
+  assert.equal(delivered.record.wakeState, "delivered");
+  assert.equal(delivered.record.queenTurnId, null);
+  assert.deepEqual(delivered.effects, []);
+  assert.equal(Object.hasOwn(delivered.record, "route"), false);
 });
 
 test("spin-off completion never blindly re-emits an in-flight wake", async (t) => {
