@@ -26,6 +26,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 - Failed-closed observations can retain workers with unavailable runtime routes
   as `null`, while creates that never return an identity remain visibly
   `launch-pending` instead of fabricating worker evidence.
+- Joined-subagent launch verification now requires the receipt turn to equal
+  the resolver's current native launch turn before accepting route evidence.
 
 ### Compatibility requirements
 

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "shape-sol-medium",
+      "queenTaskId": "019ff718-3c2c-74b0-b767-e47fdb148eb3",
+      "orchestrationQueenTaskId": "019ff718-3c2c-74b0-b767-e47fdb148eb3",
+      "workspaceId": "worktree-ad5d",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "assess-routing-boundaries--20260812-shape-sol-medium-a",
+          "lifecycle": "subagent",
+          "threadId": "019ff719-2e1b-70b2-88fb-eca27d4c3a09",
+          "turnId": "019ff719-2e87-73e3-8eaa-7c122b162fb6",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "complex/open-ended",
+          "profile": "sol",
+          "modelSelection": "recommended",
+          "effortSelection": "recommended",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "medium",
+          "observedModel": "gpt-5.6-sol",
+          "observedEffort": "medium",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    }
+  ]
+}

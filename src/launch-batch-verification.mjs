@@ -430,8 +430,13 @@ export async function verifyLaunchBatchV1(value, {
         batchResolutions?.[batchIndex] ?? (await resolveOne(member));
       if (!resolved) throw new Error("subagent identity resolution unavailable");
       const resolvedThreadId = assertIdentifier(resolved?.threadId, "resolved subagent thread ID");
+      const resolvedTurnId = assertIdentifier(resolved?.turnId, "resolved subagent turn ID");
       if (resolved?.parentThreadId !== parentThreadId || resolved?.agentPath !== member.agentPath) {
         throw new Error("subagent resolver returned a conflicting identity");
+      }
+      if (resolvedTurnId !== member.turnId) {
+        fail(result, "launch-turn-mismatch");
+        return;
       }
       result.threadId = resolvedThreadId;
       result.checks.identity = "verified";

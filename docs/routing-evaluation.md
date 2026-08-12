@@ -175,6 +175,14 @@ ID. Live prompt generation now appends a unique run ID to every slice and
 dependency ID, preventing future probes from colliding with retained execution
 records while keeping the scenario and expected route unchanged.
 
+The first recommendation-path retry after that repair is retained as
+[`live-shape-sol-medium-2026-08-12.json`](../evals/routing/observations/live-shape-sol-medium-2026-08-12.json).
+A fresh isolated queen supplied only the `complex/open-ended` task shape;
+Nelos recommended a joined Sol/medium worker, the native launch batch verified
+its identity and topology, and a post-completion runtime check independently
+observed the exact Sol/medium route. This passes the `shape-sol-medium`
+mechanical probe without an explicit model or effort override.
+
 The command exits nonzero when a must-pass route is missing, unverified,
 mismatched, selected for the wrong reason, on the wrong lifecycle surface, or
 observed in a reused queen or workspace. Stale route-schema, policy, or catalog
