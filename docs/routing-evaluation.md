@@ -183,6 +183,18 @@ its identity and topology, and a post-completion runtime check independently
 observed the exact Sol/medium route. This passes the `shape-sol-medium`
 mechanical probe without an explicit model or effort override.
 
+The completed default recommendation comparison is retained as the
+[`recommendation-diversity-2026-08-12.md`](../evals/routing/observations/recommendation-diversity-2026-08-12.md)
+packet and its schema-checked
+[`live-shape-recommendation-diversity-2026-08-12.json`](../evals/routing/observations/live-shape-recommendation-diversity-2026-08-12.json)
+bundle. Two additional fresh isolated queens recommended and independently
+observed Terra/low and Luna/low. Their current terminal-turn result receipts,
+resolver correlation, acceptance, and archival dispositions are recorded
+separately from their recommendation and route-verification outcomes. Together
+with the fresh Sol/medium result, the three distinct route-verified defaults
+establish recommendation diversity without relying on a planned route or a
+delivery-only signal.
+
 The command exits nonzero when a must-pass route is missing, unverified,
 mismatched, selected for the wrong reason, on the wrong lifecycle surface, or
 observed in a reused queen or workspace. Stale route-schema, policy, or catalog
