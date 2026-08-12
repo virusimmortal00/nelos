@@ -37,17 +37,18 @@ export function validatePluginReleaseChange({
   sourceRevisionChanged = false,
 }) {
   const changed = payloadChanged || sourceRevisionChanged;
-  if (changed && candidateVersion === baseVersion) {
+  const releaseIntentional = candidateVersion !== baseVersion;
+  if (releaseIntentional && candidateCacheIdentity === baseCacheIdentity) {
     throw new Error(
-      `distributable plugin payload/source changed without a version bump (${candidateVersion})`,
+      `intentional plugin release ${candidateVersion} reused cache identity ${candidateCacheIdentity}`,
     );
   }
-  if (changed && candidateCacheIdentity === baseCacheIdentity) {
-    throw new Error(
-      `distributable plugin payload/source changed without a cache identity change (${candidateCacheIdentity})`,
-    );
-  }
-  return { changed, version: candidateVersion, cacheIdentity: candidateCacheIdentity };
+  return {
+    changed,
+    releaseIntentional,
+    version: candidateVersion,
+    cacheIdentity: candidateCacheIdentity,
+  };
 }
 
 async function git(root, ...args) {
@@ -66,6 +67,7 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
     candidateManifest,
     agentPluginManifest,
     packageMetadata,
+    packageLock,
     mcp,
     agentPluginMcp,
     provenance,
@@ -76,6 +78,7 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
       jsonAt(root, ".codex-plugin/plugin.json"),
       jsonAt(root, "plugin.json"),
       jsonAt(root, "package.json"),
+      jsonAt(root, "package-lock.json"),
       jsonAt(root, ".mcp.json"),
       jsonAt(root, "mcp.json"),
       jsonAt(root, "distribution-provenance.json"),
@@ -92,6 +95,8 @@ export async function validatePluginRelease({ baseRef, root = repositoryRoot }) 
   for (const [label, version] of [
     ["plugin.json", agentPluginManifest.version],
     ["package.json", packageMetadata.version],
+    ["package-lock.json", packageLock.version],
+    ["package-lock.json packages root", packageLock.packages?.[""]?.version],
     [".mcp.json", mcp?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
     ["mcp.json", agentPluginMcp?.mcpServers?.nelos?.env?.NELOS_PLUGIN_VERSION],
     ["distribution-provenance.json", provenance.revision],

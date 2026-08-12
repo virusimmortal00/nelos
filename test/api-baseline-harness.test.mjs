@@ -544,6 +544,6 @@ test("npm/plugin payload excludes calibration and keeps the 0.12.14 release inva
   const packed = JSON.parse((await executeFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: REPOSITORY_ROOT })).stdout)[0];
   assert.equal(packed.files.some(({ path }) => path.startsWith("experiments/")), false);
   assert.equal(packed.files.some(({ path }) => path.includes("calibration-tranche-1")), false);
-  assert.deepEqual(validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: false }), { changed: false, version: "0.12.9", cacheIdentity: "same" });
-  assert.throws(() => validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), /without a version bump/u);
+  assert.deepEqual(validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), { changed: true, releaseIntentional: false, version: "0.12.9", cacheIdentity: "same" });
+  assert.throws(() => validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.10", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), /intentional plugin release/u);
 });
