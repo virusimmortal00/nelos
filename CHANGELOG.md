@@ -5,6 +5,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.14] - 2026-08-12
+
 ### User-facing changes
 
 - Added a versioned isolated-queen routing evaluation suite with fresh-task
