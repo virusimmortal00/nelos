@@ -243,14 +243,18 @@ class McpProcess {
     });
   }
 
-  async tool(name, argumentsValue) {
+  async toolResult(name, argumentsValue) {
     const result = await this.request("tools/call", {
       name,
       arguments: argumentsValue,
     });
     const body = JSON.parse(result.content[0].text);
     if (result.isError) throw new Error(body.error);
-    return body;
+    return { body, structuredContent: result.structuredContent ?? null };
+  }
+
+  async tool(name, argumentsValue) {
+    return (await this.toolResult(name, argumentsValue)).body;
   }
 
   stop() {
@@ -330,15 +334,34 @@ export async function runPlanningLifecycleScenario() {
       maxParallel: 2,
       receipt: null,
     };
-    const prepared = await mcp.tool(
+    const preparedCall = await mcp.toolResult(
       "nelos_plan_lifecycle",
       lifecycleRequest,
     );
+    const prepared = preparedCall.body;
     assert.equal(prepared.nextAction.kind, "launch-planner");
     assert.deepEqual(prepared.nextAction.member.nativeTask, {
       model: "gpt-5.6-sol",
       thinking: "medium",
     });
+    assert.deepEqual(
+      {
+        view: preparedCall.structuredContent?.view,
+        phase: preparedCall.structuredContent?.phase,
+        task: preparedCall.structuredContent?.task,
+        memberStatuses: preparedCall.structuredContent?.members?.map(
+          ({ status }) => status,
+        ),
+        protocolTool: preparedCall.structuredContent?.protocol?.tool,
+      },
+      {
+        view: "plan-summary",
+        phase: "planning",
+        task: lifecycleRequest.objective,
+        memberStatuses: ["planning"],
+        protocolTool: "nelos_plan_lifecycle",
+      },
+    );
     const bootstrapId = prepared.lifecycle.bootstrapId;
     const plannerAgentPath = "/root/nelos_planner_smoke";
     await writeRollout(codexHome, "planner-1", {
@@ -536,9 +559,39 @@ export async function runPlanningLifecycleScenario() {
       value.threads[batch.nextAction.threadId].name = batch.nextAction.title;
       value.threads[batch.nextAction.threadId].updatedAt += 1;
     });
-    batch = await mcp.tool("nelos_launch_verify_batch", batchRequest);
+    const verifiedBatchCall = await mcp.toolResult(
+      "nelos_launch_verify_batch",
+      batchRequest,
+    );
+    batch = verifiedBatchCall.body;
     assert.equal(batch.verification.allVerified, true);
     assert.equal(batch.nextAction.kind, "native-wait-wave");
+    assert.deepEqual(
+      {
+        view: verifiedBatchCall.structuredContent?.view,
+        phase: verifiedBatchCall.structuredContent?.phase,
+        task: verifiedBatchCall.structuredContent?.task,
+        lifecycles: verifiedBatchCall.structuredContent?.members?.map(
+          ({ lifecycle }) => lifecycle,
+        ),
+        memberStatuses: verifiedBatchCall.structuredContent?.members?.map(
+          ({ status }) => status,
+        ),
+        threadIds: verifiedBatchCall.structuredContent?.members?.map(
+          ({ threadId }) => threadId,
+        ),
+        protocolTool: verifiedBatchCall.structuredContent?.protocol?.tool,
+      },
+      {
+        view: "execution-map",
+        phase: "running",
+        task: "Ship the mixed task wave",
+        lifecycles: ["subagent", "subagent", "spinoff", "spinoff"],
+        memberStatuses: ["complete", "running", "running", "launch-pending"],
+        threadIds: ["planner-1", "research-1", "implementation-1", null],
+        protocolTool: "nelos_launch_verify_batch",
+      },
+    );
     assert.deepEqual(
       batch.nextAction.targets.map(
         ({ sliceId, lifecycle, memberKind, controlSurface, primaryId }) => ({
@@ -677,6 +730,22 @@ export async function runPlanningLifecycleScenario() {
       batchAtomic: batch.verification.allVerified,
       exceptionReplanned: true,
       completedSlicesPreserved: true,
+      structuredContent: {
+        planSummary: {
+          view: preparedCall.structuredContent.view,
+          phase: preparedCall.structuredContent.phase,
+          memberStatuses: preparedCall.structuredContent.members.map(
+            ({ status }) => status,
+          ),
+        },
+        executionMap: {
+          view: verifiedBatchCall.structuredContent.view,
+          phase: verifiedBatchCall.structuredContent.phase,
+          memberStatuses: verifiedBatchCall.structuredContent.members.map(
+            ({ status }) => status,
+          ),
+        },
+      },
       modelTurns: 0,
       cleanedUp: true,
     };

@@ -199,7 +199,9 @@
         }
       }, { passive: true });
       window.addEventListener("openai:set_globals", (event) => {
-        renderToolResult(event.detail?.globals?.toolOutput);
+        const toolOutput = event.detail?.globals?.toolOutput;
+        if (toolOutput === undefined) return;
+        renderToolResult(toolOutput);
       }, { passive: true });
       renderToolResult(window.openai?.toolOutput, false);
       try {

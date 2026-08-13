@@ -177,6 +177,70 @@ test("planning, launch pending, and running remain visibly distinct", () => {
   assert.equal(running.members[0].reasoning, "high");
 });
 
+test("planner projection follows native subagent status and preserves its host name", async () => {
+  const webRegistry = memoryWebRegistry();
+  await webRegistry.write({
+    threadId: "queen-b8",
+    outboundWebId: "B8",
+  });
+  const bootstrap = {
+    planner: {
+      bootstrapId: "plan:b8",
+      title: "Plan and classify the work",
+      nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+    },
+  };
+  const active = await projectExecutionMapForToolResultV1(
+    "nelos_plan_lifecycle",
+    {
+      objective: "Build the model selection eval suite",
+      parentThreadId: "queen-b8",
+    },
+    {
+      bootstrap,
+      lifecycle: {
+        bootstrapId: "plan:b8",
+        phase: "verified",
+        plannerThreadId: "thread-planner-b8",
+      },
+      thread: {
+        threadId: "thread-planner-b8",
+        title: "Nelos planner 406a08eee66c",
+      },
+      nextAction: { kind: "native-wait-subagent" },
+    },
+    { webRegistry },
+  );
+  assert.equal(active.members[0].status, "running");
+  assert.equal(active.members[0].displayName, "Nelos planner 406a08eee66c");
+
+  const plan = planWorkSlices({
+    schemaVersion: 1,
+    objective: "Build the model selection eval suite",
+    slices: [plannedSlice("evaluate")],
+  });
+  const completed = await projectExecutionMapForToolResultV1(
+    "nelos_plan_lifecycle",
+    { objective: plan.objective, parentThreadId: "queen-b8" },
+    {
+      bootstrap,
+      lifecycle: {
+        bootstrapId: "plan:b8",
+        phase: "completed",
+        plannerThreadId: "thread-planner-b8",
+      },
+      plan,
+      nextAction: { kind: "launch-wave" },
+    },
+    { webRegistry },
+  );
+  const planner = completed.members.find(({ id }) => id === "plan:b8");
+  assert.equal(planner.status, "complete");
+  assert.equal(planner.displayName, "Nelos planner 406a08eee66c");
+  assert.equal(completed.phase, "launch-pending");
+  assert.equal(completed.summary.complete, 1);
+});
+
 test("planned task webs expose authorization and authorized launch phases", () => {
   const plan = planWorkSlices({
     schemaVersion: 1,
@@ -645,6 +709,104 @@ test("web-wide projection survives restart and rejects stale member regressions"
   );
 });
 
+test("authoritative batch verification clears transient attention at the same revision", async () => {
+  const webRegistry = memoryWebRegistry();
+  const workUnit = {
+    webId: "B7",
+    queenThreadId: "queen-b7",
+    workUnitId: "implementation",
+    specRevision: 1,
+    attempt: 1,
+    memberKind: "spinoff",
+    title: "Implementation",
+    objectiveSummary: "Implement the visual contract",
+  };
+  await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit, receipt: {} },
+    { binding: { state: "bound", memberThreadId: "thread-implementation" } },
+    { webRegistry },
+  );
+  const verificationResult = (verified) => ({
+    planRun: {
+      webIdentity: { webId: "B7", queenThreadId: "queen-b7" },
+    },
+    verification: {
+      allVerified: verified,
+      members: [{
+        sliceId: "implementation",
+        lifecycle: "spinoff",
+        threadId: "thread-implementation",
+        verified,
+      }],
+    },
+  });
+
+  const needsTitle = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(false),
+    { webRegistry },
+  );
+  assert.equal(needsTitle.members[0].status, "attention");
+
+  const verified = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(true),
+    { webRegistry },
+  );
+  assert.equal(verified.phase, "running");
+  assert.equal(verified.members[0].status, "running");
+
+  const completed = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_complete",
+    {
+      webId: "B7",
+      queenThreadId: "queen-b7",
+      workUnitId: "implementation",
+      specRevision: 1,
+      attempt: 1,
+      memberThreadId: "thread-implementation",
+      outcome: "succeeded",
+    },
+    {},
+    { webRegistry },
+  );
+  assert.equal(completed.members[0].status, "complete");
+
+  const verifiedAfterCompletion = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(true),
+    { webRegistry },
+  );
+  assert.equal(verifiedAfterCompletion.members[0].status, "complete");
+
+  const accepted = await projectExecutionMapForToolResultV1(
+    "nelos_queen_decide",
+    { webId: "B7", queenThreadId: "queen-b7" },
+    {
+      decision: {
+        workUnitId: "implementation",
+        specRevision: 1,
+        attempt: 1,
+        decision: "accepted",
+      },
+    },
+    { webRegistry },
+  );
+  assert.equal(accepted.members[0].status, "accepted");
+
+  const verifiedAfterAcceptance = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(true),
+    { webRegistry },
+  );
+  assert.equal(verifiedAfterAcceptance.members[0].status, "accepted");
+});
+
 test("public MCP visuals match the purpose of each action", async () => {
   const plan = planWorkSlices({
     schemaVersion: 1,
@@ -770,6 +932,9 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
   assert.match(resource.contents[0].text, /currentViewKey/u);
   assert.match(resource.contents[0].text, /currentFilter/u);
   assert.match(resource.contents[0].text, /openGroupState/u);
+  assert.match(resource.contents[0].text, /expandedGroupState/u);
+  assert.match(resource.contents[0].text, /GROUP_PREVIEW_LIMIT = 3/u);
+  assert.match(resource.contents[0].text, /Show \$\{hiddenCount\} more…/u);
   assert.match(resource.contents[0].text, /applyHostContext/u);
   assert.match(resource.contents[0].text, /id="host-fonts"/u);
   assert.match(resource.contents[0].text, /styles\?\.css\?\.fonts/u);
@@ -792,6 +957,7 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
     /const empty = document\.createElement\("p"\)/u,
   );
   assert.match(resource.contents[0].text, /className = "tag task-id"|"task-id"/u);
+  assert.match(resource.contents[0].text, /member\.displayName \|\| member\.task/u);
   assert.match(resource.contents[0].text, /padding: 7px 9px/u);
   assert.match(resource.contents[0].text, /"Sub-agent"/u);
   assert.match(resource.contents[0].text, /prefers-reduced-motion: reduce/u);
@@ -809,6 +975,8 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
   assert.doesNotMatch(resource.contents[0].text, /id="summary"/u);
   assert.doesNotMatch(resource.contents[0].text, /className = "metric"/u);
   assert.match(resource.contents[0].text, /id="task-context"/u);
+  assert.match(resource.contents[0].text, />Objective<\/span>/u);
+  assert.match(resource.contents[0].text, /codex:\/\/threads\/\$\{encodeURIComponent\(threadId\)\}/u);
   assert.match(resource.contents[0].text, /members\.length === 1/u);
   assert.match(resource.contents[0].text, /"member single-member"/u);
   assert.match(resource.contents[0].text, /standalone \? "article" : "li"/u);
@@ -823,6 +991,10 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
   assert.match(planResource.contents[0].text, /Preparing plan…/u);
   assert.match(planResource.contents[0].text, /const prePlan =/u);
   assert.match(planResource.contents[0].text, /`planned \$\{taskWord\}`/u);
+  assert.match(
+    planResource.contents[0].text,
+    /if \(toolOutput === undefined\) return/u,
+  );
   assert.doesNotMatch(planResource.contents[0].text, /Waiting for task state/u);
   const actionResource = readExecutionMapResourceV1(
     ACTION_RECEIPT_RESOURCE_URI,
@@ -832,6 +1004,10 @@ test("purpose-built MCP Apps resources stay compact and self-contained", () => {
   assert.match(actionResource.contents[0].text, /Action result unavailable\./u);
   assert.match(actionResource.contents[0].text, /"Work unit"/u);
   assert.match(actionResource.contents[0].text, /"Scope"/u);
+  assert.match(
+    actionResource.contents[0].text,
+    /if \(toolOutput === undefined\) return/u,
+  );
   assert.doesNotMatch(actionResource.contents[0].text, /Waiting for task state/u);
 
   assert.deepEqual(executionMapToolMetadataV1("nelos_plan_slices").ui, {

@@ -10,14 +10,14 @@ The visual design follows three rules: compact enough to scan inside the host
 tool card, informative enough to explain the result without expanding raw JSON,
 and purposeful to the action that produced it. Tools route to three resources:
 
-- planning tools use `ui://nelos/plan-summary-v1.html`, showing the objective,
+- planning tools use `ui://nelos/plan-summary-v2.html`, showing the objective,
   phase, worker mix, and an optional collapsed plan roster;
 - orchestration, launch verification, refresh, and history tools use
-  `ui://nelos/execution-map-v15.html`, showing a lone worker directly and
+  `ui://nelos/execution-map-v17.html`, showing a lone worker directly and
   filtering larger maps into `Current`, `Done`, and `History`. The default
   current view groups workers into `Needs input`, `In progress`, and `Queued`;
 - queen decisions, spin-off completion, and cleanup use
-  `ui://nelos/action-receipt-v2.html`, confirming the outcome, its affected
+  `ui://nelos/action-receipt-v3.html`, confirming the outcome, its affected
   work unit or scope, and only its relevant metrics.
 
 See [MCP visual evidence](mcp-visual-evidence.md) for reference-host captures
@@ -41,6 +41,8 @@ The execution-map projection contains:
 - the parent task or objective;
 - every non-archived member task in an ordinary receipt;
 - lifecycle, exact requested model, and reasoning level;
+- a Codex-provided native subagent name when child-thread inspection exposes
+  one, preserved across later projection updates;
 - planning, planned, authorization-required, launch-pending, created, unknown,
   running, attention, complete, accepted, archiving, archived, or kept status.
 
@@ -50,20 +52,16 @@ path for showing the complete persisted roster, including archived members.
 This separation keeps archive recoverable and inspectable without making every
 later tool call replay the entire history.
 
-Every non-empty canonical status renders as a native disclosure group in the
-same deterministic order as the execution-map lifecycle rank. Headings use
-sentence-case user labels and exact counts, including `Launch pending`,
-`Running`, `Complete`, and `Archive`. A new UI instance starts folded. Compatible
-updates within that instance preserve open groups and keyboard focus for
-surviving statuses. The user can expand or close each group independently
-without another MCP call, or use one compact bulk control to expand active
-statuses and collapse the roster again. Receipts containing only terminal
-groups offer `Expand all` instead. Expanded groups render compact worker rows:
-one line on ordinary desktop widths and a compact title-plus-metadata stack on
-narrow widths. Aggregate total, lifecycle, created, and archived counts remain
-in `structuredContent` for model and client compatibility, but are intentionally
-not rendered separately because the status headings already communicate the
-visible roster.
+The current view renders `Needs input`, `In progress`, and `Queued` as native
+disclosure groups with exact counts. A new UI instance opens every populated
+current group and shows up to three workers in each. Larger groups add a
+`Show N more…` control, so the map exposes representative work without flooding
+the receipt; `Show less` returns to the preview. Compatible updates preserve
+both group and preview-expansion state plus keyboard focus. The user can still
+collapse or reopen each group with its native summary control. Aggregate total,
+lifecycle, created, and archived counts remain in `structuredContent` for model
+and client compatibility, but are intentionally not rendered separately because
+the group headings already communicate the visible roster.
 Archived phases and workers use a muted neutral treatment so green remains
 reserved for created or completed work. Attention uses an amber review-needed
 treatment rather than failure red. Collapsed disclosure markers carry the same
@@ -74,14 +72,14 @@ its own header or global phase because the host card already supplies the tool
 title and each rollup supplies its members' status. The global phase remains
 available in `structuredContent`.
 
-Lifecycle is shown as neutral metadata using the compact labels `Sub-agent` and
-`Spin-off`. Model and reasoning remain visible beside it. Full native task IDs
-remain in the document and accessible labels but are visually bounded so they
-cannot grow a row. Narrow layouts allow task titles to use two lines, and touch
-hosts receive larger disclosure targets without expanding ordinary desktop
-rows. Planning, launch-pending, running, and archiving dots pulse subtly while
-work is active; the animation is disabled when the host operating system
-requests reduced motion.
+Every worker uses two semantic lines at all widths. The first contains its task
+name, neutral `Sub-agent` or `Spin-off` designation, and exact status. The second
+contains its model, effort, and—when a native identity is available—a bounded
+`codex://threads/…` task link. The parent context is labeled `Objective` to keep
+it distinct from those native Codex tasks. Touch hosts receive larger disclosure
+and expansion targets. Planning, launch-pending, running, and archiving dots
+pulse subtly while work is active; the animation is disabled when the host
+operating system requests reduced motion.
 
 The replaceable execution-map tree is not itself a live region. A dedicated
 status node announces bounded receipt updates without replaying every row, and
@@ -90,6 +88,8 @@ loading or empty states use valid non-list markup. Native `details` and
 specific to the resource (`Preparing plan…`, `Loading worker state…`, or
 `Processing action…`); a delivered but non-renderable result becomes an
 explicit unavailable message rather than remaining in a loading state.
+Host global updates that do not carry `toolOutput` leave the last valid plan or
+action receipt intact instead of replacing it with that unavailable fallback.
 
 Tool receipts remain immutable snapshots. After a native wait or result read,
 `nelos_execution_map_refresh` checks the exact supplied thread and turn
@@ -103,7 +103,9 @@ A successful bound create receipt or launch-batch verification renders
 older `created` value remains readable for persisted projections and protocol
 compatibility, but new dispatch receipts do not use it. A later exact refresh
 is still authoritative for whether that turn remains active, completed, or
-needs attention.
+needs attention. Successful batch verification, an exact refresh, or a current
+orchestration checkpoint can also clear a transient attention state without
+requiring a new work-unit revision.
 
 Each component is self-contained, uses the MCP Apps bridge, loads no remote
 resources, and renders only the tool result supplied by the host. It does not
@@ -128,6 +130,10 @@ Development verification is layered:
 
 1. `npm test` exercises the visual routing, durable execution projection,
    resource contracts, lifecycle styling hooks, and deterministic fixture data.
+   Every action-receipt fixture is generated by the production receipt
+   projector from a recorded tool argument/result pair, covering accepted,
+   rejected, completion, cleanup in progress, confirmation required, attention,
+   and cleanup complete without maintaining a parallel visual contract.
 2. `npm run verify:mcp-app` uses the official MCP Inspector for
    machine-readable initialization, app-binding, resource, representative-call,
    and invalid-input probes. `npm run inspect:mcp` opens its interactive UI.
@@ -135,8 +141,11 @@ Development verification is layered:
    the repository-pinned commit and verifies its host, sandbox, and fixture MCP
    endpoints. `npm run dev:mcp-app-ui` keeps that stack running and prints a
    direct link for every meaningful execution-map state.
-4. A connected-browser review of those fixtures and a final smoke test in
-   Codex cover visual presentation and product-host integration.
+4. `test/planning-lifecycle-smoke.test.mjs` launches the real `bin/nelos-mcp`
+   process against the protocol-compatible fake Codex app server and asserts
+   the resulting plan-summary and execution-map `structuredContent`. A
+   connected-browser review of the deterministic fixtures and a final smoke
+   test in Codex cover visual presentation and product-host integration.
 
 `npm run verify:mcp-app:all` runs the Inspector and reference-host lanes
 together. The pinned Inspector requires Node.js 22.19 or newer; this does not

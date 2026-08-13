@@ -5,6 +5,71 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.15] - 2026-08-13
+
+### User-facing changes
+
+- Replayed authoritative launch verification now clears transient `Attention`
+  without regressing completed or accepted work back to `Running`.
+
+### Compatibility requirements
+
+- The distributable plugin identity advances to `0.12.15` for the corrected
+  execution-map lifecycle projection.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
+
+## [0.12.14] - 2026-08-13
+
+### User-facing changes
+
+- Current execution groups now open with a three-worker preview and an explicit
+  `Show more` control for larger groups instead of hiding every non-attention
+  worker behind a closed rollup.
+- Execution rows use two stable lines: task name, worker kind, and status first;
+  model, effort, and a Codex task deep link second. The parent context is now
+  labeled `Objective`, and the widget has more outer padding.
+- Planner subagents now advance from planning to running and complete with the
+  native child lifecycle instead of remaining stale after plan finalization.
+  When Codex exposes the child thread name, the execution row preserves and
+  displays it across subsequent task-web updates.
+- Fresh launch verification, execution refresh, and orchestration checkpoint
+  observations can now clear transient `Attention` state at the same work-unit
+  revision instead of leaving the visual status out of sync.
+- Plan and action widgets now ignore unrelated host-global events, preventing a
+  valid accepted/rejected result from being replaced by `Action result
+  unavailable` after delivery.
+
+### Compatibility requirements
+
+- The execution-map URI advances to `ui://nelos/execution-map-v17.html` so hosts
+  cannot reuse an older widget without the revised layout and native subagent
+  name rendering.
+- Plan-summary and action-receipt URIs advance to `plan-summary-v2.html` and
+  `action-receipt-v3.html` to evict widgets containing the host-event race.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
+
 ## [0.12.13] - 2026-08-11
 
 ### User-facing changes

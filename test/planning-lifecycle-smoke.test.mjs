@@ -11,6 +11,18 @@ test("real MCP and app-server processes complete the receipt-driven planning smo
     batchAtomic: true,
     exceptionReplanned: true,
     completedSlicesPreserved: true,
+    structuredContent: {
+      planSummary: {
+        view: "plan-summary",
+        phase: "planning",
+        memberStatuses: ["planning"],
+      },
+      executionMap: {
+        view: "execution-map",
+        phase: "running",
+        memberStatuses: ["complete", "running", "running", "launch-pending"],
+      },
+    },
     modelTurns: 0,
     cleanedUp: true,
   });

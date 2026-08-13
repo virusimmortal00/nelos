@@ -1154,6 +1154,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/orchestration-observation.test.mjs",
           "test/exception-replanning.test.mjs",
           "test/planning-lifecycle.test.mjs",
+          "test/planning-lifecycle-smoke.test.mjs",
           "test/plan-run-store.test.mjs",
           "test/plugin-marketplace-upgrade.test.mjs",
           "test/plugin-release-validation.test.mjs",
