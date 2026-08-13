@@ -758,6 +758,53 @@ test("authoritative batch verification clears transient attention at the same re
   );
   assert.equal(verified.phase, "running");
   assert.equal(verified.members[0].status, "running");
+
+  const completed = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_complete",
+    {
+      webId: "B7",
+      queenThreadId: "queen-b7",
+      workUnitId: "implementation",
+      specRevision: 1,
+      attempt: 1,
+      memberThreadId: "thread-implementation",
+      outcome: "succeeded",
+    },
+    {},
+    { webRegistry },
+  );
+  assert.equal(completed.members[0].status, "complete");
+
+  const verifiedAfterCompletion = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(true),
+    { webRegistry },
+  );
+  assert.equal(verifiedAfterCompletion.members[0].status, "complete");
+
+  const accepted = await projectExecutionMapForToolResultV1(
+    "nelos_queen_decide",
+    { webId: "B7", queenThreadId: "queen-b7" },
+    {
+      decision: {
+        workUnitId: "implementation",
+        specRevision: 1,
+        attempt: 1,
+        decision: "accepted",
+      },
+    },
+    { webRegistry },
+  );
+  assert.equal(accepted.members[0].status, "accepted");
+
+  const verifiedAfterAcceptance = await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    verificationResult(true),
+    { webRegistry },
+  );
+  assert.equal(verifiedAfterAcceptance.members[0].status, "accepted");
 });
 
 test("public MCP visuals match the purpose of each action", async () => {

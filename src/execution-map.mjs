@@ -967,9 +967,11 @@ function mergeMaps(
       incomingVersions[candidate.id],
       currentVersions[candidate.id],
     );
+    const authoritativeAttentionRecovery =
+      authoritativeStatusIds.has(candidate.id) && prior.status === "attention";
     const status = ignoredStatusIds.has(candidate.id) || versionOrder < 0
       ? prior.status
-      : versionOrder > 0 || authoritativeStatusIds.has(candidate.id)
+      : versionOrder > 0 || authoritativeAttentionRecovery
       ? candidate.status
       : (STATUS_RANK[candidate.status] ?? -1) >=
         (STATUS_RANK[prior.status] ?? -1)

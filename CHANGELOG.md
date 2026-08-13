@@ -5,6 +5,30 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.15] - 2026-08-13
+
+### User-facing changes
+
+- Replayed authoritative launch verification now clears transient `Attention`
+  without regressing completed or accepted work back to `Running`.
+
+### Compatibility requirements
+
+- The distributable plugin identity advances to `0.12.15` for the corrected
+  execution-map lifecycle projection.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
+
 ## [0.12.14] - 2026-08-13
 
 ### User-facing changes
