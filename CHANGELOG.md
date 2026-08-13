@@ -5,6 +5,8 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.14] - 2026-08-13
+
 ### User-facing changes
 
 - Current execution groups now open with a three-worker preview and an explicit
@@ -31,6 +33,18 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   name rendering.
 - Plan-summary and action-receipt URIs advance to `plan-summary-v2.html` and
   `action-receipt-v3.html` to evict widgets containing the host-event race.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
 
 ## [0.12.13] - 2026-08-11
 
