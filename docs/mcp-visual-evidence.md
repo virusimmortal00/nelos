@@ -10,7 +10,8 @@ covered by the repository test suite.
 ## Single running worker
 
 A lone worker renders directly. Its status is an attribute of the worker rather
-than an expandable hierarchy level.
+than an expandable hierarchy level. Planner rows follow the inspected native
+lifecycle and use the Codex child-thread name when the host exposes one.
 
 ![Single running worker](assets/mcp-visuals/single-running-worker.png)
 
@@ -30,10 +31,10 @@ task identity, and active status without adding a generic status container.
 
 ## Mixed current work
 
-Large maps default to the relevant `Current` view. `Needs input` opens
-automatically, while `In progress` and `Queued` remain compact. Terminal and
-archived workers are available through the count-bearing `Done` and `History`
-filters.
+Large maps default to the relevant `Current` view. Every populated current group
+opens with up to three workers visible, and larger groups provide an explicit
+overflow control. Terminal and archived workers remain available through the
+count-bearing `Done` and `History` filters.
 
 ![Mixed current work](assets/mcp-visuals/mixed-current-filter.png)
 
@@ -54,5 +55,8 @@ placeholder.
 ## Accepted action receipt
 
 Outcome tools use a concise receipt that labels the affected work unit.
+The deterministic reference host also exposes production-derived rejected,
+completion, cleanup-in-progress, confirmation-required, attention, and cleanup
+complete receipts so every outcome mode can be captured independently.
 
 ![Accepted action receipt](assets/mcp-visuals/accepted-action-receipt.png)

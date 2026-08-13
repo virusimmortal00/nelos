@@ -18,6 +18,7 @@ import {
   EXECUTION_MAP_RESOURCE_URI,
   EXECUTION_MAP_STATUSES,
   PLAN_SUMMARY_RESOURCE_URI,
+  actionReceiptForToolResultV1,
   readExecutionMapResourceV1,
 } from "../src/execution-map.mjs";
 
@@ -27,6 +28,7 @@ export const MCP_APP_FIXTURE_PORT = 3101;
 const MEMBER_SCHEMA = z.object({
   id: z.string(),
   task: z.string(),
+  displayName: z.string().optional(),
   lifecycle: z.enum(["spinoff", "subagent"]),
   model: z.string(),
   reasoning: z.string(),
@@ -68,11 +70,17 @@ const ACTION_RECEIPT_FIXTURE_SCHEMA = z.object({
     label: z.string(),
     value: z.union([z.string(), z.number().int()]),
   })),
+  protocol: z.object({
+    schemaVersion: z.literal(1),
+    tool: z.string(),
+    result: z.unknown(),
+  }),
 });
 
 function member({
   id,
   task,
+  displayName,
   lifecycle = "subagent",
   model = "gpt-5.6-terra",
   reasoning = "medium",
@@ -82,6 +90,7 @@ function member({
   return {
     id,
     task,
+    ...(displayName ? { displayName } : {}),
     lifecycle,
     model,
     reasoning,
@@ -121,6 +130,34 @@ function fixture({
       },
       members,
     },
+  };
+}
+
+function actionReceiptFixture({
+  key,
+  title,
+  productionToolName,
+  productionArgs,
+  productionResult,
+}) {
+  const map = actionReceiptForToolResultV1(
+    productionToolName,
+    productionArgs,
+    productionResult,
+  );
+  if (!map) {
+    throw new Error(`no action receipt projection exists for ${productionToolName}`);
+  }
+  return {
+    key,
+    toolName: `show_${key}`,
+    title,
+    resourceUri: ACTION_RECEIPT_RESOURCE_URI,
+    schema: ACTION_RECEIPT_FIXTURE_SCHEMA,
+    productionToolName,
+    productionArgs,
+    productionResult,
+    map,
   };
 }
 
@@ -198,6 +235,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-running",
         task: "Smoke check execution map v7",
+        displayName: "Nelos visual smoke check 406a08ee",
         model: "gpt-5.6-terra",
         reasoning: "low",
         status: "running",
@@ -466,22 +504,108 @@ export const PURPOSEFUL_VISUAL_FIXTURES = Object.freeze([
       ],
     },
   },
-  {
+  actionReceiptFixture({
     key: "accepted_action_receipt",
-    toolName: "show_accepted_action_receipt",
     title: "Compact accepted action receipt",
-    resourceUri: ACTION_RECEIPT_RESOURCE_URI,
-    schema: ACTION_RECEIPT_FIXTURE_SCHEMA,
-    map: {
+    productionToolName: "nelos_queen_decide",
+    productionArgs: { decision: "accepted" },
+    productionResult: {
       schemaVersion: 1,
-      view: "action-receipt",
-      kind: "decision",
-      status: "accepted",
-      title: "Result accepted",
-      detail: "visual-contract-review",
-      metrics: [],
+      decision: {
+        workUnitId: "visual-contract-review",
+        decision: "accepted",
+      },
     },
-  },
+  }),
+  actionReceiptFixture({
+    key: "rejected_action_receipt",
+    title: "Compact rejected action receipt",
+    productionToolName: "nelos_queen_decide",
+    productionArgs: { decision: "rejected" },
+    productionResult: {
+      schemaVersion: 1,
+      decision: {
+        workUnitId: "visual-contract-review",
+        decision: "rejected",
+      },
+    },
+  }),
+  actionReceiptFixture({
+    key: "completion_action_receipt",
+    title: "Compact completion action receipt",
+    productionToolName: "nelos_spinoff_complete",
+    productionArgs: {
+      workUnitId: "visual-implementation",
+      outcome: "succeeded",
+    },
+    productionResult: {
+      schemaVersion: 1,
+      replayed: false,
+      record: { wakeId: "wake-visual-implementation", wakeState: "delivering" },
+      effects: [],
+    },
+  }),
+  actionReceiptFixture({
+    key: "cleanup_in_progress_action_receipt",
+    title: "Compact cleanup-in-progress action receipt",
+    productionToolName: "nelos_spinoff_cleanup",
+    productionArgs: { webId: "visual-contract" },
+    productionResult: {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "effects-required",
+      results: [
+        { workUnitId: "visual-a", threadId: "thread-visual-a", state: "archiving" },
+        { workUnitId: "visual-b", threadId: "thread-visual-b", state: "archiving" },
+      ],
+      effects: [],
+    },
+  }),
+  actionReceiptFixture({
+    key: "confirmation_required_action_receipt",
+    title: "Compact confirmation-required action receipt",
+    productionToolName: "nelos_spinoff_cleanup",
+    productionArgs: { webId: "visual-contract", policy: "ask" },
+    productionResult: {
+      schemaVersion: 1,
+      policy: "ask",
+      state: "confirmation-required",
+      candidates: [
+        { workUnitId: "visual-a", threadId: "thread-visual-a" },
+        { workUnitId: "visual-b", threadId: "thread-visual-b" },
+      ],
+    },
+  }),
+  actionReceiptFixture({
+    key: "attention_action_receipt",
+    title: "Compact attention action receipt",
+    productionToolName: "nelos_spinoff_cleanup",
+    productionArgs: { webId: "visual-contract" },
+    productionResult: {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "not-ready",
+      results: [{ workUnitId: "visual-a", state: "archived" }],
+      pending: [{ workUnitId: "visual-b", threadId: "thread-visual-b" }],
+      effects: [],
+    },
+  }),
+  actionReceiptFixture({
+    key: "complete_action_receipt",
+    title: "Compact complete action receipt",
+    productionToolName: "nelos_spinoff_cleanup",
+    productionArgs: { webId: "visual-contract" },
+    productionResult: {
+      schemaVersion: 1,
+      policy: "auto",
+      state: "complete",
+      results: [
+        { workUnitId: "visual-a", threadId: "thread-visual-a", state: "archived" },
+        { workUnitId: "visual-b", threadId: "thread-visual-b", state: "kept" },
+      ],
+      effects: [],
+    },
+  }),
 ]);
 
 export const MCP_APP_VISUAL_FIXTURES = Object.freeze([

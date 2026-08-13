@@ -8,13 +8,13 @@ import { assertWebId, titleLineageId } from "./task-web.mjs";
 
 export const EXECUTION_MAP_SCHEMA_VERSION = 1;
 export const EXECUTION_MAP_RESOURCE_URI =
-  "ui://nelos/execution-map-v15.html";
+  "ui://nelos/execution-map-v17.html";
 export const EXECUTION_MAP_RESOURCE_MIME_TYPE =
   "text/html;profile=mcp-app";
 export const PLAN_SUMMARY_RESOURCE_URI =
-  "ui://nelos/plan-summary-v1.html";
+  "ui://nelos/plan-summary-v2.html";
 export const ACTION_RECEIPT_RESOURCE_URI =
-  "ui://nelos/action-receipt-v2.html";
+  "ui://nelos/action-receipt-v3.html";
 
 export const EXECUTION_MAP_STATUSES = Object.freeze([
   "planning",
@@ -69,6 +69,7 @@ const MEMBER_SCHEMA = Object.freeze({
   properties: {
     id: { type: "string" },
     task: { type: "string" },
+    displayName: { type: "string" },
     lifecycle: { enum: ["spinoff", "subagent"] },
     model: { type: "string" },
     reasoning: { type: "string" },
@@ -547,19 +548,23 @@ function plannedMap(result, args) {
       : result?.nextAction?.kind === "launch-wave"
         ? "launch-pending"
         : "planned";
-  const members = plan.waves.flatMap((wave) =>
-    wave.slices.map((slice) => ({
-      id: text(slice.id, `wave-${wave.index}`),
-      task: text(
-        persistedTitles.get(slice.id),
-        text(slice.title, slice.objective),
-      ),
-      lifecycle: slice.lifecycle === "spinoff" ? "spinoff" : "subagent",
-      ...route(slice.route?.launch?.nativeTask),
-      status: phase,
-      threadId: null,
-    })),
-  );
+  const planner = plannerMember(result, { status: "complete" });
+  const members = [
+    ...(planner ? [planner] : []),
+    ...plan.waves.flatMap((wave) =>
+      wave.slices.map((slice) => ({
+        id: text(slice.id, `wave-${wave.index}`),
+        task: text(
+          persistedTitles.get(slice.id),
+          text(slice.title, slice.objective),
+        ),
+        lifecycle: slice.lifecycle === "spinoff" ? "spinoff" : "subagent",
+        ...route(slice.route?.launch?.nativeTask),
+        status: phase,
+        threadId: null,
+      }))
+    ),
+  ];
   return executionMap({
     phase,
     task: text(plan.objective, args?.objective ?? "Planned task web"),
@@ -567,41 +572,68 @@ function plannedMap(result, args) {
   });
 }
 
-function plannerMap(result, args, { replan = false } = {}) {
+function plannerStatus(result) {
+  if (
+    result?.nextAction?.kind === "attention" ||
+    result?.bootstrap?.ready === false ||
+    result?.lifecycle?.phase === "attention"
+  ) return "attention";
+  if (
+    result?.lifecycle?.phase === "completed" ||
+    result?.nextAction?.kind === "native-read-subagent-result"
+  ) return "complete";
+  if (
+    result?.lifecycle?.phase === "verified" ||
+    result?.nextAction?.kind === "native-wait-subagent"
+  ) return "running";
+  return "planning";
+}
+
+function plannerMember(result, { replan = false, status = null } = {}) {
   const member =
     result?.nextAction?.member ??
     result?.bootstrap?.planner ??
     result?.lifecycle?.planner ??
     null;
-  const needsAttention =
-    result?.nextAction?.kind === "attention" ||
-    result?.bootstrap?.ready === false;
+  const threadId = text(result?.lifecycle?.plannerThreadId, null);
+  const bootstrapId = text(
+    member?.bootstrapId ?? result?.lifecycle?.bootstrapId,
+    null,
+  );
+  if (!member && !threadId && !bootstrapId) return null;
   const nativeTask = member?.nativeTask ?? {
     model: "gpt-5.6-sol",
     thinking: "medium",
   };
-  const status = needsAttention ? "attention" : "planning";
+  const displayName = text(result?.thread?.title, null);
+  return {
+    id: bootstrapId ?? (replan ? "exception-replan" : "planner"),
+    task: text(member?.title, replan ? "Revise the plan" : "Plan the work"),
+    ...(displayName ? { displayName } : {}),
+    lifecycle: "subagent",
+    ...route(nativeTask),
+    status: status ?? plannerStatus(result),
+    threadId,
+  };
+}
+
+function plannerMap(result, args, { replan = false } = {}) {
+  const member = plannerMember(result, { replan }) ?? {
+    id: replan ? "exception-replan" : "planner",
+    task: replan ? "Revise the plan" : "Plan the work",
+    lifecycle: "subagent",
+    ...route({ model: "gpt-5.6-sol", thinking: "medium" }),
+    status: plannerStatus(result),
+    threadId: null,
+  };
   const task = text(
     args?.objective,
     replan ? "Revise the task web" : "Plan the task web",
   );
   return executionMap({
-    phase: status,
+    phase: member.status,
     task,
-    members: [{
-      id: text(
-        member?.bootstrapId ?? result?.lifecycle?.bootstrapId,
-        replan ? "exception-replan" : "planner",
-      ),
-      task: text(member?.title, replan ? "Revise the plan" : "Plan the work"),
-      lifecycle: "subagent",
-      ...route(nativeTask),
-      status,
-      threadId: text(
-        result?.lifecycle?.plannerThreadId,
-        null,
-      ),
-    }],
+    members: [member],
   });
 }
 
@@ -848,10 +880,11 @@ const STATUS_RANK = Object.freeze({
 
 function aggregatePhase(members) {
   if (members.length === 0) return "complete";
-  const currentMembers = members.filter(
-    ({ status }) => !["archived", "kept"].includes(status),
+  const activeMembers = members.filter(
+    ({ status }) =>
+      !["complete", "accepted", "archived", "kept"].includes(status),
   );
-  const statuses = (currentMembers.length > 0 ? currentMembers : members)
+  const statuses = (activeMembers.length > 0 ? activeMembers : members)
     .map(({ status }) => status);
   if (statuses.includes("archiving")) return "archiving";
   if (statuses.every((status) => status === "archived")) return "archived";
@@ -911,7 +944,12 @@ function memberVersions(toolName, args, result) {
 function mergeMaps(
   current,
   incoming,
-  { currentVersions = {}, incomingVersions = {}, ignoredStatusIds = new Set() } = {},
+  {
+    currentVersions = {},
+    incomingVersions = {},
+    ignoredStatusIds = new Set(),
+    authoritativeStatusIds = new Set(),
+  } = {},
 ) {
   if (!current) return { map: incoming, versions: incomingVersions };
   const members = new Map(current.members.map((member) => [member.id, member]));
@@ -931,7 +969,7 @@ function mergeMaps(
     );
     const status = ignoredStatusIds.has(candidate.id) || versionOrder < 0
       ? prior.status
-      : versionOrder > 0
+      : versionOrder > 0 || authoritativeStatusIds.has(candidate.id)
       ? candidate.status
       : (STATUS_RANK[candidate.status] ?? -1) >=
         (STATUS_RANK[prior.status] ?? -1)
@@ -946,6 +984,9 @@ function mergeMaps(
     members.set(candidate.id, {
       ...prior,
       task,
+      ...(candidate.displayName ?? prior.displayName
+        ? { displayName: candidate.displayName ?? prior.displayName }
+        : {}),
       lifecycle: prior.lifecycle,
       model: candidate.model === "host-default" ? prior.model : candidate.model,
       reasoning: candidate.reasoning === "host-default"
@@ -1122,6 +1163,22 @@ export async function projectExecutionMapForToolResultV1(
           .map(({ id }) => id)
         : [],
     );
+    const authoritativeStatusIds = new Set(
+      toolName === "nelos_execution_map_refresh"
+        ? (result?.members ?? [])
+          .filter((member) =>
+            member.observedTurnId !== null &&
+            member.observedTurnId === member.turnId
+          )
+          .map(({ id }) => id)
+        : toolName === "nelos_launch_verify_batch"
+          ? (result?.verification?.members ?? []).map(({ sliceId }) => sliceId)
+          : toolName === "nelos_orchestrate_advance"
+            ? (result?.checkpoint?.members ?? []).map(
+              ({ workUnitId }) => workUnitId,
+            )
+            : [],
+    );
     const { map: merged, versions } = mergeMaps(
       Array.isArray(priorMap.members) ? priorMap : null,
       incomingMap,
@@ -1129,6 +1186,7 @@ export async function projectExecutionMapForToolResultV1(
         currentVersions: record?.executionMapProjectionVersions ?? {},
         incomingVersions: memberVersions(toolName, args, result),
         ignoredStatusIds,
+        authoritativeStatusIds,
       },
     );
     const persistedProjection = {
@@ -1171,7 +1229,7 @@ function metric(label, value) {
   return { label, value };
 }
 
-function actionReceipt(toolName, args, result) {
+export function actionReceiptForToolResultV1(toolName, args, result) {
   const protocol = {
     schemaVersion: 1,
     tool: toolName,
@@ -1263,7 +1321,7 @@ export async function projectMcpVisualForToolResultV1(
   );
   if (PLAN_SUMMARY_TOOL_NAMES.has(toolName)) return planSummary(map);
   if (ACTION_RECEIPT_TOOL_NAMES.has(toolName)) {
-    return actionReceipt(toolName, args, result);
+    return actionReceiptForToolResultV1(toolName, args, result);
   }
   return map;
 }
