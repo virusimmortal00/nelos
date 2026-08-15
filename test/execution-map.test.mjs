@@ -807,6 +807,78 @@ test("authoritative batch verification clears transient attention at the same re
   assert.equal(verifiedAfterAcceptance.members[0].status, "accepted");
 });
 
+test("checkpoint recovery requires affirmative non-attention evidence", async () => {
+  const webRegistry = memoryWebRegistry();
+  const workUnit = {
+    webId: "B9",
+    queenThreadId: "queen-b9",
+    workUnitId: "implementation",
+    specRevision: 1,
+    attempt: 1,
+    memberKind: "spinoff",
+    title: "Implementation",
+    objectiveSummary: "Implement the checkpoint contract",
+  };
+  await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_create",
+    { workUnit, receipt: {} },
+    { binding: { state: "bound", memberThreadId: "thread-implementation" } },
+    { webRegistry },
+  );
+  await projectExecutionMapForToolResultV1(
+    "nelos_launch_verify_batch",
+    {},
+    {
+      planRun: {
+        webIdentity: { webId: "B9", queenThreadId: "queen-b9" },
+      },
+      verification: {
+        allVerified: false,
+        members: [{
+          sliceId: "implementation",
+          lifecycle: "spinoff",
+          threadId: "thread-implementation",
+          verified: false,
+        }],
+      },
+    },
+    { webRegistry },
+  );
+  const checkpointResult = (executionState) => ({
+    checkpoint: {
+      members: [{
+        workUnitId: "implementation",
+        specRevision: 1,
+        attempt: 1,
+        memberThreadId: "thread-implementation",
+        title: { state: "pending", requestedTitle: "Implementation" },
+        execution: {
+          state: executionState,
+          attentionRequired: false,
+        },
+        result: { state: "absent" },
+        coordination: { state: "pending" },
+      }],
+    },
+  });
+
+  const unobserved = await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_advance",
+    { webId: "B9", queenThreadId: "queen-b9" },
+    checkpointResult("unknown"),
+    { webRegistry },
+  );
+  assert.equal(unobserved.members[0].status, "attention");
+
+  const observedRunning = await projectExecutionMapForToolResultV1(
+    "nelos_orchestrate_advance",
+    { webId: "B9", queenThreadId: "queen-b9" },
+    checkpointResult("running"),
+    { webRegistry },
+  );
+  assert.equal(observedRunning.members[0].status, "running");
+});
+
 test("public MCP visuals match the purpose of each action", async () => {
   const plan = planWorkSlices({
     schemaVersion: 1,

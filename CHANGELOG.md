@@ -5,6 +5,32 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.16] - 2026-08-15
+
+### User-facing changes
+
+- Orchestration checkpoints now clear a prior transient `Attention` state only
+  when they contain affirmative running, completed, or accepted evidence.
+  Fresh pending checkpoints preserve the warning until an observation resolves
+  it.
+
+### Compatibility requirements
+
+- The distributable plugin identity advances to `0.12.16` for the corrected
+  execution-map checkpoint projection.
+
+### Migrations
+
+None.
+
+### Security fixes
+
+None.
+
+### Known limitations
+
+None.
+
 ## [0.12.15] - 2026-08-13
 
 ### User-facing changes
