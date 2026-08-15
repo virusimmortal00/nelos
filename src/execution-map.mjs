@@ -793,6 +793,12 @@ function checkpointStatus(member) {
   return "unknown";
 }
 
+function checkpointHasAuthoritativeStatusEvidence(member) {
+  return ["accepted", "complete", "running"].includes(
+    checkpointStatus(member),
+  );
+}
+
 function checkpointMap(result) {
   if (!Array.isArray(result?.checkpoint?.members)) return null;
   const members = result.checkpoint.members.map((member) => ({
@@ -1176,9 +1182,9 @@ export async function projectExecutionMapForToolResultV1(
         : toolName === "nelos_launch_verify_batch"
           ? (result?.verification?.members ?? []).map(({ sliceId }) => sliceId)
           : toolName === "nelos_orchestrate_advance"
-            ? (result?.checkpoint?.members ?? []).map(
-              ({ workUnitId }) => workUnitId,
-            )
+            ? (result?.checkpoint?.members ?? [])
+              .filter(checkpointHasAuthoritativeStatusEvidence)
+              .map(({ workUnitId }) => workUnitId)
             : [],
     );
     const { map: merged, versions } = mergeMaps(
