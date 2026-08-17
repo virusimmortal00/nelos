@@ -115,7 +115,7 @@ test("batch verification uses agent path for subagents and native title for spin
     async resolveNativeSubagentThread({ parentThreadId, agentPath }) {
       assert.equal(parentThreadId, "queen-1");
       assert.equal(agentPath, "/root/research");
-      return { parentThreadId, agentPath, threadId: "child-1" };
+      return { parentThreadId, agentPath, threadId: "child-1", turnId: "turn-research" };
     },
     async verifyRuntimeIntelligence(request) {
       routes.push(request);
@@ -198,7 +198,12 @@ test("batch verification fails closed for an incorrect subagent parent, a confli
       },
     },
     async resolveNativeSubagentThread() {
-      return { parentThreadId: "queen-1", agentPath: "/root/research", threadId: "child-1" };
+      return {
+        parentThreadId: "queen-1",
+        agentPath: "/root/research",
+        threadId: "child-1",
+        turnId: "turn-research",
+      };
     },
     async verifyRuntimeIntelligence(request) {
       verifierCalls.push(request.threadId);
@@ -234,7 +239,7 @@ test("batch verification rejects duplicate resolved thread identities before app
     ]),
     appServerBridge: { async inspectMany() { calls.push("inspect"); } },
     async resolveNativeSubagentThread({ parentThreadId, agentPath }) {
-      return { parentThreadId, agentPath, threadId: "child-1" };
+      return { parentThreadId, agentPath, threadId: "child-1", turnId: "turn-research" };
     },
     async verifyRuntimeIntelligence() {
       throw new Error("must not route verify duplicate identities");
@@ -259,6 +264,7 @@ test("batch verification treats identity resolution, batch read, missing topolog
     });
     assert.equal(inspected, false);
     assert.equal(result.members[0].attentionReason, "identity-resolution-unavailable");
+    assert.equal(result.members[0].checks.route, "not-attempted");
   });
 
   await t.test("read failure", async () => {
@@ -318,6 +324,39 @@ test("batch verification treats identity resolution, batch read, missing topolog
       "route-verification-unavailable",
     ]);
   });
+});
+
+test("batch verification binds a joined receipt to the resolver's current launch turn", async () => {
+  let inspected = false;
+  let routeVerified = false;
+  const result = await verifyLaunchBatchV1(
+    receipt({ members: [receipt().members[0]] }),
+    {
+      waveContract: waveContract([waveContract().members[0]]),
+      appServerBridge: {
+        async inspectMany() {
+          inspected = true;
+        },
+      },
+      async resolveNativeSubagentThread({ parentThreadId, agentPath }) {
+        return {
+          parentThreadId,
+          agentPath,
+          threadId: "child-1",
+          turnId: "different-current-turn",
+        };
+      },
+      async verifyRuntimeIntelligence() {
+        routeVerified = true;
+      },
+    },
+  );
+
+  assert.equal(result.allVerified, false);
+  assert.equal(result.members[0].attentionReason, "launch-turn-mismatch");
+  assert.equal(result.members[0].checks.identity, "failed");
+  assert.equal(inspected, false);
+  assert.equal(routeVerified, false);
 });
 
 test("batch verification validates bounded receipt shapes and all 16-member limit", async () => {

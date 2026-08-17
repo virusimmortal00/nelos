@@ -165,6 +165,56 @@ function applyDecisions(checkpoint, decisions, workUnits) {
   return changed ? { ...checkpoint, members } : checkpoint;
 }
 
+function applyMalformedResultPolicy(checkpoint, workUnits) {
+  const workUnitsById = new Map(
+    workUnits.map((workUnit) => [workUnit.workUnitId, workUnit]),
+  );
+  let changed = false;
+  const members = checkpoint.members.map((member) => {
+    if (member.result.state !== "malformed") return member;
+    const workUnit = workUnitsById.get(member.workUnitId);
+    const correctionAvailable =
+      member.capabilities.includes("follow-up") &&
+      workUnit !== undefined &&
+      workUnit.attempt < workUnit.policy.maxAttempts &&
+      member.result.sourceTurnId === member.execution.latestTurnId;
+    if (correctionAvailable) {
+      if (
+        member.coordination.state === "correction-pending" &&
+        !member.execution.attentionRequired
+      ) {
+        return member;
+      }
+      changed = true;
+      return {
+        ...member,
+        execution: {
+          ...member.execution,
+          attentionRequired: false,
+        },
+        coordination: { state: "correction-pending" },
+      };
+    }
+    if (member.execution.attentionRequired) return member;
+    changed = true;
+    return {
+      ...member,
+      execution: {
+        ...member.execution,
+        attentionRequired: true,
+      },
+    };
+  });
+  return changed ? { ...checkpoint, members } : checkpoint;
+}
+
+function applyResultPolicies(checkpoint, decisions, workUnits) {
+  return applyMalformedResultPolicy(
+    applyDecisions(checkpoint, decisions, workUnits),
+    workUnits,
+  );
+}
+
 function statePayload(checkpoint) {
   const { checkpointRevision: _revision, ...payload } = checkpoint;
   return payload;
@@ -366,7 +416,7 @@ export class McpJoinAdapterV1 {
         if (!stored) {
           throw new Error("native follow-up receipt requires a persisted correction state");
         }
-        checkpoint = applyDecisions(stored, decisions, workUnits);
+        checkpoint = applyResultPolicies(stored, decisions, workUnits);
         checkpoint = applyObservationReceiptV1(checkpoint, normalizedReceipt).checkpoint;
         const workUnit = workUnits.find(
           ({ workUnitId }) => workUnitId === normalizedReceipt.workUnitId,
@@ -390,7 +440,7 @@ export class McpJoinAdapterV1 {
         if (!stored) {
           throw new Error("member repair receipt requires a persisted repair state");
         }
-        checkpoint = applyDecisions(stored, decisions, workUnits);
+        checkpoint = applyResultPolicies(stored, decisions, workUnits);
         checkpoint = applyObservationReceiptV1(
           checkpoint,
           normalizedReceipt,
@@ -404,12 +454,13 @@ export class McpJoinAdapterV1 {
         checkpoint = await refreshAndSynthesize(checkpoint);
       } else {
         checkpoint = synthesize(stored, workUnits, webId, queenThreadId, activeWave.scope);
-        checkpoint = applyDecisions(checkpoint, decisions, workUnits);
+        checkpoint = applyResultPolicies(checkpoint, decisions, workUnits);
         if (normalizedReceipt !== null) {
           checkpoint = applyObservationReceiptV1(
             checkpoint,
             normalizedReceipt,
           ).checkpoint;
+          checkpoint = applyMalformedResultPolicy(checkpoint, workUnits);
         }
       }
 

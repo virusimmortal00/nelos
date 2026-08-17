@@ -530,20 +530,20 @@ test("tracked public calibration projections contain no hidden grading material"
   assert.equal(tracked.some((path) => /calibration-tranche-1\/(?:packages|candidate-envelopes|private-material)\//u.test(path)), false);
 });
 
-test("npm/plugin payload excludes calibration and keeps the 0.12.16 release invariant", async () => {
+test("npm/plugin payload excludes calibration and keeps the 0.12.17 release invariant", async () => {
   const packageMetadata = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, "package.json"), "utf8"));
   const plugin = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".codex-plugin/plugin.json"), "utf8"));
   const mcp = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".mcp.json"), "utf8"));
-  assert.equal(packageMetadata.version, "0.12.16");
-  assert.equal(plugin.version, "0.12.16");
-  assert.equal(plugin.releaseBuildIdentity, "nelos-release-v1:0.12.16");
-  assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, "0.12.16");
-  assert.equal(mcp.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY, "nelos-release-v1:0.12.16");
+  assert.equal(packageMetadata.version, "0.12.17");
+  assert.equal(plugin.version, "0.12.17");
+  assert.equal(plugin.releaseBuildIdentity, "nelos-release-v1:0.12.17");
+  assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, "0.12.17");
+  assert.equal(mcp.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY, "nelos-release-v1:0.12.17");
   assert.equal(packageMetadata.files.some((path) => path.startsWith("experiments")), false);
   assert.equal(packageMetadata.scripts["calibration:build"], undefined);
   const packed = JSON.parse((await executeFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: REPOSITORY_ROOT })).stdout)[0];
   assert.equal(packed.files.some(({ path }) => path.startsWith("experiments/")), false);
   assert.equal(packed.files.some(({ path }) => path.includes("calibration-tranche-1")), false);
-  assert.deepEqual(validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: false }), { changed: false, version: "0.12.9", cacheIdentity: "same" });
-  assert.throws(() => validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), /without a version bump/u);
+  assert.deepEqual(validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.9", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), { changed: true, releaseIntentional: false, version: "0.12.9", cacheIdentity: "same" });
+  assert.throws(() => validatePluginReleaseChange({ baseVersion: "0.12.9", candidateVersion: "0.12.10", baseCacheIdentity: "same", candidateCacheIdentity: "same", payloadChanged: true }), /intentional plugin release/u);
 });

@@ -61,7 +61,9 @@ export const DISTRIBUTION_ENTRIES = [
   "completions",
   "corpus",
   "docs",
+  "evals",
   "package.json",
+  "scripts/evaluate-routing-scenarios.mjs",
   "skills",
   "src",
 ];

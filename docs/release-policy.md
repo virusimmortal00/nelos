@@ -30,6 +30,41 @@ not treat two different build-metadata versions as interchangeable artifacts:
 each version string identifies exactly one immutable distribution and
 provenance record. A rebuild with different content receives a new version.
 
+## Development and release boundaries
+
+Merging development work is not the same operation as cutting or publishing an
+installable plugin release. Evaluation observations and evidence, fixtures,
+tests, documentation, and ordinary fix commits do not independently require a
+plugin version bump. They may merge while the repository continues to carry the
+most recently selected release identity.
+
+A bump is required only at one of these narrow boundaries:
+
+- maintainers intentionally cut or publish an installable plugin release; or
+- an externally consumed, versioned contract changes and repository policy for
+  that contract requires immediate publication rather than allowing the change
+  to remain unreleased.
+
+Other changes accumulate under **Unreleased** until maintainers choose a release
+boundary. At that boundary they select one SemVer increment for the coherent
+set of changes, update every version and provenance surface together, and run
+the release gate. Individual development commits do not each receive a patch
+version merely because they may eventually be included in that release.
+
+The distribution integrity checksum may be refreshed during unreleased
+development so repository and local-install validation describe the current
+tree. That checksum refresh does not cut a release, authorize publication, or
+make the retained version identify a second published artifact. An intentional
+release still receives one coherent version and immutable provenance at the
+boundary.
+
+Version `0.12.14` is the already-selected coherent provenance bump for the
+routing-evaluation release boundary. Subsequent observations, fixtures, tests,
+documentation, and ordinary fixes in this evaluation wave retain `0.12.14`;
+they do not force `0.12.15`. If maintainers later decide to publish those added
+bytes, the next intentional release boundary selects and validates its own one
+coherent version.
+
 ## Release lines and support
 
 A release line is `MAJOR.MINOR` (including `0.MINOR` before `1.0.0`).
@@ -123,6 +158,12 @@ No released version may be rebuilt, repointed, or have its provenance record
 reused for different bytes. A correction requires a new patch or prerelease
 version. The verifier and installation trust model are documented in
 [Installation and Distribution Trust](installation.md#distribution-provenance-and-the-verifier).
+
+Repository validation applies this coherence check even while development work
+retains the current version. A partial or inconsistent intentional bump fails:
+changing the legacy manifest alone, for example, is rejected when the Agent
+Plugins marketplace manifest, package metadata and lockfile, MCP identities, or
+distribution provenance still carry the prior version.
 
 ## Release gate and tags
 

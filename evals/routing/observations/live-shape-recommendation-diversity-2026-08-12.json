@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "shape-sol-medium",
+      "queenTaskId": "019ff718-3c2c-74b0-b767-e47fdb148eb3",
+      "orchestrationQueenTaskId": "019ff718-3c2c-74b0-b767-e47fdb148eb3",
+      "workspaceId": "worktree-ad5d",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "assess-routing-boundaries--20260812-shape-sol-medium-a",
+          "lifecycle": "subagent",
+          "threadId": "019ff719-2e1b-70b2-88fb-eca27d4c3a09",
+          "turnId": "019ff719-2e87-73e3-8eaa-7c122b162fb6",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "complex/open-ended",
+          "profile": "sol",
+          "modelSelection": "recommended",
+          "effortSelection": "recommended",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "medium",
+          "observedModel": "gpt-5.6-sol",
+          "observedEffort": "medium",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    },
+    {
+      "scenarioId": "shape-terra-low",
+      "queenTaskId": "019ff72d-b60f-75b2-a98b-310ab283675d",
+      "orchestrationQueenTaskId": "019ff72d-b60f-75b2-a98b-310ab283675d",
+      "workspaceId": "worktree-a59a",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "write-terra-smoke--20260812-diversity-terra-019ff72c",
+          "lifecycle": "spinoff",
+          "threadId": "019ff72f-825f-7102-bc86-4e4607e18d8f",
+          "turnId": "019ff72f-8454-7572-9178-6e21ee84f488",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "everyday",
+          "profile": "terra",
+          "modelSelection": "recommended",
+          "effortSelection": "recommended",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-terra",
+          "requestedEffort": "low",
+          "observedModel": "gpt-5.6-terra",
+          "observedEffort": "low",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    },
+    {
+      "scenarioId": "shape-luna-low",
+      "queenTaskId": "019ff72d-b9a4-7450-8cf8-d5782220b83c",
+      "orchestrationQueenTaskId": "019ff72d-b9a4-7450-8cf8-d5782220b83c",
+      "workspaceId": "worktree-db29",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "write-luna-fixture--20260812-diversity-luna-019ff72c",
+          "lifecycle": "spinoff",
+          "threadId": "019ff72e-eadf-7772-9b26-1d19a8f4a410",
+          "turnId": "019ff72e-eccd-7253-a8c7-dd123e820737",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "clear/repeatable",
+          "profile": "luna",
+          "modelSelection": "recommended",
+          "effortSelection": "recommended",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "low",
+          "observedModel": "gpt-5.6-luna",
+          "observedEffort": "low",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    }
+  ]
+}

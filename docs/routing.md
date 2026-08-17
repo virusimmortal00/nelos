@@ -123,3 +123,8 @@ The proposed successor to this heuristic is described in
 structured task profile, live capability filtering, independent model/effort
 selection, bounded escalation, and a content-free evaluation loop while
 preserving exact launch verification.
+
+The implemented [isolated-queen routing suite](routing-evaluation.md) provides
+fresh-task prompts and a closed grader for the current routes, explicit
+high/max probes, requested-versus-observed verification, and known-gap semantic
+challenges.

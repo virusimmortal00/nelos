@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "description": "Fresh-queen probes that distinguish task-shape recommendations, explicit model/effort propagation, runtime verification, and policy gaps.",
+  "scenarios": [
+    {
+      "id": "shape-sol-medium",
+      "title": "Complex read-only analysis selects Sol medium",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan. Do not add routing overrides. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Assess whether the routing evaluator preserves evidence boundaries.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"assess-routing-boundaries\",\n      \"title\": \"Assess routing evidence boundaries\",\n      \"objective\": \"Read the routing and runtime-verification modules and identify one credible evidence-boundary failure mode.\",\n      \"deliverable\": \"A concise read-only risk assessment with cited local files.\",\n      \"acceptanceCriteria\": [\"Identifies one concrete failure mode\", \"Explains how runtime verification detects or misses it\", \"Does not modify files\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"subagent\",\n      \"workspaceMode\": \"shared-read-only\",\n      \"taskShape\": \"complex/open-ended\"\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "shape-terra-low",
+      "title": "Everyday implementation selects Terra low",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan. Do not add routing overrides. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Create an isolated disposable routing smoke artifact.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"write-terra-smoke\",\n      \"title\": \"Write Terra smoke artifact\",\n      \"objective\": \"Create tmp/nelos-routing-terra-smoke.txt containing exactly terra-low-smoke followed by a newline.\",\n      \"deliverable\": \"The isolated smoke artifact.\",\n      \"acceptanceCriteria\": [\"The file exists at tmp/nelos-routing-terra-smoke.txt\", \"Its bytes equal terra-low-smoke followed by one newline\", \"No other files are changed\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"spinoff\",\n      \"workspaceMode\": \"isolated-write\",\n      \"taskShape\": \"everyday\"\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-terra", "effort": "low", "lifecycle": "spinoff", "taskShape": "everyday", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "shape-luna-low",
+      "title": "Clear repeatable work selects Luna low",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan. Do not add routing overrides. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Create an isolated deterministic routing fixture.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"write-luna-fixture\",\n      \"title\": \"Write Luna fixture\",\n      \"objective\": \"Create tmp/nelos-routing-luna-smoke.json containing the single JSON object {\\\"route\\\":\\\"luna-low\\\"} followed by a newline.\",\n      \"deliverable\": \"The deterministic isolated JSON fixture.\",\n      \"acceptanceCriteria\": [\"The file exists at tmp/nelos-routing-luna-smoke.json\", \"Parsing it yields exactly one route property with value luna-low\", \"No other files are changed\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"spinoff\",\n      \"workspaceMode\": \"isolated-write\",\n      \"taskShape\": \"clear/repeatable\"\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-luna", "effort": "low", "lifecycle": "spinoff", "taskShape": "clear/repeatable", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "override-sol-high",
+      "title": "Explicit Sol high reaches a joined worker",
+      "lane": "explicit-route",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan, including its explicit routing. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Probe independent high-effort routing on Sol.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"review-launch-invariants\",\n      \"title\": \"Review launch invariants\",\n      \"objective\": \"Perform a read-only adversarial review of exact model and effort propagation across the launch boundary.\",\n      \"deliverable\": \"A concise list of the three highest-risk launch invariants.\",\n      \"acceptanceCriteria\": [\"Names exactly three invariants\", \"Grounds every invariant in local code\", \"Does not modify files\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"subagent\",\n      \"workspaceMode\": \"shared-read-only\",\n      \"taskShape\": \"complex/open-ended\",\n      \"routing\": { \"profile\": \"sol\", \"effort\": \"high\" }\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "high", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "override", "effortSelection": "override", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "override-luna-high",
+      "title": "Explicit Luna high reaches a durable worker",
+      "lane": "explicit-route",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan, including its explicit routing. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Probe independent high-effort routing on Luna.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"write-luna-high-fixture\",\n      \"title\": \"Write Luna high fixture\",\n      \"objective\": \"Create tmp/nelos-routing-luna-high.txt containing exactly luna-high-verified followed by a newline.\",\n      \"deliverable\": \"The isolated high-effort Luna fixture.\",\n      \"acceptanceCriteria\": [\"The file exists at tmp/nelos-routing-luna-high.txt\", \"Its bytes equal luna-high-verified followed by one newline\", \"No other files are changed\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"spinoff\",\n      \"workspaceMode\": \"isolated-write\",\n      \"taskShape\": \"clear/repeatable\",\n      \"routing\": { \"profile\": \"luna\", \"effort\": \"high\" }\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-luna", "effort": "high", "lifecycle": "spinoff", "taskShape": "clear/repeatable", "modelSelection": "override", "effortSelection": "override", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "override-terra-max",
+      "title": "Explicit Terra max reaches a durable worker",
+      "lane": "explicit-route",
+      "enabledByDefault": false,
+      "prompt": "Use the Nelos task-management skill to execute exactly this complete user-supplied plan, including its explicit routing. This is an opt-in expensive probe. After the worker finishes, require Nelos runtime intelligence verification before accepting the result.\n\n{\n  \"schemaVersion\": 1,\n  \"objective\": \"Probe maximum single-task reasoning on Terra.\",\n  \"maxParallel\": 1,\n  \"slices\": [\n    {\n      \"id\": \"analyze-policy-boundary\",\n      \"title\": \"Analyze policy boundary\",\n      \"objective\": \"Read the current and proposed routing policies and produce a compact comparison of their decision boundaries.\",\n      \"deliverable\": \"A read-only comparison of current and proposed routing boundaries.\",\n      \"acceptanceCriteria\": [\"Covers model selection\", \"Covers effort selection\", \"Covers runtime verification\", \"Does not modify files\"],\n      \"dependsOn\": [],\n      \"lifecycle\": \"spinoff\",\n      \"workspaceMode\": \"isolated-write\",\n      \"taskShape\": \"everyday\",\n      \"routing\": { \"profile\": \"terra\", \"effort\": \"max\" }\n    }\n  ]\n}",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-terra", "effort": "max", "lifecycle": "spinoff", "taskShape": "everyday", "modelSelection": "override", "effortSelection": "override", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "auto-clear-repeatable",
+      "title": "Natural-language deterministic work selects Luna low",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to complete this single bounded task without adding a model or effort override: in the isolated worktree, create tmp/nelos-auto-repeatable.txt containing exactly repeatable-routing-probe followed by one newline. Change no other files. Require exact runtime intelligence verification for the worker before accepting the result.",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-luna", "effort": "low", "lifecycle": "spinoff", "taskShape": "clear/repeatable", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "auto-everyday-bounded",
+      "title": "Natural-language bounded implementation selects Terra low",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to complete one isolated implementation slice without adding a model or effort override. Add a focused unit test proving that routing observation templates begin with runtime verification disabled, make only the smallest test-only change required, and run that focused test. Require exact runtime intelligence verification for the worker before accepting the result.",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-terra", "effort": "low", "lifecycle": "spinoff", "taskShape": "everyday", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "auto-complex-ambiguous",
+      "title": "Natural-language ambiguous analysis selects Sol medium",
+      "lane": "shape-recommendation",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill for one read-only worker and do not add a model or effort override. Assess whether route-decision provenance belongs in the observation bundle, the runtime receipt, or both; compare the credible designs and recommend one without modifying files. Require exact runtime intelligence verification for the worker before accepting the result.",
+      "expectation": {
+        "baseline": "must-pass",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 1,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "challenge-high-consequence-strong-oracle",
+      "title": "High consequence should raise effort without forcing Sol",
+      "lane": "semantic-challenge",
+      "enabledByDefault": false,
+      "prompt": "Use the Nelos task-management skill to plan one read-only release-risk assessment. The proposed change is structurally ordinary and well specified, but it changes customer billing calculations. A deterministic replay oracle covers every historical invoice and rollback is automatic. Do not modify files or add routing overrides. Recommend the minimum safe validation plan and require exact runtime intelligence verification for the worker.",
+      "expectation": {
+        "baseline": "known-gap",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 4,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-terra", "effort": "high", "lifecycle": "subagent", "taskShape": "everyday", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [
+          { "model": "gpt-5.6-terra", "effort": "low", "lifecycle": "subagent", "taskShape": "everyday", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "challenge-large-context-routine",
+      "title": "Large context should raise model without raising effort",
+      "lane": "semantic-challenge",
+      "enabledByDefault": false,
+      "prompt": "Use the Nelos task-management skill to plan one read-only inventory. The work is routine and fully specified: identify every call site of the route-decision validator across four packages and report the paths. Verification is a deterministic repository search, the work is reversible, and no judgment beyond complete enumeration is needed. Do not modify files or add routing overrides. Require exact runtime intelligence verification for the worker.",
+      "expectation": {
+        "baseline": "known-gap",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 4,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "low", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "challenge-cross-domain-critical",
+      "title": "Cross-domain critical work should select Sol high",
+      "lane": "semantic-challenge",
+      "enabledByDefault": false,
+      "prompt": "Use the Nelos task-management skill to plan a read-only security and data-integrity review of a proposed identity migration spanning authentication, persistent account records, audit logging, and customer-facing recovery. The decision is novel, cross-domain, difficult to reverse, and must meet a critical quality target. Do not modify files or add routing overrides. Require exact runtime intelligence verification for every worker.",
+      "expectation": {
+        "baseline": "known-gap",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 8,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "high", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "challenge-cost-minimize-critical",
+      "title": "Cost preference must not bypass a critical safety floor",
+      "lane": "semantic-challenge",
+      "enabledByDefault": false,
+      "prompt": "Use the Nelos task-management skill for a read-only go/no-go assessment of a one-way production encryption-key rotation with incomplete recovery rehearsal. Minimize cost and latency wherever safely possible, but the quality target is critical and a failed decision can make customer data unavailable. Do not modify files or add routing overrides. Require exact runtime intelligence verification for every worker.",
+      "expectation": {
+        "baseline": "known-gap",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 8,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "high", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    },
+    {
+      "id": "challenge-critical-weak-oracle",
+      "title": "Critical irreversible work should exceed medium effort",
+      "lane": "semantic-challenge",
+      "enabledByDefault": true,
+      "prompt": "Use the Nelos task-management skill to plan and execute a read-only launch-readiness review for an irreversible multi-module data migration. The migration affects persisted customer data, has no automated rollback, spans storage, API, and background workers, and currently has only focused unit tests rather than an end-to-end oracle. Do not modify files. The deliverable is a go/no-go recommendation with explicit evidence gaps and required safeguards. Require runtime intelligence verification for every worker before accepting any result.",
+      "expectation": {
+        "baseline": "known-gap",
+        "terminalState": "complete",
+        "minimumMembers": 1,
+        "maximumMembers": 8,
+        "requiredRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "high", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "forbiddenRoutes": [
+          { "model": "gpt-5.6-sol", "effort": "medium", "lifecycle": "subagent", "taskShape": "complex/open-ended", "modelSelection": "recommended", "effortSelection": "recommended", "minimumCount": 1 }
+        ],
+        "requireExactRuntimeVerification": true,
+        "routeSchemaVersion": 2,
+        "policyVersion": 3,
+        "catalogVersion": "openai-2026-07-21"
+      }
+    }
+  ]
+}

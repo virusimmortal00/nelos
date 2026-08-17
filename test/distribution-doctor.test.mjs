@@ -64,6 +64,8 @@ async function createDoctorFixture(
     join(releasePath, "completions"),
     ...(includeCorpus ? [join(releasePath, "corpus")] : []),
     join(releasePath, "docs"),
+    join(releasePath, "evals", "routing"),
+    join(releasePath, "scripts"),
     join(releasePath, "skills"),
     join(releasePath, "src"),
     binDir,
@@ -100,6 +102,14 @@ async function createDoctorFixture(
       ]
       : []),
     writeFile(join(releasePath, "package.json"), '{"name":"doctor-fixture"}\n'),
+    writeFile(
+      join(releasePath, "evals", "routing", "fixture.json"),
+      '{"schemaVersion":1}\n',
+    ),
+    writeFile(
+      join(releasePath, "scripts", "evaluate-routing-scenarios.mjs"),
+      "#!/usr/bin/env node\n",
+    ),
     writeFile(join(skillPath, "SKILL.md"), "# Trusted skill\n"),
     writeFile(
       join(codexHome, "config.toml"),
@@ -348,6 +358,7 @@ test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte
 
     const diagnosis = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1002,6 +1013,7 @@ test("missing canonical target metadata is repaired while conflicts fail closed"
     };
     const beforeRepair = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1140,6 +1152,7 @@ test("doctor distinguishes safe bootstrap-ready marketplace states", async () =>
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const missing = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1152,6 +1165,7 @@ test("doctor distinguishes safe bootstrap-ready marketplace states", async () =>
     await writeFile(path, unrelated);
     const ready = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1171,6 +1185,7 @@ test("doctor bounds malformed marketplace content without echoing it", async () 
     await writeFile(path, `{malformed:${secret}`);
     const result = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });

@@ -2771,6 +2771,39 @@ test("stdio orchestration validates a host callback before binding and replays i
   assert.deepEqual(toolBody(replay).body, binding.body);
 });
 
+test("stdio orchestration leaves a native create without a usable task identity launch-pending", async (t) => {
+  const fixture = await orchestrationFixture(t);
+  const actionId =
+    "web-orchestration-v1/member-a/revision-1/attempt-1/launch";
+  const missingIdentity = {
+    schemaVersion: 1,
+    actionId,
+    type: "native-create",
+    workUnitId: "member-a",
+    specRevision: 1,
+    attempt: 1,
+  };
+  const [, pending, rejected] = await roundTrip(
+    [
+      INITIALIZE,
+      orchestrationCall(2, workUnitInput()),
+      orchestrationCall(3, workUnitInput(), missingIdentity),
+    ],
+    fixture.options,
+  );
+
+  assert.equal(toolBody(pending).body.binding.state, "launch-pending");
+  assert.equal(toolBody(rejected).isError, true);
+  assert.match(toolBody(rejected).body.error, /requires field memberThreadId/u);
+  const stored = await fixture.store.read("member-a");
+  assert.deepEqual(stored.binding, {
+    state: "launch-pending",
+    memberThreadId: null,
+    launchActionId: actionId,
+    generation: 1,
+  });
+});
+
 test("independent adapters serialize conflicting host receipts", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "nelos-mcp-orchestration-race-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -445,6 +445,19 @@ test("result provenance distinguishes current, stale, malformed, and corrective 
   ).checkpoint;
   assert.equal(malformed.members[0].result.state, "malformed");
   assert.equal(reduceObservationJoinV1(malformed).boundary.type, "attention");
+  const inconsistentCorrection = checkpoint([{
+    ...malformed.members[0],
+    capabilities: [...malformed.members[0].capabilities, "follow-up"],
+    coordination: { state: "correction-pending" },
+    execution: {
+      ...malformed.members[0].execution,
+      latestTurnId: "newer-turn",
+    },
+  }]);
+  assert.equal(
+    reduceObservationJoinV1(inconsistentCorrection).boundary.type,
+    "attention",
+  );
 
   const corrected = checkpoint([
     {

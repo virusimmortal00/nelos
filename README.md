@@ -259,7 +259,8 @@ own Git branches, merges, and final review.
   [Runtime isolation](docs/experimentation-runtime.md) ·
   [Runner and operations](docs/experimentation-operations.md) ·
   [Implementation roadmap](docs/experimentation-roadmap.md)
-- [Model & reasoning routing](docs/routing.md) — how each slice is sized, and verified
+- [Model & reasoning routing](docs/routing.md) — how each slice is sized and verified
+- [Isolated-queen routing evaluation](docs/routing-evaluation.md) — fresh-task scenario prompts and exact-route grading
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
 - [App Server compatibility contract](docs/app-server-compatibility-contract.md) —
   minimum and tested-version policy, fallbacks, and hardening gates

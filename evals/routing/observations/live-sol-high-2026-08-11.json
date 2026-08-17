@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "isolated-queen-routing-v1",
+  "runs": [
+    {
+      "scenarioId": "override-sol-high",
+      "queenTaskId": "019ff1f5-a8bb-7511-a85e-01312be37c23",
+      "orchestrationQueenTaskId": "019ff1f5-a8bb-7511-a85e-01312be37c23",
+      "workspaceId": "worktree-92f5",
+      "freshQueen": true,
+      "terminalState": "complete",
+      "members": [
+        {
+          "sliceId": "review-launch-invariants",
+          "lifecycle": "subagent",
+          "threadId": "019ff1f6-f38d-70b0-8bd2-607c5ebf24bc",
+          "turnId": "019ff1f6-f747-7032-97f1-8376e8340993",
+          "routeSchemaVersion": 2,
+          "policyVersion": 3,
+          "catalogVersion": "openai-2026-07-21",
+          "taskShape": "complex/open-ended",
+          "profile": "sol",
+          "modelSelection": "override",
+          "effortSelection": "override",
+          "decisionEvidenceSource": "nelos-route-decision",
+          "requestedModel": "gpt-5.6-sol",
+          "requestedEffort": "high",
+          "observedModel": "gpt-5.6-sol",
+          "observedEffort": "high",
+          "verified": true,
+          "evidenceSource": "runtime-intelligence-verification"
+        }
+      ]
+    }
+  ]
+}
