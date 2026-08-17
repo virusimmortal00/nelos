@@ -128,6 +128,31 @@ test("live prompts scope work-unit IDs per run so retained executions do not col
   assert.doesNotMatch(first, /write-terra-smoke--run-two/);
 });
 
+test("natural-language live prompts require run-scoped generated work-unit IDs", () => {
+  const naturalScenarios = suite.scenarios.filter(
+    ({ prompt }) => !prompt.includes("\n\n{"),
+  );
+  assert.equal(naturalScenarios.length, 8);
+  for (const scenario of naturalScenarios) {
+    const prompt = createRoutingLivePromptV1(suite, scenario.id, {
+      runId: "natural-run",
+    });
+    assert.match(prompt, /Routing evaluation run identity:/u);
+    assert.match(prompt, /Run ID: natural-run/u);
+    assert.match(prompt, /must end with `--natural-run`/u);
+    assert.match(prompt, /Reject or replan any generated action/u);
+  }
+});
+
+test("natural-language live prompts reject invalid run IDs", () => {
+  assert.throws(
+    () => createRoutingLivePromptV1(suite, "auto-clear-repeatable", {
+      runId: "invalid run id",
+    }),
+    /routing prompt runId has an invalid format/u,
+  );
+});
+
 test("an older routing evaluation run cannot satisfy a rerun with the same scenario", () => {
   const planIds = (prompt) => {
     const planStart = prompt.indexOf("\n\n{") + 2;

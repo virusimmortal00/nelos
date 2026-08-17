@@ -63,8 +63,11 @@ npm run eval:routing -- prompt shape-sol-medium
 `validate` is offline and makes no model calls. `prompt` prints the scenario
 plus a standard live protocol to paste into one new queen. Each invocation
 automatically appends a unique run ID to every work-unit ID so retained durable
-records from an earlier probe cannot collide with a rerun. Supply a stable ID
-with `--run-id RUN_ID` only when reproducing or reconciling the same launch.
+records from an earlier probe cannot collide with a rerun. Structured scenarios
+have their declared slice IDs rewritten directly; natural-language scenarios
+receive a fail-closed instruction requiring every generated work-unit ID to use
+the same exact suffix. Supply a stable ID with `--run-id RUN_ID` only when
+reproducing or reconciling the same launch.
 The protocol binds
 the current task—not a delegation source—as the orchestration queen, requires
 lazy plugin-tool discovery before declaring Nelos unavailable, and requests a

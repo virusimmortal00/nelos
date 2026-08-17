@@ -21,8 +21,10 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
   plugin-tool discovery before an unavailable result, and preserve zero-worker
   preflight failures as explicit `attention` observations.
 - Live prompt generation scopes durable work-unit IDs to a unique run by
-  default, preventing retained execution records from colliding with reruns;
-  `--run-id` keeps deliberate reconciliation reproducible.
+  default, preventing retained execution records from colliding with reruns.
+  Structured plans are rewritten directly, while natural-language scenarios
+  require every generated action to carry the exact run suffix; `--run-id`
+  keeps deliberate reconciliation reproducible.
 - Failed-closed observations can retain workers with unavailable runtime routes
   as `null`, while creates that never return an identity remain visibly
   `launch-pending` instead of fabricating worker evidence.

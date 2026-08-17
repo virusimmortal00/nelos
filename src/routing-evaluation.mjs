@@ -683,7 +683,7 @@ function scopeRoutingScenarioPromptV1(prompt, runId) {
   }
   const planStart = prompt.indexOf("\n\n{");
   if (planStart === -1) {
-    throw new Error("routing scenario prompt has no structured plan");
+    return `${prompt}\n\nRouting evaluation run identity:\n- Run ID: ${runId}\n- Every generated work-unit ID for this scenario must end with \`--${runId}\`. Reject or replan any generated action whose work-unit ID does not carry this exact suffix.`;
   }
   let plan;
   try {
