@@ -358,6 +358,7 @@ test("canonical marketplace metadata and unrelated plugins coexist byte-for-byte
 
     const diagnosis = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1012,6 +1013,7 @@ test("missing canonical target metadata is repaired while conflicts fail closed"
     };
     const beforeRepair = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1150,6 +1152,7 @@ test("doctor distinguishes safe bootstrap-ready marketplace states", async () =>
     const path = join(root, ".agents", "plugins", "marketplace.json");
     const missing = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1162,6 +1165,7 @@ test("doctor distinguishes safe bootstrap-ready marketplace states", async () =>
     await writeFile(path, unrelated);
     const ready = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -1181,6 +1185,7 @@ test("doctor bounds malformed marketplace content without echoing it", async () 
     await writeFile(path, `{malformed:${secret}`);
     const result = await diagnoseDistribution({
       home: root,
+      codexHome: join(root, ".codex"),
       marketplacePath: path,
       env: { PATH: "/usr/bin:/bin" },
     });

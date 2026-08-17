@@ -108,10 +108,10 @@
         background: transparent;
         color: var(--ink);
         padding:
-          calc(14px + var(--nelos-safe-area-top))
-          calc(14px + var(--nelos-safe-area-right))
-          calc(14px + var(--nelos-safe-area-bottom))
-          calc(14px + var(--nelos-safe-area-left));
+          calc(18px + var(--nelos-safe-area-top))
+          calc(18px + var(--nelos-safe-area-right))
+          calc(18px + var(--nelos-safe-area-bottom))
+          calc(18px + var(--nelos-safe-area-left));
       }
 
       main {
@@ -246,6 +246,10 @@
         list-style: none;
       }
 
+      .member[hidden] {
+        display: none;
+      }
+
       .member {
         display: grid;
         grid-template-columns: 8px minmax(0, 1fr);
@@ -294,17 +298,19 @@
 
       .member-main {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 8px;
-        align-items: center;
+        gap: 4px;
         min-width: 0;
       }
 
       .member-heading {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
         min-width: 0;
       }
 
       .member-task {
+        flex: 1 1 auto;
         min-width: 0;
         margin: 0;
         font-size: 13px;
@@ -319,7 +325,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
-        justify-content: flex-end;
+        justify-content: flex-start;
       }
 
       .tag {
@@ -338,15 +344,50 @@
       }
 
       .tag.lifecycle {
+        flex: 0 0 auto;
         font-weight: 600;
+        white-space: nowrap;
       }
 
       .tag.task-id {
+        color: var(--accent);
+        cursor: pointer;
         min-width: 0;
         max-width: 180px;
         overflow: hidden;
+        text-decoration: none;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .tag.task-id:hover {
+        text-decoration: underline;
+      }
+
+      .tag.task-id:focus-visible,
+      .group-expand:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .group-expand {
+        appearance: none;
+        border: 0;
+        border-radius: var(--border-radius-sm, 5px);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 650;
+        margin: 3px 0 0 15px;
+        padding: 3px 6px;
+        text-align: left;
+      }
+
+      .group-expand:hover {
+        background: var(--surface-subtle);
+        color: var(--ink);
       }
 
       @keyframes status-pulse {
@@ -395,27 +436,20 @@
       @media (max-width: 520px) {
         body {
           padding:
-            calc(8px + var(--nelos-safe-area-top))
-            calc(8px + var(--nelos-safe-area-right))
-            calc(8px + var(--nelos-safe-area-bottom))
-            calc(8px + var(--nelos-safe-area-left));
+            calc(12px + var(--nelos-safe-area-top))
+            calc(12px + var(--nelos-safe-area-right))
+            calc(12px + var(--nelos-safe-area-bottom))
+            calc(12px + var(--nelos-safe-area-left));
         }
 
         .member {
           padding: 6px 8px;
         }
 
-        .member-main {
-          grid-template-columns: minmax(0, 1fr);
-          gap: 3px;
-        }
-
         .member-task {
-          display: -webkit-box;
           overflow: hidden;
-          white-space: normal;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .member-meta {
@@ -445,7 +479,8 @@
       }
 
       :root[data-touch="true"] .group-summary,
-      :root[data-touch="true"] .filter-button {
+      :root[data-touch="true"] .filter-button,
+      :root[data-touch="true"] .group-expand {
         min-height: 30px;
         padding-block: 7px;
       }
@@ -454,7 +489,7 @@
   <body>
     <main>
       <div id="task-context" class="task-context" hidden>
-        <span id="task-context-label" class="task-context-label">Task</span>
+        <span id="task-context-label" class="task-context-label">Objective</span>
         <strong id="task-context-value" class="task-context-value"></strong>
       </div>
       <nav id="filters" class="filters" aria-label="Filter task workers" hidden>
@@ -498,6 +533,8 @@
       let currentFilter = "current";
       let currentOutput = null;
       const openGroupState = new Map();
+      const expandedGroupState = new Map();
+      const GROUP_PREVIEW_LIMIT = 3;
 
       const STATUS_GROUPS = Object.freeze([
         { status: "planning", title: "Planning" },
@@ -535,14 +572,14 @@
           title: "In progress",
           filter: "current",
           statuses: ["planning", "running", "archiving"],
-          defaultOpen: false,
+          defaultOpen: true,
         },
         {
           key: "queued",
           title: "Queued",
           filter: "current",
           statuses: ["planned", "launch-pending", "created"],
-          defaultOpen: false,
+          defaultOpen: true,
         },
         {
           key: "done",
@@ -616,33 +653,46 @@
         content.className = "member-main";
         const title = document.createElement("p");
         title.className = "member-task";
-        title.textContent = String(member.task || member.id || "Task");
-        title.title = title.textContent;
+        title.textContent = String(
+          member.displayName || member.task || member.id || "Task",
+        );
+        title.title = member.displayName && member.task
+          ? `${member.displayName} — ${member.task}`
+          : title.textContent;
         const heading = document.createElement("div");
         heading.className = "member-heading";
-        heading.append(title);
-
-        const meta = document.createElement("div");
-        meta.className = "member-meta";
-        meta.append(
-          tag(definition.title, "status"),
+        heading.append(
+          title,
           tag(
             member.lifecycle === "spinoff" ? "Spin-off" : "Sub-agent",
             "lifecycle",
           ),
+          tag(definition.title, "status"),
+        );
+
+        const meta = document.createElement("div");
+        meta.className = "member-meta";
+        meta.append(
           tag(String(member.model || "host-default")),
-          tag(`${label(member.reasoning || "host-default")} reasoning`),
+          tag(`${label(member.reasoning || "host-default")} effort`),
         );
         if (member.threadId) {
           const threadId = String(member.threadId);
-          const threadTag = tag(`Task ${threadId}`, "task-id");
-          threadTag.dataset.threadId = threadId;
-          threadTag.title = `Native Codex task identifier: ${threadId}`;
-          threadTag.setAttribute(
+          const threadLink = document.createElement("a");
+          threadLink.className = "tag task-id";
+          threadLink.textContent = `ID ${threadId}`;
+          threadLink.dataset.threadId = threadId;
+          threadLink.title = `Open Codex task ${threadId}`;
+          threadLink.setAttribute(
             "aria-label",
-            `Native Codex task identifier ${threadId}`,
+            `Open Codex task ${threadId}`,
           );
-          meta.append(threadTag);
+          threadLink.setAttribute(
+            "href",
+            `codex://threads/${encodeURIComponent(threadId)}`,
+          );
+          threadLink.setAttribute("target", "_top");
+          meta.append(threadLink);
         }
 
         content.append(heading, meta);
@@ -656,7 +706,7 @@
         return item;
       };
 
-      const memberGroup = (definition, members, open) => {
+      const memberGroup = (definition, members, open, expanded) => {
         const group = document.createElement("details");
         group.className = "member-group";
         group.dataset.group = definition.key;
@@ -668,15 +718,40 @@
         const list = document.createElement("ol");
         list.className = "members";
         list.setAttribute("aria-label", `${definition.title} workers`);
-        list.append(
-          ...members.map((member) =>
-            memberItem(
-              member,
-              STATUS_GROUP_BY_STATUS.get(memberStatus(member)),
-            )
-          ),
-        );
+        const rows = members.map((member, index) => {
+          const row = memberItem(
+            member,
+            STATUS_GROUP_BY_STATUS.get(memberStatus(member)),
+          );
+          row.hidden = !expanded && index >= GROUP_PREVIEW_LIMIT;
+          return row;
+        });
+        list.append(...rows);
         group.append(summary, list);
+        if (members.length > GROUP_PREVIEW_LIMIT) {
+          const expandButton = document.createElement("button");
+          expandButton.className = "group-expand";
+          expandButton.type = "button";
+          expandButton.dataset.group = definition.key;
+          const hiddenCount = members.length - GROUP_PREVIEW_LIMIT;
+          const stateKey = `${currentViewKey}:${currentFilter}:${definition.key}`;
+          const updateExpansion = (nextExpanded) => {
+            expandedGroupState.set(stateKey, nextExpanded);
+            rows.forEach((row, index) => {
+              row.hidden = !nextExpanded && index >= GROUP_PREVIEW_LIMIT;
+            });
+            expandButton.textContent = nextExpanded
+              ? "Show less"
+              : `Show ${hiddenCount} more…`;
+            expandButton.setAttribute("aria-expanded", String(nextExpanded));
+            reportSize();
+          };
+          expandButton.addEventListener("click", () => {
+            updateExpansion(expandButton.getAttribute("aria-expanded") !== "true");
+          });
+          group.append(expandButton);
+          updateExpansion(expanded);
+        }
         group.addEventListener("toggle", () => {
           openGroupState.set(
             `${currentViewKey}:${currentFilter}:${definition.key}`,
@@ -745,15 +820,16 @@
         if (!preservePresentation) {
           currentFilter = "current";
           openGroupState.clear();
+          expandedGroupState.clear();
         }
 
         membersElement.replaceChildren();
         const members = Array.isArray(value.members) ? value.members : [];
         currentOutput = value;
         const contextValue = String(value.task || "Task web");
-        taskContextLabelElement.textContent = "Task";
+        taskContextLabelElement.textContent = "Objective";
         taskContextValueElement.textContent = contextValue;
-        taskContextValueElement.title = `Task: ${contextValue}`;
+        taskContextValueElement.title = `Objective: ${contextValue}`;
         taskContextElement.hidden = false;
         currentViewKey = nextViewKey;
         updateFilterControls(members);
@@ -816,6 +892,7 @@
               definition,
               groupMembers,
               openGroupState.get(stateKey) ?? definition.defaultOpen,
+              expandedGroupState.get(stateKey) ?? false,
             );
             summaries.set(definition.key, group.children[0]);
             membersElement.append(group);

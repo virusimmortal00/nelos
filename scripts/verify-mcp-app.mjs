@@ -2,7 +2,9 @@
 
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PROTOCOL_ACTION_SCHEMA_V1 } from "../src/protocol-contract/index.mjs";
@@ -29,6 +31,23 @@ const PROTOCOL_TOOLS = new Set([
 ]);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+const verifierRoot = mkdtempSync(join(tmpdir(), "nelos-mcp-app-verifier-"));
+const verifierCodexHome = join(verifierRoot, "codex-home");
+const verifierStateHome = join(verifierRoot, "state-home");
+mkdirSync(verifierCodexHome, { recursive: true });
+mkdirSync(verifierStateHome, { recursive: true });
+
+function verifierEnvironment() {
+  return {
+    ...process.env,
+    CODEX_HOME: verifierCodexHome,
+    XDG_STATE_HOME: verifierStateHome,
+  };
+}
+
+function cleanupVerifierEnvironment() {
+  rmSync(verifierRoot, { recursive: true, force: true });
+}
 
 function assertInspectorRuntime() {
   const [major, minor] = process.versions.node.split(".").map(Number);
@@ -47,6 +66,10 @@ function inspectorArguments(...args) {
     "--cli",
     process.execPath,
     "bin/nelos-mcp",
+    "-e",
+    `CODEX_HOME=${verifierCodexHome}`,
+    "-e",
+    `XDG_STATE_HOME=${verifierStateHome}`,
     ...args,
   ];
 }
@@ -56,7 +79,7 @@ function runInspector(args, { expectedStatus = 0 } = {}) {
     cwd: repositoryRoot,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...verifierEnvironment(),
       NO_COLOR: "1",
       npm_config_loglevel: "error",
     },
@@ -173,6 +196,10 @@ function verifyOutputSchemas() {
     cleanupSchema?.protocol?.properties?.tool?.const,
     "nelos_spinoff_cleanup",
   );
+  const memberSchema = byName.get("nelos_orchestrate_advance")?.outputSchema
+    ?.properties?.members?.items;
+  assert.equal(memberSchema?.properties?.displayName?.type, "string");
+  assert.equal(memberSchema?.required?.includes("displayName"), false);
   console.log(
     `✓ protocol output schemas expose all ${expectedActionMembers} action variants and compact cleanup receipts`,
   );
@@ -240,6 +267,8 @@ function verifyResource() {
   assert.match(content?.text ?? "", /currentViewKey/u);
   assert.match(content?.text ?? "", /currentFilter/u);
   assert.match(content?.text ?? "", /openGroupState/u);
+  assert.match(content?.text ?? "", /expandedGroupState/u);
+  assert.match(content?.text ?? "", /GROUP_PREVIEW_LIMIT = 3/u);
   assert.match(content?.text ?? "", /applyHostContext/u);
   assert.match(content?.text ?? "", /id="host-fonts"/u);
   assert.match(content?.text ?? "", /styles\?\.css\?\.fonts/u);
@@ -249,7 +278,9 @@ function verifyResource() {
   assert.match(content?.text ?? "", /STATUS_GROUPS/u);
   assert.match(content?.text ?? "", /title: "Launch pending"/u);
   assert.match(content?.text ?? "", /title: "Archive"/u);
-  assert.match(content?.text ?? "", /"task-id"/u);
+  assert.match(content?.text ?? "", /task-id/u);
+  assert.match(content?.text ?? "", /codex:\/\/threads/u);
+  assert.match(content?.text ?? "", /member\.displayName \|\| member\.task/u);
   assert.match(content?.text ?? "", /padding: 7px 9px/u);
   assert.match(content?.text ?? "", /"Sub-agent"/u);
   assert.match(content?.text ?? "", /prefers-reduced-motion: reduce/u);
@@ -280,7 +311,12 @@ function verifyResource() {
       ]).stdout,
       `resources/read ${uri} result`,
     );
-    assert.match(response.result?.contents?.[0]?.text ?? "", pattern);
+    const text = response.result?.contents?.[0]?.text ?? "";
+    assert.match(text, pattern);
+    assert.match(
+      text,
+      /if \(toolOutput === undefined\) return/u,
+    );
   }
   console.log("✓ purpose-built visual resources listed and read");
 }
@@ -366,10 +402,14 @@ function openInspector() {
       INSPECTOR_PACKAGE,
       process.execPath,
       "bin/nelos-mcp",
+      "-e",
+      `CODEX_HOME=${verifierCodexHome}`,
+      "-e",
+      `XDG_STATE_HOME=${verifierStateHome}`,
     ],
     {
       cwd: repositoryRoot,
-      env: process.env,
+      env: verifierEnvironment(),
       stdio: "inherit",
     },
   );
@@ -378,6 +418,7 @@ function openInspector() {
     process.exitCode = 1;
   });
   child.on("exit", (code, signal) => {
+    cleanupVerifierEnvironment();
     if (signal) {
       console.error(`MCP Inspector exited after signal ${signal}`);
       process.exitCode = 1;
@@ -391,11 +432,15 @@ assertInspectorRuntime();
 if (process.argv.includes("--web")) {
   openInspector();
 } else {
-  verifyInitialize();
-  verifyAppBindings();
-  verifyOutputSchemas();
-  verifyResource();
-  verifyRepresentativeCall();
-  verifyInvalidCall();
-  console.log(`MCP App verification passed with ${INSPECTOR_PACKAGE}.`);
+  try {
+    verifyInitialize();
+    verifyAppBindings();
+    verifyOutputSchemas();
+    verifyResource();
+    verifyRepresentativeCall();
+    verifyInvalidCall();
+    console.log(`MCP App verification passed with ${INSPECTOR_PACKAGE}.`);
+  } finally {
+    cleanupVerifierEnvironment();
+  }
 }
