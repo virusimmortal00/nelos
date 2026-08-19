@@ -24,7 +24,7 @@ Nelos has four distinct App Server profiles:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
-| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; newer stable versions proceed provisionally behind the same response validators |
+| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; newer semantic versions proceed provisionally behind the same response validators |
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
@@ -37,12 +37,12 @@ payloads, and installer-only plugin methods do not widen task-control support.
 
 The supported revision-1 baseline is:
 
-- a stable server identity at or above minimum version `0.144.5`;
+- a semantic server identity at or above minimum version `0.144.5`;
 - combined reduced-fixture evidence whose recorded source covers `0.144.5` and
   Desktop `0.144.6`, plus `0.4.0` release revalidation of the exact
   `codex-cli 0.144.5` and `0.144.6` npm distributions; the raw generated
   schemas remain temporary rather than separately checked-in captures, and
-  newer stable versions are reported as compatible but untested;
+  newer semantic versions are reported as compatible but untested;
 - `initialize`, followed by the outbound `initialized` notification;
 - `capabilities.experimentalApi: true`;
 - stdio JSONL for the strict bridge;
@@ -68,7 +68,7 @@ classified below.
 | Implicit `CODEX_HOME` socket | Historical diagnostic discovery | Never implicit authorization for task control |
 | Initialization request | `clientInfo{name,title,version}` and `capabilities{experimentalApi:true,requestAttestation:false}` | Send once per connection, before all other requests |
 | Initialization response | Strict bridge consumes `codexHome`, `platformFamily`, `platformOs`, and `userAgent`; shared client records the last three | Missing or malformed strict-bridge fields fail closed |
-| Server identity | `userAgent` forms reviewed: `Codex Desktop/V`, `codex-cli/V`, and `nelos_mcp/V` | Strict bridge parses stable `V`, rejects versions below `0.144.5` and non-stable identities, and reports whether `V` was tested |
+| Server identity | `userAgent` forms reviewed: `Codex Desktop/V`, `codex-cli/V`, and `nelos_mcp/V` | Strict bridge parses semantic `V`, rejects malformed versions and versions below `0.144.5`, and reports whether `V` was tested |
 | Method negotiation | No method or capability list is advertised by `initialize` on the tested versions | Generated fixture, minimum-version policy, tested-version list, and strict response validators form the temporary compatibility boundary |
 | Peer identity | `requestAttestation:false`; no authenticated host/plugin identity contract | Privileged host-owned control remains proposed, not release-supported |
 
@@ -167,8 +167,8 @@ This is intentional until a durable catch-up contract exists:
 2. **Permission profile unavailable.** Stop before task creation or mutation.
    The caller must explicitly select a sandbox mode; Nelos never silently
    broadens or substitutes permissions.
-3. **Version classification.** Stable versions below `0.144.5` and malformed,
-   prerelease, or custom identities fail during initialization. A newer stable
+3. **Version classification.** Semantic versions below `0.144.5` and malformed
+   identities fail during initialization. A newer stable, prerelease, or build
    version proceeds as compatible but untested; every consumed response still
    validates, and any actual schema change fails at the affected operation.
    Only reviewed generated-schema evidence may add a version to the tested list.
@@ -206,8 +206,8 @@ Revision 1 does not support or claim:
   task lifecycle;
 - Goals, fork, unarchive, rollback, review, approvals, hooks, or other
   documented methods merely because they exist; or
-- compatibility below Codex `0.144.5`, with malformed/prerelease/custom
-  identities, or a claim that a provisionally allowed newer stable version has
+- compatibility below Codex `0.144.5`, with malformed identities, or a claim
+  that a provisionally allowed newer semantic version has
   passed the complete Nelos verification matrix.
 
 Resumable subscriptions and title compare-and-set remain backlog monitor items,
@@ -345,7 +345,7 @@ without widening product behavior.
 1. Fail when a literal App Server method in `bin/`, `src/`, or `scripts/` lacks
    a profile, maturity, schema, and failure classification here.
 2. Parameterize the compatibility suite across tested `0.144.5`/`0.144.6`,
-   an older stable version, a newer untested stable version, non-stable
+   an older version, newer untested stable and prerelease versions, malformed
    identities, disabled experimental APIs, missing initialize fields,
    unavailable profiles/methods, changed enums, and malformed pages.
 3. Test WebSocket close-before-response, late responses, fragmented messages,

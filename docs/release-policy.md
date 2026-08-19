@@ -118,10 +118,10 @@ claims, fixtures, or supported-version lists.
 
 The bridge enforces the oldest protocol version it can safely use, currently
 Codex `0.144.5`, rather than treating the tested-version list as an exhaustive
-allowlist. A stable Codex version at or above that minimum may proceed when it
+allowlist. A semantic Codex version at or above that minimum may proceed when it
 has not yet been tested; health output identifies it as compatible but
-untested. Versions below the minimum and malformed, prerelease, or custom
-runtime identities fail during startup. Strict validation remains in place for
+untested. Versions below the minimum and malformed runtime identities fail
+during startup. Strict validation remains in place for
 every app-server response Nelos consumes, so an actual protocol incompatibility
 fails at the affected operation instead of being silently accepted.
 
@@ -131,7 +131,7 @@ Node.js requirements, and which surfaces were exercised. A passing schema gate
 supports only the reviewed protocol operations. It does not claim that Codex
 provides native event replay, atomic title compare-and-set, result provenance,
 model availability, plugin-root substitution, or any other behavior that was
-not observed. Untested newer stable versions are provisional compatibility
+not observed. Untested newer semantic versions are provisional compatibility
 claims, not evidence that their complete host surface has been verified. See
 [MCP tool surface](mcp-tool-surface.md#experimental-protocol-compatibility) for
 the current evidence and limitations.

@@ -517,19 +517,38 @@ test("the clean MCP environment identity passes the reviewed schema gate", async
   await bridge.close();
 });
 
-test("version and initialize gates reject non-stable runtime identities", async () => {
+test("version and initialize gates accept newer semantic prerelease identities", async () => {
   for (const codexVersion of [
-    "0.144.5-rc.1",
+    "0.145.0-rc.1",
+    "0.148.0-alpha.9",
     "0.144.6+nightly",
-    "0.144.6.1",
   ]) {
+    const fake = fakeCodexAppServer({ codexVersion });
+    const bridge = new CodexAppServerBridgeV1({
+      spawnProcess: fake.spawnProcess,
+    });
+    assert.equal(
+      (await bridge.inspect({ threadId: "thread-1" })).threadId,
+      "thread-1",
+    );
+    const health = await bridge.health();
+    assert.equal(health.state, "ready");
+    assert.equal(health.compatible, true);
+    assert.equal(health.version, codexVersion);
+    assert.equal(health.versionTested, false);
+    await bridge.close();
+  }
+
+  for (const codexVersion of ["0.144.5-rc.1", "0.144.6.1"]) {
     const fake = fakeCodexAppServer({ codexVersion });
     const bridge = new CodexAppServerBridgeV1({
       spawnProcess: fake.spawnProcess,
     });
     await assert.rejects(
       bridge.inspect({ threadId: "thread-1" }),
-      /did not identify a versioned Codex runtime/,
+      codexVersion === "0.144.6.1"
+        ? /did not identify a versioned Codex runtime/
+        : /predates the minimum compatible version/,
     );
     assert.equal((await bridge.health()).state, "incompatible");
     await bridge.close();

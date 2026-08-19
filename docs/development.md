@@ -75,7 +75,7 @@ a bounded recent-turn window before retrying. Archive responses that may have
 been lost are recorded for attention and are not blindly retried.
 Do not mark a version as tested without reviewing those generated shapes and
 running the bridge's batching, polling, timeout, reconnect, and
-no-mutation-replay tests. An untested newer stable version may run, but strict
+no-mutation-replay tests. An untested newer semantic version may run, but strict
 response validation and single-attempt mutation semantics remain mandatory.
 
 ### Compatibility CI lanes
