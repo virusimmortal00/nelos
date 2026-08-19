@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { DesktopGuiScenarioDriver, SealedValueResolver } from "../src/desktop-gui-scenario-driver/index.mjs";
+import { LinuxAtspiBoundary } from "../src/desktop-gui-scenario-driver/linux-atspi-boundary.mjs";
+
+function argumentsFor(argv) {
+  const accepted = new Set(["--scenario", "--bindings", "--sealed-root"]);
+  const result = {};
+  for (let index = 0; index < argv.length; index += 2) {
+    if (!accepted.has(argv[index]) || argv[index + 1] === undefined) throw new Error("usage: nelos-desktop-gui-driver --scenario FILE --bindings FILE --sealed-root DIRECTORY");
+    result[argv[index].slice(2)] = argv[index + 1];
+  }
+  if (!result.scenario || !result.bindings || !result["sealed-root"]) throw new Error("missing required driver argument");
+  return result;
+}
+
+try {
+  const args = argumentsFor(process.argv.slice(2));
+  const scenarioPath = path.resolve(args.scenario);
+  const bindingsPath = path.resolve(args.bindings);
+  const sealedRoot = path.resolve(args["sealed-root"]);
+  const [scenario, bindings] = await Promise.all([
+    readFile(scenarioPath, "utf8").then(JSON.parse),
+    readFile(bindingsPath, "utf8").then(JSON.parse),
+  ]);
+  const driver = new DesktopGuiScenarioDriver({ boundary: new LinuxAtspiBoundary(), sealedValueResolver: new SealedValueResolver({ root: sealedRoot }), bindings });
+  const result = await driver.runScenario(scenario);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (result.outcome !== "passed") process.exitCode = 1;
+} catch (error) {
+  process.stderr.write(`${JSON.stringify({ error: { code: error?.code ?? "DRIVER_ERROR" } })}\n`);
+  process.exitCode = 1;
+}
