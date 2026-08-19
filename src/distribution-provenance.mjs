@@ -41,6 +41,7 @@ export const REQUIRED_CLI_COMMANDS = [
 ];
 export const MANAGED_CLI_BINS = Object.freeze({
   "nelos": "bin/nelos",
+  "nelos-capture-screen": "bin/nelos-capture-screen",
   "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
   "nelos-desktop-runner": "bin/nelos-desktop-runner",
   "nelos-experiment": "bin/nelos-experiment",

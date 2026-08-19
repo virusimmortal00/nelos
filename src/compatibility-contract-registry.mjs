@@ -966,6 +966,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       mappings: Object.freeze({
         owned: Object.freeze([
           ".github/workflows/experiment-ci.yml",
+          "bin/nelos-capture-screen",
           "bin/nelos-desktop-gui-driver",
           "bin/nelos-desktop-runner",
           "bin/nelos-experiment",
@@ -984,6 +985,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "scripts/run-experiment-ci-gate.mjs",
           "scripts/signed-in-codex-vm-adapter.mjs",
           "src/dedicated-desktop-runtime.mjs",
+          "src/dev-screen-capture.mjs",
           "src/api-baseline-adapter.mjs",
           "src/api-baseline-calibration-plan.mjs",
           "src/api-baseline-harness.mjs",
@@ -1016,6 +1018,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/corpus-release-contract.test.mjs",
           "test/api-baseline-harness.test.mjs",
           "test/dedicated-desktop-runtime.test.mjs",
+          "test/dev-screen-capture.test.mjs",
           "test/experimentation-contract-experiment.test.mjs",
           "test/experimentation-contract-export.test.mjs",
           "test/experimentation-contract-kernel.test.mjs",
@@ -1047,6 +1050,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "docs/corpus-authoring.md",
           "docs/api-controlled-baseline.md",
           "docs/dedicated-desktop-worker.md",
+          "docs/developer-screen-capture.md",
           "docs/experimentation-evaluation.md",
           "docs/experimentation-framework.md",
           "docs/experimentation-operations.md",
