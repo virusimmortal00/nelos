@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:nelos:proxmox-validator:evidence:v1",
+  "$id": "urn:nelos:proxmox-validator:evidence:v2",
   "title": "Nelos Proxmox Validator Evidence",
   "type": "object",
   "required": [
@@ -9,27 +9,28 @@
     "runId",
     "candidate",
     "template",
-    "observations",
+    "lifecycle",
     "lanes",
     "sanitization",
     "result"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "contractVersion": {
       "$ref": "#/$defs/semver"
     },
     "runId": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      "pattern": "^run-[a-f0-9]{32}$"
     },
     "candidate": {
       "type": "object",
       "required": [
         "sourceRevision",
         "treeSha256",
+        "archiveSha256",
         "distributionIntegrity",
         "dirty"
       ],
@@ -41,6 +42,10 @@
         "treeSha256": {
           "$ref": "#/$defs/sha256",
           "description": "SHA-256 of the bytes nelos.proxmox.candidate-tree.git-ls-tree.v1\\0objectFormat=<sha1|sha256>\\0 followed by the hardened raw git ls-tree -r -z --full-tree sourceRevision -- output."
+        },
+        "archiveSha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the exact candidate tar bytes transferred into the disposable guest; this is intentionally distinct from treeSha256."
         },
         "distributionIntegrity": {
           "$ref": "#/$defs/distributionIntegrity"
@@ -83,13 +88,94 @@
       },
       "additionalProperties": false
     },
-    "observations": {
+    "lifecycle": {
       "type": "object",
       "required": [
-        "networkDeniedDuringValidation"
+        "pilotNode",
+        "sourceTemplateVmid",
+        "disposableVmid",
+        "clusterWideUnused",
+        "cloneMutationAttempted",
+        "cloneMutationSettlement",
+        "cloneCreated",
+        "linkedClone",
+        "sameNode",
+        "ownershipReadback",
+        "networkDetachedBeforeStart",
+        "networkDeniedDuringValidation",
+        "guestAgentReady",
+        "guestIdentityVerified",
+        "cloudInitStatus",
+        "cleanupOutcome",
+        "clusterAbsentAfterCleanup"
       ],
       "properties": {
+        "pilotNode": {
+          "const": "prox2"
+        },
+        "sourceTemplateVmid": {
+          "const": 9021
+        },
+        "disposableVmid": {
+          "type": "integer",
+          "minimum": 9030,
+          "maximum": 9039
+        },
+        "clusterWideUnused": {
+          "type": "boolean"
+        },
+        "cloneMutationAttempted": {
+          "type": "boolean"
+        },
+        "cloneMutationSettlement": {
+          "enum": [
+            "not-attempted",
+            "settled-present",
+            "settled-absent",
+            "unresolved"
+          ]
+        },
+        "cloneCreated": {
+          "type": "boolean"
+        },
+        "linkedClone": {
+          "type": "boolean"
+        },
+        "sameNode": {
+          "type": "boolean"
+        },
+        "ownershipReadback": {
+          "type": "boolean"
+        },
+        "networkDetachedBeforeStart": {
+          "type": "boolean"
+        },
         "networkDeniedDuringValidation": {
+          "type": "boolean"
+        },
+        "guestAgentReady": {
+          "type": "boolean"
+        },
+        "guestIdentityVerified": {
+          "type": "boolean"
+        },
+        "cloudInitStatus": {
+          "enum": [
+            "not-started",
+            "done",
+            "done-with-recoverable-errors",
+            "failed"
+          ]
+        },
+        "cleanupOutcome": {
+          "enum": [
+            "not-required",
+            "destroyed",
+            "quarantined",
+            "manual-reconcile"
+          ]
+        },
+        "clusterAbsentAfterCleanup": {
           "type": "boolean"
         }
       },
