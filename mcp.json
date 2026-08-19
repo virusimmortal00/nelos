@@ -8,8 +8,8 @@
         "${PLUGIN_ROOT}/bin/nelos-mcp"
       ],
       "env": {
-        "NELOS_PLUGIN_VERSION": "0.12.17",
-        "NELOS_RELEASE_BUILD_IDENTITY": "nelos-release-v1:0.12.17"
+        "NELOS_PLUGIN_VERSION": "0.12.18",
+        "NELOS_RELEASE_BUILD_IDENTITY": "nelos-release-v1:0.12.18"
       }
     }
   }
