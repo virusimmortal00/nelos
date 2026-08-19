@@ -41,6 +41,7 @@
     "./experimentation-reporting": "./src/experimentation-reporting/index.mjs",
     "./dedicated-desktop-runtime": "./src/dedicated-desktop-runtime.mjs",
     "./remote-desktop-contract": "./src/remote-desktop-contract/index.mjs",
+    "./remote-desktop-evidence": "./src/remote-desktop-evidence/index.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"
   },
   "files": [
