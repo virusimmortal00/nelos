@@ -4,7 +4,7 @@ export function validRemoteDesktopRunV1() {
   const scenario = (number) => ({
     schemaVersion: 1,
     scenarioId: `scenario-${number}`,
-    task: { taskId: `desktop-task-${number}`, createdForScenario: `scenario-${number}`, fresh: true },
+    task: { taskId: `01a01ae1-0000-7000-8000-${String(number).padStart(12, "0")}`, createdForScenario: `scenario-${number}`, fresh: true },
     actions: [
       { actionId: `action-${number}-1`, type: "click", targetRef: "new-task-button", valueRef: null, timeoutMs: 5_000 },
       { actionId: `action-${number}-2`, type: "type_text_ref", targetRef: "task-composer", valueRef: `benchmark-input-${number}`, timeoutMs: 10_000 },

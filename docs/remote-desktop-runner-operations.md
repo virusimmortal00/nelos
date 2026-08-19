@@ -20,7 +20,9 @@ Keep the run packet on an operator-controlled filesystem. It contains:
 - explicit maximum task count, model turns, spend, reserved spend, wall time,
   screenshot count/bytes, recording duration/bytes, and diagnostic count/bytes;
 - per-operation usage reservations for provision, every scenario, cleanup,
-  quarantine, and evidence finalization;
+  quarantine, archive convergence, and evidence finalization. Archive
+  convergence must reserve at least two screenshots and its full shared
+  convergence deadline;
 - the dedicated `nelosauto` account identity and per-run state root. The golden
   image must not contain that account, credentials, benchmark values, tokens, or
   developer state. Clone configuration creates a locked-password account with
@@ -69,8 +71,12 @@ Live operation requires all of the following:
    before launch.
 4. Confirmed spend reservation and enough time for worst-case cleanup.
 5. A reviewed runtime module exporting `createRemoteDesktopRuntime(config)` and
-   providing the backend controller, the contract GUI driver, and (when needed)
-   an evidence collector. Runtime modules must use
+   providing the backend controller, the contract GUI driver, the mandatory
+   archive-projection controller, and (when needed) an evidence collector. The
+   projection controller must archive exact scenario task IDs once, capture a
+   post-cleanup checkpoint, restart Desktop under a new app-instance identity,
+   capture a post-restart checkpoint, and reconcile interrupted effects without
+   replay. Runtime modules must use
    `ProxmoxDesktopControllerV1`/`runProxmoxDesktopOperationV1`, not raw mutation
    calls.
 6. A human-issued command containing the one-run authorization gate:
@@ -99,11 +105,12 @@ nelos-desktop-runner resume --config /srv/nelos/runs/RUN_ID/run.json --authorize
 nelos-desktop-runner cancel --config /srv/nelos/runs/RUN_ID/run.json --authorize-live
 ```
 
-A pending provider intent must go through the runtime module's read/reconcile
-boundary; it is never blindly invoked again. A pending GUI intent is ambiguous
-and is never replayed—the run fails and proceeds to cleanup. Cancellation is
-durable and also proceeds to cleanup. Never edit `CURRENT` or an entry by hand,
-copy effects between run directories, or resume with changed inputs.
+A pending provider or archive-convergence intent must go through its runtime
+module read/reconcile boundary; it is never blindly invoked again. A pending GUI
+intent is ambiguous and is never replayed—the run fails and proceeds to cleanup.
+Cancellation is durable and also proceeds to cleanup. Never edit `CURRENT` or
+an entry by hand, copy effects between run directories, or resume with changed
+inputs.
 
 ## Evidence and terminal review
 
@@ -120,6 +127,9 @@ Before publishing a successful result, review:
   are no failures or unresolved intents;
 - every scenario passed under a unique fresh task and usage remains below all
   admitted ceilings;
+- archive convergence is `passed`, exact archive receipts cover every scenario
+  task, both checkpoints are clean, and the restart receipt proves a different
+  Desktop app-instance identity;
 - the evidence inventory and export identities match the journal and contain
   only sanitized allowlisted classes;
 - the terminal outcome is `destroyed`, the receipt is committed, `destroyed` is
@@ -148,6 +158,8 @@ Stop immediately and open an incident if any of these occurs:
   outcome, or a GUI intent lacks a committed receipt;
 - protected capture geometry is incomplete, evidence contains forbidden data,
   artifact verification fails, or a bundle has unreferenced files;
+- cleanup is reported complete while native inventory, an ordinary MCP map,
+  the sidebar, Created Tasks, or the MCP visualization retains an archived task;
 - QGA, graphical session, dedicated account, Desktop health, or task freshness
   cannot be attested;
 - cleanup cannot prove exact absence or committed quarantine.

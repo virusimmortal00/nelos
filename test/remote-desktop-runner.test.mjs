@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { AtomicRemoteDesktopJournal, ResumableRemoteDesktopRunnerV1, preflightRemoteDesktopRunV1 } from "nelos/remote-desktop-runner";
+import { ArchiveProjectionLaneV1 } from "nelos/archive-projection-lane";
 import { currentLeaseFor, validRemoteDesktopRunV1, validRemoteDesktopTerminalOutcomeV1 } from "./fixtures/remote-desktop-contract-v1.mjs";
 
 const zero = () => ({ taskCount: 0, modelTurnCount: 0, spendUsd: 0, wallTimeMs: 0, screenshotCount: 0, screenshotBytes: 0, recordingDurationMs: 0, recordingBytes: 0, diagnosticLogCount: 0, diagnosticLogBytes: 0 });
 
-async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash = false, providerMidflightCrash = null, quarantine = false } = {}) {
+async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash = false, providerMidflightCrash = null, quarantine = false, projectionStale = false, archiveMidflightCrash = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "nelos-desktop-runner-"));
   const run = validRemoteDesktopRunV1();
   run.scenarios = [run.scenarios[0]];
@@ -20,9 +22,13 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
     automation: { user: "nelosauto", uid: 2401, home: "/home/nelosauto", stateRoot: `/var/lib/nelos-desktop/runs/${run.runId}`, credentialRefs: [] },
     operationUsage: { provision: { ...zero(), wallTimeMs: 1_000 }, cleanup: { ...zero(), wallTimeMs: 1_000 }, quarantine: { ...zero(), wallTimeMs: 1_000 } },
     scenarioUsage: { [run.scenarios[0].scenarioId]: scenarioDelta },
+    archiveConvergence: {
+      policy: { maxConvergenceMs: 30_000, requireArchiveReceipts: true, requireRestartCheckpoint: true, requiredConsecutiveAbsent: 2 },
+      operationUsage: { ...zero(), wallTimeMs: 30_000, screenshotCount: 2, screenshotBytes: 2_048 },
+    },
     evidence: { bundleDirectory: path.join(root, "evidence"), proposedOperationalUsage: { taskCount: 0, modelTurnCount: 0, spendUsd: 0, wallTimeMs: 1 }, screenshots: [], recordings: [], diagnostics: [] },
   };
-  const calls = { create: 0, destroy: 0, quarantine: 0, reconcile: 0, gui: 0, collect: 0 };
+  const calls = { create: 0, destroy: 0, quarantine: 0, reconcile: 0, gui: 0, archiveConvergence: 0, archiveReconcile: 0, restart: 0, collect: 0 };
   let present = false;
   let lastCleanup = null;
   let providerCrashThrown = false;
@@ -65,12 +71,55 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
     },
   };
   const evidenceCollector = { async collect() { calls.collect += 1; return { screenshots: [], recordings: [], diagnostics: [] }; } };
+  const visualPath = path.join(root, "visual-report.json");
+  const visualBytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: projectionStale ? "failed" : "passed", counts: {}, findings: [] })}\n`);
+  await writeFile(visualPath, visualBytes);
+  const visualReport = { path: visualPath, digest: `sha256:${createHash("sha256").update(visualBytes).digest("hex")}` };
+  const archivedIds = run.scenarios.map(({ task }) => task.taskId);
+  const projectionAdapter = {
+    async archiveTasks({ expectedThreads }) {
+      return expectedThreads.map(({ threadId }, index) => ({ schemaVersion: 1, type: "native-archive", actionId: `archive-${index + 1}`, threadId, archived: true }));
+    },
+    async observeCheckpoint({ sequence, phase, expectedAppInstanceId }) {
+      const appInstanceId = phase === "afterRestart" ? "desktop-app-2" : "desktop-app-1";
+      assert.equal(expectedAppInstanceId ?? appInstanceId, appInstanceId);
+      return {
+        sequence, observedAt: `2026-08-19T12:01:${sequence}0.000Z`, phase, appInstanceId, cleanupState: "complete",
+        nelosWorkers: [{ workerId: "worker-a", archivedThreadIds: archivedIds }], ordinaryMapThreadIds: [],
+        nativeVisibleThreadIds: projectionStale ? [archivedIds[0]] : [],
+        visualEvidence: { report: visualReport, sidebarThreadIds: projectionStale ? [archivedIds[0]] : [], createdTasksThreadIds: [], mcpVisualThreadIds: [] },
+      };
+    },
+    async restartDesktop({ previousAppInstanceId }) {
+      calls.restart += 1;
+      return { schemaVersion: 1, type: "desktop-restart", previousAppInstanceId, newAppInstanceId: "desktop-app-2", restarted: true };
+    },
+    async reconcileEffect() {
+      throw new Error("adapter reconciliation is wrapped below");
+    },
+  };
+  const projectionLane = new ArchiveProjectionLaneV1({ adapter: projectionAdapter, clock: { now: () => Date.parse("2026-08-19T12:01:00.000Z") } });
+  let lastProjectionReceipt = null;
+  let archiveCrashThrown = false;
+  const archiveProjectionController = {
+    async execute(request) {
+      calls.archiveConvergence += 1;
+      lastProjectionReceipt = await projectionLane.execute(request);
+      if (archiveMidflightCrash && !archiveCrashThrown) { archiveCrashThrown = true; throw Object.assign(new Error("injected after convergence sequence"), { code: "INJECTED_CRASH" }); }
+      return structuredClone(lastProjectionReceipt);
+    },
+    async reconcileEffect() {
+      calls.archiveReconcile += 1;
+      if (!lastProjectionReceipt) throw new Error("archive convergence outcome is unavailable");
+      return structuredClone(lastProjectionReceipt);
+    },
+  };
   let injected = false;
   const crashInjector = async (checkpoint) => {
     if (!injected && checkpoint === crashAt) { injected = true; throw Object.assign(new Error(`crash ${checkpoint}`), { code: "INJECTED_CRASH" }); }
   };
   const input = { run, plan, candidateDigest: run.candidate.digest, currentLease: currentLeaseFor(run), now: Date.parse("2026-08-19T12:00:00.000Z") };
-  const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: path.join(root, "journal"), providerController, guiDriver, evidenceCollector, crashInjector });
+  const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: path.join(root, "journal"), providerController, guiDriver, archiveProjectionController, evidenceCollector, crashInjector, clock: { now: () => Date.parse("2026-08-19T12:01:00.000Z") } });
   return { root, run, plan, input, runner, calls };
 }
 
@@ -81,20 +130,26 @@ test("preflight binds the immutable contract and rejects underdeclared scenario 
   assert.equal(checked.admittedRun.state, "admitted");
   const bad = structuredClone(value.plan); bad.scenarioUsage["scenario-1"].modelTurnCount = 0;
   assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, plan: bad }), (error) => error.code === "UNDERDECLARED_OPERATION");
+  const noRestart = structuredClone(value.plan); noRestart.archiveConvergence.policy.requireRestartCheckpoint = false;
+  assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, plan: noRestart }), (error) => error.code === "INVALID_ARCHIVE_CONVERGENCE_POLICY");
+  const oneCapture = structuredClone(value.plan); oneCapture.archiveConvergence.operationUsage.screenshotCount = 1;
+  assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, plan: oneCapture }), (error) => error.code === "UNDERDECLARED_OPERATION");
 });
 
 for (const [checkpoint, expectedState] of [
   ["after:provision", "succeeded"], ["after:gui", "succeeded"], ["after:destroy", "succeeded"],
-  ["after:evidence", "succeeded"], ["after:quarantine", "quarantined"],
+  ["after:archive-convergence", "succeeded"], ["after:evidence", "succeeded"], ["after:quarantine", "quarantined"],
 ]) {
   test(`resumes deterministically after ${checkpoint} without duplicate mutations or paid turns`, async () => {
     const value = await fixture({ crashAt: checkpoint, quarantine: checkpoint === "after:quarantine" });
     await assert.rejects(value.runner.start(value.input), (error) => error.code === "INJECTED_CRASH");
     const result = await value.runner.resume(value.input);
-    assert.equal(result.run.state, expectedState);
+    assert.equal(result.run.state, expectedState, JSON.stringify({ failure: result.failure, archiveConvergence: result.archiveConvergence, effects: result.effects }, null, 2));
     assert.equal(value.calls.create, 1);
     assert.equal(value.calls.destroy, 1);
     assert.equal(value.calls.gui, 1);
+    assert.equal(value.calls.archiveConvergence, 1);
+    assert.equal(value.calls.restart, 1);
     assert.equal(result.usage.modelTurnCount, 1);
     assert.equal(value.calls.collect, 1);
     assert.ok(result.effects.every(({ status }) => status === "committed"));
@@ -110,6 +165,28 @@ test("an interrupted in-flight GUI effect is never repeated and still reaches ex
   assert.equal(value.calls.gui, 1);
   assert.equal(value.calls.destroy, 1);
   assert.equal(result.terminalOutcome.outcome, "destroyed");
+});
+
+test("stale archive projections fail the product lane before exact VM destruction", async () => {
+  const value = await fixture({ projectionStale: true });
+  const result = await value.runner.start(value.input);
+  assert.equal(result.run.state, "failed");
+  assert.equal(result.failure.code, "ARCHIVE_PROJECTION_STALE");
+  assert.equal(result.archiveConvergence.outcome, "failed");
+  assert.ok(result.archiveConvergence.report.findings.some(({ code }) => code === "SIDEBAR_ARCHIVE_PROJECTION_STALE"));
+  assert.equal(value.calls.destroy, 1);
+  assert.equal(result.terminalOutcome.outcome, "destroyed");
+});
+
+test("an interrupted convergence sequence is reconciled and never replayed", async () => {
+  const value = await fixture({ archiveMidflightCrash: true });
+  await assert.rejects(value.runner.start(value.input), (error) => error.code === "INJECTED_CRASH");
+  const result = await value.runner.resume(value.input);
+  assert.equal(result.run.state, "succeeded");
+  assert.equal(value.calls.archiveConvergence, 1);
+  assert.equal(value.calls.archiveReconcile, 1);
+  assert.equal(value.calls.restart, 1);
+  assert.equal(result.archiveConvergence.outcome, "passed");
 });
 
 for (const operation of ["create", "destroy"]) {

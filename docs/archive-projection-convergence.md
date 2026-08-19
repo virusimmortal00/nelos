@@ -47,3 +47,25 @@ mutation.
 The command exits `0` only for convergence, `1` for valid evidence containing a
 product failure, and `2` for malformed or unverifiable evidence. Output files
 are mode `0600` and are never overwritten.
+
+## Disposable Desktop runner integration
+
+The resumable Desktop runner requires an `archiveConvergence` plan block. Live
+plans must require native archive receipts, a Desktop restart, and at least two
+consecutive clean checkpoints. The operation usage reservation must cover the
+entire convergence deadline and at least two screenshots.
+
+After all scenario task results are committed and before VM destruction, the
+runtime projection controller executes exactly once:
+
+1. archive every exact scenario task ID;
+2. collect the post-cleanup worker, map, native, and visual checkpoint;
+3. restart Desktop and prove a different app-instance identity; and
+4. collect the post-restart checkpoint and evaluate this convergence contract.
+
+The sequence is one journaled external effect. A lost response or runner crash
+must use `reconcileEffect`; the runner never repeats archive or restart. A valid
+failed convergence receipt records `ARCHIVE_PROJECTION_STALE`, still performs
+exact VM destruction or quarantine, and prevents the run from reporting
+success. Evidence collection receives the terminal convergence receipt so the
+sanitized bundle can retain its content-addressed report references.

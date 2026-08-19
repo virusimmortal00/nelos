@@ -97,7 +97,7 @@ function scenarioEvidence(results) {
 }
 
 function validatePlan(plan, run) {
-  assertClosed(plan, ["goldenImageTemplateVmId", "reservation", "automation", "operationUsage", "scenarioUsage", "evidence"], "plan");
+  assertClosed(plan, ["goldenImageTemplateVmId", "reservation", "automation", "operationUsage", "scenarioUsage", "archiveConvergence", "evidence"], "plan");
   assertClosed(plan.operationUsage, ["provision", "cleanup", "quarantine"], "plan.operationUsage");
   for (const name of ["provision", "cleanup", "quarantine"]) usage(plan.operationUsage[name], `plan.operationUsage.${name}`);
   assertClosed(plan.scenarioUsage, run.scenarios.map(({ scenarioId }) => scenarioId), "plan.scenarioUsage");
@@ -110,6 +110,19 @@ function validatePlan(plan, run) {
     }
     projected = assertProposedRemoteDesktopUsageV1(projected, delta, run.policy);
   }
+  assertClosed(plan.archiveConvergence, ["operationUsage", "policy"], "plan.archiveConvergence");
+  assertClosed(plan.archiveConvergence.policy, ["maxConvergenceMs", "requireArchiveReceipts", "requireRestartCheckpoint", "requiredConsecutiveAbsent"], "plan.archiveConvergence.policy");
+  const convergencePolicy = plan.archiveConvergence.policy;
+  if (!Number.isSafeInteger(convergencePolicy.maxConvergenceMs) || convergencePolicy.maxConvergenceMs < 1 || convergencePolicy.maxConvergenceMs > 3_600_000 ||
+      convergencePolicy.requireArchiveReceipts !== true || convergencePolicy.requireRestartCheckpoint !== true ||
+      !Number.isSafeInteger(convergencePolicy.requiredConsecutiveAbsent) || convergencePolicy.requiredConsecutiveAbsent < 2 || convergencePolicy.requiredConsecutiveAbsent > 10) {
+    throw new RemoteDesktopRunnerError("INVALID_ARCHIVE_CONVERGENCE_POLICY", "live Desktop validation requires archive receipts, an app restart, and at least two clean checkpoints");
+  }
+  const convergenceUsage = usage(plan.archiveConvergence.operationUsage, "plan.archiveConvergence.operationUsage");
+  if (convergenceUsage.wallTimeMs < convergencePolicy.maxConvergenceMs || convergenceUsage.screenshotCount < 2) {
+    throw new RemoteDesktopRunnerError("UNDERDECLARED_OPERATION", "archive convergence lacks wall-time or two-checkpoint screenshot coverage");
+  }
+  projected = assertProposedRemoteDesktopUsageV1(projected, convergenceUsage, run.policy);
   projected = assertProposedRemoteDesktopUsageV1(projected, plan.operationUsage.cleanup, run.policy);
   assertClosed(plan.evidence, ["bundleDirectory", "proposedOperationalUsage", "screenshots", "recordings", "diagnostics"], "plan.evidence");
   if (!isAbsolute(plan.evidence.bundleDirectory)) throw new RemoteDesktopRunnerError("INVALID_RUNNER_INPUT", "evidence bundle directory must be absolute");
@@ -127,6 +140,7 @@ function identityFor(run, plan) {
     scenarioManifest: run.scenarioManifest, policy: run.policy, scenarios: run.scenarios,
     goldenImageTemplateVmId: plan.goldenImageTemplateVmId, reservation: plan.reservation,
     automation: plan.automation, operationUsage: plan.operationUsage, scenarioUsage: plan.scenarioUsage,
+    archiveConvergence: plan.archiveConvergence,
     evidenceBounds: {
       bundleDirectory: plan.evidence.bundleDirectory, proposedOperationalUsage: plan.evidence.proposedOperationalUsage,
       screenshots: plan.evidence.screenshots.map(({ maxOutputBytes, scenarioId, artifactId }) => ({ maxOutputBytes, scenarioId, artifactId })),
@@ -169,9 +183,13 @@ function backendRequest(run, plan, operation, effectId) {
 }
 
 export class ResumableRemoteDesktopRunnerV1 {
-  constructor({ journalDirectory, providerController, guiDriver, evidenceCollector = null, crashInjector = null, clock = Date }) {
+  constructor({ journalDirectory, providerController, guiDriver, archiveProjectionController, evidenceCollector = null, crashInjector = null, clock = Date }) {
+    if (typeof archiveProjectionController?.execute !== "function" || typeof archiveProjectionController?.reconcileEffect !== "function") {
+      throw new RemoteDesktopRunnerError("INVALID_ARCHIVE_CONVERGENCE_CONTROLLER", "archive projection controller must execute and reconcile the mandatory live convergence lane");
+    }
     this.journal = new AtomicRemoteDesktopJournal(journalDirectory);
     this.provider = providerController; this.gui = guiDriver; this.collector = evidenceCollector;
+    this.archiveProjection = archiveProjectionController;
     this.crashInjector = crashInjector; this.clock = clock;
   }
 
@@ -183,7 +201,7 @@ export class ResumableRemoteDesktopRunnerV1 {
       const state = {
         schemaVersion: 1, generation: 0, identityDigest: checked.identityDigest,
         run: structuredClone(checked.admittedRun), usage: ZERO(), effects: [], receipts: [],
-        scenarioResults: [], failure: null, cancelRequested: false, terminalOutcome: null,
+        scenarioResults: [], archiveConvergence: null, failure: null, cancelRequested: false, terminalOutcome: null,
         evidence: null, planDigest: contentDigest(input.plan), createdAt: new Date(this.clock.now()).toISOString(),
       };
       await this.journal.initialize(state);
@@ -254,6 +272,12 @@ export class ResumableRemoteDesktopRunnerV1 {
         }
         continue;
       }
+      if (effect.kind === "archive-convergence") {
+        const receipt = await this.archiveProjection.reconcileEffect(structuredClone(effect));
+        await this.#commitEffect(effect, receipt, effect.proposedUsage);
+        current = await this.journal.load();
+        continue;
+      }
       if (!PROVIDER_EFFECTS.has(effect.kind)) throw new RemoteDesktopRunnerError("UNKNOWN_EFFECT", `cannot reconcile ${effect.kind}`);
       const receipt = await this.provider.reconcileEffect(effect);
       await this.#commitEffect(effect, receipt, effect.proposedUsage);
@@ -283,6 +307,7 @@ export class ResumableRemoteDesktopRunnerV1 {
     let terminal = current.terminalOutcome;
     let results = [...current.scenarioResults];
     let evidence = current.evidence;
+    let archiveConvergence = current.archiveConvergence;
     let failure = current.failure;
     for (const effect of current.effects.filter(({ status }) => status === "committed")) {
       if (effect.identityDigest !== current.identityDigest) throw new RemoteDesktopRunnerError("EFFECT_IDENTITY_MISMATCH", "committed effect belongs to another run identity");
@@ -291,6 +316,10 @@ export class ResumableRemoteDesktopRunnerV1 {
         if (effect.receipt.outcome !== "passed") failure ??= { code: effect.receipt.failure?.code ?? "SCENARIO_FAILED", scenarioId: effect.receipt.scenarioId };
       }
       if (effect.kind === "evidence" && !evidence) evidence = structuredClone(effect.receipt);
+      if (effect.kind === "archive-convergence" && !archiveConvergence) {
+        archiveConvergence = structuredClone(effect.receipt);
+        if (effect.receipt.outcome !== "passed") failure ??= { code: "ARCHIVE_PROJECTION_STALE" };
+      }
       if (["destroy", "quarantine"].includes(effect.kind) && !terminal) terminal = terminalOutcome(run, effect.receipt);
       if (effect.kind === "provision" && run.state === "admitted") {
         if (effect.receipt?.created === true) run = transitionRemoteDesktopRun(run, "running");
@@ -300,8 +329,8 @@ export class ResumableRemoteDesktopRunnerV1 {
         } else throw new RemoteDesktopRunnerError("RECONCILIATION_REQUIRED", "provision reconciliation did not prove creation, destruction, or quarantine");
       }
     }
-    if (contentDigest({ run, terminal, results, evidence, failure }) !== contentDigest({ run: current.run, terminal: current.terminalOutcome, results: current.scenarioResults, evidence: current.evidence, failure: current.failure })) {
-      await this.journal.update((value) => ({ ...value, run, terminalOutcome: terminal, scenarioResults: results, evidence, failure }));
+    if (contentDigest({ run, terminal, results, archiveConvergence, evidence, failure }) !== contentDigest({ run: current.run, terminal: current.terminalOutcome, results: current.scenarioResults, archiveConvergence: current.archiveConvergence, evidence: current.evidence, failure: current.failure })) {
+      await this.journal.update((value) => ({ ...value, run, terminalOutcome: terminal, scenarioResults: results, archiveConvergence, evidence, failure }));
     }
   }
 
@@ -334,6 +363,18 @@ export class ResumableRemoteDesktopRunnerV1 {
     }
 
     current = await this.journal.load();
+    if (current.run.state === "running" && !current.cancelRequested && current.scenarioResults.length === current.run.scenarios.length && !current.archiveConvergence && !current.effects.some(({ kind, status }) => kind === "archive-convergence" && status === "intent")) {
+      try {
+        const expectedThreads = current.run.scenarios.map((scenario) => ({ threadId: scenario.task.taskId, title: scenario.scenarioId }));
+        const request = { schemaVersion: 1, runId: current.run.runId, startedAt: new Date(this.clock.now()).toISOString(), expectedThreads, policy: structuredClone(plan.archiveConvergence.policy) };
+        const effect = await this.#intent("archive-convergence", "archive-restart-observe", plan.archiveConvergence.operationUsage, request);
+        const receipt = await this.archiveProjection.execute(structuredClone(request));
+        await this.#commitEffect(effect, receipt);
+        await this.journal.update((value) => ({ ...value, archiveConvergence: structuredClone(receipt), failure: receipt.outcome === "passed" ? value.failure : value.failure ?? { code: "ARCHIVE_PROJECTION_STALE" } }));
+      } catch (error) { await this.#recordFailure(error); }
+    }
+
+    current = await this.journal.load();
     if (!["cleaning", "succeeded", "failed", "quarantined"].includes(current.run.state)) {
       await this.#setRun(transitionRemoteDesktopRun(current.run, "cleaning"));
     }
@@ -361,7 +402,7 @@ export class ResumableRemoteDesktopRunnerV1 {
     if (!current.terminalOutcome) throw new RemoteDesktopRunnerError("CLEANUP_RECONCILIATION_REQUIRED", "cleanup remains ambiguous; resume with provider reconciliation");
     if (!current.evidence && !current.effects.some(({ kind, status }) => kind === "evidence" && status === "committed")) {
       try {
-        const collected = this.collector ? await this.collector.collect({ run: current.run, scenarioResults: current.scenarioResults }) : {};
+        const collected = this.collector ? await this.collector.collect({ run: current.run, scenarioResults: current.scenarioResults, archiveConvergence: current.archiveConvergence }) : {};
         const mapped = scenarioEvidence(current.scenarioResults);
         const evidenceInput = {
           bundleDirectory: plan.evidence.bundleDirectory, run: current.run, currentUsage: current.usage,
@@ -384,7 +425,7 @@ export class ResumableRemoteDesktopRunnerV1 {
     current = await this.journal.load();
     let terminalState;
     if (current.terminalOutcome.outcome === "quarantined") terminalState = "quarantined";
-    else terminalState = !current.failure && current.evidence && current.scenarioResults.length === current.run.scenarios.length && current.scenarioResults.every(({ outcome }) => outcome === "passed") ? "succeeded" : "failed";
+    else terminalState = !current.failure && current.evidence && current.archiveConvergence?.outcome === "passed" && current.scenarioResults.length === current.run.scenarios.length && current.scenarioResults.every(({ outcome }) => outcome === "passed") ? "succeeded" : "failed";
     const terminal = transitionRemoteDesktopRun(current.run, terminalState, { terminalOutcome: current.terminalOutcome });
     await this.#setRun(terminal);
     return this.journal.load();

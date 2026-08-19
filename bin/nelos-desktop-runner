@@ -40,7 +40,7 @@ if (!command || !configPath) {
       else if (command === "cancel") result = await runner.cancel(config);
       else throw new Error(`unknown command: ${command}`);
       if (interrupted && !["succeeded", "failed", "quarantined"].includes(result.run.state)) result = await runner.cancel(config);
-      process.stdout.write(`${JSON.stringify({ runId: result.run.runId, state: result.run.state, generation: result.generation, usage: result.usage, evidence: result.evidence, failure: result.failure }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify({ runId: result.run.runId, state: result.run.state, generation: result.generation, usage: result.usage, archiveConvergence: result.archiveConvergence, evidence: result.evidence, failure: result.failure }, null, 2)}\n`);
       if (result.run.state !== "succeeded") process.exitCode = 1;
     }
   } catch (error) {
