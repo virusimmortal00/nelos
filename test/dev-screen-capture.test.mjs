@@ -37,7 +37,8 @@ test("captures one explicit display with a fixed tool and content-addressed loca
   });
 
   assert.equal(invocation.tool, MACOS_SCREEN_CAPTURE_TOOL);
-  assert.deepEqual(invocation.args.slice(0, 3), ["-x", "-D", "2"]);
+  assert.deepEqual(invocation.args.slice(0, 3), ["-x", "-D2", "-tpng"]);
+  assert.doesNotMatch(invocation.args.at(-1).split("/").at(-1), /^\./u);
   assert.equal(result.localOnly, true);
   assert.equal(result.image, "codex-state-20260819T172000000Z-0123456789ab.png");
   assert.equal(result.bytes, PNG.length);

@@ -109,14 +109,15 @@ export async function captureDeveloperScreen({
   const metadataName = `${stem}.json`;
   const imagePath = join(directory, imageName);
   const metadataPath = join(directory, metadataName);
-  const temporaryImagePath = join(directory, `.${stem}.capture.png`);
+  // macOS screencapture returns success without an image for dot-prefixed destinations.
+  const temporaryImagePath = join(directory, `${stem}.capture-partial.png`);
   const temporaryMetadataPath = join(directory, `.${stem}.metadata.json`);
   let finalImageCreated = false;
 
   try {
     await runCapture({
       tool: MACOS_SCREEN_CAPTURE_TOOL,
-      args: ["-x", "-D", String(selectedDisplay), temporaryImagePath],
+      args: ["-x", `-D${selectedDisplay}`, "-tpng", temporaryImagePath],
     });
     const imageInfo = await lstat(temporaryImagePath);
     if (!imageInfo.isFile() || imageInfo.isSymbolicLink() || imageInfo.size < PNG_SIGNATURE.length) {
