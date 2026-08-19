@@ -255,8 +255,8 @@ attestation. The relevant initialization, `thread/read`, `thread/name/set`,
 `thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`,
 `thread/archive`, thread-status, and active-flag shapes are identical in public
 stable `0.144.5` and Desktop `0.144.6`; both are tested. The bridge parses the
-version from the initialized server's `userAgent`, rejects stable versions
-older than `0.144.5`, and provisionally allows newer stable versions. An
+version from the initialized server's `userAgent`, rejects semantic versions
+older than `0.144.5`, and provisionally allows newer semantic versions. An
 untested version is advisory rather than a startup failure: every response
 still passes the same bounded shape validation, so an actual protocol change
 fails at the affected operation instead of blocking the whole plugin in

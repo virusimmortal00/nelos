@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 
+import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
 
 export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
@@ -175,16 +176,6 @@ function publicThread(thread, expectedThreadId) {
   };
 }
 
-function compareStableVersions(left, right) {
-  const leftParts = left.split(".").map(BigInt);
-  const rightParts = right.split(".").map(BigInt);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] < rightParts[index]) return -1;
-    if (leftParts[index] > rightParts[index]) return 1;
-  }
-  return 0;
-}
-
 function initializeCompatibility(result, testedVersions, minimumVersion) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw bridgeError(
@@ -216,7 +207,7 @@ function initializeCompatibility(result, testedVersions, minimumVersion) {
     );
   }
   const versionMatch = userAgent.match(
-    /\b(?:Codex Desktop|codex-cli|nelos_mcp)\/(\d+\.\d+\.\d+)(?![\w.+-])/iu,
+    /\b(?:Codex Desktop|codex-cli|nelos_mcp)\/((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9a-z-]+(?:\.[0-9a-z-]+)*)?(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?)(?![\w.+-])/iu,
   );
   if (!versionMatch) {
     throw bridgeError(
@@ -225,7 +216,7 @@ function initializeCompatibility(result, testedVersions, minimumVersion) {
     );
   }
   const version = versionMatch[1];
-  if (compareStableVersions(version, minimumVersion) < 0) {
+  if (compareSemanticVersions(version, minimumVersion) < 0) {
     const error = bridgeError(
       `Codex app-server version ${version} predates the minimum compatible version ${minimumVersion}`,
       "incompatible-version",
@@ -775,7 +766,7 @@ export class CodexAppServerBridgeV1 {
       minimumVersion: this.#minimumVersion,
       testedVersions: [...this.#testedVersions],
       // Retained for schema-v1 consumers. New integrations should use
-      // testedVersions; newer stable versions are not blocked.
+      // testedVersions; newer semantic versions are not blocked.
       supportedVersions: [...this.#testedVersions],
       requiredMethods: [...REQUIRED_CODEX_APP_SERVER_METHODS],
       connectionAttempts: this.#connectionAttempts,

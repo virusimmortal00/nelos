@@ -323,9 +323,9 @@ Apply these definitions to G2 and to the default-adoption gate:
 - **Observable output:** a reproducible version/capability/field/nullability
   matrix plus proposed read/set/clear permission and audit classifications.
 - **Pass/reject:** pass when tested versions have reviewed shapes, older or
-  non-stable identities follow the minimum-version policy, newer stable
-  versions retain strict response validation, and disabling Goals leaves
-  existing Nelos tools intact; reject integration if capability negotiation is
+  semantic identities follow the minimum-version policy, newer stable and
+  prerelease versions retain strict response validation, and disabling Goals
+  leaves existing Nelos tools intact; reject integration if capability negotiation is
   ambiguous or disablement breaks the current flow.
 
 #### G1 — Disposable-task semantics
@@ -417,7 +417,7 @@ defines four separate profiles rather than one blanket compatibility claim:
 - the strict MCP bridge has minimum Codex version `0.144.5`; one combined
   reduced fixture records `0.144.5`/Desktop `0.144.6` shapes, and the `0.4.0`
   release additionally revalidated the exact CLI npm distributions for both
-  versions; newer stable versions are provisionally allowed behind the same
+  versions; newer semantic versions are provisionally allowed behind the same
   response validators;
 - the broader source CLI remains conditional explicit-development behavior
   until its methods, fields, and shared client receive the same attestation;
