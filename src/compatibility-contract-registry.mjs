@@ -967,6 +967,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         owned: Object.freeze([
           ".github/workflows/experiment-ci.yml",
           "bin/nelos-capture-screen",
+          "bin/nelos-validate-visual-state",
           "bin/nelos-desktop-gui-driver",
           "bin/nelos-desktop-runner",
           "bin/nelos-experiment",
@@ -986,6 +987,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "scripts/signed-in-codex-vm-adapter.mjs",
           "src/dedicated-desktop-runtime.mjs",
           "src/dev-screen-capture.mjs",
+          "src/dev-visual-state-validation.mjs",
           "src/api-baseline-adapter.mjs",
           "src/api-baseline-calibration-plan.mjs",
           "src/api-baseline-harness.mjs",
@@ -1019,6 +1021,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/api-baseline-harness.test.mjs",
           "test/dedicated-desktop-runtime.test.mjs",
           "test/dev-screen-capture.test.mjs",
+          "test/dev-visual-state-validation.test.mjs",
           "test/experimentation-contract-experiment.test.mjs",
           "test/experimentation-contract-export.test.mjs",
           "test/experimentation-contract-kernel.test.mjs",
