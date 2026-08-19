@@ -5,6 +5,41 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.18] - 2026-08-19
+
+### User-facing changes
+
+- Newer well-formed Codex semantic-version identities at or above `0.144.5`,
+  including prerelease and build identities, now proceed as compatible but
+  untested instead of rejecting otherwise valid completed planner results.
+- Strict per-response validation remains in force: malformed identities,
+  versions below the minimum, and incompatible response shapes still fail
+  closed at the operation boundary.
+
+### Compatibility requirements
+
+- The distributable plugin identity advances to `0.12.18` for the corrected
+  Codex app-server compatibility policy.
+- The compatibility class was validated with Codex Desktop
+  `0.148.0-alpha.9` on macOS and the ChatGPT Desktop Linux preview package
+  `26.814.41957`, bundling Codex Desktop `0.148.0-alpha.15`, in an isolated
+  disposable VM. These preview identities remain advisory and untested unless
+  they are added to the fixture's exact tested-version list.
+
+### Migrations
+
+- No migrations.
+
+### Security fixes
+
+- No security fixes.
+
+### Known limitations
+
+- Compatible-but-untested identities can still encounter protocol drift;
+  response validation will reject the affected operation rather than accept
+  malformed evidence.
+
 ## [0.12.17] - 2026-08-17
 
 ### User-facing changes
