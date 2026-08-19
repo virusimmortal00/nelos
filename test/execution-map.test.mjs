@@ -275,6 +275,126 @@ test("planned task webs expose authorization and authorized launch phases", () =
   assert.equal(launchPending.summary.created, 0);
 });
 
+test("a newer plan run replaces stale current members and objective", async () => {
+  const webRegistry = memoryWebRegistry();
+  const plan = (objective, id, title) => planWorkSlices({
+    schemaVersion: 1,
+    objective,
+    slices: [plannedSlice(id, { title })],
+  });
+  const oldPlan = plan("Old objective", "old-worker", "Old worker");
+  const currentPlan = plan(
+    "Current Desktop objective",
+    "desktop-driver",
+    "Desktop GUI scenario driver",
+  );
+  await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-current" },
+    {
+      plan: oldPlan,
+      planRun: {
+        planRunId: `run:${"1".repeat(40)}`,
+        webIdentity: { webId: "D1", queenThreadId: "queen-current" },
+        waves: [],
+      },
+    },
+    { webRegistry },
+  );
+  const current = await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-current" },
+    {
+      plan: currentPlan,
+      planRun: {
+        planRunId: `run:${"2".repeat(40)}`,
+        webIdentity: { webId: "D1", queenThreadId: "queen-current" },
+        waves: [],
+      },
+    },
+    { webRegistry },
+  );
+
+  assert.equal(current.task, "Current Desktop objective");
+  assert.deepEqual(current.members.map(({ id }) => id), ["desktop-driver"]);
+  const record = await webRegistry.read("queen-current");
+  assert.equal(
+    record.executionMapProjectionPlanRunId,
+    `run:${"2".repeat(40)}`,
+  );
+});
+
+test("a scoped member receipt repairs a legacy web-wide projection", async () => {
+  const webRegistry = memoryWebRegistry();
+  await webRegistry.write({
+    threadId: "queen-repair",
+    outboundWebId: "D2",
+    executionMapProjection: {
+      schemaVersion: 1,
+      view: "execution-map",
+      phase: "planning",
+      task: "Stale objective",
+      summary: {
+        total: 1,
+        spinoffs: 0,
+        subagents: 1,
+        created: 0,
+        running: 0,
+        attention: 0,
+        complete: 0,
+        accepted: 0,
+        archived: 0,
+      },
+      members: [{
+        id: "stale-planner",
+        task: "Plan and classify the work",
+        lifecycle: "subagent",
+        model: "gpt-5.6-sol",
+        reasoning: "medium",
+        status: "planning",
+        threadId: null,
+      }],
+    },
+  });
+  const runId = `run:${"3".repeat(40)}`;
+  const currentObjective = "Build the current Desktop validation lane";
+  const planRun = {
+    planRunId: runId,
+    plan: { objective: currentObjective },
+    waves: [{ members: [{ sliceId: "desktop-evidence" }] }],
+  };
+  const planRunStore = {
+    async listForWeb() {
+      return [planRun];
+    },
+    async read(requestedRunId) {
+      return requestedRunId === runId ? planRun : null;
+    },
+  };
+  const repaired = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_complete",
+    {
+      webId: "D2",
+      queenThreadId: "queen-repair",
+      workUnitId: "desktop-evidence",
+      specRevision: 1,
+      attempt: 1,
+      memberThreadId: "thread-evidence",
+      outcome: "succeeded",
+    },
+    {},
+    { webRegistry, planRunStore },
+  );
+
+  assert.deepEqual(repaired.members.map(({ id }) => id), ["desktop-evidence"]);
+  assert.equal(repaired.members[0].status, "complete");
+  assert.equal(repaired.task, currentObjective);
+  assert.equal(
+    (await webRegistry.read("queen-repair")).executionMapProjectionPlanRunId,
+    runId,
+  );
+});
+
 test("ordinary receipts hide archived spin-offs without losing the protocol receipt", () => {
   const archived = executionMapForToolResultV1(
     "nelos_spinoff_cleanup",

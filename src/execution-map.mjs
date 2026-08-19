@@ -1138,11 +1138,71 @@ async function projectionIdentity(toolName, args, result, webRegistry) {
   return null;
 }
 
+function planRunMemberIds(planRun) {
+  return new Set(
+    (planRun?.waves ?? []).flatMap((wave) =>
+      (wave.members ?? []).map(({ sliceId }) => sliceId)
+    ),
+  );
+}
+
+function observedMemberIds(toolName, args, result) {
+  const ids = new Set();
+  if (args?.workUnit?.workUnitId) ids.add(args.workUnit.workUnitId);
+  if (args?.workUnitId) ids.add(args.workUnitId);
+  for (const member of args?.members ?? result?.members ?? []) {
+    if (member?.id) ids.add(member.id);
+  }
+  for (const member of result?.verification?.members ?? []) {
+    if (member?.sliceId) ids.add(member.sliceId);
+  }
+  for (const member of result?.checkpoint?.members ?? []) {
+    if (member?.workUnitId) ids.add(member.workUnitId);
+  }
+  if (toolName === "nelos_queen_decide" && result?.decision?.workUnitId) {
+    ids.add(result.decision.workUnitId);
+  }
+  return ids;
+}
+
+async function projectionPlanRunId(
+  toolName,
+  args,
+  result,
+  identity,
+  planRunStore,
+) {
+  const direct =
+    result?.planRun?.planRunId ??
+    args?.planRunId ??
+    result?.verification?.planRunId ??
+    result?.checkpoint?.waveScope?.planRunId ??
+    null;
+  if (direct) return direct;
+  if (typeof planRunStore?.listForWeb !== "function") return null;
+  const ids = observedMemberIds(toolName, args, result);
+  if (ids.size === 0) return null;
+  const matches = (await planRunStore.listForWeb(identity)).filter((planRun) => {
+    const members = planRunMemberIds(planRun);
+    return [...ids].some((id) => members.has(id));
+  });
+  return matches.length === 1 ? matches[0].planRunId : null;
+}
+
+async function projectionPlanTask(result, planRunId, planRunStore) {
+  const directObjective = text(result?.plan?.objective, null);
+  if (directObjective) return directObjective;
+  if (planRunId === null || typeof planRunStore?.read !== "function") {
+    return null;
+  }
+  return text((await planRunStore.read(planRunId))?.plan?.objective, null);
+}
+
 export async function projectExecutionMapForToolResultV1(
   toolName,
   args,
   result,
-  { webRegistry } = {},
+  { webRegistry, planRunStore } = {},
 ) {
   const visibleResponse = executionMapForToolResultV1(toolName, args, result);
   if (!visibleResponse || toolName === "nelos_execution_map_history") {
@@ -1158,9 +1218,26 @@ export async function projectExecutionMapForToolResultV1(
   if (!identity) return visibleResponse;
   return webRegistry.withLock(async () => {
     const record = await webRegistry.read(identity.queenThreadId);
+    const incomingPlanRunId = await projectionPlanRunId(
+      toolName,
+      args,
+      result,
+      identity,
+      planRunStore,
+    );
+    const resetProjection = incomingPlanRunId !== null &&
+      incomingPlanRunId !== record?.executionMapProjectionPlanRunId;
     const { protocol: _priorProtocol, ...priorMap } =
       record?.executionMapProjection ?? {};
-    const { protocol, ...incomingMap } = currentResponse;
+    const { protocol, ...observedIncomingMap } = currentResponse;
+    const planTask = await projectionPlanTask(
+      result,
+      incomingPlanRunId,
+      planRunStore,
+    );
+    const incomingMap = planTask
+      ? { ...observedIncomingMap, task: planTask }
+      : observedIncomingMap;
     const ignoredStatusIds = new Set(
       toolName === "nelos_execution_map_refresh"
         ? (result?.members ?? [])
@@ -1188,10 +1265,12 @@ export async function projectExecutionMapForToolResultV1(
             : [],
     );
     const { map: merged, versions } = mergeMaps(
-      Array.isArray(priorMap.members) ? priorMap : null,
+      !resetProjection && Array.isArray(priorMap.members) ? priorMap : null,
       incomingMap,
       {
-        currentVersions: record?.executionMapProjectionVersions ?? {},
+        currentVersions: resetProjection
+          ? {}
+          : record?.executionMapProjectionVersions ?? {},
         incomingVersions: memberVersions(toolName, args, result),
         ignoredStatusIds,
         authoritativeStatusIds,
@@ -1208,7 +1287,9 @@ export async function projectExecutionMapForToolResultV1(
       JSON.stringify(record.executionMapProjection) !==
         JSON.stringify(persistedProjection) ||
       JSON.stringify(record.executionMapProjectionVersions ?? {}) !==
-        JSON.stringify(versions)
+        JSON.stringify(versions) ||
+      (incomingPlanRunId !== null &&
+        record.executionMapProjectionPlanRunId !== incomingPlanRunId)
     ) {
       await webRegistry.write({
         ...(record ?? {
@@ -1219,6 +1300,12 @@ export async function projectExecutionMapForToolResultV1(
         updatedAt: new Date().toISOString(),
         executionMapProjection: persistedProjection,
         executionMapProjectionVersions: versions,
+        ...((incomingPlanRunId ?? record?.executionMapProjectionPlanRunId)
+          ? {
+            executionMapProjectionPlanRunId:
+              incomingPlanRunId ?? record.executionMapProjectionPlanRunId,
+          }
+          : {}),
       });
     }
     return visibleExecutionMapResponse({ ...merged, protocol });

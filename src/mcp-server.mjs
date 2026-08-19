@@ -1531,7 +1531,7 @@ export function startNelosMcpServer({
       tool.name,
       args,
       body,
-      { webRegistry },
+      { webRegistry, planRunStore },
     ) ?? (
       MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[tool.name]
         ? structuredClone(body)
