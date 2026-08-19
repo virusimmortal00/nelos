@@ -7,6 +7,7 @@
     "nelos": "bin/nelos",
     "nelos-experiment": "bin/nelos-experiment",
     "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
+    "nelos-desktop-runner": "bin/nelos-desktop-runner",
     "nelos-title": "bin/nelos-title",
     "nelos-install-skill": "bin/nelos-install-skill",
     "nelos-install-distribution": "bin/nelos-install-distribution",
@@ -44,6 +45,7 @@
     "./desktop-gui-scenario-driver": "./src/desktop-gui-scenario-driver/index.mjs",
     "./remote-desktop-contract": "./src/remote-desktop-contract/index.mjs",
     "./remote-desktop-evidence": "./src/remote-desktop-evidence/index.mjs",
+    "./remote-desktop-runner": "./src/remote-desktop-runner/index.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"
   },
   "files": [
@@ -71,6 +73,7 @@
     "check:experiment-ci": "node --check src/experiment-ci-gates.mjs && node --check scripts/run-experiment-ci-gate.mjs && node --check scripts/bind-release-experiment-canary.mjs",
     "check:signed-in-pilot": "node --check src/signed-in-pilot-telemetry.mjs && node --check scripts/build-signed-in-pilot.mjs && node --check scripts/run-signed-in-pilot-canary.mjs && node --check scripts/signed-in-codex-vm-adapter.mjs && node --check scripts/report-signed-in-pilot.mjs && node --import ./scripts/test-bootstrap.mjs --test test/signed-in-pilot.test.mjs",
     "check:desktop-gui-driver": "node --check src/desktop-gui-scenario-driver/index.mjs && node --check src/desktop-gui-scenario-driver/sealed-value-resolver.mjs && node --check src/desktop-gui-scenario-driver/linux-atspi-boundary.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-gui-scenario-driver.test.mjs",
+    "check:desktop-runner": "node --check src/remote-desktop-runner/index.mjs && node --check src/remote-desktop-runner/journal.mjs && node --check bin/nelos-desktop-runner && node --import ./scripts/test-bootstrap.mjs --test test/remote-desktop-runner.test.mjs",
     "experiment:ci": "node scripts/run-experiment-ci-gate.mjs",
     "compatibility": "npm run compatibility:required",
     "compatibility:required": "NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs node scripts/run-required-compatibility.mjs",
