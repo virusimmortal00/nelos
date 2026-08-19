@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+
+import { validateArchiveProjectionConvergence } from "../src/archive-projection-convergence.mjs";
+
+function usage() {
+  return "usage: nelos-validate-archive-convergence --input /absolute/checkpoints.json [--out /absolute/report.json]";
+}
+
+function parseOptions() {
+  const args = process.argv.slice(2);
+  const allowed = new Set(["--input", "--out"]);
+  const values = new Map();
+  for (let index = 0; index < args.length; index += 2) {
+    const name = args[index];
+    const value = args[index + 1];
+    if (!allowed.has(name) || !value || value.startsWith("--") || values.has(name)) throw new Error(`invalid or duplicate option: ${name ?? "<missing>"}`);
+    values.set(name, value);
+  }
+  return { inputPath: values.get("--input"), outputPath: values.get("--out") };
+}
+
+try {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(`${usage()}\n`);
+  } else {
+    const { inputPath, outputPath } = parseOptions();
+    if (!inputPath || !isAbsolute(inputPath) || (outputPath && !isAbsolute(outputPath))) throw new Error("input and output paths must be absolute");
+    const report = await validateArchiveProjectionConvergence(JSON.parse(await readFile(resolve(inputPath), "utf8")));
+    const serialized = `${JSON.stringify(report, null, 2)}\n`;
+    if (outputPath) {
+      await mkdir(dirname(resolve(outputPath)), { recursive: true, mode: 0o700 });
+      await writeFile(resolve(outputPath), serialized, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    }
+    process.stdout.write(serialized);
+    if (report.outcome !== "passed") process.exitCode = 1;
+  }
+} catch (error) {
+  process.stderr.write(`${error.code ?? "INVALID_ARGUMENT"}: ${error.message}\n${usage()}\n`);
+  process.exitCode = 2;
+}
