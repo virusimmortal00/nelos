@@ -16,9 +16,10 @@ const ARCHIVE_HELPER = "/usr/libexec/nelos-desktop-archive";
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const ATSPI_OPERATIONS = new Set([
-  "list_tasks", "create_fresh_task", "active_task", "click", "keypress", "scroll", "select_menu",
+  "list_tasks", "activate_expected_task", "active_task", "click", "keypress", "scroll", "select_menu",
   "type_text", "wait_for", "accessibility_tree", "window_state", "query_element", "task_state",
   "text_present", "window_count", "protected_capture_regions", "capture_screenshot", "capture_evidence", "health",
+  "gui_ready", "auth_status", "stage_task_surfaces", "stage_archive_observations", "compare_task_surfaces", "diagnostics",
 ]);
 const ARCHIVE_OPERATIONS = new Set(["archive_tasks", "observe_checkpoint", "restart_desktop", "reconcile_convergence"]);
 const DEFAULTS = Object.freeze({
@@ -67,13 +68,14 @@ function assertWithin(root, target, label) {
 
 function validateConfig(config) {
   plain(config, "config"); plain(config.run, "config.run"); plain(config.plan, "config.plan");
-  const homelab = closed(config.homelab, ["schemaVersion", "stateRoot", "sealedValueRoot", "guiBindings", "deadlines", "outputLimits"], "config.homelab");
+  const homelab = closed(config.homelab, ["schemaVersion", "stateRoot", "sealedValueRoot", "observationRoot", "guiBindings", "deadlines", "outputLimits"], "config.homelab");
   if (homelab.schemaVersion !== 1 || typeof config.run.runId !== "string" || !ID.test(config.run.runId)) fail("INVALID_HOMELAB_CONFIG", "homelab schema or run identity is invalid");
   for (const [field, value] of Object.entries(config.run.provider ?? {})) if (!ID.test(value ?? "")) fail("INVALID_HOMELAB_CONFIG", `run.provider.${field} is invalid`);
   for (const field of ["leaseId", "fencingToken"]) if (!ID.test(config.run.lease?.[field] ?? "")) fail("INVALID_HOMELAB_CONFIG", `run.lease.${field} is invalid`);
-  if (!isAbsolute(config.journalDirectory ?? "") || !isAbsolute(config.plan.evidence?.bundleDirectory ?? "") || !isAbsolute(homelab.stateRoot ?? "") || !isAbsolute(homelab.sealedValueRoot ?? "")) fail("UNSAFE_RUNTIME_PATH", "runtime, journal, evidence, and sealed roots must be absolute");
+  if (!isAbsolute(config.journalDirectory ?? "") || !isAbsolute(config.plan.evidence?.bundleDirectory ?? "") || !isAbsolute(homelab.stateRoot ?? "") || !isAbsolute(homelab.sealedValueRoot ?? "") || !isAbsolute(homelab.observationRoot ?? "")) fail("UNSAFE_RUNTIME_PATH", "runtime, journal, evidence, observation, and sealed roots must be absolute");
   const stateRoot = resolve(homelab.stateRoot);
   if (dirname(resolve(config.journalDirectory)) !== stateRoot || dirname(resolve(config.plan.evidence.bundleDirectory)) !== stateRoot || stateRoot.split(sep).at(-1) !== config.run.runId || resolve(homelab.sealedValueRoot).split(sep).at(-1) !== config.run.runId) fail("WRITABLE_STATE_NOT_ISOLATED", "host state, journal, evidence, and sealed values must be isolated to the admitted run");
+  assertWithin(stateRoot, resolve(homelab.observationRoot), "observation root");
   if (config.plan.automation?.stateRoot !== `/var/lib/nelos-desktop/runs/${config.run.runId}` || config.plan.automation?.home !== `/home/${config.plan.automation?.user}` || config.plan.automation?.credentialRefs?.length !== 0) fail("WRITABLE_STATE_NOT_ISOLATED", "guest automation state is not isolated or contains credential references");
   plain(config.currentLease, "config.currentLease");
   exactIdentity(config.currentLease, { ...config.run.provider, ...config.run.lease }, "STALE_FENCING_TOKEN");
@@ -104,7 +106,12 @@ export class BoundedJsonProcessV1 {
       child.once("error", () => finish(rejectPromise, new HomelabDesktopRuntimeError("UNAVAILABLE_HELPER", "allowlisted helper is unavailable")));
       child.stdout.on("data", (chunk) => { size += chunk.length; if (size > maxOutputBytes) { abort.abort(); finish(rejectPromise, new HomelabDesktopRuntimeError("HELPER_OUTPUT_LIMIT", "helper output exceeded its bound")); } else chunks.push(chunk); });
       child.once("close", (code) => {
-        if (code !== 0) return finish(rejectPromise, new HomelabDesktopRuntimeError("HELPER_FAILED", "allowlisted helper returned a failure"));
+        if (code === 44 && executable === PROVIDER_HELPER && operation === "request") {
+          const error = new HomelabDesktopRuntimeError("PVE_NOT_FOUND", "Proxmox object was not found");
+          error.status = 404;
+          return finish(rejectPromise, error);
+        }
+        if (code !== 0) return finish(rejectPromise, new HomelabDesktopRuntimeError("HELPER_FAILED", "allowlisted helper returned a failure", { exitCode: code }));
         try { finish(resolvePromise, JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { finish(rejectPromise, new HomelabDesktopRuntimeError("INVALID_HELPER_OUTPUT", "helper returned invalid JSON")); }
       });
       const header = Buffer.from(`${JSON.stringify(payload)}\n`);
@@ -116,9 +123,17 @@ export class BoundedJsonProcessV1 {
 }
 
 export class HomelabProxmoxTransportV1 {
-  constructor({ processBoundary, deadlineMs, maxOutputBytes }) { this.processBoundary = processBoundary; this.deadlineMs = deadlineMs; this.maxOutputBytes = maxOutputBytes; }
+  constructor({ processBoundary, binding, deadlineMs, maxOutputBytes, clock = Date }) { this.processBoundary = processBoundary; this.binding = binding; this.deadlineMs = deadlineMs; this.maxOutputBytes = maxOutputBytes; this.clock = clock; }
   request(request, options = {}) {
-    return this.processBoundary.invoke({ executable: PROVIDER_HELPER, operation: "request", payload: request, deadlineMs: Math.min(options.deadlineMs ?? this.deadlineMs, this.deadlineMs), maxOutputBytes: Math.min(options.maxOutputBytes ?? this.maxOutputBytes, this.maxOutputBytes), signal: options.signal ?? null });
+    const deadlineMs = Math.min(options.deadlineMs ?? this.deadlineMs, this.deadlineMs);
+    const maxOutputBytes = Math.min(options.maxOutputBytes ?? this.maxOutputBytes, this.maxOutputBytes);
+    return this.processBoundary.invoke({ executable: PROVIDER_HELPER, operation: "request", payload: {
+      schemaVersion: 1,
+      binding: this.binding,
+      deadlineAt: new Date(this.clock.now() + deadlineMs).toISOString(),
+      maxOutputBytes,
+      request,
+    }, deadlineMs, maxOutputBytes, signal: options.signal ?? null });
   }
 }
 
@@ -210,7 +225,7 @@ export class ProxmoxQgaHelperClientV1 {
     const operations = helper === ATSPI_HELPER ? ATSPI_OPERATIONS : helper === ARCHIVE_HELPER ? ARCHIVE_OPERATIONS : null;
     if (!operations?.has(operation)) fail("FORBIDDEN_HELPER_OPERATION", "guest helper or operation is not allowlisted");
     await this.assertGuestIdentity();
-    const envelope = Buffer.from(`${JSON.stringify({ schemaVersion: 1, binding: this.admitted.runtimeBinding, operation, payload, byteLength: bytes?.length ?? 0 })}\n`);
+    const envelope = Buffer.from(`${JSON.stringify({ schemaVersion: 1, binding: this.admitted.runtimeBinding, operation, payload, byteLength: bytes?.length ?? 0, deadlineAt: new Date(this.clock.now() + this.deadlineMs).toISOString(), maxOutputBytes })}\n`);
     const input = bytes ? Buffer.concat([envelope, bytes]) : envelope;
     const abort = new AbortController();
     const combinedSignal = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal;
@@ -246,7 +261,7 @@ export class ProxmoxQgaHelperClientV1 {
 export class QgaAtspiBoundaryV1 {
   constructor(client) { this.client = client; }
   request(operation, payload = {}, bytes = null, signal = null) { return this.client.invoke({ helper: ATSPI_HELPER, operation, payload, bytes, signal }); }
-  listTasks({ signal }) { return this.request("list_tasks", {}, null, signal); } createFreshTask({ scenarioId, signal }) { return this.request("create_fresh_task", { scenarioId }, null, signal); }
+  listTasks({ signal }) { return this.request("list_tasks", {}, null, signal); } activateExpectedTask({ scenarioId, taskId, title, signal }) { return this.request("activate_expected_task", { scenarioId, taskId, title }, null, signal); }
   activeTask({ signal }) { return this.request("active_task", {}, null, signal); } click({ target, signal }) { return this.request("click", { target }, null, signal); }
   keypress({ target, key, signal }) { return this.request("keypress", { target, key }, null, signal); } scroll({ target, direction, amount, signal }) { return this.request("scroll", { target, direction, amount }, null, signal); }
   selectMenu({ target, menuPath, signal }) { return this.request("select_menu", { target, menuPath }, null, signal); } typeText({ target, bytes, signal }) { return this.request("type_text", { target }, bytes, signal); }
@@ -278,16 +293,71 @@ export class HomelabEvidenceCollectorV1 {
       if (!Number.isSafeInteger(captured.width) || !Number.isSafeInteger(captured.height) || rgba.length !== captured.width * captured.height * 4) fail("UNSAFE_CAPTURE", "capture dimensions and payload disagree");
       screenshots.push({ artifactId: spec.artifactId, scenarioId: spec.scenarioId, width: captured.width, height: captured.height, maxOutputBytes: spec.maxOutputBytes, frame: { rgba, sensitiveRegions: exclude.map(({ kind, ...region }) => ({ class: kind, region })), protection: { geometryCertain: true, inventoryComplete: true, mode: "mask", regions: exclude.map(({ kind: _kind, ...region }) => region) } } });
     }
-    return { screenshots, recordings: [], diagnostics: structuredClone(this.plan.evidence.diagnostics ?? []) };
+    const diagnostics = [];
+    for (const spec of this.plan.evidence.diagnostics ?? []) {
+      if (!completed.has(spec.scenarioId)) fail("RUNTIME_IDENTITY_MISMATCH", "diagnostic request refers to an unexecuted scenario");
+      const observed = await this.client.invoke({ helper: ATSPI_HELPER, operation: "diagnostics", payload: { scenarioId: spec.scenarioId } });
+      closed(observed, ["source", "code", "occurredAt", "fields"], "diagnostic output");
+      diagnostics.push({ diagnosticId: spec.diagnosticId, scenarioId: spec.scenarioId, ...observed });
+    }
+    return { screenshots, recordings: [], diagnostics };
+  }
+}
+
+export class ProductionGuiDriverV1 {
+  constructor({ driver, client, admitted, surfaceObserver }) { this.driver = driver; this.client = client; this.admitted = admitted; this.surfaceObserver = surfaceObserver; }
+  async runScenario(scenario) {
+    const readiness = await this.client.invoke({ helper: ATSPI_HELPER, operation: "gui_ready" });
+    if (readiness?.ready !== true || readiness?.accessibilityBus !== true || readiness?.captureReady !== true) fail("GUI_NOT_READY", "graphical control and protected capture are not ready");
+    const auth = await this.client.invoke({ helper: ATSPI_HELPER, operation: "auth_status" });
+    if (auth?.modelBacked !== true || auth?.developerSessionImported !== false || auth?.automationUser !== this.admitted.plan.automation.user || auth?.runId !== this.admitted.run.runId || auth?.accountCount !== 1) fail("AUTH_IDENTITY_MISMATCH", "run-scoped model authentication is unavailable or contaminated");
+    const result = await this.driver.runScenario(scenario);
+    if (result.outcome === "passed") {
+      const surfaces = await this.surfaceObserver.observeTask({ taskId: scenario.task.taskId, title: scenario.scenarioId, lifecycle: "active" });
+      await this.client.invoke({ helper: ATSPI_HELPER, operation: "stage_task_surfaces", payload: { surfaces } });
+      const compared = await this.client.invoke({ helper: ATSPI_HELPER, operation: "compare_task_surfaces", payload: { taskId: scenario.task.taskId, title: scenario.scenarioId, lifecycle: "active" } });
+      if (compared?.matched !== true || compared?.taskId !== scenario.task.taskId || compared?.lifecycle !== "active") fail("THREE_SURFACE_IDENTITY_MISMATCH", "native, ordinary MCP, and visible Desktop task state disagree");
+    }
+    return result;
+  }
+}
+
+export class FileTaskSurfaceObserverV1 {
+  constructor({ root, binding, clock = Date }) { this.root = resolve(root); this.binding = binding; this.clock = clock; }
+  async read(relativePath) {
+    const target = join(this.root, relativePath); assertWithin(this.root, target, "task observation");
+    const info = await lstat(target); if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 1_048_576) fail("OBSERVATION_UNAVAILABLE", "task observation is not a bounded regular file");
+    return JSON.parse(await readFile(target, "utf8"));
+  }
+  validate(value, expected, label) {
+    closed(value, ["fencingToken", "lifecycle", "observedAt", "producer", "runId", "schemaVersion", "taskId", "title"], label);
+    const observedAt = Date.parse(value.observedAt);
+    if (value.schemaVersion !== 1 || value.runId !== this.binding.runId || value.fencingToken !== this.binding.fencingToken || value.taskId !== expected.taskId || value.title !== expected.title || value.lifecycle !== expected.lifecycle || !["native-codex", "ordinary-nelos-mcp", "visible-codex-desktop"].includes(value.producer) || !Number.isFinite(observedAt) || Math.abs(this.clock.now() - observedAt) > 30_000) fail("THREE_SURFACE_IDENTITY_MISMATCH", `${label} is stale or identity-mismatched`);
+    return value;
+  }
+  async observeTask(expected) {
+    const entries = await Promise.all(["native", "mcp", "desktop"].map(async (name) => this.validate(await this.read(`task/${name}.json`), expected, `${name} task observation`)));
+    return Object.fromEntries(["native", "mcp", "desktop"].map((name, index) => [name, entries[index]]));
+  }
+  async observeArchive(request) {
+    const values = await Promise.all(["native", "mcp", "desktop", "workers"].map((name) => this.read(`archive/${request.phase}/${name}.json`)));
+    const now = this.clock.now();
+    for (const [index, value] of values.entries()) {
+      const observedAt = Date.parse(value?.observedAt);
+      if (value?.schemaVersion !== 1 || value.runId !== this.binding.runId || value.fencingToken !== this.binding.fencingToken || !Number.isFinite(observedAt) || Math.abs(now - observedAt) > 30_000) fail("ARCHIVE_OBSERVATION_MISMATCH", `${["native", "mcp", "desktop", "workers"][index]} archive observation is stale or identity-mismatched`);
+    }
+    return Object.fromEntries(["native", "mcp", "desktop", "workers"].map((name, index) => [name, values[index]]));
   }
 }
 
 export class HomelabArchiveAdapterV1 {
-  constructor({ client, stateRoot, maxReportBytes }) { this.client = client; this.stateRoot = stateRoot; this.maxReportBytes = maxReportBytes; }
+  constructor({ client, stateRoot, maxReportBytes, surfaceObserver }) { this.client = client; this.stateRoot = stateRoot; this.maxReportBytes = maxReportBytes; this.surfaceObserver = surfaceObserver; }
   async call(operation, payload, { signal = null } = {}) { return this.client.invoke({ helper: ARCHIVE_HELPER, operation, payload, maxOutputBytes: this.maxReportBytes, signal }); }
   async archiveTasks(request, options) { return this.call("archive_tasks", request, options); }
   async restartDesktop(request, options) { return this.call("restart_desktop", request, options); }
   async observeCheckpoint(request, options) {
+    const observations = await this.surfaceObserver.observeArchive(request);
+    await this.client.invoke({ helper: ATSPI_HELPER, operation: "stage_archive_observations", payload: { phase: request.phase, observations } });
     const value = await this.call("observe_checkpoint", request, options);
     const visual = value?.visualEvidence; const reportBytes = Buffer.from(visual?.reportBytesBase64 ?? "", "base64");
     if (!reportBytes.length || reportBytes.length > this.maxReportBytes) fail("UNSAFE_CAPTURE", "archive visual report is missing or exceeds its bound");
@@ -303,20 +373,23 @@ export class HomelabArchiveAdapterV1 {
   async reconcileEffect(effect) { return this.call("reconcile_convergence", { effectId: effect.effectId, identityDigest: effect.identityDigest, request: effect.request }); }
 }
 
-export async function createHomelabRemoteDesktopRuntimeV1(config, { providerTransport = null, processBoundary = null, clock = Date } = {}) {
+export async function createHomelabRemoteDesktopRuntimeV1(config, { providerTransport = null, providerAdapter = null, qgaClient = null, processBoundary = null, clock = Date } = {}) {
   const admitted = validateConfig(config);
   await ensureCanonicalDirectory(admitted.stateRoot, "homelab runtime state", { mode: 0o700, enforceMode: true });
   await ensureCanonicalDirectory(admitted.homelab.sealedValueRoot, "sealed value staging root", { create: false });
+  await ensureCanonicalDirectory(admitted.homelab.observationRoot, "task observation staging root", { create: false });
   const boundary = processBoundary ?? new BoundedJsonProcessV1();
-  const transport = providerTransport ?? new HomelabProxmoxTransportV1({ processBoundary: boundary, deadlineMs: admitted.homelab.deadlines.providerMs, maxOutputBytes: admitted.homelab.outputLimits.providerBytes });
+  const transport = providerTransport ?? new HomelabProxmoxTransportV1({ processBoundary: boundary, binding: admitted.runtimeBinding, deadlineMs: admitted.homelab.deadlines.providerMs, maxOutputBytes: admitted.homelab.outputLimits.providerBytes, clock });
   const receiptStore = new AtomicProviderReceiptStoreV1(join(admitted.stateRoot, "provider-receipts"));
-  const adapter = new ProxmoxVeDesktopAdapterV1({ transport, receiptStore, providerId: admitted.run.provider.providerId });
+  const adapter = providerAdapter ?? new ProxmoxVeDesktopAdapterV1({ transport, receiptStore, providerId: admitted.run.provider.providerId });
   const reconciler = new HomelabProviderReconcilerV1({ adapter, receiptStore, admitted, clock });
   const providerController = new ProxmoxDesktopControllerV1({ adapter, ownership: admitted.run.provider, currentLease: admitted.run.lease, now: () => clock.now(), reconcileEffect: (effect) => reconciler.reconcile(effect) });
-  const qga = new ProxmoxQgaHelperClientV1({ adapter, admitted, deadlineMs: admitted.homelab.deadlines.qgaMs, maxOutputBytes: admitted.homelab.outputLimits.qgaBytes, clock });
-  const guiDriver = new DesktopGuiScenarioDriver({ boundary: new QgaAtspiBoundaryV1(qga), sealedValueResolver: new SealedValueResolver({ root: admitted.homelab.sealedValueRoot }), bindings: admitted.homelab.guiBindings, clock });
-  const archiveQga = new ProxmoxQgaHelperClientV1({ adapter, admitted, deadlineMs: Math.min(admitted.homelab.deadlines.archiveMs, admitted.plan.archiveConvergence.policy.maxConvergenceMs), maxOutputBytes: admitted.homelab.outputLimits.archiveReportBytes, clock });
-  const archiveAdapter = new HomelabArchiveAdapterV1({ client: archiveQga, stateRoot: admitted.stateRoot, maxReportBytes: admitted.homelab.outputLimits.archiveReportBytes });
+  const qga = qgaClient ?? new ProxmoxQgaHelperClientV1({ adapter, admitted, deadlineMs: admitted.homelab.deadlines.qgaMs, maxOutputBytes: admitted.homelab.outputLimits.qgaBytes, clock });
+  const surfaceObserver = new FileTaskSurfaceObserverV1({ root: admitted.homelab.observationRoot, binding: admitted.runtimeBinding, clock });
+  const rawGuiDriver = new DesktopGuiScenarioDriver({ boundary: new QgaAtspiBoundaryV1(qga), sealedValueResolver: new SealedValueResolver({ root: admitted.homelab.sealedValueRoot }), bindings: admitted.homelab.guiBindings, clock });
+  const guiDriver = new ProductionGuiDriverV1({ driver: rawGuiDriver, client: qga, admitted, surfaceObserver });
+  const archiveQga = qgaClient ?? new ProxmoxQgaHelperClientV1({ adapter, admitted, deadlineMs: Math.min(admitted.homelab.deadlines.archiveMs, admitted.plan.archiveConvergence.policy.maxConvergenceMs), maxOutputBytes: admitted.homelab.outputLimits.archiveReportBytes, clock });
+  const archiveAdapter = new HomelabArchiveAdapterV1({ client: archiveQga, stateRoot: admitted.stateRoot, maxReportBytes: admitted.homelab.outputLimits.archiveReportBytes, surfaceObserver });
   const archiveProjectionController = new ArchiveProjectionLaneV1({ adapter: archiveAdapter, clock });
   const evidenceCollector = new HomelabEvidenceCollectorV1({ client: qga, plan: admitted.plan });
   return Object.freeze({ providerController, guiDriver, archiveProjectionController, evidenceCollector });

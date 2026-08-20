@@ -13,7 +13,7 @@ const ACTIONS = new Set(REMOTE_DESKTOP_ACTION_TYPES_V1);
 const ASSERTIONS = new Set(REMOTE_DESKTOP_ASSERTION_TYPES_V1);
 const CHECKPOINTS = new Set(REMOTE_DESKTOP_CHECKPOINT_TYPES_V1);
 const BOUNDARY_METHODS = Object.freeze([
-  "listTasks", "createFreshTask", "activeTask", "click", "keypress", "scroll", "selectMenu",
+  "listTasks", "activateExpectedTask", "activeTask", "click", "keypress", "scroll", "selectMenu",
   "typeText", "waitFor", "accessibilityTree", "windowState", "queryElement", "taskState",
   "textPresent", "windowCount", "protectedCaptureRegions", "captureScreenshot", "health",
 ]);
@@ -180,16 +180,15 @@ export class DesktopGuiScenarioDriver {
     const beforeList = await this.#boundary.listTasks({ signal });
     if (!Array.isArray(beforeList)) throw new DesktopGuiDriverError("INVALID_GUI_OBSERVATION", "Desktop task inventory is invalid");
     const before = new Set(beforeList);
-    const created = await this.#boundary.createFreshTask({ scenarioId: scenario.scenarioId, signal });
+    const activated = await this.#boundary.activateExpectedTask({ scenarioId: scenario.scenarioId, taskId: scenario.task.taskId, title: scenario.scenarioId, signal });
     const afterList = await this.#boundary.listTasks({ signal });
     if (!Array.isArray(afterList)) throw new DesktopGuiDriverError("INVALID_GUI_OBSERVATION", "Desktop task inventory is invalid");
     const after = new Set(afterList);
     const active = await this.#boundary.activeTask({ signal });
-    const taskId = created?.taskId;
-    const newlyObserved = [...after].filter((candidate) => !before.has(candidate));
+    const taskId = activated?.taskId;
     const existingPreserved = [...before].every((candidate) => after.has(candidate));
-    if (taskId !== scenario.task.taskId || newlyObserved.length !== 1 || newlyObserved[0] !== taskId || !existingPreserved || active?.taskId !== taskId || this.#usedTaskIds.has(taskId)) {
-      throw new DesktopGuiDriverError("REUSED_TASK_IDENTITY", "fresh Desktop task verification failed");
+    if (taskId !== scenario.task.taskId || !before.has(taskId) || !after.has(taskId) || !existingPreserved || active?.taskId !== taskId || activated?.createdForScenario !== scenario.scenarioId || activated?.fresh !== true || this.#usedTaskIds.has(taskId)) {
+      throw new DesktopGuiDriverError("REUSED_TASK_IDENTITY", "pre-created fresh task activation and identity verification failed");
     }
     this.#usedTaskIds.add(taskId);
   }

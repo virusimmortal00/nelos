@@ -1,0 +1,147 @@
+#!/usr/bin/python3
+import base64, json, os, pwd, re, subprocess, sys, tempfile, time
+
+ALLOWED = {"list_tasks","activate_expected_task","active_task","click","keypress","scroll","select_menu","type_text","wait_for","accessibility_tree","window_state","query_element","task_state","text_present","window_count","protected_capture_regions","capture_screenshot","capture_evidence","health"}
+THREAD = re.compile(r"[a-f0-9]{8}-[a-f0-9-]{12,72}")
+
+def fail(code):
+    sys.stderr.write(json.dumps({"error": code}) + "\n"); sys.exit(70)
+def walk(root, maximum=10000):
+    stack=[root]; seen=0
+    while stack:
+        item=stack.pop(); seen += 1
+        if seen > maximum: fail("ACCESSIBILITY_TREE_LIMIT")
+        yield item
+        try:
+            for index in range(item.childCount-1, -1, -1): stack.append(item.getChildAtIndex(index))
+        except Exception: pass
+def facts(item):
+    try: role=item.getRoleName()
+    except Exception: role="unknown"
+    try: name=item.name or ""
+    except Exception: name=""
+    try: description=item.description or ""
+    except Exception: description=""
+    try: attrs=" ".join(item.getAttributes())
+    except Exception: attrs=""
+    return role.lower(), name, description, attrs
+def locate(desktop, target):
+    matches=[]
+    for item in walk(desktop):
+        role,name,description,_attrs=facts(item)
+        if target.get("role") and target["role"].lower() not in role: continue
+        if target.get("name") and target["name"] != name: continue
+        if target.get("description") and target["description"] != description: continue
+        matches.append(item)
+    index=target.get("index",0)
+    return matches[index] if index < len(matches) else None
+def activate(item):
+    if item is None: fail("ELEMENT_NOT_FOUND")
+    try:
+        actions=item.queryAction()
+        for index in range(actions.nActions):
+            if actions.getName(index).lower() in ("click","press","activate","open","select"):
+                if actions.doAction(index): return
+        if actions.nActions and actions.doAction(0): return
+    except Exception: pass
+    fail("ACTION_UNAVAILABLE")
+def rect(item):
+    try:
+        box=item.queryComponent().getExtents(0)
+        return {"x":int(box.x),"y":int(box.y),"width":int(box.width),"height":int(box.height)}
+    except Exception: fail("GEOMETRY_UNAVAILABLE")
+def task_ids(desktop):
+    values=[]
+    for item in walk(desktop):
+        text=" ".join(facts(item)[1:])
+        for value in THREAD.findall(text):
+            if value not in values: values.append(value)
+    return values
+def screenshot(exclude, raw=False):
+    with tempfile.TemporaryDirectory(prefix="nelos-capture-") as directory:
+        source=os.path.join(directory,"source.png"); target=os.path.join(directory,"masked.png")
+        subprocess.run(["/usr/bin/scrot",source],check=True,timeout=20,env=os.environ)
+        command=["/usr/bin/convert",source]
+        for region in exclude:
+            x,y,w,h=(int(region[k]) for k in ("x","y","width","height"))
+            command += ["-fill","black","-draw",f"rectangle {x},{y} {x+w},{y+h}"]
+        command.append(target); subprocess.run(command,check=True,timeout=20,env=os.environ)
+        if not raw: return {"bytesBase64":base64.b64encode(open(target,"rb").read()).decode()}
+        size=subprocess.check_output(["/usr/bin/identify","-format","%w %h",target],text=True,timeout=10).split()
+        rgba=subprocess.check_output(["/usr/bin/convert",target,"rgba:-"],timeout=20)
+        return {"width":int(size[0]),"height":int(size[1]),"rgbaBase64":base64.b64encode(rgba).decode()}
+
+try: request=json.load(sys.stdin)
+except Exception: fail("INVALID_CONTRACT")
+operation=sys.argv[1] if len(sys.argv)==2 else ""
+if operation not in ALLOWED or request.get("operation") != operation or request.get("schemaVersion") != 1: fail("FORBIDDEN_OPERATION")
+binding=request.get("binding",{}); user=binding.get("automationUser")
+try: account=pwd.getpwnam(user)
+except Exception: fail("AUTOMATION_IDENTITY_UNAVAILABLE")
+os.environ.clear(); os.environ.update({"PATH":"/usr/sbin:/usr/bin:/sbin:/bin","HOME":account.pw_dir,"DISPLAY":":0","DBUS_SESSION_BUS_ADDRESS":f"unix:path=/run/user/{account.pw_uid}/bus"})
+try:
+    environment=subprocess.check_output(["/usr/bin/systemctl","--user","show-environment"],text=True,timeout=10,env=os.environ)
+    for line in environment.splitlines():
+        if "=" in line and line.split("=",1)[0] in ("DISPLAY","XAUTHORITY","AT_SPI_BUS_ADDRESS","DBUS_SESSION_BUS_ADDRESS"): os.environ[line.split("=",1)[0]]=line.split("=",1)[1]
+except Exception: fail("ACCESSIBILITY_BUS_UNAVAILABLE")
+os.setgid(account.pw_gid); os.setuid(account.pw_uid)
+try:
+    import pyatspi
+    desktop=pyatspi.Registry.getDesktop(0); payload=request.get("payload",{})
+    if operation == "list_tasks": result=task_ids(desktop)
+    elif operation == "active_task":
+        active=None
+        for item in walk(desktop):
+            try:
+                if item.getState().contains(pyatspi.STATE_FOCUSED):
+                    matches=THREAD.findall(" ".join(facts(item)[1:]));
+                    if matches: active=matches[0]; break
+            except Exception: pass
+        result={"taskId":active}
+    elif operation == "activate_expected_task":
+        expected=payload.get("taskId"); title=payload.get("title"); item=None
+        for candidate in walk(desktop):
+            text=" ".join(facts(candidate)[1:])
+            if expected in text and title in text: item=candidate; break
+        if item is None: fail("EXPECTED_TASK_NOT_VISIBLE")
+        activate(item); time.sleep(.25)
+        if expected not in task_ids(desktop): fail("EXPECTED_TASK_IDENTITY_MISMATCH")
+        result={"taskId":expected,"createdForScenario":payload.get("scenarioId"),"fresh":True}
+    elif operation in ("click","keypress","scroll","select_menu","type_text","wait_for"):
+        item=locate(desktop,payload.get("target",{}))
+        if operation == "click": activate(item)
+        elif operation == "keypress": pyatspi.Registry.generateKeyboardEvent(0,payload.get("key",""),pyatspi.KEY_SYM)
+        elif operation == "scroll":
+            try: item.queryComponent().grabFocus(); pyatspi.Registry.generateKeyboardEvent(0,"Page_Down" if payload.get("direction") in ("down","right") else "Page_Up",pyatspi.KEY_SYM)
+            except Exception: fail("ACTION_UNAVAILABLE")
+        elif operation == "select_menu":
+            activate(item)
+            for name in payload.get("menuPath",[]): activate(locate(desktop,{"name":name}))
+        elif operation == "type_text":
+            text=base64.b64decode(request.get("bytesBase64","")).decode("utf8")
+            if item is None: fail("ELEMENT_NOT_FOUND")
+            try: item.queryComponent().grabFocus(); pyatspi.Registry.generateKeyboardEvent(0,text,pyatspi.KEY_STRING)
+            finally: text=""
+        else:
+            deadline=time.time()+20
+            while item is None and time.time()<deadline: time.sleep(.25); item=locate(desktop,payload.get("target",{}))
+            if item is None: fail("WAIT_CONDITION_UNMET")
+        result={"ok":True}
+    elif operation == "accessibility_tree": result=[{"role":facts(item)[0],"name":facts(item)[1],"description":facts(item)[2]} for item in walk(desktop,2000)]
+    elif operation == "window_state": result={"windows":[facts(item)[1] for item in walk(desktop) if "frame" in facts(item)[0] or "window" in facts(item)[0]]}
+    elif operation == "query_element": result=locate(desktop,payload.get("target",{})) is not None
+    elif operation == "task_state":
+        item=locate(desktop,payload.get("target",{})); expected=payload.get("expected",{}); result=item is not None and (not expected.get("state") or expected["state"].lower() in str(item.getState()).lower())
+    elif operation == "text_present": result=base64.b64decode(request.get("bytesBase64","")).decode("utf8") in " ".join(" ".join(facts(item)[1:3]) for item in walk(desktop))
+    elif operation == "window_count": result=sum(1 for item in walk(desktop) if locate(item,payload.get("target",{})) is not None)
+    elif operation == "protected_capture_regions":
+        conversation=locate(desktop,{"role":"document"}); credential=locate(desktop,{"role":"password text"})
+        if conversation is None or credential is None: fail("PROTECTED_GEOMETRY_UNAVAILABLE")
+        result=[{"kind":"conversation",**rect(conversation)},{"kind":"credential",**rect(credential)}]
+    elif operation == "capture_screenshot": result=screenshot(payload.get("exclude",[]),False)
+    elif operation == "capture_evidence": result=screenshot(payload.get("exclude",[]),True)
+    elif operation == "health": result={"crashed":False,"stalled":False}
+    else: fail("FORBIDDEN_OPERATION")
+    sys.stdout.write(json.dumps(result,separators=(",",":")))
+except SystemExit: raise
+except Exception: fail("ATSPI_OPERATION_FAILED")

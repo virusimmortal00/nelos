@@ -29,6 +29,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
     evidence: { bundleDirectory: path.join(root, "evidence"), proposedOperationalUsage: { taskCount: 0, modelTurnCount: 0, spendUsd: 0, wallTimeMs: 1 }, screenshots: [], recordings: [], diagnostics: [] },
   };
   const calls = { create: 0, destroy: 0, quarantine: 0, reconcile: 0, gui: 0, archiveConvergence: 0, archiveReconcile: 0, restart: 0, collect: 0 };
+  const events = [];
   let present = false;
   let lastCleanup = null;
   let providerCrashThrown = false;
@@ -36,6 +37,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
   const quarantined = () => structuredClone(validRemoteDesktopTerminalOutcomeV1(run, "quarantined").receipt);
   const providerController = {
     async execute({ operation }) {
+      events.push(`provider:${operation}`);
       calls[operation] += 1;
       if (operation === "create") {
         present = true;
@@ -70,7 +72,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
       };
     },
   };
-  const evidenceCollector = { async collect() { calls.collect += 1; return { screenshots: [], recordings: [], diagnostics: [] }; } };
+  const evidenceCollector = { async collect() { calls.collect += 1; events.push("evidence:collect"); return { screenshots: [], recordings: [], diagnostics: [] }; } };
   const visualPath = path.join(root, "visual-report.json");
   const visualBytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: projectionStale ? "failed" : "passed", counts: {}, findings: [] })}\n`);
   await writeFile(visualPath, visualBytes);
@@ -120,7 +122,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
   };
   const input = { run, plan, candidateDigest: run.candidate.digest, currentLease: currentLeaseFor(run), now: Date.parse("2026-08-19T12:00:00.000Z") };
   const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: path.join(root, "journal"), providerController, guiDriver, archiveProjectionController, evidenceCollector, crashInjector, clock: { now: () => Date.parse("2026-08-19T12:01:00.000Z") } });
-  return { root, run, plan, input, runner, calls };
+  return { root, run, plan, input, runner, calls, events };
 }
 
 test("preflight binds the immutable contract and rejects underdeclared scenario operations", async () => {
@@ -137,7 +139,7 @@ test("preflight binds the immutable contract and rejects underdeclared scenario 
 });
 
 for (const [checkpoint, expectedState] of [
-  ["after:provision", "succeeded"], ["after:gui", "succeeded"], ["after:destroy", "succeeded"],
+  ["after:provision", "succeeded"], ["after:gui", "succeeded"], ["after:evidence-collection", "succeeded"], ["after:destroy", "succeeded"],
   ["after:archive-convergence", "succeeded"], ["after:evidence", "succeeded"], ["after:quarantine", "quarantined"],
 ]) {
   test(`resumes deterministically after ${checkpoint} without duplicate mutations or paid turns`, async () => {
@@ -152,6 +154,7 @@ for (const [checkpoint, expectedState] of [
     assert.equal(value.calls.restart, 1);
     assert.equal(result.usage.modelTurnCount, 1);
     assert.equal(value.calls.collect, 1);
+    assert.ok(value.events.indexOf("evidence:collect") < value.events.indexOf("provider:destroy"));
     assert.ok(result.effects.every(({ status }) => status === "committed"));
   });
 }

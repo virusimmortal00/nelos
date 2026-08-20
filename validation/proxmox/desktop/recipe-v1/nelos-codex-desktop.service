@@ -1,0 +1,15 @@
+[Unit]
+Description=Nelos run-scoped Codex Desktop
+After=graphical-session.target
+ConditionPathExists=/var/lib/nelos-desktop/device-auth.json
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/chatgpt
+Restart=on-failure
+RestartSec=2
+Environment=HOME=/home/nelosauto
+Environment=CODEX_HOME=/home/nelosauto/.codex
+
+[Install]
+WantedBy=default.target

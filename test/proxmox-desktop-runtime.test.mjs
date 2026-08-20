@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { chmod, lstat, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -169,16 +171,46 @@ test("versioned graphical recipe and bounded helpers remain installable and expl
   const recipe = resolve("validation/proxmox/desktop/recipe-v1/install-guest.sh");
   const unit = await readFile(resolve("validation/proxmox/desktop/recipe-v1/nelos-desktop-session.service"), "utf8");
   const installer = await readFile(recipe, "utf8");
-  const guest = await readFile(resolve("validation/proxmox/desktop/helpers/nelos-guest-helper"), "utf8");
+  const guest = await readFile(resolve("validation/proxmox/desktop/helpers/nelos-desktop-atspi.mjs"), "utf8");
   const host = await readFile(resolve("validation/proxmox/desktop/helpers/nelos-proxmox-host-helper.mjs"), "utf8");
-  for (const required of ["NELOS_CODEX_DESKTOP_SHA256", "sha256sum --check --strict", "ubuntu.sources", "gdm3", "at-spi2-core", "dbus-x11", "scrot", "xdotool", "AutomaticLogin=nelos-automation", "WaylandEnable=false", "nelos-device-auth"]) assert.match(installer, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  const auth = await readFile(resolve("validation/proxmox/desktop/helpers/device-auth.sh"), "utf8");
+  const atspiControl = await readFile(resolve("validation/proxmox/desktop/helpers/nelos-atspi-control"), "utf8");
+  const archiveControl = await readFile(resolve("validation/proxmox/desktop/helpers/nelos-archive-control"), "utf8");
+  const appService = await readFile(resolve("validation/proxmox/desktop/recipe-v1/nelos-codex-desktop.service"), "utf8");
+  for (const required of ["NELOS_CODEX_DESKTOP_SHA256", "sha256sum --check --strict", "ubuntu.sources", "gdm3", "at-spi2-core", "dbus-x11", "scrot", "xdotool", "AutomaticLogin=nelosauto", "WaylandEnable=false", "/usr/libexec/nelos-device-auth", "/usr/libexec/nelos-desktop-atspi", "/usr/libexec/nelos-desktop-archive"]) assert.match(installer, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.match(unit, /TimeoutStartSec=120/u);
-  assert.match(unit, /type=x11/u);
-  assert.match(guest, /timeout --signal=KILL/u);
+  assert.match(unit, /nelos-check-gui-readiness/u);
+  assert.match(auth, /automation CODEX_HOME must not pre-exist/u);
+  assert.match(auth, /CODEX_HOME="\$\{automation_home\}\/\.codex" codex login --device-auth/u);
+  assert.match(atspiControl, /activate_expected_task/u);
+  assert.match(archiveControl, /runuser/u);
+  assert.match(appService, /ExecStart=\/usr\/bin\/chatgpt/u);
+  assert.match(appService, /WantedBy=default\.target/u);
+  assert.match(guest, /child\.kill\("SIGKILL"\)/u);
   assert.match(guest, /IDENTITY_MISMATCH/u);
-  assert.match(host, /task-status/u);
-  assert.match(host, /sourceTemplateVmid/u);
-  assert.match(host, /maxBuffer: request\.maxOutputBytes/u);
+  assert.match(host, /tasks\/UPID/u);
+  assert.match(host, /sourceTemplateVmId/u);
+  assert.match(host, /maxBuffer: envelope\.maxOutputBytes/u);
   assert.match(host, /promisify\(execFile\)/u);
   assert.doesNotMatch(host, /shell:\s*true|\/bin\/sh|bash/u);
+});
+
+test("systemd readiness command executes under bash -u without expanding awk fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-readiness-")); const bin = join(root, "bin");
+  await mkdir(bin, { recursive: true }); await mkdir(join(root, "etc/nelos-desktop"), { recursive: true }); await mkdir(join(root, "run/user/2401"), { recursive: true });
+  await writeFile(join(root, "etc/nelos-desktop/run-binding.json"), '{"runId":"run-readiness"}\n');
+  await writeFile(join(root, "run/user/2401/nelos-accessibility-ready"), "");
+  const socketPath = join(root, "run/user/2401/bus"); const server = createServer(); await new Promise((resolvePromise) => server.listen(socketPath, resolvePromise));
+  const scripts = {
+    id: '#!/bin/sh\nprintf "2401\\n"\n',
+    loginctl: '#!/bin/sh\nif [ "$1" = list-sessions ]; then printf "7 2401 nelosauto seat0\\n"; elif printf "%s" "$*" | grep -q "Type"; then printf "x11\\n"; else printf "active\\n"; fi\n',
+    jq: '#!/bin/sh\nif [ "$1" = -r ]; then printf "run-readiness\\n"; else printf "{\\"ready\\":true,\\"accessibilityBus\\":true,\\"captureReady\\":true,\\"sessionUser\\":\\"nelosauto\\",\\"runId\\":\\"run-readiness\\"}\\n"; fi\n',
+    systemctl: '#!/bin/sh\nexit 0\n', scrot: '#!/bin/sh\nexit 0\n', convert: '#!/bin/sh\nexit 0\n',
+  };
+  for (const [name, body] of Object.entries(scripts)) { await writeFile(join(bin, name), body); await chmod(join(bin, name), 0o755); }
+  const script = resolve("validation/proxmox/desktop/recipe-v1/check-gui-readiness.sh");
+  const status = await new Promise((resolvePromise) => { const child = spawn("/bin/bash", ["-u", script], { env: { PATH: `${bin}:/usr/bin:/bin`, NELOS_READINESS_ROOT: root, NELOS_READINESS_ATTEMPTS: "1" }, stdio: "ignore" }); child.once("close", resolvePromise); });
+  server.close();
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(await readFile(join(root, "var/lib/nelos-desktop/gui-ready.json"), "utf8")), { ready: true, accessibilityBus: true, captureReady: true, sessionUser: "nelosauto", runId: "run-readiness" });
 });

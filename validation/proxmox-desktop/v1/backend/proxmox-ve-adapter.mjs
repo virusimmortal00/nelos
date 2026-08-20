@@ -170,10 +170,25 @@ export class ProxmoxVeDesktopAdapterV1 {
     return { status: committed ? "committed" : "ambiguous", providerOperationId: null };
   }
 
-  async waitForQga({ binding, expectedUser, expectedSession }) {
+  async waitForQga({ binding, runtimeBinding = null, expectedUser, expectedSession }) {
     for (let attempt = 0; attempt < this.qgaAttempts; attempt += 1) {
       try {
         await this.qgaControl({ control: "guest-ping", binding, command: null, arguments: [] });
+        if (runtimeBinding) {
+          const encoded = Buffer.from(JSON.stringify(runtimeBinding)).toString("base64");
+          const started = await this.qgaControl({ control: "guest-exec", binding, command: "/usr/libexec/nelos-bind-runtime", arguments: [encoded] });
+          const pid = started?.data?.pid ?? started?.pid ?? started?.data;
+          if (!Number.isSafeInteger(pid)) throw Object.assign(new Error("binding helper did not start"), { code: "QGA_BINDING_FAILED" });
+          let completed = false;
+          for (let poll = 0; poll < this.qgaAttempts; poll += 1) {
+            const response = await this.call("GET", `/nodes/${encode(binding.hostId)}/qemu/${encode(binding.vmId)}/agent/exec-status?pid=${pid}`);
+            const status = response?.data ?? response;
+            if (status?.exited === 1 || status?.exited === true) { if (status.exitcode !== 0) throw Object.assign(new Error("binding helper failed"), { code: "QGA_BINDING_FAILED" }); completed = true; break; }
+            await this.wait(this.taskPollMs);
+          }
+          if (!completed) throw Object.assign(new Error("binding helper timed out"), { code: "QGA_BINDING_FAILED" });
+          runtimeBinding = null;
+        }
         const users = await this.qgaControl({ control: "guest-get-users", binding, command: null, arguments: [] });
         const sessions = Array.isArray(users?.data) ? users.data : [];
         if (sessions.some((user) => user.user === expectedUser) && expectedSession === "graphical") {

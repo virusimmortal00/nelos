@@ -4,7 +4,7 @@ import { DesktopGuiDriverError } from "./index.mjs";
 
 const HELPER = "/usr/libexec/nelos-desktop-atspi";
 const OPERATIONS = new Set([
-  "list_tasks", "create_fresh_task", "active_task", "click", "keypress", "scroll", "select_menu",
+  "list_tasks", "activate_expected_task", "active_task", "click", "keypress", "scroll", "select_menu",
   "type_text", "wait_for", "accessibility_tree", "window_state", "query_element", "task_state",
   "text_present", "window_count", "protected_capture_regions", "capture_screenshot", "health",
 ]);
@@ -44,7 +44,7 @@ export class LinuxAtspiBoundary {
   }
 
   listTasks({ signal }) { return this.#request("list_tasks", {}, null, signal); }
-  createFreshTask({ scenarioId, signal }) { return this.#request("create_fresh_task", { scenarioId }, null, signal); }
+  activateExpectedTask({ scenarioId, taskId, title, signal }) { return this.#request("activate_expected_task", { scenarioId, taskId, title }, null, signal); }
   activeTask({ signal }) { return this.#request("active_task", {}, null, signal); }
   click({ target, signal }) { return this.#request("click", { target }, null, signal); }
   keypress({ target, key, signal }) { return this.#request("keypress", { target, key }, null, signal); }

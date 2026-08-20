@@ -10,7 +10,7 @@ import { desktopGuiBindings, desktopGuiScenario } from "./fixtures/desktop-gui-d
 class GraphicalFixture {
   constructor({ actionError = false, assertionFailure = false, crash = false, missingGeometry = false, stalled = false, timeout = false } = {}) {
     this.calls = [];
-    this.tasks = [];
+    this.tasks = ["desktop-task-driver-1"];
     this.crash = crash;
     this.actionError = actionError;
     this.assertionFailure = assertionFailure;
@@ -20,7 +20,7 @@ class GraphicalFixture {
   }
 
   async listTasks() { return [...this.tasks]; }
-  async createFreshTask() { this.tasks.push("desktop-task-driver-1"); return { taskId: "desktop-task-driver-1" }; }
+  async activateExpectedTask({ scenarioId, taskId }) { return { taskId, createdForScenario: scenarioId, fresh: true }; }
   async activeTask() { return { taskId: this.tasks.at(-1) }; }
   async click(value) { this.calls.push(["click", value.target]); }
   async keypress(value) { this.calls.push(["keypress", value.key]); }
@@ -78,6 +78,14 @@ test("fresh Desktop task identities cannot be reused across scenarios", async ()
   const second = await driver.runScenario(desktopGuiScenario({ scenarioId: "scenario-driver-2" }));
   assert.equal(second.outcome, "failed");
   assert.equal(second.failure.code, "REUSED_TASK_IDENTITY");
+});
+
+test("expected task must already exist before Desktop activation", async () => {
+  const { boundary, driver } = await harness();
+  boundary.tasks = [];
+  const result = await driver.runScenario(desktopGuiScenario());
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.failure.code, "REUSED_TASK_IDENTITY");
 });
 
 test("action timeouts are deterministic and abort a stalled accessibility operation", async () => {

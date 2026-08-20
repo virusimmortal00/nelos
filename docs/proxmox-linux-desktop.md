@@ -35,7 +35,7 @@ All other nonzero exits are failures.
 
 Recipe v1 installs GNOME on Xorg, GDM, AT-SPI, D-Bus activation utilities,
 X11 control and screenshot packages, and the guest helper. The only account is
-the locked-password `nelos-automation` account. GDM provides controlled
+the locked-password `nelosauto` account. GDM provides controlled
 autologin; the first-boot service has 120 seconds to observe its active X11
 session. The session autostart imports the display, Xauthority, session bus, and
 accessibility bus into the user service manager.
@@ -68,6 +68,17 @@ native Codex task state, the ordinary Nelos MCP execution map, and the visible
 Codex Desktop sidebar. All three must report the same ID, title, and active
 lifecycle. Screenshot requests must lie within the declared screen and must not
 intersect any protected region.
+
+The fresh task is created by the native control plane before the run packet is
+sealed. The guest never clicks “New task” and pretends that the UI-generated ID
+matches a predeclared value; it activates the exact pre-created ID and title and
+verifies the scenario freshness attestation. Native Codex, ordinary Nelos MCP,
+and visible Desktop producers stage closed observations through
+`/usr/libexec/nelos-task-observation-stage`. The helper binds every record to the
+run and fence, rejects observations older than 30 seconds, and writes only below
+the sealed `homelab.observationRoot`. Missing producer records fail the runtime
+before cross-surface acceptance. Archive observations follow the same staging
+boundary for both `afterCleanup` and `afterRestart`.
 
 ## Cleanup and independent evidence attestation
 

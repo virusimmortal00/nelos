@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+[[ ${EUID} -eq 0 && $# -eq 1 ]] || exit 70
+binding="$(printf '%s' "$1" | base64 --decode)"
+jq -e 'keys == ["automationUser","fencingToken","hostId","imageId","leaseId","providerId","runId","stateRoot","vmId"] and
+  ([.automationUser,.fencingToken,.hostId,.imageId,.leaseId,.providerId,.runId,.vmId] | all(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) and
+  (.stateRoot == ("/var/lib/nelos-desktop/runs/" + .runId))' <<<"${binding}" >/dev/null
+install -d -o root -g root -m 0750 /etc/nelos-desktop /var/lib/nelos-desktop /var/lib/nelos-desktop/observations
+printf '%s\n' "${binding}" >/etc/nelos-desktop/run-binding.json.new
+chown root:root /etc/nelos-desktop/run-binding.json.new
+chmod 0440 /etc/nelos-desktop/run-binding.json.new
+mv -f /etc/nelos-desktop/run-binding.json.new /etc/nelos-desktop/run-binding.json
+systemctl restart nelos-desktop-session.service

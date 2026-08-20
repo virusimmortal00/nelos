@@ -4,7 +4,16 @@ set -Eeuo pipefail
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [[ ${EUID} -eq 0 ]] || die "golden-image provisioning requires root"
 : "${PACKAGE_LOCK:?PACKAGE_LOCK is required}"
+: "${HELPER_SOURCE_DIR:?HELPER_SOURCE_DIR is required}"
+: "${ACCESSIBILITY_AUTOSTART:?ACCESSIBILITY_AUTOSTART is required}"
+: "${SESSION_SERVICE:?SESSION_SERVICE is required}"
+: "${DESKTOP_USER_SERVICE:?DESKTOP_USER_SERVICE is required}"
+: "${READINESS_HELPER:?READINESS_HELPER is required}"
 [[ -f $PACKAGE_LOCK && ! -L $PACKAGE_LOCK ]] || die "package lock is missing or unsafe"
+for helper in nelos-desktop-atspi.mjs nelos-desktop-archive.mjs nelos-atspi-control nelos-archive-control nelos-bind-runtime device-auth.sh; do
+  [[ -f ${HELPER_SOURCE_DIR}/${helper} && ! -L ${HELPER_SOURCE_DIR}/${helper} ]] || die "required guest helper is missing or unsafe: ${helper}"
+done
+[[ -f $ACCESSIBILITY_AUTOSTART && ! -L $ACCESSIBILITY_AUTOSTART && -f $SESSION_SERVICE && ! -L $SESSION_SERVICE ]] || die "graphical bootstrap assets are missing or unsafe"
 
 snapshot="$(jq -er '.policy.aptSnapshot' "$PACKAGE_LOCK")"
 jq -e '
@@ -29,6 +38,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get -o "APT::Snapshot=${snapshot}" -o Acquire::Retries=3 update
 mapfile -t apt_packages < <(jq -r '[.artifacts.qga, .artifacts.signatureVerifier] + .artifacts.graphicalSession | .[].name + "=" + .version' "$PACKAGE_LOCK")
 apt-get -o "APT::Snapshot=${snapshot}" -o Acquire::Retries=3 install -y --no-install-recommends "${apt_packages[@]}"
+apt-get -o "APT::Snapshot=${snapshot}" -o Acquire::Retries=3 install -y --no-install-recommends \
+  dbus-x11 imagemagick jq python3-pyatspi scrot xauth
 
 desktop_url="$(jq -er '.artifacts.chatgptDesktop.source' "$PACKAGE_LOCK")"
 desktop_digest="$(jq -er '.artifacts.chatgptDesktop.digest | sub("^sha256:"; "")' "$PACKAGE_LOCK")"
@@ -59,11 +70,39 @@ cat > "${policy_dir}/openai.pol" <<EOF
 EOF
 debsig-verify --policies-dir "${verify_root}/policies" --keyrings-dir "${verify_root}/keyrings" "$desktop_deb" || die "Desktop package signature is invalid"
 dpkg -i "$desktop_deb" || apt-get -o "APT::Snapshot=${snapshot}" -f install -y
+for command in chatgpt codex convert identify jq python3 scrot; do command -v "$command" >/dev/null || die "required production command is unavailable: ${command}"; done
+/usr/bin/python3 -c 'import pyatspi' || die "Python AT-SPI binding is unavailable"
 find "$verify_root" -depth -delete
 
 install -d -o root -g root -m 0755 /opt/nelos-desktop
 install -o root -g root -m 0444 "$PACKAGE_LOCK" /opt/nelos-desktop/package-lock.json
-systemctl enable qemu-guest-agent.service gdm3.service
+install -d -o root -g root -m 0755 /usr/libexec /etc/xdg/autostart
+install -o root -g root -m 0755 "${HELPER_SOURCE_DIR}/nelos-desktop-atspi.mjs" /usr/libexec/nelos-desktop-atspi
+install -o root -g root -m 0755 "${HELPER_SOURCE_DIR}/nelos-desktop-archive.mjs" /usr/libexec/nelos-desktop-archive
+install -o root -g root -m 0755 "${HELPER_SOURCE_DIR}/nelos-atspi-control" /usr/libexec/nelos-atspi-control
+install -o root -g root -m 0755 "${HELPER_SOURCE_DIR}/nelos-archive-control" /usr/libexec/nelos-archive-control
+install -o root -g root -m 0750 "${HELPER_SOURCE_DIR}/nelos-bind-runtime" /usr/libexec/nelos-bind-runtime
+install -o root -g root -m 0750 "${HELPER_SOURCE_DIR}/device-auth.sh" /usr/libexec/nelos-device-auth
+install -o root -g root -m 0755 "$READINESS_HELPER" /usr/libexec/nelos-check-gui-readiness
+install -o root -g root -m 0644 "$ACCESSIBILITY_AUTOSTART" /etc/xdg/autostart/nelos-accessibility.desktop
+install -o root -g root -m 0644 "$SESSION_SERVICE" /etc/systemd/system/nelos-desktop-session.service
+install -d -o root -g root -m 0755 /etc/systemd/user
+install -o root -g root -m 0644 "$DESKTOP_USER_SERVICE" /etc/systemd/user/nelos-codex-desktop.service
+install -o root -g root -m 0644 /dev/null /etc/gdm3/custom.conf
+cat >/etc/gdm3/custom.conf <<'EOF'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=nelosauto
+WaylandEnable=false
+
+[security]
+[xdmcp]
+[chooser]
+[debug]
+Enable=false
+EOF
+systemctl enable qemu-guest-agent.service gdm3.service nelos-desktop-session.service
+systemctl --global enable nelos-codex-desktop.service
 systemctl set-default graphical.target
 
 # The template intentionally contains no benchmark account, password, token,

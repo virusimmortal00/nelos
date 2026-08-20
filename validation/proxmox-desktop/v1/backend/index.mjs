@@ -16,7 +16,7 @@ const USER = /^[a-z_][a-z0-9_-]{0,31}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 const AMBIGUOUS_CODES = new Set(["AMBIGUOUS_MUTATION", "ETIMEDOUT", "TIMEOUT", "UPID_UNKNOWN"]);
 const QGA_EXEC_ALLOWLIST = new Set([
-  "/usr/bin/loginctl", "/usr/bin/systemctl", "/usr/bin/test", "/usr/bin/id",
+  "/usr/bin/loginctl", "/usr/bin/systemctl", "/usr/bin/test", "/usr/bin/id", "/usr/libexec/nelos-bind-runtime",
 ]);
 
 export class ProxmoxDesktopBackendError extends Error {
@@ -330,6 +330,10 @@ export async function runProxmoxDesktopOperationV1(request, adapter, { ownership
     await committedMutation(adapter, admitted, "start", () => adapter.startVm({ binding }));
     const qga = await adapter.waitForQga({
       binding,
+      runtimeBinding: {
+        ...binding, imageId: admitted.goldenImage.imageId, runId: admitted.runId,
+        automationUser: admitted.automation.user, stateRoot: admitted.automation.stateRoot,
+      },
       checks: ["guest-ping", "guest-get-osinfo", "guest-get-users"],
       expectedUser: admitted.automation.user,
       expectedSession: "graphical",

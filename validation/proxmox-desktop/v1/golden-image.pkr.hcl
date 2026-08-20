@@ -70,8 +70,28 @@ build {
     source      = "${path.root}/package-lock.json"
     destination = "/tmp/nelos-desktop-package-lock.json"
   }
+  provisioner "file" {
+    source      = "${path.root}/../../proxmox/desktop/helpers/"
+    destination = "/tmp/nelos-desktop-helpers"
+  }
+  provisioner "file" {
+    source      = "${path.root}/../../proxmox/desktop/recipe-v1/nelos-accessibility.desktop"
+    destination = "/tmp/nelos-accessibility.desktop"
+  }
+  provisioner "file" {
+    source      = "${path.root}/../../proxmox/desktop/recipe-v1/nelos-desktop-session.service"
+    destination = "/tmp/nelos-desktop-session.service"
+  }
+  provisioner "file" {
+    source      = "${path.root}/../../proxmox/desktop/recipe-v1/nelos-codex-desktop.service"
+    destination = "/tmp/nelos-codex-desktop.service"
+  }
+  provisioner "file" {
+    source      = "${path.root}/../../proxmox/desktop/recipe-v1/check-gui-readiness.sh"
+    destination = "/tmp/nelos-check-gui-readiness"
+  }
   provisioner "shell" {
     script          = "${path.root}/provision-golden-image.sh"
-    execute_command = "chmod +x {{ .Path }}; sudo -n env PACKAGE_LOCK=/tmp/nelos-desktop-package-lock.json {{ .Path }}"
+    execute_command = "chmod +x {{ .Path }}; sudo -n env PACKAGE_LOCK=/tmp/nelos-desktop-package-lock.json HELPER_SOURCE_DIR=/tmp/nelos-desktop-helpers ACCESSIBILITY_AUTOSTART=/tmp/nelos-accessibility.desktop SESSION_SERVICE=/tmp/nelos-desktop-session.service DESKTOP_USER_SERVICE=/tmp/nelos-codex-desktop.service READINESS_HELPER=/tmp/nelos-check-gui-readiness {{ .Path }}"
   }
 }
