@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+import { lstat, open, readFile, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+
+import { canonicalJsonV1 } from "../validation/proxmox-desktop/v1/build-golden-image.mjs";
+import {
+  createVolumeAttestorHostInstallPlanV1,
+  installGoldenBuilderHostV1,
+  LocalGoldenBuilderHostBoundaryV1,
+  reconcileGoldenBuilderHostV1,
+  removeGoldenBuilderHostV1,
+  verifyGoldenBuilderHostV1,
+} from "../validation/proxmox-desktop/v1/golden-builder-host-installer.mjs";
+
+function fail(code, message) { process.stderr.write(`${canonicalJsonV1({ error: code, message })}\n`); process.exitCode = 1; }
+function parse(argv) {
+  const command = argv.shift(); const values = {};
+  if (!new Set(["prepare", "install", "reconcile", "remove", "verify"]).has(command)) throw Object.assign(new Error("command must be prepare, install, verify, remove, or reconcile"), { code: "INVALID_OPERATION" });
+  const allowed = new Set(["--authorize-plan", "--binding", "--helper", "--plan", "--public-key", "--receipt"]);
+  while (argv.length) { const name = argv.shift(); const value = argv.shift(); if (!value || !allowed.has(name) || values[name]) throw Object.assign(new Error("volume-attestor installer arguments are invalid"), { code: "INVALID_OPERATION" }); values[name] = value; }
+  for (const required of ["--binding", "--helper", "--plan"]) if (!values[required]) throw Object.assign(new Error(`${required} is required`), { code: "INVALID_OPERATION" });
+  if (command === "prepare" && !values["--public-key"]) throw Object.assign(new Error("prepare requires --public-key"), { code: "INVALID_OPERATION" });
+  if (command !== "prepare" && !values["--receipt"]) throw Object.assign(new Error(`${command} requires --receipt`), { code: "INVALID_OPERATION" });
+  if (["install", "remove", "reconcile"].includes(command) && !values["--authorize-plan"]) throw Object.assign(new Error("mutation requires --authorize-plan"), { code: "MUTATION_AUTHORIZATION_REQUIRED" });
+  return { command, values };
+}
+async function sealed(path, json = false) {
+  if (!isAbsolute(path) || resolve(path) !== path) throw Object.assign(new Error("input path must be absolute and canonical"), { code: "UNSAFE_PATH" });
+  const canonical = await realpath(path).catch(() => null); const info = canonical ? await lstat(canonical).catch(() => null) : null;
+  if (!canonical || canonical !== path || !info?.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.uid !== 0 || info.gid !== 0 || !new Set([0o400, 0o440]).has(info.mode & 0o777) || info.size > 1_048_576) throw Object.assign(new Error("input is not a sealed root-owned regular file"), { code: "UNSEALED_INPUT" });
+  const bytes = await readFile(path); if (!json) return bytes;
+  let value; try { value = JSON.parse(bytes); } catch { throw Object.assign(new Error("sealed input is not JSON"), { code: "INVALID_JSON" }); }
+  if (!bytes.equals(Buffer.from(`${canonicalJsonV1(value)}\n`))) throw Object.assign(new Error("sealed JSON input is not canonical"), { code: "NONCANONICAL_INPUT" });
+  return value;
+}
+async function publish(path, value) {
+  if (!isAbsolute(path) || resolve(path) !== path) throw Object.assign(new Error("output path must be absolute and canonical"), { code: "UNSAFE_PATH" });
+  const parent = dirname(path); const info = await lstat(parent).catch(() => null); const canonical = await realpath(parent).catch(() => null);
+  if (canonical !== parent || !info?.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || (info.mode & 0o077) !== 0) throw Object.assign(new Error("output parent is not a private root directory"), { code: "UNSAFE_PATH" });
+  const handle = await open(path, "wx", 0o400); try { await handle.writeFile(`${canonicalJsonV1(value)}\n`); await handle.sync(); await handle.chmod(0o400); await handle.chown(0, 0); } finally { await handle.close(); }
+}
+
+try {
+  if (process.geteuid() !== 0) throw Object.assign(new Error("trusted-console volume-attestor installation requires root"), { code: "ROOT_REQUIRED" });
+  const { command, values } = parse(process.argv.slice(2));
+  const [hostBinding, hostHelperBytes] = await Promise.all([sealed(values["--binding"], true), sealed(values["--helper"])]);
+  if (command === "prepare") {
+    const publicKey = (await sealed(values["--public-key"])).toString("utf8");
+    const plan = createVolumeAttestorHostInstallPlanV1({ hostBinding, helperBytes: hostHelperBytes, publicKey });
+    await publish(values["--plan"], plan); process.stdout.write(`${canonicalJsonV1({ planDigest: plan.planDigest })}\n`);
+  } else {
+    const plan = await sealed(values["--plan"], true); const input = { plan, hostBinding, hostHelperBytes, authorizePlan: values["--authorize-plan"] ?? null, receiptPath: values["--receipt"] };
+    const options = { boundary: new LocalGoldenBuilderHostBoundaryV1() };
+    const result = command === "install" ? await installGoldenBuilderHostV1(input, options)
+      : command === "verify" ? await verifyGoldenBuilderHostV1(input, options)
+        : command === "remove" ? await removeGoldenBuilderHostV1(input, options)
+          : await reconcileGoldenBuilderHostV1(input, options);
+    process.stdout.write(`${canonicalJsonV1({ action: result.action, hostBindingDigest: result.hostBindingDigest, planDigest: result.planDigest, receiptDigest: result.receiptDigest, result: result.result, targetsDigest: result.targetsDigest })}\n`);
+  }
+} catch (error) { fail(error?.code ?? "VOLUME_ATTESTOR_INSTALLER_FAILED", error?.message ?? "volume-attestor installer failed"); }

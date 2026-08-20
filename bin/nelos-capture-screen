@@ -5,10 +5,13 @@ import {
 } from "../src/dev-screen-capture.mjs";
 
 const args = process.argv.slice(2);
-const allowed = new Set(["--out-dir", "--display", "--max-bytes", "--label"]);
+const allowed = new Set([
+  "--out-dir", "--display", "--app-bundle-id", "--window-id", "--window-title",
+  "--protected-regions", "--max-bytes", "--label",
+]);
 
 function usage() {
-  return "usage: nelos-capture-screen --out-dir /absolute/evidence [--display 1] [--max-bytes 26214400] [--label codex]";
+  return "usage: nelos-capture-screen --out-dir /absolute/evidence [--display 1 | --app-bundle-id com.openai.codex [--window-id 123] [--window-title Exact]] [--max-bytes 26214400] [--label codex]";
 }
 
 function parseOptions() {
@@ -25,7 +28,11 @@ function parseOptions() {
   if (!values.has("--out-dir")) throw new Error("--out-dir is required");
   return {
     outputDirectory: values.get("--out-dir"),
-    display: values.has("--display") ? Number(values.get("--display")) : 1,
+    display: values.has("--display") ? Number(values.get("--display")) : undefined,
+    appBundleId: values.get("--app-bundle-id"),
+    windowId: values.has("--window-id") ? Number(values.get("--window-id")) : undefined,
+    windowTitle: values.get("--window-title"),
+    protectedRegions: values.has("--protected-regions") ? values.get("--protected-regions") : undefined,
     maxBytes: values.has("--max-bytes") ? Number(values.get("--max-bytes")) : DEFAULT_SCREEN_CAPTURE_MAX_BYTES,
     label: values.get("--label") ?? "screen",
   };

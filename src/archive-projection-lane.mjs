@@ -58,18 +58,34 @@ export class ArchiveProjectionLaneV1 {
     this.clock = clock;
   }
 
-  async execute(request) {
+  async execute(request, options = {}) {
     const input = validateRequest(request);
-    const deadlineAt = new Date(input.startedAt).getTime() + input.policy.maxConvergenceMs;
+    if (!options || typeof options !== "object" || Array.isArray(options)) throw new ArchiveProjectionLaneError("INVALID_ARCHIVE_LANE_INPUT", "archive lane options must be an object");
+    exactObject(options, Object.hasOwn(options, "hardDeadlineAt") ? ["hardDeadlineAt"] : [], "archive lane options");
+    const convergenceDeadlineAt = new Date(input.startedAt).getTime() + input.policy.maxConvergenceMs;
+    let hardDeadlineAt = null;
+    if (Object.hasOwn(options, "hardDeadlineAt")) {
+      hardDeadlineAt = Date.parse(options.hardDeadlineAt);
+      if (typeof options.hardDeadlineAt !== "string" || !Number.isFinite(hardDeadlineAt) || new Date(hardDeadlineAt).toISOString() !== options.hardDeadlineAt) {
+        throw new ArchiveProjectionLaneError("INVALID_ARCHIVE_LANE_INPUT", "archive lane absolute run deadline is invalid");
+      }
+    }
+    const deadlineAt = hardDeadlineAt === null ? convergenceDeadlineAt : Math.min(convergenceDeadlineAt, hardDeadlineAt);
+    const deadlineCode = hardDeadlineAt !== null && hardDeadlineAt <= convergenceDeadlineAt ? "RUN_DEADLINE_EXPIRED" : "ARCHIVE_CONVERGENCE_DEADLINE";
     const stage = async (name, operation) => {
       const remaining = deadlineAt - this.clock.now();
-      if (remaining < 1) throw new ArchiveProjectionLaneError("ARCHIVE_CONVERGENCE_DEADLINE", `${name} exceeded the shared convergence deadline`);
+      if (remaining < 1) throw new ArchiveProjectionLaneError(deadlineCode, `${name} exceeded the shared archive deadline`);
       let timer; const abort = new AbortController();
       try {
-        return await Promise.race([
+        const result = await Promise.race([
           operation(abort.signal),
-          new Promise((resolve, reject) => { timer = setTimeout(() => { abort.abort(); reject(new ArchiveProjectionLaneError("ARCHIVE_CONVERGENCE_DEADLINE", `${name} exceeded the shared convergence deadline`)); }, remaining); }),
+          new Promise((resolve, reject) => { timer = setTimeout(() => { abort.abort(); reject(new ArchiveProjectionLaneError(deadlineCode, `${name} exceeded the shared archive deadline`)); }, remaining); }),
         ]);
+        if (this.clock.now() >= deadlineAt) {
+          abort.abort();
+          throw new ArchiveProjectionLaneError(deadlineCode, `${name} exceeded the shared archive deadline`);
+        }
+        return result;
       } finally { clearTimeout(timer); }
     };
     const archiveReceipts = await stage("archive", (signal) => this.adapter.archiveTasks({ schemaVersion: 1, runId: input.runId, expectedThreads: input.expectedThreads }, { signal }));
@@ -80,7 +96,7 @@ export class ArchiveProjectionLaneV1 {
       throw new ArchiveProjectionLaneError("INVALID_RESTART_RECEIPT", "Desktop restart did not prove a new app instance");
     }
     const afterRestart = await stage("post-restart checkpoint", (signal) => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 2, phase: "afterRestart", expectedThreads: input.expectedThreads, expectedAppInstanceId: restart.newAppInstanceId }, { signal }));
-    const report = await validateArchiveProjectionConvergence({ schemaVersion: 1, startedAt: input.startedAt, policy: input.policy, expectedThreads: input.expectedThreads, archiveReceipts, checkpoints: [afterCleanup, afterRestart] });
+    const report = await stage("archive convergence validation", () => validateArchiveProjectionConvergence({ schemaVersion: 1, startedAt: input.startedAt, policy: input.policy, expectedThreads: input.expectedThreads, archiveReceipts, checkpoints: [afterCleanup, afterRestart] }));
     return Object.freeze({ schemaVersion: 1, type: "archive-projection-convergence", runId: input.runId, outcome: report.outcome, restart: structuredClone(restart), report });
   }
 

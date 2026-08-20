@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+
+import { isAbsolute, resolve } from "node:path";
+
+import {
+  canonicalProductionRunBytesV1,
+  prepareProductionDesktopRunV1,
+} from "../validation/proxmox-desktop/v1/prepare-production-run.mjs";
+
+const OPTIONS = Object.freeze({
+  "--candidate-manifest": "candidatePath",
+  "--golden-receipt": "goldenReceiptPath",
+  "--task-intent": "taskIntentPath",
+  "--provider": "providerPath",
+  "--lease": "leasePath",
+  "--reservation": "reservationPath",
+  "--scenario": "scenarioPath",
+  "--output-root": "outputRoot",
+});
+
+function usage() {
+  return "Usage: nelos-prepare-production-run --candidate-manifest /absolute/candidate.json --golden-receipt /absolute/golden.json --task-intent /absolute/task-intent.json --provider /absolute/provider.json --lease /absolute/lease.json --reservation /absolute/reservation.json --scenario /absolute/scenario.json --output-root /absolute/RUN_ID [--require-sealed-values]\n";
+}
+
+function parse(argumentsList) {
+  if (argumentsList.length === 1 && ["--help", "-h"].includes(argumentsList[0])) return { help: true };
+  const result = { requireSealedValues: false };
+  const seen = new Set();
+  for (let index = 0; index < argumentsList.length; index += 1) {
+    const option = argumentsList[index];
+    if (option === "--require-sealed-values") {
+      if (seen.has(option)) throw new Error("--require-sealed-values may be supplied only once");
+      seen.add(option);
+      result.requireSealedValues = true;
+      continue;
+    }
+    const field = OPTIONS[option];
+    const value = argumentsList[index + 1];
+    if (field === undefined || seen.has(option) || value === undefined || value.startsWith("--")) {
+      throw new Error(`unknown, duplicate, or incomplete option: ${option ?? "<missing>"}`);
+    }
+    if (!isAbsolute(value) || resolve(value) !== value || value === "/") {
+      throw new Error(`${option} must be one normalized non-root absolute path`);
+    }
+    seen.add(option);
+    result[field] = value;
+    index += 1;
+  }
+  if (Object.keys(OPTIONS).some((option) => !seen.has(option))) throw new Error("every production run input option is required exactly once");
+  return result;
+}
+
+try {
+  const input = parse(process.argv.slice(2));
+  if (input.help) process.stdout.write(usage());
+  else process.stdout.write(canonicalProductionRunBytesV1(await prepareProductionDesktopRunV1(input)));
+} catch (error) {
+  process.stderr.write(`${error?.code ?? "PRODUCTION_RUN_COMPOSITION_FAILED"}: ${error?.message ?? "production run composition failed"}\n`);
+  process.exitCode = 2;
+}

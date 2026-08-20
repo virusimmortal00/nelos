@@ -1,4 +1,21 @@
+import { createHash } from "node:crypto";
+
 const sha = (character) => `sha256:${character.repeat(64)}`;
+const canonical = (value) => Array.isArray(value)
+  ? `[${value.map(canonical).join(",")}]`
+  : value !== null && typeof value === "object"
+    ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`
+    : JSON.stringify(value);
+const digest = (value) => `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`;
+export const FIXTURE_NETWORK_POLICY_RULESET_DIGEST_V1 = sha("9");
+export const FIXTURE_NETWORK_POLICY_ADDRESS_DIGEST_V1 = sha("7");
+export const FIXTURE_NETWORK_POLICY_DIGEST_V1 = digest({
+  approvedAddressInventoryDigest: FIXTURE_NETWORK_POLICY_ADDRESS_DIGEST_V1,
+  kind: "nelos.proxmox-desktop.gateway-policy-identity.v1",
+  networkId: "nelosbld",
+  rulesetDigest: FIXTURE_NETWORK_POLICY_RULESET_DIGEST_V1,
+  schemaVersion: 1,
+});
 
 export function validRemoteDesktopRunV1() {
   const scenario = (number) => ({
@@ -6,8 +23,8 @@ export function validRemoteDesktopRunV1() {
     scenarioId: `scenario-${number}`,
     task: { taskId: `01a01ae1-0000-7000-8000-${String(number).padStart(12, "0")}`, createdForScenario: `scenario-${number}`, fresh: true },
     actions: [
-      { actionId: `action-${number}-1`, type: "click", targetRef: "new-task-button", valueRef: null, timeoutMs: 5_000 },
-      { actionId: `action-${number}-2`, type: "type_text_ref", targetRef: "task-composer", valueRef: `benchmark-input-${number}`, timeoutMs: 10_000 },
+      { actionId: `action-${number}-1`, type: "type_text_ref", targetRef: "task-composer", valueRef: `benchmark-input-${number}`, timeoutMs: 10_000 },
+      { actionId: `action-${number}-2`, type: "keypress", targetRef: "submit-key", valueRef: null, timeoutMs: 5_000 },
     ],
     checkpoints: [
       { checkpointId: `checkpoint-${number}`, type: "screenshot", afterActionId: `action-${number}-2`, failureOnly: false },
@@ -22,9 +39,12 @@ export function validRemoteDesktopRunV1() {
     schemaVersion: 1,
     runId: "remote-desktop-run-001",
     candidate: { digest: sha("1"), immutable: true },
-    desktopBundle: { bundleId: "com.openai.codex", version: "2026.819.1", digest: sha("2") },
+    desktopBundle: { bundleId: "chatgpt", version: "26.814.41957", digest: "sha256:4778b26a7abd08647214d5b05c17bd3ebe2d9688d146dabf017c1a2faf93ac7d" },
     goldenImage: { imageId: "golden-macos-15-001", digest: sha("3") },
-    provider: { providerId: "provider-proxmox-east", hostId: "pve-host-07", vmId: "vm-9401" },
+    provider: {
+      providerId: "proxmox-lab", hostId: "prox2", vmId: "9401",
+      macAddress: "02:4E:45:4C:94:01", networkId: "nelosbld", gatewayId: "9023", networkPolicyDigest: FIXTURE_NETWORK_POLICY_DIGEST_V1,
+    },
     lease: {
       leaseId: "lease-remote-001",
       holderId: "nelos-validator-01",
@@ -72,6 +92,10 @@ export function validRemoteDesktopEvidenceExportV1(run = validRemoteDesktopRunV1
       providerId: run.provider.providerId,
       hostId: run.provider.hostId,
       vmId: run.provider.vmId,
+      macAddress: run.provider.macAddress,
+      networkId: run.provider.networkId,
+      gatewayId: run.provider.gatewayId,
+      networkPolicyDigest: run.provider.networkPolicyDigest,
       leaseId: run.lease.leaseId,
       fencingToken: run.lease.fencingToken,
       benchmarkProfileDigest: run.benchmarkProfile.digest,
@@ -101,7 +125,7 @@ export function validRemoteDesktopEvidenceExportV1(run = validRemoteDesktopRunV1
       evidenceClass: "action_timeline",
       scenarioId: "scenario-1",
       actionId: "action-1-1",
-      actionType: "click",
+      actionType: "type_text_ref",
       startedAt: "2026-08-19T12:00:00.000Z",
       finishedAt: "2026-08-19T12:00:01.000Z",
       outcome: "succeeded",
@@ -119,6 +143,10 @@ export function validRemoteDesktopEvidenceExportV1(run = validRemoteDesktopRunV1
       providerId: run.provider.providerId,
       hostId: run.provider.hostId,
       vmId: run.provider.vmId,
+      macAddress: run.provider.macAddress,
+      networkId: run.provider.networkId,
+      gatewayId: run.provider.gatewayId,
+      networkPolicyDigest: run.provider.networkPolicyDigest,
       leaseId: run.lease.leaseId,
       fencingToken: run.lease.fencingToken,
       terminalOutcomeDigest: sha("8"),
@@ -131,9 +159,25 @@ export function validRemoteDesktopTerminalOutcomeV1(run = validRemoteDesktopRunV
     providerId: run.provider.providerId,
     hostId: run.provider.hostId,
     vmId: run.provider.vmId,
+    macAddress: run.provider.macAddress,
+    networkId: run.provider.networkId,
+    gatewayId: run.provider.gatewayId,
+    networkPolicyDigest: run.provider.networkPolicyDigest,
     leaseId: run.lease.leaseId,
     fencingToken: run.lease.fencingToken,
   };
+  const credentialDisposition = (method) => ({
+    schemaVersion: 1,
+    type: "nelos.credential-terminal-disposition.v1",
+    method,
+    codexHome: "/home/nelosauto/.codex",
+    filesystemType: "tmpfs",
+    swapPolicy: "disabled-and-attested-before-auth",
+    powerState: "stopped",
+    reusableCredentialsAbsent: true,
+    secretBytesIncluded: false,
+    attestationDigest: sha("b"),
+  });
   return {
     schemaVersion: 1,
     runId: run.runId,
@@ -145,12 +189,16 @@ export function validRemoteDesktopTerminalOutcomeV1(run = validRemoteDesktopRunV
       receiptId: "destroy-receipt-001",
       ...binding,
       mutationStatus: "committed",
+      credentialDisposition: credentialDisposition("powered-off-before-destroy"),
       destroyed: true,
+      macAbsent: true,
+      networkInventoryComplete: true,
       attestationDigest: sha("9"),
     } : {
       receiptId: "quarantine-receipt-001",
       ...binding,
       mutationStatus: "committed",
+      credentialDisposition: credentialDisposition("powered-off-quarantine"),
       quarantined: true,
       attestationDigest: sha("a"),
       reconciliation: { operationId: "reconcile-vm-9401", ...binding },

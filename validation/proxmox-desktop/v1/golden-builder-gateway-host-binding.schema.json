@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-gateway-host-binding.schema.json",
+  "title": "Nelos golden-builder gateway forced-host binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestorKeyFingerprint", "attestorPublicKey", "attestorUser", "expiresAt", "hostBindingDigest", "hostHelperDigest", "kind",
+    "policyBinding", "providerKeyFingerprint", "providerPublicKey", "providerUser", "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-gateway-host-binding" },
+    "policyBinding": { "$ref": "golden-builder-gateway-policy.schema.json" },
+    "hostHelperDigest": { "$ref": "#/$defs/sha256" },
+    "providerUser": { "const": "nelos-golden-gateway-provider" },
+    "providerPublicKey": { "$ref": "#/$defs/publicKey" },
+    "providerKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "attestorUser": { "const": "nelos-golden-gateway-attestor" },
+    "attestorPublicKey": { "$ref": "#/$defs/publicKey" },
+    "attestorKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "hostBindingDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "publicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\\r\\n]{1,256})?$", "maxLength": 4096 }
+  }
+}

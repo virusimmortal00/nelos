@@ -46,6 +46,15 @@ export const MANAGED_CLI_BINS = Object.freeze({
   "nelos-validate-visual-state": "bin/nelos-validate-visual-state",
   "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
   "nelos-desktop-runner": "bin/nelos-desktop-runner",
+  "nelos-golden-builder-runner": "bin/nelos-golden-builder-runner",
+  "nelos-golden-host-installer": "bin/nelos-golden-host-installer",
+  "nelos-volume-attestor-host-installer": "bin/nelos-volume-attestor-host-installer",
+  "nelos-prepare-production-run": "bin/nelos-prepare-production-run",
+  "nelos-prepare-production-guest-task": "bin/nelos-prepare-production-guest-task",
+  "nelos-prepare-production-task": "bin/nelos-prepare-production-task",
+  "nelos-proxmox-transport": "bin/nelos-proxmox-transport",
+  "nelos-proxmox-attest-transport": "bin/nelos-proxmox-attest-transport",
+  "nelos-observe-current-lease": "bin/nelos-observe-current-lease",
   "nelos-experiment": "bin/nelos-experiment",
   "nelos-title": "bin/nelos-title",
   "nelos-install-skill": "bin/nelos-install-skill",
@@ -67,11 +76,41 @@ export const DISTRIBUTION_ENTRIES = [
   "corpus",
   "docs",
   "evals",
+  "LICENSE",
   "package.json",
   "scripts/evaluate-routing-scenarios.mjs",
+  "scripts/stage-production-desktop-candidate.mjs",
   "skills",
   "src",
+  "validation",
 ];
+
+export function materializeGitDistributionProvenance(
+  provenance,
+  { sourceRevision, integrity },
+) {
+  validateProvenance(provenance, "base distribution provenance");
+  if (!/^[a-f0-9]{40}$/u.test(sourceRevision ?? "")) {
+    throw new Error("Git distribution provenance requires a full SHA-1 commit");
+  }
+  if (!/^sha256:[a-f0-9]{64}$/u.test(integrity ?? "")) {
+    throw new Error("Git distribution provenance requires a SHA-256 integrity digest");
+  }
+  return validateProvenance(
+    {
+      ...provenance,
+      sourceRepository: SOURCE_REPOSITORY,
+      sourceRevision,
+      sourceRevisionType: "git",
+      cacheIdentity: pluginCacheIdentity({
+        sourceRepository: SOURCE_REPOSITORY,
+        version: provenance.revision,
+      }),
+      integrity,
+    },
+    "materialized Git distribution provenance",
+  );
+}
 
 export function currentDirectoryPathEntries(pathValue = "") {
   return pathValue
@@ -249,6 +288,34 @@ async function listIntegrityFiles(root, entry) {
   return files;
 }
 
+export async function listDistributionFiles(
+  root,
+  { includeProvenance = false } = {},
+) {
+  const files = [];
+  const entries = includeProvenance
+    ? [...DISTRIBUTION_ENTRIES, PROVENANCE_FILENAME]
+    : DISTRIBUTION_ENTRIES;
+  for (const entry of entries) {
+    files.push(...(await listIntegrityFiles(root, entry)));
+  }
+  return files
+    .map((path) => relative(root, path).split("\\").join("/"))
+    .sort();
+}
+
+async function requiresDesktopPackageEntries(root) {
+  try {
+    const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(version ?? "");
+    if (!match) return false;
+    const [major, minor, patch] = match.slice(1).map(Number);
+    return major > 0 || minor > 12 || (minor === 12 && patch >= 18);
+  } catch {
+    return false;
+  }
+}
+
 export async function computeDistributionIntegrity(
   root,
   {
@@ -256,6 +323,7 @@ export async function computeDistributionIntegrity(
     allowLegacyWithoutAgentPluginLayout = false,
   } = {},
 ) {
+  const requireDesktopEntries = await requiresDesktopPackageEntries(root);
   let omitLegacyAgentPluginLayout = false;
   if (allowLegacyWithoutAgentPluginLayout) {
     const presence = await Promise.all(
@@ -287,7 +355,22 @@ export async function computeDistributionIntegrity(
         throw error;
       }
     }
-    files.push(...(await listIntegrityFiles(root, entry)));
+    try {
+      files.push(...(await listIntegrityFiles(root, entry)));
+    } catch (error) {
+      if (
+        error.code === "ENOENT" &&
+        !requireDesktopEntries &&
+        (
+          entry === "LICENSE" ||
+          entry === "validation" ||
+          entry === "scripts/stage-production-desktop-candidate.mjs"
+        )
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
   files.sort((left, right) => {
     const leftPath = relative(root, left);

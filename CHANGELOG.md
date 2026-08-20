@@ -5,6 +5,47 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.19] - 2026-08-20
+
+### User-facing changes
+
+- Adds the bounded production Proxmox Desktop validation lane, including
+  deterministic run composition, resumable cleanup, protected evidence, and
+  exact native/MCP/Desktop task identity and lifecycle comparison.
+- Desktop evidence now checks each launched descendant's ID, title, and status
+  across independent sidebar and Nelos visual surfaces, including Current,
+  queued, expanded, completed, interrupted, and stale-row failure cases.
+- Adds packaged operators for production task/run preparation, current-lease
+  observation, Proxmox transport, golden-image orchestration, and host setup.
+
+### Compatibility requirements
+
+- The production lane is fixed to provider `proxmox-lab`, host `prox2`, VNet
+  `nelosbld`, gateway VM `9023`, source template `9024`, builder VM `9026`, and
+  output template `9027`; internally consistent alternate identities fail
+  before provider mutation.
+- The golden-image lane requires the pinned Ubuntu, Packer, Proxmox plugin,
+  ChatGPT Desktop, Codex, Node, API TLS, SSH host-key, MAC, and full-volume
+  measurement identities recorded by its sealed inputs.
+
+### Migrations
+
+- Existing installs must use the new production preparation and host-installer
+  commands; legacy unsealed host helpers and observation staging are rejected.
+- No Nelos task-store data migration is required.
+
+### Security fixes
+
+- ChatGPT credentials are confined to a run-bound tmpfs with swap, hibernation,
+  core dumps, and persistent crash collectors disabled and attested before
+  authentication; quarantine requires independent exact power-off proof.
+- Provider, lease, network-policy, guest-task, golden-image, privileged-host,
+  Packer-process, sealed-value, and cleanup receipts are content-addressed and
+  crash-recoverable, with ambiguous effects quarantined instead of replayed.
+- Screenshot export starts from a black frame, permits only exact expected task
+  evidence pixels, disables ImageMagick disk/map spill, and verifies durable
+  RGBA bytes before evidence admission.
+
 ## [0.12.18] - 2026-08-19
 
 ### User-facing changes

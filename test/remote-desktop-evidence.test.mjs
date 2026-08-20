@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, readdir, rename, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, realpath, rename, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -45,7 +45,7 @@ function metadata(run) {
 const operationalUsage = { taskCount: 1, modelTurnCount: 1, spendUsd: 0.25, wallTimeMs: 2_000 };
 
 async function directory(name) {
-  const parent = await mkdtemp(join(tmpdir(), `nelos-desktop-evidence-${name}-`));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), `nelos-desktop-evidence-${name}-`)));
   return resolve(parent, "bundle");
 }
 

@@ -106,6 +106,32 @@ test("node verification requires the immutable starter corpus lock", async () =>
   );
 });
 
+test("Proxmox workflow validates the pinned Desktop production source lane", async () => {
+  const workflow = await text("../.github/workflows/proxmox-template.yml");
+  assert.equal(
+    (workflow.match(/- "validation\/proxmox-desktop\/\*\*"/gu) ?? []).length,
+    2,
+  );
+  assert.match(workflow, /DESKTOP_PACKER_DIR: validation\/proxmox-desktop\/v1/u);
+  assert.match(workflow, /npm run check:desktop-runner/u);
+  assert.match(workflow, /python3 - <<'PY'[\s\S]*ast\.parse/u);
+  assert.match(workflow, /packer" init "\$DESKTOP_PACKER_DIR"/u);
+  assert.match(
+    workflow,
+    /packer fmt -check -diff "\$DESKTOP_PACKER_DIR\/golden-image\.pkr\.hcl"/u,
+  );
+  assert.match(
+    workflow,
+    /packer validate -syntax-only "\$DESKTOP_PACKER_DIR\/golden-image\.pkr\.hcl"/u,
+  );
+  assert.match(workflow, /packer validate -var-file="\$desktop_synthetic_vars" "\$DESKTOP_PACKER_DIR"/u);
+  assert.match(workflow, /output_template_mac: "02:4E:45:4C:90:27"/u);
+  assert.match(workflow, /build_nonce: "0{32}"/u);
+  assert.match(workflow, /\.artifacts\.packer\.sha256/u);
+  assert.match(workflow, /\.artifacts\.packerProxmoxPlugin\.sha256/u);
+  assert.doesNotMatch(workflow, /hashicorp\/setup-packer|packer@latest/u);
+});
+
 test("drift lanes are scheduled/manual, bounded, and preserve unavailable reports", async () => {
   const workflow = await text("../.github/workflows/compatibility-drift.yml");
   assert.match(workflow, /schedule:/u);

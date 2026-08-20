@@ -80,6 +80,48 @@ test("admission rejects stale fencing and mutable candidate identities", () => {
   assert.throws(() => admitRemoteDesktopRun(run, { candidateDigest: `sha256:${"f".repeat(64)}`, currentLease: currentLeaseFor(run) }), rejectsWith("MUTABLE_CANDIDATE"));
 });
 
+test("provider identity requires one explicit locally administered MAC and network", () => {
+  const lowercaseMac = validRemoteDesktopRunV1();
+  lowercaseMac.provider.macAddress = lowercaseMac.provider.macAddress.toLowerCase();
+  assert.throws(() => validateRemoteDesktopRunV1(lowercaseMac), rejectsWith("INVALID_IDENTITY"));
+
+  const omittedNetwork = validRemoteDesktopRunV1();
+  delete omittedNetwork.provider.networkId;
+  assert.throws(() => validateRemoteDesktopRunV1(omittedNetwork), rejectsWith("INVALID_CONTRACT"));
+});
+
+test("the production prox2 provider schema and runtime fix gateway VM 9023 and VNet nelosbld", () => {
+  const production = validRemoteDesktopRunV1();
+  production.provider = { ...production.provider, providerId: "proxmox-lab", hostId: "prox2", gatewayId: "9024" };
+  assert.throws(() => validateRemoteDesktopRunV1(production), rejectsWith("INVALID_PROVIDER_IDENTITY"));
+  const alternateNetwork = validRemoteDesktopRunV1();
+  alternateNetwork.provider.networkId = "caller-selected";
+  assert.throws(
+    () => validateRemoteDesktopRunV1(alternateNetwork),
+    (error) => error?.code === "INVALID_PROVIDER_IDENTITY" && error?.path === "/provider/networkId",
+  );
+  const gatewayOnly = validRemoteDesktopRunV1();
+  gatewayOnly.provider = { ...gatewayOnly.provider, providerId: "other-provider", hostId: "other-host", networkId: "other-vnet" };
+  assert.throws(() => validateRemoteDesktopRunV1(gatewayOnly), rejectsWith("INVALID_PROVIDER_IDENTITY"));
+  const networkOnly = validRemoteDesktopRunV1();
+  networkOnly.provider = { ...networkOnly.provider, providerId: "other-provider", hostId: "other-host", gatewayId: "9900" };
+  assert.throws(() => validateRemoteDesktopRunV1(networkOnly), rejectsWith("INVALID_PROVIDER_IDENTITY"));
+  const conditional = REMOTE_DESKTOP_SCHEMAS_V1.run.properties.provider.allOf[0];
+  assert.deepEqual(conditional.if.anyOf, [
+    { properties: { providerId: { const: "proxmox-lab" } }, required: ["providerId"] },
+    { properties: { hostId: { const: "prox2" } }, required: ["hostId"] },
+    { properties: { gatewayId: { const: "9023" } }, required: ["gatewayId"] },
+    { properties: { networkId: { const: "nelosbld" } }, required: ["networkId"] },
+  ]);
+  assert.deepEqual(conditional.then.properties, {
+    gatewayId: { const: "9023" },
+    hostId: { const: "prox2" },
+    networkId: { const: "nelosbld" },
+    providerId: { const: "proxmox-lab" },
+  });
+  assert.deepEqual(conditional.then.required, ["gatewayId", "hostId", "networkId", "providerId"]);
+});
+
 test("admission rejects omitted budgets and pessimistic spend under-reservation", () => {
   const omitted = validRemoteDesktopRunV1();
   delete omitted.policy.maxModelTurnCount;

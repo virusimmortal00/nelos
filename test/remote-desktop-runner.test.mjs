@@ -1,18 +1,41 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { AtomicRemoteDesktopJournal, ResumableRemoteDesktopRunnerV1, preflightRemoteDesktopRunV1 } from "nelos/remote-desktop-runner";
+import { AtomicRemoteDesktopJournal, ResumableRemoteDesktopRunnerV1, contentDigest, preflightRemoteDesktopRunV1 } from "nelos/remote-desktop-runner";
 import { ArchiveProjectionLaneV1 } from "nelos/archive-projection-lane";
 import { currentLeaseFor, validRemoteDesktopRunV1, validRemoteDesktopTerminalOutcomeV1 } from "./fixtures/remote-desktop-contract-v1.mjs";
 
 const zero = () => ({ taskCount: 0, modelTurnCount: 0, spendUsd: 0, wallTimeMs: 0, screenshotCount: 0, screenshotBytes: 0, recordingDurationMs: 0, recordingBytes: 0, diagnosticLogCount: 0, diagnosticLogBytes: 0 });
+const fakeLeaseAuthorityAdmission = () => ({
+  binding: {
+    authorityId: "pve-1-desktop-authority-v1",
+    epoch: 1,
+    issuedRecordDigest: `sha256:${"5".repeat(64)}`,
+    issuedRecordFileDigest: `sha256:${"6".repeat(64)}`,
+    issuedRevision: 1,
+    trustDigest: `sha256:${"7".repeat(64)}`,
+  },
+  issuedObservationDigest: `sha256:${"8".repeat(64)}`,
+});
 
-async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash = false, providerMidflightCrash = null, quarantine = false, projectionStale = false, archiveMidflightCrash = false } = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "nelos-desktop-runner-"));
+function runCli(args) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [path.resolve("bin/nelos-desktop-runner"), ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const stdout = []; const stderr = [];
+    child.stdout.on("data", (chunk) => stdout.push(chunk)); child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.once("error", rejectPromise);
+    child.once("close", (code) => resolvePromise({ code, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") }));
+  });
+}
+
+async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash = false, providerMidflightCrash = null, quarantine = false, projectionStale = false, archiveMidflightCrash = false, productionAdmission = null, initialReservationObservation = null, runtimeClock = null, afterCreate = null, afterGui = null } = {}) {
+  if (productionAdmission !== null && productionAdmission.leaseAuthority === undefined) productionAdmission.leaseAuthority = fakeLeaseAuthorityAdmission();
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "nelos-desktop-runner-")));
   const run = validRemoteDesktopRunV1();
   run.scenarios = [run.scenarios[0]];
   const scenarioDelta = { ...zero(), taskCount: 1, modelTurnCount: 1, spendUsd: 0.25, wallTimeMs: 120_001 };
@@ -28,7 +51,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
     },
     evidence: { bundleDirectory: path.join(root, "evidence"), proposedOperationalUsage: { taskCount: 0, modelTurnCount: 0, spendUsd: 0, wallTimeMs: 1 }, screenshots: [], recordings: [], diagnostics: [] },
   };
-  const calls = { create: 0, destroy: 0, quarantine: 0, reconcile: 0, gui: 0, archiveConvergence: 0, archiveReconcile: 0, restart: 0, collect: 0 };
+  const calls = { create: 0, destroy: 0, quarantine: 0, reconcile: 0, gui: 0, sealedCleanup: 0, archiveConvergence: 0, archiveReconcile: 0, restart: 0, collect: 0 };
   const events = [];
   let present = false;
   let lastCleanup = null;
@@ -41,6 +64,7 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
       calls[operation] += 1;
       if (operation === "create") {
         present = true;
+        if (afterCreate) await afterCreate();
         if (providerMidflightCrash === operation && !providerCrashThrown) { providerCrashThrown = true; throw Object.assign(new Error("injected after create request"), { code: "INJECTED_CRASH" }); }
         return { receiptId: "create-1", ...run.provider, leaseId: run.lease.leaseId, fencingToken: run.lease.fencingToken, mutationStatus: "committed", created: true, qgaReady: true, state: "running" };
       }
@@ -63,13 +87,20 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
       calls.gui += 1;
       if (guiMidflightCrash && !midflightThrown) { midflightThrown = true; throw Object.assign(new Error("injected inside GUI"), { code: "INJECTED_CRASH" }); }
       const outcome = guiFailure ? "failed" : "passed";
-      return {
+      const result = {
         scenarioId: scenario.scenarioId, taskId: scenario.task.taskId,
         startedAt: "2026-08-19T12:00:00.000Z", finishedAt: "2026-08-19T12:01:00.000Z", outcome,
         failure: guiFailure ? { code: "ASSERTION_FAILURE" } : null,
         actions: scenario.actions.map((action) => ({ actionId: action.actionId, actionType: action.type, startedAt: "2026-08-19T12:00:00.000Z", finishedAt: "2026-08-19T12:00:01.000Z", outcome: "succeeded" })),
         checkpoints: [], assertions: scenario.assertions.map((item) => ({ assertionId: item.assertionId, passed: !guiFailure, observedRef: guiFailure ? null : item.expectedRef })),
       };
+      if (afterGui) await afterGui();
+      return result;
+    },
+    async cleanupSealedValues(valueRefs) {
+      calls.sealedCleanup += 1; events.push("sealed-values:absent");
+      const declaredValueRefs = [...valueRefs].sort();
+      return { schemaVersion: 1, kind: "sealed-value-absence", declaredValueRefs, removedValueRefs: [], alreadyAbsentValueRefs: declaredValueRefs, remainingValueRefs: [] };
     },
   };
   const evidenceCollector = { async collect() { calls.collect += 1; events.push("evidence:collect"); return { screenshots: [], recordings: [], diagnostics: [] }; } };
@@ -121,8 +152,33 @@ async function fixture({ crashAt = null, guiFailure = false, guiMidflightCrash =
     if (!injected && checkpoint === crashAt) { injected = true; throw Object.assign(new Error(`crash ${checkpoint}`), { code: "INJECTED_CRASH" }); }
   };
   const input = { run, plan, candidateDigest: run.candidate.digest, currentLease: currentLeaseFor(run), now: Date.parse("2026-08-19T12:00:00.000Z") };
-  const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: path.join(root, "journal"), providerController, guiDriver, archiveProjectionController, evidenceCollector, crashInjector, clock: { now: () => Date.parse("2026-08-19T12:01:00.000Z") } });
-  return { root, run, plan, input, runner, calls, events };
+  const productionGuard = productionAdmission === null ? null : {
+    admission: productionAdmission,
+    initialReservationObservation,
+    async prepareBeforeDestroy() { throw new Error("not reached before injected crash"); },
+    async verifyBeforeDestroy() { throw new Error("not reached before injected crash"); },
+    async attestAfterDestroy() { throw new Error("not reached before injected crash"); },
+    async attestFinalEvidence() { throw new Error("not reached before injected crash"); },
+  };
+  const taskPreparer = productionAdmission === null ? null : {
+    intentDigest: `sha256:${"8".repeat(64)}`,
+    async execute() { return { schemaVersion: 1, taskId: run.scenarios[0].task.taskId, initialTurnStarted: false }; },
+    async reconcileEffect() { return { schemaVersion: 1, taskId: run.scenarios[0].task.taskId, initialTurnStarted: false }; },
+    materialize(value) { return structuredClone(value); },
+  };
+  const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: path.join(root, "journal"), providerController, guiDriver, archiveProjectionController, evidenceCollector, productionGuard, taskPreparer, crashInjector, clock: runtimeClock ?? { now: () => Date.parse("2026-08-19T12:01:00.000Z") } });
+  return { root, run, plan, input, runner, calls, events, productionGuard };
+}
+
+function reservationAbsence(run, observedAt) {
+  const unsigned = {
+    schemaVersion: 1,
+    type: "independent-pre-mutation-vm-observation",
+    binding: { ...run.provider, leaseId: run.lease.leaseId, fencingToken: run.lease.fencingToken },
+    state: "absent",
+    observedAt: new Date(observedAt).toISOString(),
+  };
+  return { ...unsigned, observationDigest: contentDigest(unsigned) };
 }
 
 test("preflight binds the immutable contract and rejects underdeclared scenario operations", async () => {
@@ -136,6 +192,9 @@ test("preflight binds the immutable contract and rejects underdeclared scenario 
   assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, plan: noRestart }), (error) => error.code === "INVALID_ARCHIVE_CONVERGENCE_POLICY");
   const oneCapture = structuredClone(value.plan); oneCapture.archiveConvergence.operationUsage.screenshotCount = 1;
   assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, plan: oneCapture }), (error) => error.code === "UNDERDECLARED_OPERATION");
+  const duplicateOneShot = structuredClone(value.run);
+  duplicateOneShot.scenarios[0].actions.push({ actionId: "action-duplicate-ref", type: "type_text_ref", targetRef: "task-composer", valueRef: duplicateOneShot.scenarios[0].actions[0].valueRef, timeoutMs: 1_000 });
+  assert.throws(() => preflightRemoteDesktopRunV1({ ...value.input, run: duplicateOneShot }), (error) => error.code === "INVALID_RUNNER_INPUT");
 });
 
 for (const [checkpoint, expectedState] of [
@@ -231,4 +290,160 @@ test("journal is atomic, content-addressed, and rejects identity-mismatched resu
   const mismatched = structuredClone(value.run); mismatched.candidate.digest = `sha256:${"f".repeat(64)}`;
   await assert.rejects(value.runner.resume({ run: mismatched, plan: value.plan }), (error) => error.code === "RESUME_IDENTITY_MISMATCH");
   assert.equal((await new AtomicRemoteDesktopJournal(path.join(value.root, "journal")).load()).run.state, "succeeded");
+});
+
+test("content-addressed production verification is part of the immutable identity and atomic journal", async () => {
+  const productionAdmission = {
+    packetDigest: `sha256:${"1".repeat(64)}`,
+    gateReceiptDigest: `sha256:${"2".repeat(64)}`,
+    configDigest: `sha256:${"3".repeat(64)}`,
+    runDeadlineAt: "2098-12-31T23:59:00.000Z",
+    verificationReceiptDigest: `sha256:${"4".repeat(64)}`,
+    verificationReceipt: { schemaVersion: 1, type: "nelos-production-admission-verification", receiptDigest: `sha256:${"4".repeat(64)}` },
+  };
+  const value = await fixture({ crashAt: "after:provision", productionAdmission });
+  await assert.rejects(value.runner.start(value.input), (error) => error.code === "INJECTED_CRASH");
+  const journaled = await new AtomicRemoteDesktopJournal(path.join(value.root, "journal")).load();
+  assert.deepEqual(journaled.productionAdmission, productionAdmission);
+
+  const changed = structuredClone(productionAdmission);
+  changed.verificationReceiptDigest = `sha256:${"5".repeat(64)}`;
+  const originalIdentity = preflightRemoteDesktopRunV1({ ...value.input, productionAdmission }).identityDigest;
+  const changedIdentity = preflightRemoteDesktopRunV1({ ...value.input, productionAdmission: changed }).identityDigest;
+  assert.notEqual(originalIdentity, changedIdentity);
+});
+
+test("expired production deadline aborts an independently absent reservation before any mutation or paid work", async () => {
+  const startedAt = Date.parse("2026-08-19T12:00:00.000Z");
+  let now = startedAt + 61_000;
+  const productionAdmission = {
+    packetDigest: `sha256:${"1".repeat(64)}`, gateReceiptDigest: `sha256:${"2".repeat(64)}`,
+    configDigest: `sha256:${"3".repeat(64)}`, runDeadlineAt: new Date(startedAt + 60_000).toISOString(),
+    verificationReceiptDigest: `sha256:${"4".repeat(64)}`,
+  };
+  const value = await fixture({ productionAdmission, runtimeClock: { now: () => now } });
+  value.productionGuard.initialReservationObservation = reservationAbsence(value.run, now);
+  const result = await value.runner.start(value.input);
+  assert.equal(result.run.state, "failed");
+  assert.equal(result.failure.code, "RUN_DEADLINE_EXPIRED");
+  assert.equal(result.preProvisionAbort.reason, "RUN_DEADLINE_EXPIRED");
+  assert.equal(result.preProvisionAbort.reservationObservation.state, "absent");
+  assert.ok(result.sealedValueCleanup);
+  assert.equal(value.calls.sealedCleanup, 1);
+  assert.equal(result.terminalOutcome, null);
+  assert.deepEqual({ create: value.calls.create, destroy: value.calls.destroy, quarantine: value.calls.quarantine, gui: value.calls.gui, archive: value.calls.archiveConvergence, collect: value.calls.collect },
+    { create: 0, destroy: 0, quarantine: 0, gui: 0, archive: 0, collect: 0 });
+});
+
+test("cancel after the consumed gate but before provision terminates on independent absence without cleanup mutation", async () => {
+  const now = Date.parse("2026-08-19T12:00:00.000Z");
+  const productionAdmission = {
+    packetDigest: `sha256:${"1".repeat(64)}`, gateReceiptDigest: `sha256:${"2".repeat(64)}`,
+    configDigest: `sha256:${"3".repeat(64)}`, runDeadlineAt: new Date(now + 60_000).toISOString(),
+    verificationReceiptDigest: `sha256:${"4".repeat(64)}`,
+  };
+  const value = await fixture({ crashAt: "after:journal-initialize", productionAdmission, runtimeClock: { now: () => now } });
+  value.productionGuard.initialReservationObservation = reservationAbsence(value.run, now);
+  await assert.rejects(value.runner.start(value.input), (error) => error.code === "INJECTED_CRASH");
+  const observationDigest = `sha256:${"9".repeat(64)}`;
+  Object.assign(productionAdmission, {
+    currentLeaseObservation: { observationDigest }, currentLeaseObservationDigest: observationDigest, recoveryMode: "cleanup-only",
+  });
+  const result = await value.runner.cancel(value.input);
+  assert.equal(result.run.state, "failed");
+  assert.equal(result.failure.code, "CANCELLED");
+  assert.equal(result.preProvisionAbort.reason, "CANCELLED");
+  assert.equal(result.effects.length, 0);
+  assert.ok(result.sealedValueCleanup);
+  assert.equal(value.calls.sealedCleanup, 1);
+  assert.deepEqual({ create: value.calls.create, destroy: value.calls.destroy, quarantine: value.calls.quarantine, gui: value.calls.gui, archive: value.calls.archiveConvergence, collect: value.calls.collect },
+    { create: 0, destroy: 0, quarantine: 0, gui: 0, archive: 0, collect: 0 });
+});
+
+for (const phase of ["before-gui", "before-archive"]) {
+  test(`fake clock enforces the production deadline ${phase} and cleanup-only resume never duplicates paid work or mutation`, async () => {
+    const startedAt = Date.parse("2026-08-19T12:00:00.000Z");
+    let now = startedAt;
+    const productionAdmission = {
+      packetDigest: `sha256:${"1".repeat(64)}`, gateReceiptDigest: `sha256:${"2".repeat(64)}`,
+      configDigest: `sha256:${"3".repeat(64)}`, runDeadlineAt: new Date(startedAt + 5_000).toISOString(),
+      verificationReceiptDigest: `sha256:${"4".repeat(64)}`,
+    };
+    const value = await fixture({
+      productionAdmission,
+      runtimeClock: { now: () => now },
+      ...(phase === "before-gui" ? { afterCreate: async () => { now = startedAt + 6_000; } } : { afterGui: async () => { now = startedAt + 6_000; } }),
+    });
+    const result = await value.runner.start(value.input);
+    assert.equal(result.run.state, "quarantined");
+    assert.equal(result.failure.code, "RUN_DEADLINE_EXPIRED");
+    assert.equal(value.calls.create, 1);
+    assert.equal(value.calls.gui, phase === "before-gui" ? 0 : 1);
+    assert.equal(value.calls.archiveConvergence, 0);
+    assert.equal(value.calls.collect, 0);
+    assert.equal(value.calls.sealedCleanup, 1);
+    assert.equal(value.calls.destroy, 0);
+    assert.equal(value.calls.quarantine, 1);
+
+    const observationDigest = `sha256:${"9".repeat(64)}`;
+    Object.assign(productionAdmission, {
+      currentLeaseObservation: { observationDigest }, currentLeaseObservationDigest: observationDigest, recoveryMode: "cleanup-only",
+    });
+    const resumed = await value.runner.resume(value.input);
+    assert.equal(resumed.run.state, "quarantined");
+    assert.equal(value.calls.create, 1);
+    assert.equal(value.calls.gui, phase === "before-gui" ? 0 : 1);
+    assert.equal(value.calls.quarantine, 1);
+    assert.equal(value.calls.sealedCleanup, 1);
+  });
+}
+
+test("fresh CLI processes recover more than 30 seconds after packet observation and perform cleanup only once after runDeadline", async () => {
+  const startedAt = Date.parse("2026-08-19T12:00:00.000Z");
+  const deadlineAt = new Date(startedAt + 20_000).toISOString();
+  const admission = {
+    packetDigest: `sha256:${"1".repeat(64)}`, gateReceiptDigest: `sha256:${"2".repeat(64)}`,
+    configDigest: `sha256:${"3".repeat(64)}`, runDeadlineAt: deadlineAt,
+    verificationReceiptDigest: `sha256:${"4".repeat(64)}`,
+    leaseAuthority: fakeLeaseAuthorityAdmission(),
+  };
+  const value = await fixture();
+  const configPath = path.join(value.root, "fresh-process-run.json");
+  const statePath = path.join(value.root, "fresh-process-counts.json");
+  const config = {
+    ...value.input,
+    journalDirectory: path.join(value.root, "fresh-process-journal"),
+    runtimeModule: path.resolve("test/support/fake-resumable-desktop-runtime.mjs"),
+    now: startedAt,
+    testRuntime: { admission, crashAt: "after:provision", packetObservedAt: new Date(startedAt).toISOString(), statePath },
+  };
+  await writeFile(configPath, `${JSON.stringify(config)}\n`);
+
+  const first = await runCli(["run", "--config", configPath, "--offline-adapter"]);
+  assert.equal(first.code, 2, first.stderr);
+  assert.match(first.stderr, /INJECTED_CRASH/u);
+
+  const recoveredAt = startedAt + 31_000;
+  const leaseObservationDigest = `sha256:${"9".repeat(64)}`;
+  config.now = recoveredAt;
+  config.testRuntime.crashAt = null;
+  Object.assign(config.testRuntime.admission, {
+    currentLeaseObservation: { observationDigest: leaseObservationDigest },
+    currentLeaseObservationDigest: leaseObservationDigest,
+    recoveryMode: "cleanup-only",
+  });
+  assert.ok(recoveredAt - Date.parse(config.testRuntime.packetObservedAt) > 30_000);
+  assert.ok(recoveredAt > Date.parse(deadlineAt));
+  await writeFile(configPath, `${JSON.stringify(config)}\n`);
+
+  const resumed = await runCli(["resume", "--config", configPath, "--offline-adapter"]);
+  assert.equal(resumed.code, 1, resumed.stderr);
+  assert.equal(JSON.parse(resumed.stdout).state, "quarantined");
+  const afterFirstRecovery = JSON.parse(await readFile(statePath, "utf8"));
+  assert.deepEqual(afterFirstRecovery, { archive: 0, collect: 0, create: 1, destroy: 0, gui: 0, quarantine: 1 });
+
+  const repeated = await runCli(["resume", "--config", configPath, "--offline-adapter"]);
+  assert.equal(repeated.code, 1, repeated.stderr);
+  assert.equal(JSON.parse(repeated.stdout).state, "quarantined");
+  assert.deepEqual(JSON.parse(await readFile(statePath, "utf8")), afterFirstRecovery);
 });

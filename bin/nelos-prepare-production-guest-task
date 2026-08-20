@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+
+import { isAbsolute, resolve } from "node:path";
+import {
+  canonicalProductionGuestTaskBytesV1,
+  writeProductionGuestTaskIntentV1,
+} from "../src/production-guest-task.mjs";
+
+const fields = new Map([
+  ["--root", "root"], ["--run-id", "runId"], ["--fencing-token", "fencingToken"],
+  ["--scenario-id", "scenarioId"], ["--title", "title"],
+]);
+
+function usage() {
+  return "Usage: nelos-prepare-production-guest-task --root /absolute/packet-root --run-id ID --fencing-token ID --scenario-id ID --title TITLE\n";
+}
+
+function parse(args) {
+  if (args.length === 1 && ["-h", "--help"].includes(args[0])) return { help: true };
+  const result = {}; const seen = new Set();
+  for (let index = 0; index < args.length; index += 2) {
+    const option = args[index]; const value = args[index + 1]; const field = fields.get(option);
+    if (!field || seen.has(option) || value === undefined) throw new Error(`unknown, duplicate, or incomplete option: ${option ?? "<missing>"}`);
+    result[field] = value; seen.add(option);
+  }
+  if (seen.size !== fields.size) throw new Error("every guest task intent option is required exactly once");
+  if (!isAbsolute(result.root) || resolve(result.root) !== result.root || result.root === "/") throw new Error("--root must be a normalized bounded absolute path");
+  return result;
+}
+
+try {
+  const input = parse(process.argv.slice(2));
+  if (input.help) process.stdout.write(usage());
+  else process.stdout.write(canonicalProductionGuestTaskBytesV1(await writeProductionGuestTaskIntentV1(input)));
+} catch (error) {
+  process.stderr.write(`${error?.code ?? "GUEST_TASK_INTENT_FAILED"}: ${error?.message ?? "guest task intent failed"}\n`);
+  process.exitCode = 2;
+}

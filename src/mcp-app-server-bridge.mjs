@@ -55,6 +55,8 @@ const DEFAULT_WAIT_POLL_INTERVAL_MS = 250;
 const MIN_WAIT_POLL_INTERVAL_MS = 50;
 const WAIT_INITIAL_INSPECTION_ALLOWANCE_MS = 5_000;
 const BATCH_CONCURRENCY = 4;
+const MAX_COLLABORATION_DESCENDANTS = 500;
+const MAX_COLLABORATION_TURNS_PER_THREAD = 500;
 const THREAD_STATUS_TYPES = new Set(
   SUPPORTED_CODEX_APP_SERVER_THREAD_STATUSES,
 );
@@ -67,6 +69,10 @@ const COLLAB_AGENT_STATUSES = new Set([
   "errored",
   "shutdown",
   "notFound",
+]);
+const ALL_THREAD_SOURCE_KINDS = Object.freeze([
+  "cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact",
+  "subAgentThreadSpawn", "subAgentOther", "unknown",
 ]);
 
 class AppServerBridgeError extends Error {
@@ -801,6 +807,33 @@ export class CodexAppServerBridgeV1 {
     return publicThread(result?.thread, resolvedThreadId);
   }
 
+  async visibleThreadIds({ threadIds, deadlineAt = null } = {}) {
+    const resolvedThreadIds = boundedThreadIds(threadIds, MCP_APP_SERVER_MAX_BATCH_THREADS);
+    const visible = [];
+    for (const resolvedThreadId of resolvedThreadIds) {
+      const result = await this.#readRequest("thread/list", {
+        limit: 20,
+        sortKey: "updated_at",
+        sortDirection: "desc",
+        sourceKinds: [...ALL_THREAD_SOURCE_KINDS],
+        archived: false,
+        searchTerm: resolvedThreadId,
+        useStateDbOnly: true,
+      }, { deadlineAt });
+      if (!result || typeof result !== "object" || Array.isArray(result) ||
+          Object.keys(result).sort().join("\0") !== ["data", "nextCursor"].sort().join("\0") ||
+          !Array.isArray(result.data) || result.data.length > 20 || result.nextCursor !== null) {
+        throw bridgeError("Codex app-server returned an incompatible visible thread page", "invalid-response");
+      }
+      const ids = result.data.map((thread) => threadId(thread?.id));
+      if (new Set(ids).size !== ids.length) {
+        throw bridgeError("Codex app-server returned duplicate visible thread identities", "invalid-response");
+      }
+      if (ids.includes(resolvedThreadId)) visible.push(resolvedThreadId);
+    }
+    return visible;
+  }
+
   async inspectMany({
     threadIds,
     includeTopology = true,
@@ -1115,6 +1148,107 @@ export class CodexAppServerBridgeV1 {
       turnId: threadId(turn.id),
       status: turn.status,
     };
+  }
+
+  async collaborationTopologyCounters({ rootThreadId: requestedRootThreadId, deadlineAt = null } = {}) {
+    const rootThreadId = threadId(requestedRootThreadId);
+    const queue = [rootThreadId];
+    const discovered = new Set(queue);
+    const parents = new Map();
+    const latestTurns = new Map();
+    for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+      const currentThreadId = queue[queueIndex];
+      let cursor = null; let turnCount = 0; let latestTurn = null;
+      const cursors = new Set();
+      for (;;) {
+        const params = { threadId: currentThreadId, limit: 20, sortDirection: "desc", itemsView: "full", ...(cursor === null ? {} : { cursor }) };
+        const result = await this.#readRequest("thread/turns/list", params, { deadlineAt });
+        if (!result || typeof result !== "object" || Array.isArray(result) || Object.keys(result).sort().join("\0") !== ["data", "nextCursor"].sort().join("\0") ||
+            !Array.isArray(result.data) || result.data.length > 20 || !(result.nextCursor === null || (typeof result.nextCursor === "string" && result.nextCursor.length > 0 && result.nextCursor.length <= MAX_IDENTIFIER_CHARACTERS))) {
+          throw bridgeError("Codex app-server returned an incomplete collaboration-history page", "topology-incomplete");
+        }
+        for (const turn of result.data) {
+          if (!turn || typeof turn !== "object" || typeof turn.status !== "string" || !turn.status || !Array.isArray(turn.items)) {
+            throw bridgeError("Codex app-server returned an incompatible collaboration-history turn", "topology-incomplete");
+          }
+          threadId(turn.id);
+          if (latestTurn === null) latestTurn = { turnId: threadId(turn.id), status: turn.status };
+          turnCount += 1;
+          if (turnCount > MAX_COLLABORATION_TURNS_PER_THREAD) {
+            throw bridgeError("Codex collaboration history exceeds its complete bounded inventory", "topology-truncated");
+          }
+          for (const item of turn.items) {
+            if (item?.type !== "collabAgentToolCall") continue;
+            if (item.senderThreadId !== currentThreadId || !Array.isArray(item.receiverThreadIds) || item.receiverThreadIds.length < 1 || item.receiverThreadIds.length > MAX_COLLABORATION_DESCENDANTS) {
+              throw bridgeError("Codex collaboration history contains an incompatible topology edge", "topology-incomplete");
+            }
+            const receiverIds = item.receiverThreadIds.map(threadId);
+            if (new Set(receiverIds).size !== receiverIds.length) {
+              throw bridgeError("Codex collaboration history contains duplicate topology edges", "topology-incomplete");
+            }
+            for (const childThreadId of receiverIds) {
+              if (childThreadId === rootThreadId || childThreadId === currentThreadId) {
+                throw bridgeError("Codex collaboration history contains a topology cycle", "topology-incomplete");
+              }
+              const priorParent = parents.get(childThreadId);
+              if (priorParent !== undefined && priorParent !== currentThreadId) {
+                throw bridgeError("Codex collaboration history assigns a descendant to multiple parents", "topology-incomplete");
+              }
+              parents.set(childThreadId, currentThreadId);
+              if (!discovered.has(childThreadId)) {
+                if (discovered.size > MAX_COLLABORATION_DESCENDANTS) {
+                  throw bridgeError("Codex collaboration topology exceeds its complete bounded inventory", "topology-truncated");
+                }
+                discovered.add(childThreadId); queue.push(childThreadId);
+              }
+            }
+          }
+        }
+        if (result.nextCursor === null) break;
+        if (result.data.length === 0 || cursors.has(result.nextCursor)) {
+          throw bridgeError("Codex collaboration history pagination did not advance", "topology-incomplete");
+        }
+        cursors.add(result.nextCursor); cursor = result.nextCursor;
+      }
+      if (currentThreadId !== rootThreadId) {
+        if (latestTurn === null) throw bridgeError("Codex collaboration descendant has no latest turn", "topology-incomplete");
+        latestTurns.set(currentThreadId, latestTurn);
+      }
+    }
+    if (latestTurns.size > 32) {
+      throw bridgeError("Codex collaboration topology exceeds the bounded Desktop row proof", "topology-truncated");
+    }
+    const descendants = [];
+    for (const [descendantThreadId, latestTurn] of [...latestTurns].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
+      const thread = await this.inspect({ threadId: descendantThreadId, deadlineAt });
+      if (typeof thread.title !== "string" || !thread.title || thread.title.length > MAX_TITLE_CHARACTERS) {
+        throw bridgeError("Codex collaboration descendant has no bounded title", "topology-incomplete");
+      }
+      descendants.push({
+        taskId: descendantThreadId,
+        parentTaskId: parents.get(descendantThreadId),
+        title: thread.title,
+        latestTurnId: latestTurn.turnId,
+        latestTurnStatus: latestTurn.status,
+      });
+    }
+    let working = 0; let completed = 0; let interrupted = 0;
+    for (const { status } of latestTurns.values()) {
+      if (status === "inProgress") working += 1;
+      else if (status === "completed") completed += 1;
+      else if (status === "interrupted") interrupted += 1;
+      else throw bridgeError("Codex collaboration descendant has an unsupported latest-turn status", "topology-incomplete");
+    }
+    const descendantCount = latestTurns.size;
+    const terminal = completed + interrupted;
+    if (working + terminal !== descendantCount || descendantCount !== discovered.size - 1) {
+      throw bridgeError("Codex collaboration topology counters are incomplete", "topology-incomplete");
+    }
+    return Object.freeze({
+      schemaVersion: 1, source: "codex-app-server-parent-history-latest-turn", rootThreadId,
+      complete: true, descendantCount, working, completed, interrupted, terminal, descendants,
+      topologyDigest: `sha256:${createHash("sha256").update(JSON.stringify(descendants)).digest("hex")}`,
+    });
   }
 
   async collaborationAgentStatus({

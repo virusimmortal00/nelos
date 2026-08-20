@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-transport-access.schema.json",
+  "title": "Nelos golden-builder controller transport access v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attestor", "helperDigest", "host", "kind", "limits", "provider", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-transport-access" },
+    "helperDigest": { "$ref": "#/$defs/sha256" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostFingerprint", "hostPublicKey", "knownHostsFile", "sshHost", "sshPort"],
+      "properties": {
+        "sshHost": { "const": "192.168.1.110" },
+        "sshPort": { "const": 22 },
+        "hostPublicKey": { "$ref": "#/$defs/publicKey" },
+        "hostFingerprint": { "const": "SHA256:/7TgXiGHrARF8+hFiOuUGlC/mrRFheILcEKs6FiANzg" },
+        "knownHostsFile": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "provider": { "$ref": "#/$defs/provider" },
+    "attestor": { "$ref": "#/$defs/attestor" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxOutputBytes", "operationTimeoutMs", "transportAttempts"],
+      "properties": {
+        "operationTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
+        "maxOutputBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216 },
+        "transportAttempts": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/(?:[^\\u0000\\r\\n]+)$", "maxLength": 4096 },
+    "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "publicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\\r\\n]{1,256})?$", "maxLength": 4096 },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identityFile", "publicKey", "publicKeyFingerprint", "sshUser"],
+      "properties": {
+        "identityFile": { "$ref": "#/$defs/absolutePath" },
+        "publicKey": { "$ref": "#/$defs/publicKey" },
+        "publicKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "sshUser": { "const": "nelos-golden-provider" }
+      }
+    },
+    "attestor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identityFile", "publicKey", "publicKeyFingerprint", "sshUser"],
+      "properties": {
+        "identityFile": { "$ref": "#/$defs/absolutePath" },
+        "publicKey": { "$ref": "#/$defs/publicKey" },
+        "publicKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "sshUser": { "const": "nelos-golden-attestor" }
+      }
+    }
+  }
+}

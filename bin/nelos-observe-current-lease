@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { BoundedJsonProcessV1 } from "../src/homelab-desktop-runtime.mjs";
+import { createCurrentLeaseObservationV1 } from "../src/proxmox-desktop-runtime.mjs";
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function option(name) {
+  const positions = process.argv.flatMap((value, index) => value === name ? [index] : []);
+  if (positions.length !== 1 || positions[0] + 1 >= process.argv.length) throw new Error(`${name} is required exactly once`);
+  return process.argv[positions[0] + 1];
+}
+
+try {
+  if (process.argv.length !== 4 || process.argv[2] !== "--config") throw new Error("usage: nelos-observe-current-lease --config /absolute/run.json");
+  const configPath = option("--config");
+  if (!isAbsolute(configPath)) throw new Error("--config must be absolute");
+  const bytes = await readFile(configPath);
+  let config;
+  try { config = JSON.parse(bytes); } finally { bytes.fill(0); }
+  if (config.runtimeModule !== "nelos/homelab-desktop-runtime" || Object.hasOwn(config, "now")) throw new Error("current-lease observation requires an immutable production homelab config and controller clock");
+  const executable = resolve(dirname(fileURLToPath(import.meta.url)), "nelos-proxmox-attest-transport");
+  const processBoundary = new BoundedJsonProcessV1();
+  const result = await createCurrentLeaseObservationV1(config, {
+    configPath,
+    observeRootBinding: async (envelope) => {
+      const deadlineMs = Date.parse(envelope.deadlineAt) - Date.now();
+      if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1) throw new Error("independent attestor deadline expired before invocation");
+      return processBoundary.invoke({
+        executable,
+        operation: "request",
+        payload: envelope,
+        deadlineMs,
+        maxOutputBytes: envelope.maxOutputBytes,
+      });
+    },
+  });
+  process.stdout.write(`${canonical({
+    authorityId: result.receipt.authorityObservation.authorityId,
+    epoch: result.receipt.authorityObservation.record.epoch,
+    observationDigest: result.receipt.observationDigest,
+    observedAt: result.receipt.authorityObservation.observedAt,
+    path: result.path,
+    revision: result.receipt.authorityObservation.record.revision,
+    state: result.receipt.authorityObservation.record.state,
+  })}\n`);
+} catch (error) {
+  process.stderr.write(`${error?.code ?? "ERROR"}: ${error?.message ?? "current-lease observation failed"}\n`);
+  process.exitCode = 2;
+}

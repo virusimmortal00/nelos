@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-acl-cleanup-receipt.schema.json",
+  "title": "Nelos Proxmox golden-builder scoped ACL cleanup receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "actionCount", "afterInventoryDigest", "beforeInventoryDigest", "completedAt", "kind", "observer",
+    "planDigest", "receiptDigest", "removedTokenFiles", "reservationDigest", "schemaVersion", "startedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-acl-cleanup-receipt" },
+    "planDigest": { "$ref": "#/$defs/sha256" },
+    "reservationDigest": { "$ref": "#/$defs/sha256" },
+    "observer": { "const": "independent-root-pvesh-readback-v1" },
+    "actionCount": { "const": 22 },
+    "beforeInventoryDigest": { "$ref": "#/$defs/sha256" },
+    "afterInventoryDigest": { "$ref": "#/$defs/sha256" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "removedTokenFiles": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/buildFile" },
+        { "$ref": "#/$defs/attestorFile" }
+      ],
+      "items": false
+    },
+    "receiptDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["build", "attestor"] },
+        "path": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096 }
+      }
+    },
+    "buildFile": {
+      "allOf": [
+        { "$ref": "#/$defs/file" },
+        { "type": "object", "properties": { "kind": { "const": "build" }, "path": { "type": "string", "pattern": "/build-token$" } } }
+      ]
+    },
+    "attestorFile": {
+      "allOf": [
+        { "$ref": "#/$defs/file" },
+        { "type": "object", "properties": { "kind": { "const": "attestor" }, "path": { "type": "string", "pattern": "/attestor-token$" } } }
+      ]
+    }
+  }
+}

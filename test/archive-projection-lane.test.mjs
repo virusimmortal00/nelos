@@ -71,6 +71,28 @@ test("rejects an expired shared convergence deadline before any archive mutation
   assert.deepEqual(value.calls, []);
 });
 
+test("absolute run deadline aborts archive execution before it can consume cleanup time", async () => {
+  const value = await fixture();
+  let now = Date.parse(value.request.startedAt);
+  let observedSignal = null;
+  const adapter = {
+    ...value.adapter,
+    async archiveTasks(_request, { signal }) {
+      value.calls.push("archive");
+      observedSignal = signal;
+      now += 11;
+      return [];
+    },
+  };
+  const lane = new ArchiveProjectionLaneV1({ adapter, clock: { now: () => now } });
+  await assert.rejects(
+    lane.execute(value.request, { hardDeadlineAt: new Date(now + 10).toISOString() }),
+    (error) => error.code === "RUN_DEADLINE_EXPIRED",
+  );
+  assert.equal(observedSignal.aborted, true);
+  assert.deepEqual(value.calls, ["archive"]);
+});
+
 test("reconciliation accepts only an identity-matching terminal receipt", async () => {
   const value = await fixture();
   const receipt = await value.lane.execute(value.request);

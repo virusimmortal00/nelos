@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-host-binding.schema.json",
+  "title": "Nelos Proxmox golden-builder forced-helper binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestorKeyFingerprint",
+    "attestorPublicKey",
+    "attestorUser",
+    "cleanupExpiresAt",
+    "expiresAt",
+    "helperDigest",
+    "hostBindingDigest",
+    "kind",
+    "lifecycleBinding",
+    "providerKeyFingerprint",
+    "providerPublicKey",
+    "providerUser",
+    "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-host-binding" },
+    "helperDigest": { "$ref": "#/$defs/sha256" },
+    "lifecycleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingDigest", "bridge", "builderVm", "cleanupExpiresAt", "expiresAt", "hostId", "kind", "networkAclPath", "outputTemplateMacAddress", "outputTemplateName", "outputTemplateVmId",
+        "providerId", "reservationDigest", "schemaVersion", "sourceTemplate", "storage"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "nelos-golden-builder-lifecycle" },
+        "bindingDigest": { "$ref": "#/$defs/sha256" },
+        "reservationDigest": { "$ref": "#/$defs/sha256" },
+        "providerId": { "const": "proxmox-lab" },
+        "hostId": { "const": "prox2" },
+        "outputTemplateVmId": { "const": 9027 },
+        "outputTemplateName": { "const": "nelos-desktop-ubuntu-24-04-v1" },
+        "outputTemplateMacAddress": { "const": "02:4E:45:4C:90:27" },
+        "storage": { "const": "local-lvm" },
+        "bridge": { "const": "nelosbld" },
+        "networkAclPath": { "const": "/sdn/zones/nelosbld/nelosbld" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "cleanupExpiresAt": { "type": "string", "format": "date-time" },
+        "sourceTemplate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["configDigest", "name", "vmId", "volumeMeasurementDigest"],
+          "properties": {
+            "vmId": { "const": 9024 },
+            "name": { "const": "nelos-ubuntu-24-04-source" },
+            "configDigest": { "$ref": "#/$defs/sha256" },
+            "volumeMeasurementDigest": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "builderVm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mac", "name", "ownership", "sshPublicKey", "sshPublicKeyFingerprint", "sshUser", "vmId"],
+          "properties": {
+            "vmId": { "const": 9026 },
+            "name": { "type": "string", "pattern": "^nelos-golden-builder-[0-9a-f]{12}$" },
+            "mac": { "const": "02:4E:45:4C:90:26" },
+            "sshUser": { "const": "codex" },
+            "sshPublicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$" },
+            "sshPublicKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+            "ownership": { "type": "string", "pattern": "^nelos-golden-builder-v1:[0-9a-f]{32}$" }
+          }
+        }
+      }
+    },
+    "providerKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "providerPublicKey": { "$ref": "#/$defs/publicKey" },
+    "providerUser": { "const": "nelos-golden-provider" },
+    "attestorKeyFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "attestorPublicKey": { "$ref": "#/$defs/publicKey" },
+    "attestorUser": { "const": "nelos-golden-attestor" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "cleanupExpiresAt": { "type": "string", "format": "date-time" },
+    "hostBindingDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "publicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\\r\\n]{1,256})?$", "maxLength": 4096 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

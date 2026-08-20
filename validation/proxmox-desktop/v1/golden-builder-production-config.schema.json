@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-production-config.schema.json",
+  "title": "Nelos gateway-protected golden builder production run config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifactDirectory", "builderTransportAccess", "gatewayPolicyBinding", "gatewayTransportAccess", "guestControllerAccess", "journalDirectory", "kind", "lifecycleBinding", "reservation", "schemaVersion", "toolchainLockDigest"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-production-config" },
+    "journalDirectory": { "$ref": "#/$defs/absolutePath" },
+    "artifactDirectory": { "$ref": "#/$defs/absolutePath" },
+    "toolchainLockDigest": { "$ref": "#/$defs/sha256" },
+    "reservation": { "$ref": "#/$defs/reservation" },
+    "lifecycleBinding": { "$ref": "golden-builder-host-binding.schema.json#/properties/lifecycleBinding" },
+    "gatewayPolicyBinding": { "$ref": "golden-builder-gateway-policy.schema.json" },
+    "builderTransportAccess": { "$ref": "golden-builder-transport-access.schema.json" },
+    "gatewayTransportAccess": { "$ref": "golden-builder-gateway-transport-access.schema.json" },
+    "guestControllerAccess": { "$ref": "golden-builder-guest-controller-access.schema.json" }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiUrl", "attestorTokenId", "buildNonce", "buildTokenId", "cleanupExpiresAt", "expiresAt", "maxBuildMs", "networkAclPath", "node", "outputTemplate", "providerId", "reservationId", "schemaVersion", "sourceArtifact", "sourceCommit", "sourceTemplate", "storage", "tlsCaDigest", "volumeAttestor"],
+      "properties": {
+        "schemaVersion": { "const": 2 }, "reservationId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+        "providerId": { "const": "proxmox-lab" }, "apiUrl": { "const": "https://192.168.1.110:8006/api2/json" },
+        "tlsCaDigest": { "const": "sha256:04eccf7506f3f0de1fe2949aea667ce8fdc48f0ce33fcf758b05d1596739964d" },
+        "node": { "const": "prox2" }, "storage": { "const": "local-lvm" }, "networkAclPath": { "const": "/sdn/zones/nelosbld/nelosbld" },
+        "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }, "buildNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "buildTokenId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$" },
+        "attestorTokenId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$" },
+        "expiresAt": { "type": "string", "format": "date-time" }, "cleanupExpiresAt": { "type": "string", "format": "date-time" },
+        "maxBuildMs": { "type": "integer", "minimum": 300000, "maximum": 7200000 },
+        "sourceArtifact": {
+          "type": "object", "additionalProperties": false,
+          "required": ["digest", "name", "signatureFingerprint", "signatureScheme"],
+          "properties": { "name": { "const": "ubuntu-24.04-server-cloudimg-amd64.img" }, "digest": { "$ref": "#/$defs/sha256" }, "signatureScheme": { "const": "openpgp-detached-sha256sums" }, "signatureFingerprint": { "const": "843938DF228D22F7B3742BC0D94AA3F0EFE21092" } }
+        },
+        "volumeAttestor": {
+          "type": "object", "additionalProperties": false,
+          "required": ["helperDigest", "hostKeyFingerprint", "identityFingerprint", "sshHost", "sshPort", "sshUser"],
+          "properties": { "helperDigest": { "$ref": "#/$defs/sha256" }, "hostKeyFingerprint": { "const": "SHA256:/7TgXiGHrARF8+hFiOuUGlC/mrRFheILcEKs6FiANzg" }, "identityFingerprint": { "$ref": "#/$defs/fingerprint" }, "sshHost": { "const": "192.168.1.110" }, "sshPort": { "const": 22 }, "sshUser": { "const": "nelosmeasure" } }
+        },
+        "sourceTemplate": {
+          "type": "object", "additionalProperties": false, "required": ["configDigest", "name", "vmId", "volumeMeasurementDigest"],
+          "properties": { "vmId": { "const": 9024 }, "name": { "const": "nelos-ubuntu-24-04-source" }, "configDigest": { "$ref": "#/$defs/sha256" }, "volumeMeasurementDigest": { "$ref": "#/$defs/sha256" } }
+        },
+        "outputTemplate": {
+          "type": "object", "additionalProperties": false, "required": ["macAddress", "name", "vmId"],
+          "properties": { "vmId": { "const": 9027 }, "name": { "const": "nelos-desktop-ubuntu-24-04-v1" }, "macAddress": { "const": "02:4E:45:4C:90:27" } }
+        }
+      }
+    }
+  }
+}

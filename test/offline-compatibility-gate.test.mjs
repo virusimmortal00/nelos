@@ -8,8 +8,12 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
+  DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS,
+  OFFLINE_COMPATIBILITY_NODE_TEST_CONCURRENCY_V1,
+  OFFLINE_COMPATIBILITY_NODE_TEST_TIMEOUT_MS_V1,
   OfflineCompatibilityCheckFailure,
   deriveCompatibilityChanges,
+  runOfflineNodeTestsV1,
   runOfflineCompatibilityGate,
 } from "../src/offline-compatibility-gate.mjs";
 
@@ -108,6 +112,28 @@ function passingRunners(observed = []) {
     ]),
   );
 }
+
+test("offline Node test execution serializes files and retains bounded resources", async () => {
+  const observed = [];
+  const paths = ["test/first.test.mjs", "test/second.test.mjs"];
+  const summary = await runOfflineNodeTestsV1("/fixture", paths, {
+    execNode: async (...invocation) => { observed.push(invocation); return { stderr: "", stdout: "" }; },
+  });
+  assert.equal(OFFLINE_COMPATIBILITY_NODE_TEST_CONCURRENCY_V1, 1);
+  assert.equal(OFFLINE_COMPATIBILITY_NODE_TEST_TIMEOUT_MS_V1, 600_000);
+  assert.equal(summary, `${paths.join(", ")} passed offline`);
+  assert.equal(observed.length, 1);
+  const [executable, arguments_, options] = observed[0];
+  assert.equal(executable, process.execPath);
+  assert.deepEqual(arguments_, [
+    "--require", "/fixture/scripts/offline-network-blocker.cjs",
+    "--import", "/fixture/scripts/test-bootstrap.mjs",
+    "--test-concurrency=1", "--test", ...paths,
+  ]);
+  assert.equal(options.timeout, 600_000);
+  assert.equal(options.maxBuffer, 8 * 1024 * 1024);
+  assert.equal(options.cwd, "/fixture");
+});
 
 test("empty changes run only global invariants", async () => {
   const observed = [];
@@ -274,6 +300,43 @@ test("the default offline gate executes the experimentation contract evidence", 
   assert.deepEqual(
     experimentation.evidence.map(({ checkId, outcome }) => ({ checkId, outcome })),
     [{ checkId: "repo.experimentation-contracts", outcome: "passed" }],
+  );
+});
+
+test("the default offline gate executes the bounded Desktop production suite", async () => {
+  assert.ok(DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS.includes(
+    "test/remote-desktop-contract.test.mjs",
+  ));
+  assert.ok(DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS.includes(
+    "test/proxmox-network-policy-observer.test.mjs",
+  ));
+  for (const path of [
+    "test/proxmox-golden-guest-controller.test.mjs",
+    "test/proxmox-golden-host-installer.test.mjs",
+    "test/proxmox-golden-image-recovery.test.mjs",
+    "test/proxmox-golden-production-runner.test.mjs",
+    "test/nelos-bind-runtime.test.mjs",
+  ]) assert.ok(DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS.includes(path));
+  assert.equal(DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS.includes(
+    "test/distribution-provenance.test.mjs",
+  ), false);
+
+  const result = await runOfflineCompatibilityGate({
+    root: repositoryRoot,
+    changes: [{
+      status: "modified",
+      path: "src/production-guest-task.mjs",
+    }],
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.selection.ok, true);
+  const desktop = result.report.capabilities.find(
+    ({ capabilityId }) => capabilityId === "nelos.desktop-production",
+  );
+  assert.equal(desktop.status, "compatible");
+  assert.deepEqual(
+    desktop.evidence.map(({ checkId, outcome }) => ({ checkId, outcome })),
+    [{ checkId: "repo.desktop-production-contracts", outcome: "passed" }],
   );
 });
 

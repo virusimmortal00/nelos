@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-volume-attestor-host-install-plan.schema.json",
+  "title": "Nelos fixed Proxmox volume-attestor host installation plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["helperDigest", "helperPath", "hostBindingDigest", "hostBindingPath", "kind", "planDigest", "principals", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-volume-attestor-host-install-plan" },
+    "hostBindingDigest": { "$ref": "#/$defs/sha256" },
+    "hostBindingPath": { "const": "/etc/nelos-golden/volume-measurement-binding.json" },
+    "helperDigest": { "$ref": "#/$defs/sha256" },
+    "helperPath": { "const": "/usr/libexec/nelos-proxmox-volume-measure" },
+    "principals": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "prefixItems": [{ "$ref": "#/$defs/attestor" }],
+      "items": false
+    },
+    "planDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "attestor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorizedKey", "authorizedKeysPath", "home", "role", "shell", "sudoers", "sudoersPath", "user"],
+      "properties": {
+        "role": { "const": "attestor" },
+        "user": { "const": "nelosmeasure" },
+        "home": { "const": "/var/lib/nelos-volume-attestor" },
+        "shell": { "const": "/bin/sh" },
+        "authorizedKeysPath": { "const": "/var/lib/nelos-volume-attestor/.ssh/authorized_keys" },
+        "authorizedKey": { "type": "string", "maxLength": 8192 },
+        "sudoersPath": { "const": "/etc/sudoers.d/nelos-volume-attestor" },
+        "sudoers": { "const": "nelosmeasure ALL=(root) NOPASSWD: /usr/libexec/nelos-proxmox-volume-measure request\n" }
+      }
+    }
+  }
+}

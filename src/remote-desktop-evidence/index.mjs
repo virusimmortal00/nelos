@@ -180,25 +180,66 @@ export function encodePngRgba({ width, height, rgba }) {
 export function decodePngRgba(bytes) {
   if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes ?? []);
   if (!bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))) fail("INVALID_EVIDENCE", "PNG signature is invalid");
-  let offset = 8; let width; let height; const compressed = [];
+  let offset = 8; let width; let height; let sawHeader = false; let sawEnd = false; let compressedLength = 0; const compressed = [];
   while (offset + 12 <= bytes.byteLength) {
     const length = bytes.readUInt32BE(offset); const type = bytes.toString("ascii", offset + 4, offset + 8);
-    const data = bytes.subarray(offset + 8, offset + 8 + length);
     if (offset + 12 + length > bytes.byteLength) fail("INVALID_EVIDENCE", "PNG chunk is truncated");
+    const data = bytes.subarray(offset + 8, offset + 8 + length);
     if (crc32(Buffer.concat([Buffer.from(type, "ascii"), data])) !== bytes.readUInt32BE(offset + 8 + length)) fail("INVALID_EVIDENCE", "PNG chunk checksum is invalid");
-    if (type === "IHDR") { width = data.readUInt32BE(0); height = data.readUInt32BE(4); if (data[8] !== 8 || data[9] !== 6) fail("INVALID_EVIDENCE", "PNG must be 8-bit RGBA"); }
-    if (type === "IDAT") compressed.push(data);
+    if (type === "IHDR") {
+      if (sawHeader || offset !== 8 || length !== 13) fail("INVALID_EVIDENCE", "PNG header is invalid");
+      sawHeader = true; width = data.readUInt32BE(0); height = data.readUInt32BE(4);
+      if (width < 1 || height < 1 || width > 7_680 || height > 4_320 || data[8] !== 8 || data[9] !== 6 || data[10] !== 0 || data[11] !== 0 || data[12] !== 0) {
+        fail("INVALID_EVIDENCE", "PNG must be bounded, non-interlaced 8-bit RGBA");
+      }
+    } else if (type === "IDAT") {
+      if (!sawHeader || sawEnd || length < 1) fail("INVALID_EVIDENCE", "PNG pixel chunks are invalid");
+      const inflatedLength = height * (1 + width * 4);
+      const maximumCompressedLength = inflatedLength + Math.floor(inflatedLength / 4_096) +
+        Math.floor(inflatedLength / 16_384) + Math.floor(inflatedLength / 33_554_432) + 13;
+      compressedLength += length;
+      if (compressed.length >= 4_096 || compressedLength > maximumCompressedLength) {
+        fail("INVALID_EVIDENCE", "PNG compressed pixel data exceeds its declared dimensions");
+      }
+      compressed.push(data);
+    } else if (type === "IEND") {
+      if (!sawHeader || sawEnd || length !== 0) fail("INVALID_EVIDENCE", "PNG terminator is invalid");
+      sawEnd = true;
+    } else if (/^[A-Z]/u.test(type)) {
+      fail("INVALID_EVIDENCE", "PNG contains an unsupported critical chunk");
+    }
     offset += 12 + length;
     if (type === "IEND") break;
   }
-  if (!width || !height || compressed.length === 0) fail("INVALID_EVIDENCE", "PNG lacks required chunks");
-  const rows = inflateSync(Buffer.concat(compressed));
-  if (rows.byteLength !== height * (1 + width * 4)) fail("INVALID_EVIDENCE", "PNG pixel data length is invalid");
+  if (!width || !height || compressed.length === 0 || !sawEnd || offset !== bytes.byteLength) fail("INVALID_EVIDENCE", "PNG lacks required chunks or contains trailing bytes");
+  const rowLength = 1 + width * 4; const expectedLength = height * rowLength;
+  let rows;
+  try { rows = inflateSync(Buffer.concat(compressed), { maxOutputLength: expectedLength }); }
+  catch { fail("INVALID_EVIDENCE", "PNG pixel data cannot be inflated within its declared bounds"); }
+  if (rows.byteLength !== expectedLength) fail("INVALID_EVIDENCE", "PNG pixel data length is invalid");
   const rgba = Buffer.alloc(width * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    const source = y * (1 + width * 4);
-    if (rows[source] !== 0) fail("INVALID_EVIDENCE", "PNG uses an unsupported row filter");
-    rows.copy(rgba, y * width * 4, source + 1, source + 1 + width * 4);
+  const paeth = (left, above, upperLeft) => {
+    const estimate = left + above - upperLeft;
+    const leftDistance = Math.abs(estimate - left); const aboveDistance = Math.abs(estimate - above); const upperLeftDistance = Math.abs(estimate - upperLeft);
+    return leftDistance <= aboveDistance && leftDistance <= upperLeftDistance ? left : aboveDistance <= upperLeftDistance ? above : upperLeft;
+  };
+  try {
+    for (let y = 0; y < height; y += 1) {
+      const source = y * rowLength; const target = y * width * 4; const filter = rows[source];
+      if (filter > 4) fail("INVALID_EVIDENCE", "PNG uses an unsupported row filter");
+      for (let x = 0; x < width * 4; x += 1) {
+        const filtered = rows[source + 1 + x]; const left = x >= 4 ? rgba[target + x - 4] : 0;
+        const above = y > 0 ? rgba[target + x - width * 4] : 0;
+        const upperLeft = y > 0 && x >= 4 ? rgba[target + x - width * 4 - 4] : 0;
+        const predictor = filter === 0 ? 0 : filter === 1 ? left : filter === 2 ? above : filter === 3 ? Math.floor((left + above) / 2) : paeth(left, above, upperLeft);
+        rgba[target + x] = (filtered + predictor) & 0xff;
+      }
+    }
+  } catch (error) {
+    rgba.fill(0);
+    throw error;
+  } finally {
+    rows.fill(0);
   }
   return { width, height, rgba };
 }
@@ -231,7 +272,9 @@ function identitiesFor(run) {
   return {
     candidateDigest: run.candidate.digest, desktopBundleDigest: run.desktopBundle.digest,
     goldenImageDigest: run.goldenImage.digest, providerId: run.provider.providerId,
-    hostId: run.provider.hostId, vmId: run.provider.vmId, leaseId: run.lease.leaseId,
+    hostId: run.provider.hostId, vmId: run.provider.vmId, macAddress: run.provider.macAddress,
+    networkId: run.provider.networkId, gatewayId: run.provider.gatewayId,
+    networkPolicyDigest: run.provider.networkPolicyDigest, leaseId: run.lease.leaseId,
     fencingToken: run.lease.fencingToken, benchmarkProfileDigest: run.benchmarkProfile.digest,
     scenarioManifestDigest: run.scenarioManifest.digest,
   };

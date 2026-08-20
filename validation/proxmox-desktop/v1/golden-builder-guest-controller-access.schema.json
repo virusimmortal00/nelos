@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-guest-controller-access.schema.json",
+  "title": "Nelos disposable golden-builder guest controller access v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["builderIdentityFile", "kind", "limits", "schemaVersion", "stagingRoot", "workspace"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-guest-controller-access" },
+    "builderIdentityFile": { "$ref": "#/$defs/absolutePath" },
+    "stagingRoot": { "$ref": "#/$defs/absolutePath" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxOutputBytes", "operationTimeoutMs"],
+      "properties": {
+        "operationTimeoutMs": { "type": "integer", "minimum": 60000, "maximum": 3600000 },
+        "maxOutputBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576 }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attestorTokenFile", "buildTokenFile", "nodeArchive", "packerArchive", "pluginArchive", "sourceRoot", "tlsCaFile", "volumeIdentityFile", "volumeKnownHostsFile"],
+      "properties": {
+        "attestorTokenFile": { "$ref": "#/$defs/absolutePath" },
+        "buildTokenFile": { "$ref": "#/$defs/absolutePath" },
+        "nodeArchive": { "$ref": "#/$defs/absolutePath" },
+        "packerArchive": { "$ref": "#/$defs/absolutePath" },
+        "pluginArchive": { "$ref": "#/$defs/absolutePath" },
+        "sourceRoot": { "$ref": "#/$defs/absolutePath" },
+        "tlsCaFile": { "$ref": "#/$defs/absolutePath" },
+        "volumeIdentityFile": { "$ref": "#/$defs/absolutePath" },
+        "volumeKnownHostsFile": { "$ref": "#/$defs/absolutePath" }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096 }
+  }
+}

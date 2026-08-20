@@ -2,7 +2,14 @@ import { REMOTE_DESKTOP_SCHEMAS_V1, REMOTE_DESKTOP_SCHEMA_VERSION } from "./sche
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const MAC_ADDRESS = /^02(?::[0-9A-F]{2}){5}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
+const PRODUCTION_PROXMOX_LANE_V1 = Object.freeze({
+  gatewayId: "9023",
+  hostId: "prox2",
+  networkId: "nelosbld",
+  providerId: "proxmox-lab",
+});
 
 export { REMOTE_DESKTOP_SCHEMAS_V1, REMOTE_DESKTOP_SCHEMA_VERSION };
 
@@ -78,6 +85,11 @@ function identity(value, path) {
   return value;
 }
 
+function macAddress(value, path) {
+  if (typeof value !== "string" || !MAC_ADDRESS.test(value)) fail("INVALID_IDENTITY", "invalid locally administered MAC address", path);
+  return value;
+}
+
 function digest(value, path) {
   if (typeof value !== "string" || !SHA256.test(value)) fail("INVALID_IDENTITY", "invalid immutable digest", path);
   return value;
@@ -109,6 +121,15 @@ function enumValue(value, allowed, path) {
 
 function sameIdentity(actual, expected, path, code = "IDENTITY_MISMATCH") {
   if (actual !== expected) fail(code, "identity does not match the admitted run", path);
+}
+
+function validateProductionProxmoxLane(provider, path = "/provider") {
+  const selected = Object.entries(PRODUCTION_PROXMOX_LANE_V1)
+    .some(([field, expected]) => provider[field] === expected);
+  const mismatch = selected && Object.entries(PRODUCTION_PROXMOX_LANE_V1).find(([field, expected]) => provider[field] !== expected);
+  if (mismatch) {
+    fail("INVALID_PROVIDER_IDENTITY", "the production prox2 lane requires its fixed provider, host, gateway VM, and nelosbld VNet identity", `${path}/${mismatch[0]}`);
+  }
 }
 
 function validatePolicy(policy, path = "/policy") {
@@ -206,8 +227,14 @@ function validateBindings(run) {
   closed(run.goldenImage, ["imageId", "digest"], "/goldenImage");
   identity(run.goldenImage.imageId, "/goldenImage/imageId");
   digest(run.goldenImage.digest, "/goldenImage/digest");
-  closed(run.provider, ["providerId", "hostId", "vmId"], "/provider");
-  for (const field of ["providerId", "hostId", "vmId"]) identity(run.provider[field], `/provider/${field}`);
+  closed(run.provider, ["providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"], "/provider");
+  for (const field of ["providerId", "hostId", "vmId", "networkId", "gatewayId"]) identity(run.provider[field], `/provider/${field}`);
+  macAddress(run.provider.macAddress, "/provider/macAddress");
+  digest(run.provider.networkPolicyDigest, "/provider/networkPolicyDigest");
+  if (!/^[1-9][0-9]{2,8}$/u.test(run.provider.gatewayId) || run.provider.gatewayId === run.provider.vmId) {
+    fail("INVALID_PROVIDER_IDENTITY", "gateway must be a distinct exact provider VM identity", "/provider/gatewayId");
+  }
+  validateProductionProxmoxLane(run.provider);
   closed(run.lease, ["leaseId", "holderId", "expiresAt", "fencingToken", "state"], "/lease");
   for (const field of ["leaseId", "holderId", "fencingToken"]) identity(run.lease[field], `/lease/${field}`);
   timestamp(run.lease.expiresAt, "/lease/expiresAt");
@@ -246,9 +273,9 @@ export function admitRemoteDesktopRun(run, { candidateDigest, currentLease, now 
   validateRemoteDesktopRunV1(run);
   if (!SHA256.test(candidateDigest ?? "") || run.candidate.digest !== candidateDigest) fail("MUTABLE_CANDIDATE", "run is not bound to the immutable candidate selected for admission", "/candidate/digest");
   if (currentLease === null || typeof currentLease !== "object") fail("STALE_FENCING_TOKEN", "current lease proof is required", "/lease");
-  closed(currentLease, ["leaseId", "holderId", "expiresAt", "fencingToken", "state", "providerId", "hostId", "vmId"], "/currentLease");
+  closed(currentLease, ["leaseId", "holderId", "expiresAt", "fencingToken", "state", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"], "/currentLease");
   for (const field of ["leaseId", "holderId", "fencingToken", "state", "expiresAt"]) sameIdentity(run.lease[field], currentLease[field], `/lease/${field}`, "STALE_FENCING_TOKEN");
-  for (const field of ["providerId", "hostId", "vmId"]) sameIdentity(run.provider[field], currentLease[field], `/provider/${field}`, "STALE_FENCING_TOKEN");
+  for (const field of ["providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"]) sameIdentity(run.provider[field], currentLease[field], `/provider/${field}`, "STALE_FENCING_TOKEN");
   if (Date.parse(run.lease.expiresAt) <= now) fail("STALE_FENCING_TOKEN", "lease is expired", "/lease/expiresAt");
   if (run.state !== "draft") fail("INVALID_TRANSITION", "only draft runs may be admitted", "/state");
   validateRemoteDesktopUsage(usage ?? emptyRemoteDesktopUsage(), run.policy);
@@ -301,7 +328,7 @@ export function transitionRemoteDesktopRun(run, nextState, { terminalOutcome = n
 }
 
 function validateExportIdentities(identities, run) {
-  closed(identities, ["candidateDigest", "desktopBundleDigest", "goldenImageDigest", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "benchmarkProfileDigest", "scenarioManifestDigest"], "/identities");
+  closed(identities, ["candidateDigest", "desktopBundleDigest", "goldenImageDigest", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "benchmarkProfileDigest", "scenarioManifestDigest"], "/identities");
   const expected = {
     candidateDigest: run.candidate.digest,
     desktopBundleDigest: run.desktopBundle.digest,
@@ -309,6 +336,10 @@ function validateExportIdentities(identities, run) {
     providerId: run.provider.providerId,
     hostId: run.provider.hostId,
     vmId: run.provider.vmId,
+    macAddress: run.provider.macAddress,
+    networkId: run.provider.networkId,
+    gatewayId: run.provider.gatewayId,
+    networkPolicyDigest: run.provider.networkPolicyDigest,
     leaseId: run.lease.leaseId,
     fencingToken: run.lease.fencingToken,
     benchmarkProfileDigest: run.benchmarkProfile.digest,
@@ -361,7 +392,7 @@ export function validateRemoteDesktopEvidenceExportV1(value, run) {
     if (item.evidenceClass !== "assertion_outcome") fail("PROHIBITED_EVIDENCE_CLASS", "assertion evidence class is prohibited", `${path}/evidenceClass`);
     identity(item.scenarioId, `${path}/scenarioId`); identity(item.assertionId, `${path}/assertionId`); if (typeof item.passed !== "boolean") fail("INVALID_CONTRACT", "passed must be boolean", `${path}/passed`); if (item.observedRef !== null) identity(item.observedRef, `${path}/observedRef`);
   });
-  closed(value.cleanupAttestation, ["evidenceClass", "runId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "terminalOutcomeDigest"], "/cleanupAttestation");
+  closed(value.cleanupAttestation, ["evidenceClass", "runId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "terminalOutcomeDigest"], "/cleanupAttestation");
   if (value.cleanupAttestation.evidenceClass !== "cleanup_attestation") fail("PROHIBITED_EVIDENCE_CLASS", "cleanup attestation evidence class is prohibited", "/cleanupAttestation/evidenceClass");
   const cleanupExpected = { runId: run.runId, ...run.provider, leaseId: run.lease.leaseId, fencingToken: run.lease.fencingToken };
   for (const [field, expected] of Object.entries(cleanupExpected)) sameIdentity(value.cleanupAttestation[field], expected, `/cleanupAttestation/${field}`);
@@ -382,17 +413,32 @@ export function validateRemoteDesktopTerminalOutcomeV1(value, run) {
   if (value.schemaVersion !== 1) fail("UNSUPPORTED_SCHEMA", "unsupported terminal outcome schema version", "/schemaVersion");
   sameIdentity(value.runId, run.runId, "/runId");
   enumValue(value.outcome, ["destroyed", "quarantined"], "/outcome");
-  closed(value.ownedVm, ["providerId", "hostId", "vmId"], "/ownedVm");
-  for (const field of ["providerId", "hostId", "vmId"]) sameIdentity(value.ownedVm[field], run.provider[field], `/ownedVm/${field}`, "TERMINAL_IDENTITY_MISMATCH");
+  closed(value.ownedVm, ["providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"], "/ownedVm");
+  for (const field of ["providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"]) sameIdentity(value.ownedVm[field], run.provider[field], `/ownedVm/${field}`, "TERMINAL_IDENTITY_MISMATCH");
   sameIdentity(value.leaseId, run.lease.leaseId, "/leaseId", "TERMINAL_IDENTITY_MISMATCH");
   sameIdentity(value.fencingToken, run.lease.fencingToken, "/fencingToken", "TERMINAL_IDENTITY_MISMATCH");
+  const validateCredentialDisposition = (disposition, method) => {
+    closed(disposition, [
+      "attestationDigest", "codexHome", "filesystemType", "method", "powerState", "reusableCredentialsAbsent",
+      "schemaVersion", "secretBytesIncluded", "swapPolicy", "type",
+    ], "/receipt/credentialDisposition");
+    if (disposition.schemaVersion !== 1 || disposition.type !== "nelos.credential-terminal-disposition.v1" || disposition.method !== method ||
+        disposition.codexHome !== "/home/nelosauto/.codex" || disposition.filesystemType !== "tmpfs" ||
+        disposition.swapPolicy !== "disabled-and-attested-before-auth" || disposition.powerState !== "stopped" ||
+        disposition.reusableCredentialsAbsent !== true || disposition.secretBytesIncluded !== false) {
+      fail("AMBIGUOUS_MUTATION_RECEIPT", "terminal receipt does not prove reusable credential loss", "/receipt/credentialDisposition");
+    }
+    digest(disposition.attestationDigest, "/receipt/credentialDisposition/attestationDigest");
+  };
   if (value.outcome === "destroyed") {
-    closed(value.receipt, ["receiptId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "mutationStatus", "destroyed", "attestationDigest"], "/receipt");
-    if (value.receipt.destroyed !== true || value.receipt.mutationStatus !== "committed") fail("AMBIGUOUS_MUTATION_RECEIPT", "destruction must be an attested committed mutation", "/receipt");
+    closed(value.receipt, ["receiptId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "mutationStatus", "credentialDisposition", "destroyed", "macAbsent", "networkInventoryComplete", "attestationDigest"], "/receipt");
+    if (value.receipt.destroyed !== true || value.receipt.macAbsent !== true || value.receipt.networkInventoryComplete !== true || value.receipt.mutationStatus !== "committed") fail("AMBIGUOUS_MUTATION_RECEIPT", "destruction must attest exact VM and MAC absence from a complete network inventory", "/receipt");
+    validateCredentialDisposition(value.receipt.credentialDisposition, "powered-off-before-destroy");
   } else {
-    closed(value.receipt, ["receiptId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "mutationStatus", "quarantined", "attestationDigest", "reconciliation"], "/receipt");
+    closed(value.receipt, ["receiptId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "mutationStatus", "credentialDisposition", "quarantined", "attestationDigest", "reconciliation"], "/receipt");
     if (value.receipt.quarantined !== true || value.receipt.mutationStatus !== "committed") fail("AMBIGUOUS_MUTATION_RECEIPT", "quarantine must be an attested committed mutation", "/receipt");
-    closed(value.receipt.reconciliation, ["operationId", "providerId", "hostId", "vmId", "leaseId", "fencingToken"], "/receipt/reconciliation");
+    validateCredentialDisposition(value.receipt.credentialDisposition, "powered-off-quarantine");
+    closed(value.receipt.reconciliation, ["operationId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken"], "/receipt/reconciliation");
     identity(value.receipt.reconciliation.operationId, "/receipt/reconciliation/operationId");
     const reconciliationExpected = { ...run.provider, leaseId: run.lease.leaseId, fencingToken: run.lease.fencingToken };
     for (const [field, expected] of Object.entries(reconciliationExpected)) sameIdentity(value.receipt.reconciliation[field], expected, `/receipt/reconciliation/${field}`, "TERMINAL_IDENTITY_MISMATCH");

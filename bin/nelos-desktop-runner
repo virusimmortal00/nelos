@@ -4,34 +4,56 @@ import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { AtomicRemoteDesktopJournal, ResumableRemoteDesktopRunnerV1, preflightRemoteDesktopRunV1 } from "nelos/remote-desktop-runner";
+import { prepareProductionAdmissionV1 } from "nelos/proxmox-desktop-runtime";
 
 function fail(message) { process.stderr.write(`${message}\n`); process.exitCode = 2; }
 function option(name) { const index = process.argv.indexOf(name); return index < 0 ? null : process.argv[index + 1]; }
 
 const command = process.argv[2];
 const configPath = option("--config");
+const currentLeaseObservationPath = option("--current-lease-observation");
 if (!command || !configPath) {
-  fail("usage: nelos-desktop-runner <preflight|dry-run|run|resume|cancel|inspect> --config /absolute/run.json [--authorize-live|--offline-adapter]");
+  fail("usage: nelos-desktop-runner <preflight|dry-run|run|resume|cancel|inspect> --config /absolute/run.json [--current-lease-observation /absolute/lease.json] [--authorize-live|--offline-adapter]");
 } else {
   try {
     const absoluteConfig = resolve(configPath);
     const config = JSON.parse(await readFile(absoluteConfig, "utf8"));
+    const offline = process.argv.includes("--offline-adapter");
+    const liveRuntime = config.runtimeModule === "nelos/homelab-desktop-runtime";
+    if (liveRuntime && !offline && Object.hasOwn(config, "now")) throw new Error("production run configs cannot override the controller clock");
+    const admissionNow = liveRuntime && !offline ? Date.now() : config.now;
     if (!isAbsolute(config.journalDirectory) || !isAbsolute(config.plan?.evidence?.bundleDirectory)) throw new Error("journal and evidence paths must be absolute");
     if (["preflight", "dry-run"].includes(command)) {
-      const result = preflightRemoteDesktopRunV1({ run: config.run, plan: config.plan, candidateDigest: config.candidateDigest, currentLease: config.currentLease, now: config.now });
-      process.stdout.write(`${JSON.stringify({ ok: true, dryRun: command === "dry-run", identityDigest: result.identityDigest, projectedUsage: result.projectedUsage }, null, 2)}\n`);
+      const productionAdmission = liveRuntime && !offline ? await prepareProductionAdmissionV1(config, { mode: "preflight", configPath: absoluteConfig, now: admissionNow }) : null;
+      const result = preflightRemoteDesktopRunV1({ run: config.run, plan: config.plan, candidateDigest: config.candidateDigest, currentLease: config.currentLease, productionAdmission, now: admissionNow });
+      process.stdout.write(`${JSON.stringify({ ok: true, dryRun: command === "dry-run", identityDigest: result.identityDigest, packetDigest: productionAdmission?.packetDigest ?? null, projectedUsage: result.projectedUsage }, null, 2)}\n`);
     } else if (command === "inspect") {
       const value = await new AtomicRemoteDesktopJournal(config.journalDirectory).load();
       process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
     } else {
-      if (!process.argv.includes("--authorize-live") && !process.argv.includes("--offline-adapter")) throw new Error("mutation commands require explicit --authorize-live or test-only --offline-adapter");
+      if (command === "run" && !process.argv.includes("--authorize-live") && !offline) throw new Error("the first live run requires explicit --authorize-live; resume and cancel adopt the consumed packet gate");
       if (typeof config.runtimeModule !== "string") throw new Error("runtimeModule is required for mutation commands");
+      if (!offline && !liveRuntime) throw new Error("live mutation requires the identity-bound homelab runtime");
+      if (liveRuntime && !offline && ["run", "resume", "cancel"].includes(command) && !isAbsolute(currentLeaseObservationPath ?? "")) throw new Error("every live mutation requires --current-lease-observation with one absolute sealed authority receipt path");
+      const productionAdmission = liveRuntime && !offline ? await prepareProductionAdmissionV1(config, {
+        mode: command, configPath: absoluteConfig, currentLeaseObservationPath,
+        authorizeLive: process.argv.includes("--authorize-live"), now: admissionNow,
+      }) : null;
       const runtimeSpecifier = /^(?:\.|\/|file:)/u.test(config.runtimeModule)
         ? new URL(config.runtimeModule, pathToFileURL(absoluteConfig)).href
         : config.runtimeModule;
       const module = await import(runtimeSpecifier);
       if (typeof module.createRemoteDesktopRuntime !== "function") throw new Error("runtime module must export createRemoteDesktopRuntime(config)");
-      const runtime = await module.createRemoteDesktopRuntime(config);
+      const runtime = await module.createRemoteDesktopRuntime(config, { productionAdmission, operationMode: command });
+      if (productionAdmission && (
+        runtime.productionGuard?.admission?.configDigest !== productionAdmission.configDigest ||
+        runtime.productionGuard?.admission?.packetDigest !== productionAdmission.packetDigest ||
+        runtime.productionGuard?.admission?.gateReceiptDigest !== productionAdmission.gateReceiptDigest ||
+        runtime.productionGuard?.admission?.verificationReceiptDigest !== productionAdmission.verificationReceiptDigest ||
+        runtime.productionGuard?.admission?.runDeadlineAt !== productionAdmission.runDeadlineAt ||
+        runtime.productionGuard?.admission?.currentLeaseObservationDigest !== productionAdmission.currentLeaseObservationDigest ||
+        runtime.productionGuard?.admission?.recoveryMode !== productionAdmission.recoveryMode
+      )) throw new Error("runtime did not retain the exact production admission receipt");
       const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: config.journalDirectory, ...runtime });
       let interrupted = false;
       const interrupt = () => { interrupted = true; };
@@ -42,7 +64,7 @@ if (!command || !configPath) {
       else if (command === "cancel") result = await runner.cancel(config);
       else throw new Error(`unknown command: ${command}`);
       if (interrupted && !["succeeded", "failed", "quarantined"].includes(result.run.state)) result = await runner.cancel(config);
-      process.stdout.write(`${JSON.stringify({ runId: result.run.runId, state: result.run.state, generation: result.generation, usage: result.usage, archiveConvergence: result.archiveConvergence, evidence: result.evidence, failure: result.failure }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify({ runId: result.run.runId, state: result.run.state, generation: result.generation, usage: result.usage, archiveConvergence: result.archiveConvergence, evidence: result.evidence, failure: result.failure, preProvisionAbort: result.preProvisionAbort ?? null }, null, 2)}\n`);
       if (result.run.state !== "succeeded") process.exitCode = 1;
     }
   } catch (error) {

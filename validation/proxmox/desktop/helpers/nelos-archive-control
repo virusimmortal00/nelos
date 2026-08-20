@@ -1,23 +1,17 @@
 #!/usr/bin/python3
-import base64, datetime, hashlib, json, os, pathlib, subprocess, sys, time
+import json, os, pathlib, subprocess, sys
 
-ALLOWED={"archive_tasks","observe_checkpoint","restart_desktop","reconcile_convergence"}
+ALLOWED={"archive_tasks","restart_desktop","reconcile_convergence"}
 def fail(code): sys.stderr.write(json.dumps({"error":code})+"\n"); sys.exit(70)
 def read_json(path):
     info=path.lstat()
     if not path.is_file() or path.is_symlink() or info.st_nlink != 1 or info.st_size > 1048576: fail("UNTRUSTED_OBSERVATION")
     return json.loads(path.read_text())
-def bound_observation(value,binding):
-    observed=value.get("observedAt","")
-    try: age=time.time()-datetime.datetime.fromisoformat(observed.replace("Z","+00:00")).timestamp()
-    except Exception: fail("STALE_OBSERVATION")
-    if value.get("schemaVersion") != 1 or value.get("runId") != binding.get("runId") or value.get("fencingToken") != binding.get("fencingToken") or age > 30 or age < -5: fail("ARCHIVE_OBSERVATION_MISMATCH")
-    return value
 try: request=json.load(sys.stdin)
 except Exception: fail("INVALID_CONTRACT")
 operation=sys.argv[1] if len(sys.argv)==2 else ""
 if operation not in ALLOWED or request.get("operation") != operation or request.get("schemaVersion") != 1: fail("FORBIDDEN_OPERATION")
-binding=request.get("binding",{}); payload=request.get("payload",{}); root=pathlib.Path(binding.get("stateRoot","")); observation_root=pathlib.Path("/var/lib/nelos-desktop/archive-observations")
+binding=request.get("binding",{}); payload=request.get("payload",{}); root=pathlib.Path(binding.get("stateRoot",""))
 if operation == "archive_tasks":
     receipts=[]
     for index,thread in enumerate(payload.get("expectedThreads",[])):
@@ -26,14 +20,6 @@ if operation == "archive_tasks":
         if completed.returncode != 0: fail("ARCHIVE_ACTION_FAILED")
         receipts.append({"schemaVersion":1,"type":"native-archive","actionId":f"{binding['runId']}-archive-{index+1}","threadId":thread["threadId"],"archived":True})
     result=receipts
-elif operation == "observe_checkpoint":
-    try:
-        native=bound_observation(read_json(observation_root/"native.json"),binding); mcp=bound_observation(read_json(observation_root/"mcp.json"),binding); desktop=bound_observation(read_json(observation_root/"desktop.json"),binding); workers=bound_observation(read_json(observation_root/"workers.json"),binding)
-    except Exception: fail("OBSERVATION_UNAVAILABLE")
-    expected=[item["threadId"] for item in payload.get("expectedThreads",[])]
-    report={"schemaVersion":1,"kind":"nelos-developer-visual-state-validation","capture":{"digest":desktop.get("captureDigest")},"outcome":"passed","counts":{"expected":len(expected)},"findings":[]}
-    report_bytes=(json.dumps(report,separators=(",",":"))+"\n").encode(); report_digest="sha256:"+hashlib.sha256(report_bytes).hexdigest()
-    result={"sequence":payload["sequence"],"observedAt":max(native["observedAt"],mcp["observedAt"],desktop["observedAt"]),"phase":payload["phase"],"appInstanceId":desktop["appInstanceId"],"cleanupState":"complete","nelosWorkers":workers["nelosWorkers"],"ordinaryMapThreadIds":mcp["visibleThreadIds"],"nativeVisibleThreadIds":native["visibleThreadIds"],"visualEvidence":{"reportBytesBase64":base64.b64encode(report_bytes).decode(),"reportDigest":report_digest,"sidebarThreadIds":desktop["sidebarThreadIds"],"createdTasksThreadIds":desktop["createdTasksThreadIds"],"mcpVisualThreadIds":desktop["mcpVisualThreadIds"]}}
 elif operation == "restart_desktop":
     user=binding["automationUser"]
     uid=subprocess.check_output(["/usr/bin/id","-u",user],text=True).strip(); env=["/usr/sbin/runuser","-u",user,"--","env",f"XDG_RUNTIME_DIR=/run/user/{uid}",f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus","/usr/bin/systemctl","--user"]

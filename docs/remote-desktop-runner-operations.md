@@ -15,8 +15,12 @@ Keep the run packet on an operator-controlled filesystem. It contains:
   image ID/digest and its template VMID;
 - benchmark profile and scenario-manifest IDs and digests, with every scenario,
   fresh task ID, action timeout, assertion, capture checkpoint, and deadline;
-- provider ownership (`providerId`, `hostId`, reserved `vmId`), reservation ID,
-  active lease identity/expiry/state, and current fencing token;
+- provider ownership (`providerId`, `hostId`, reserved `vmId`, exact
+  `macAddress`, VNet `networkId`, gateway `gatewayId`, and
+  `networkPolicyDigest`), reservation ID,
+  active lease identity/expiry/state, current fencing token, and the independent
+  authority ID, trust digest, epoch, issued revision, issued record digest, and
+  exact-record file digest;
 - explicit maximum task count, model turns, spend, reserved spend, wall time,
   screenshot count/bytes, recording duration/bytes, and diagnostic count/bytes;
 - per-operation usage reservations for provision, every scenario, cleanup,
@@ -29,9 +33,19 @@ Keep the run packet on an operator-controlled filesystem. It contains:
   no SSH keys and fresh, non-persistent writable state.
 
 `reservedSpendUsd` must pessimistically cover `maxSpendUsd` before admission.
+The production v1 identity is fixed to provider `proxmox-lab`, host `prox2`,
+gateway VMID `9023`, and VNet `nelosbld`; an internally consistent alternate
+VNet is rejected before provider inspection, SSH, output creation, or mutation.
 The runner validates projected usage during preflight and again immediately
 before every bounded effect. A ceiling is a stop boundary, not a target: usage
 equal to a ceiling is rejected.
+
+The packet `runDeadlineAt` is also enforced by the runner itself immediately
+before provisioning, each GUI/model scenario, archive convergence, and new
+capture work. Crossing it durably selects cleanup-only recovery. It can never
+start another clone, model turn, GUI action, archive action, or capture merely
+because the original process passed admission while the deadline was still
+current.
 
 ## Offline inspection and preflight
 
@@ -40,8 +54,8 @@ These commands validate only local JSON and the public
 provider, Desktop, or model.
 
 ```sh
-nelos-desktop-runner dry-run --config /srv/nelos/runs/RUN_ID/run.json
-nelos-desktop-runner preflight --config /srv/nelos/runs/RUN_ID/run.json
+nelos-desktop-runner dry-run --config /srv/nelos/runs/RUN_ID/packet/run.json
+nelos-desktop-runner preflight --config /srv/nelos/runs/RUN_ID/packet/run.json
 ```
 
 Review the returned identity digest and projected usage against the change
@@ -67,10 +81,18 @@ Live operation requires all of the following:
 1. An approved change/benchmark ticket naming the exact run identity digest.
 2. A dedicated provider account scoped to the named host, template, and reserved
    disposable VMID. Never use a personal or broad cluster-administrator account.
-3. A current external lease and fencing-token observation made immediately
-   before launch.
-4. Confirmed spend reservation and enough time for worst-case cleanup.
-5. A reviewed runtime module exporting `createRemoteDesktopRuntime(config)` and
+3. A canonical active issue observation made immediately before launch by the
+   independently operated host-local lease authority. Reservation or packet
+   fields are not a current-lease observation.
+4. A fresh read-only QGA measurement from the fixed candidate-bound observer in
+   the exact gateway VM. Its composite identity over the full stateless
+   nftables ruleset digest, VNet, and exact approved-address inventory digest
+   must equal the sealed `networkPolicyDigest`; the inventory must contain no
+   duplicates or extras, and the minimum actual element expiry must
+   cover the remaining run deadline plus cleanup budget. An operator-authored
+   file or copied packet field is not policy attestation.
+5. Confirmed spend reservation and enough time for worst-case cleanup.
+6. A reviewed runtime module exporting `createRemoteDesktopRuntime(config)` and
    providing the backend controller, the contract GUI driver, the mandatory
    archive-projection controller, and (when needed) an evidence collector. The
    projection controller must archive exact scenario task IDs once, capture a
@@ -79,11 +101,11 @@ Live operation requires all of the following:
    replay. Runtime modules must use
    `ProxmoxDesktopControllerV1`/`runProxmoxDesktopOperationV1`, not raw mutation
    calls.
-6. A human-issued command containing the one-run authorization gate:
+7. A human-issued command containing the one-run authorization gate:
 
 ```sh
 nelos-desktop-runner run \
-  --config /srv/nelos/runs/RUN_ID/run.json \
+  --config /srv/nelos/runs/RUN_ID/packet/run.json \
   --authorize-live
 ```
 
@@ -102,8 +124,8 @@ the run ID but remains a separate one-shot staging namespace.
     "stateRoot": "/srv/nelos/runs/RUN_ID",
     "sealedValueRoot": "/run/nelos-sealed/RUN_ID",
     "guiBindings": {
-      "new-task-button": { "role": "button", "name": "New task" },
-      "task-composer": { "role": "textbox" }
+      "task-composer": { "role": "textbox" },
+      "submit-key": { "role": "textbox", "key": "ENTER" }
     },
     "deadlines": { "providerMs": 30000, "qgaMs": 20000, "archiveMs": 60000 },
     "outputLimits": { "providerBytes": 8388608, "qgaBytes": 8388608, "archiveReportBytes": 10485760 }
@@ -130,17 +152,63 @@ provider or GUI effect intent is committed before invocation. On resume, only a
 committed effect with the same identity is adopted.
 
 ```sh
-nelos-desktop-runner inspect --config /srv/nelos/runs/RUN_ID/run.json
-nelos-desktop-runner resume --config /srv/nelos/runs/RUN_ID/run.json --authorize-live
-nelos-desktop-runner cancel --config /srv/nelos/runs/RUN_ID/run.json --authorize-live
+nelos-observe-current-lease \
+  --config /srv/nelos/runs/RUN_ID/packet/run.json
+# Copy the exact `path` from that canonical JSON result into CURRENT_LEASE_PATH.
+nelos-desktop-runner run \
+  --config /srv/nelos/runs/RUN_ID/packet/run.json \
+  --current-lease-observation CURRENT_LEASE_PATH \
+  --authorize-live
+nelos-desktop-runner inspect --config /srv/nelos/runs/RUN_ID/packet/run.json
+nelos-desktop-runner resume \
+  --config /srv/nelos/runs/RUN_ID/packet/run.json \
+  --current-lease-observation CURRENT_LEASE_PATH
+nelos-desktop-runner cancel \
+  --config /srv/nelos/runs/RUN_ID/packet/run.json \
+  --current-lease-observation CURRENT_LEASE_PATH
 ```
+
+The first `run`, not only recovery, requires this fresh independent authority
+observation. The issued observation sealed into `run.json` fixes the immutable
+lease/fence identity; it does not authorize mutation after the operator has
+installed the host binding and staged one-shot values. For an initial run, the
+fresh authority record must still be `active` and its lease must outlive the
+sealed run deadline. Generate a new receipt immediately before each `run`,
+`resume`, or `cancel`; preflight remains read-only and does not require one.
+
+The recovery receipt must be canonical JSON at the exact content-addressed
+filename inside the packet-declared `roots.recovery` directory. The controller
+opens it without following links, compares the opened file identity and
+metadata, and reads those same bytes through that descriptor. An arbitrary
+absolute path, digest/filename mismatch, link, replacement race, wrong owner,
+or permissive mode fails before runtime creation.
+
+Do not hand-author this receipt. `nelos-observe-current-lease` obtains it by
+calling only the independently credentialed Proxmox attestor. Its remote root
+helper resolves the resource from `/etc/nelos-desktop/run-binding.json`, verifies
+the immutable issued authority binding, and returns the canonical current record,
+exact record bytes, file digest, record digest, authority ID, trust digest, epoch,
+revision, state, and observation time from `/var/lib/nelos-lease-authority`.
+There is no caller-selected lookup. A controller-authored JSON file—even one
+that repeats expected values—is not operational evidence and must never be
+staged into `roots.recovery`.
+
+`active` permits work only before `expiresAt`. `cleanup-only` permits only the
+exact allowlisted cleanup effects before `cleanupExpiresAt`. `revoked`,
+`completed`, a superseding epoch, rollback, or broken revision chain returns no
+automatic mutation authority; preserve the VM and reconcile manually. The host
+provider helper repeats this check under the authority lock immediately before
+every effect and holds the lock through `pvesh`.
 
 A pending provider or archive-convergence intent must go through its runtime
 module read/reconcile boundary; it is never blindly invoked again. A pending GUI
 intent is ambiguous and is never replayed—the run fails and proceeds to cleanup.
-Cancellation is durable and also proceeds to cleanup. Never edit `CURRENT` or
-an entry by hand, copy effects between run directories, or resume with changed
-inputs.
+Cancellation is durable and also proceeds to cleanup. If no provision intent
+was ever journaled and the fresh independent reservation probe still proves the
+VMID absent, cancellation instead records a failed pre-provision abort: it does
+not invent a destroy receipt and issues no destroy or quarantine mutation.
+Never edit `CURRENT` or an entry by hand, copy effects between run directories,
+or resume with changed inputs.
 
 ## Evidence and terminal review
 
@@ -154,7 +222,8 @@ the run failed; it can never be reported as success.
 Before publishing a successful result, review:
 
 - journal state is exactly `succeeded`, every effect is `committed`, and there
-  are no failures or unresolved intents;
+  are no failures or unresolved intents; every provider mutation has a fresh
+  independently observed network-policy admission committed before it;
 - every scenario passed under a unique fresh task and usage remains below all
   admitted ceilings;
 - archive convergence is `passed`, exact archive receipts cover every scenario
@@ -164,19 +233,35 @@ Before publishing a successful result, review:
   only sanitized allowlisted classes;
 - the terminal outcome is `destroyed`, the receipt is committed, `destroyed` is
   true, and provider/host/VM/lease/fence all exactly match the admitted run;
-- an independent provider inventory read proves the exact VMID is absent and no
-  replacement resource has reused it.
+- an independent complete provider inventory read proves the exact VMID is
+  absent, no replacement resource has reused it, and the exact sealed MAC is
+  absent cluster-wide.
 
 ## Quarantine reconciliation and incident stops
 
 Uncertain destruction never becomes success. The backend commits an
 identity-preserving quarantine receipt containing the original provider, host,
-VMID, lease, fence, and reconciliation operation. Keep the VM isolated, preserve
-the journal and provider audit record, extend or transfer the lease through the
-approved ownership system, and reconcile the named operation with a fresh
-read-only inventory. Destruction may be performed only under a new explicit
+VMID, lease, fence, reconciliation operation, and the metadata-only proof that
+the swap-free tmpfs credential store was lost by powering off the exact VM.
+Quarantine must remain stopped; QGA scrub is never the sole credential-loss
+boundary. Keep the VM isolated and
+preserve the journal and provider audit record. Move the exact current authority
+record to `cleanup-only` only through the root-operated transition command, or
+revoke it and reconcile manually. Destruction may be performed only under exact
+current cleanup authority and a new explicit
 authorization and must produce exact absence attestation. Do not rewrite the
 original quarantined outcome.
+
+If QGA disappears during authentication or cleanup, use the trusted Proxmox
+console—not the guest—to recover. Resolve the VMID only from the sealed run
+packet, run `qm stop <sealed-vmid> --timeout 30`, and require `qm status
+<sealed-vmid>` to report exactly `status: stopped`. Do not start, resume,
+hibernate, snapshot a running guest, or mount its disk. Preserve the journal and
+provider audit record, then resume only the identity-bound cleanup/quarantine
+reconciler under fresh cleanup authority. If stopped state or the original
+run/fence/VM identity cannot be independently proven, no quarantine or scrub
+receipt may be invented; escalate the resource as an incident while keeping its
+network isolated.
 
 Stop immediately and open an incident if any of these occurs:
 

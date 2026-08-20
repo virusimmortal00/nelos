@@ -1,8 +1,70 @@
 #!/usr/bin/python3
-import base64, json, os, pwd, re, subprocess, sys, tempfile, time
+import base64, hashlib, json, os, pwd, re, secrets, stat, subprocess, sys, time
 
-ALLOWED = {"list_tasks","activate_expected_task","active_task","click","keypress","scroll","select_menu","type_text","wait_for","accessibility_tree","window_state","query_element","task_state","text_present","window_count","protected_capture_regions","capture_screenshot","capture_evidence","health"}
+ALLOWED = {"list_tasks","activate_expected_task","active_task","click","keypress","scroll","select_menu","type_text","wait_for","accessibility_tree","window_state","query_element","task_state","text_present","window_count","protected_capture_regions","capture_evidence","expected_task_visible","observe_task_surface","observe_archive_surface","health"}
 THREAD = re.compile(r"[a-f0-9]{8}-[a-f0-9-]{12,72}")
+MAXIMUM_SCAN_NODES = 10000
+MAXIMUM_ROW_SCAN_NODES = 2000
+ROW_ROLE_MARKERS = ("article", "list item", "table row", "tree item")
+TITLE_ROLE_MARKERS = ("label", "text", "heading", "link", "list item", "paragraph")
+ARCHIVE_SURFACE_ORDER = ("sidebar", "createdTasks", "mcpVisual")
+ARCHIVE_SURFACE_CONTRACTS = {
+    "sidebar": "codex-desktop-sidebar-app-action-v1",
+    "createdTasks": "codex-desktop-created-tasks-summary-v1",
+    "mcpVisual": "nelos-mcp-task-workers-v1",
+}
+SIDEBAR_CONTAINER_ATTRIBUTE = "data-app-action-sidebar-scroll"
+SIDEBAR_ROW_ID_ATTRIBUTE = "data-app-action-sidebar-thread-id"
+SIDEBAR_ROW_TITLE_ATTRIBUTE = "data-app-action-sidebar-thread-title"
+CREATED_TASKS_HEADER = re.compile(r"^created tasks(?:\s*\(?(\d{1,3})\)?)?$", re.I)
+CREATED_TASKS_STATUSES = {"done", "failed", "starting", "working"}
+CREATED_TASKS_MORE = re.compile(r"^show\s+(?:all|\d{1,3}\s+more)(?:\u2026|\.\.\.)?$", re.I)
+SUMMARY_TOGGLE_NAMES = {"Toggle pinned summary", "Toggle summary"}
+MCP_VISUAL_CONTAINER_NAME = "Nelos task workers"
+MCP_MEMBER_STATUSES = {
+    "attention": "Attention",
+    "complete": "Complete",
+    "running": "Running",
+}
+CURRENT_GROUP_HEADER = re.compile(r"^(needs input|in progress|queued)\s*\(\s*([0-9]{1,3})\s*\)$", re.I)
+FILTER_COUNTER = re.compile(r"^(current|done)\s+([0-9]{1,3})$", re.I)
+SHOW_MORE = re.compile(r"^show\s+[0-9]{1,3}\s+more(?:\u2026|\.\.\.)$", re.I)
+STATUS_PATTERN = re.compile(r"(?:waiting|needs?)\s+(?:for\s+)?approval|approval required|\bapproval\b|(?:waiting|needs?)\s+(?:for\s+)?(?:user\s+)?input|input required|\b(?:in progress|running|working|loading|spinner)\b", re.I)
+AGGREGATE_COUNTER = re.compile(r"^(current|working|done)\s*(?:\(\s*)?([0-9]{1,3})(?:\s*\))?$", re.I)
+AGGREGATE_PAIR = re.compile(r"^(?:current|working)\s*(?:\(\s*)?([0-9]{1,3})(?:\s*\))?\s+done\s*(?:\(\s*)?([0-9]{1,3})(?:\s*\))?$", re.I)
+TEXT_LIFECYCLE_LABELS = {
+    "approval": ("waitingOnApproval", "Approval"),
+    "approval required": ("waitingOnApproval", "Approval required"),
+    "needs approval": ("waitingOnApproval", "Needs approval"),
+    "waiting approval": ("waitingOnApproval", "Waiting approval"),
+    "waiting for approval": ("waitingOnApproval", "Waiting for approval"),
+    "input required": ("waitingOnUserInput", "Input required"),
+    "needs input": ("waitingOnUserInput", "Needs input"),
+    "needs user input": ("waitingOnUserInput", "Needs user input"),
+    "waiting for input": ("waitingOnUserInput", "Waiting for input"),
+    "waiting for user input": ("waitingOnUserInput", "Waiting for user input"),
+    "waiting input": ("waitingOnUserInput", "Waiting input"),
+    "waiting user input": ("waitingOnUserInput", "Waiting user input"),
+    "in progress": ("running", "In progress"),
+    "loading": ("running", "Loading"),
+    "running": ("running", "Running"),
+    "spinner": ("running", "Spinner"),
+    "working": ("running", "Working"),
+}
+RUNNING_ROLES = {"animation", "progress bar", "spinner"}
+BUSY_STATE_ROLES = {"animation", "progress bar", "spinner", "status"}
+MAGICK_MEMORY_LIMIT = "768MiB"
+MAGICK_AREA_LIMIT = "1GiB"
+MAGICK_DIMENSION_LIMIT = "7680"
+def magick_limit_arguments():
+    return (
+        "-limit", "memory", MAGICK_MEMORY_LIMIT,
+        "-limit", "map", "0",
+        "-limit", "disk", "0",
+        "-limit", "area", MAGICK_AREA_LIMIT,
+        "-limit", "width", MAGICK_DIMENSION_LIMIT,
+        "-limit", "height", "4320",
+    )
 
 def fail(code):
     sys.stderr.write(json.dumps({"error": code}) + "\n"); sys.exit(70)
@@ -15,6 +77,36 @@ def walk(root, maximum=10000):
         try:
             for index in range(item.childCount-1, -1, -1): stack.append(item.getChildAtIndex(index))
         except Exception: pass
+def complete_scan(root, maximum=MAXIMUM_SCAN_NODES):
+    stack=[root]; values=[]
+    while stack:
+        item=stack.pop()
+        if len(values) >= maximum: fail("ACCESSIBILITY_TREE_LIMIT")
+        values.append(item)
+        try:
+            count=item.childCount
+            if not isinstance(count,int) or count < 0: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+            children=[item.getChildAtIndex(index) for index in range(count)]
+            if any(child is None for child in children): fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        except SystemExit: raise
+        except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        stack.extend(reversed(children))
+    return values
+def complete_scan_index(root, maximum=MAXIMUM_SCAN_NODES):
+    stack=[(root,None)]; values=[]; parents={}
+    while stack:
+        item,parent=stack.pop()
+        if len(values) >= maximum: fail("ACCESSIBILITY_TREE_LIMIT")
+        values.append(item); parents[id(item)]=parent
+        try:
+            count=item.childCount
+            if not isinstance(count,int) or count < 0: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+            children=[item.getChildAtIndex(index) for index in range(count)]
+            if any(child is None for child in children): fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        except SystemExit: raise
+        except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        stack.extend((child,item) for child in reversed(children))
+    return values,parents
 def facts(item):
     try: role=item.getRoleName()
     except Exception: role="unknown"
@@ -25,6 +117,396 @@ def facts(item):
     try: attrs=" ".join(item.getAttributes())
     except Exception: attrs=""
     return role.lower(), name, description, attrs
+def strict_facts(item):
+    try:
+        role=item.getRoleName(); name=item.name or ""; description=item.description or ""; attrs=" ".join(item.getAttributes())
+    except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+    if not all(isinstance(value,str) for value in (role,name,description,attrs)): fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+    return role.lower(),name,description,attrs
+def strict_attributes(item):
+    try: values=item.getAttributes()
+    except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+    if not isinstance(values,(list,tuple)) or len(values) > 512 or any(not isinstance(value,str) or len(value) > 4096 for value in values): fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+    result={}
+    for value in values:
+        if ":" not in value: continue
+        key,content=value.split(":",1)
+        if not key or key in result: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        result[key]=content
+    return result
+def strict_state(item,state):
+    try: return item.getState().contains(state)
+    except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+def indexed_children(scanned,parents):
+    children={}
+    for item in scanned:
+        parent=parents.get(id(item))
+        if parent is not None: children.setdefault(id(parent),[]).append(item)
+    return children
+def indexed_subtree(root,children,maximum=MAXIMUM_SCAN_NODES):
+    stack=[root]; values=[]
+    while stack:
+        item=stack.pop()
+        if len(values) >= maximum: fail("ACCESSIBILITY_TREE_LIMIT")
+        values.append(item); stack.extend(reversed(children.get(id(item),[])))
+    return values
+def unique_visible_attribute(scanned,key):
+    matches=[item for item in scanned if strictly_shown(item) and key in strict_attributes(item)]
+    if len(matches) == 0: fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    if len(matches) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return matches[0]
+def exact_visible_name(scanned,name,roles):
+    matches=[]
+    for item in scanned:
+        if not strictly_shown(item): continue
+        role,item_name,description,_attrs=strict_facts(item)
+        if role in roles and ((item_name == name and not description) or (description == name and not item_name)): matches.append(item)
+    if len(matches) == 0: fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    if len(matches) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return matches[0]
+def surface_proof(surface,container,items,state,thread_ids):
+    role=strict_facts(container)[0]
+    if not role or len(role) > 128: fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    return {"surface":surface,"contract":ARCHIVE_SURFACE_CONTRACTS[surface],"state":state,"accessibilityRole":role,"geometry":rect(container),"scan":{"complete":True,"scannedNodes":len(items),"maximumNodes":MAXIMUM_SCAN_NODES},"threadIds":thread_ids}
+def exact_title_region(row_items,expected_title):
+    candidates={}
+    for item in row_items:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item)
+        if not any(marker in role for marker in TITLE_ROLE_MARKERS): continue
+        for text in (name,description):
+            if text != expected_title: continue
+            region=rect(item); candidates[tuple(region[field] for field in ("x","y","width","height"))]=(item,region)
+    if len(candidates) == 0: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+    if len(candidates) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return next(iter(candidates.values()))[1]
+def exact_visible_text_items(items,expected_text):
+    matches=[]
+    for item in items:
+        if not strictly_shown(item): continue
+        _role,name,description,_attrs=strict_facts(item)
+        if name == expected_text or description == expected_text: matches.append(item)
+    return matches
+def item_is_within(item,ancestor,parents,maximum_depth=24):
+    current=item
+    for _depth in range(maximum_depth):
+        if current is ancestor: return True
+        current=parents.get(id(current))
+        if current is None: return False
+    fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+def nearest_role_ancestor(item,container,parents,roles,maximum_depth=24):
+    current=item
+    for _depth in range(maximum_depth):
+        if current is container: return None
+        if strict_facts(current)[0] in roles: return current
+        current=parents.get(id(current))
+        if current is None: return None
+    fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+def created_tasks_lifecycle(row_items):
+    candidates={}
+    for item in row_items:
+        if not strictly_shown(item): continue
+        _role,name,description,_attrs=strict_facts(item)
+        for text in (name,description):
+            lifecycle=canonical_lifecycle_text(text)
+            if lifecycle not in CREATED_TASKS_STATUSES: continue
+            region=rect(item); key=tuple(region[field] for field in ("x","y","width","height"))
+            candidates[key]=(lifecycle,text,region)
+    if not candidates: return None
+    if len(candidates) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return next(iter(candidates.values()))
+def archive_sidebar_surface(scanned,parents,children,expected_threads):
+    container=unique_visible_attribute(scanned,SIDEBAR_CONTAINER_ATTRIBUTE); items=indexed_subtree(container,children)
+    visible=[]; evidence=[]
+    for thread in expected_threads:
+        title_items=exact_visible_text_items(items,thread["title"])
+        rows=[]
+        for item in items:
+            if not strictly_shown(item): continue
+            attrs=strict_attributes(item)
+            if attrs.get(SIDEBAR_ROW_ID_ATTRIBUTE) == thread["threadId"]: rows.append((item,attrs))
+        if len(rows) > 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+        if not rows:
+            if title_items: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+            continue
+        row,attrs=rows[0]
+        if attrs.get(SIDEBAR_ROW_TITLE_ATTRIBUTE) != thread["title"]: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+        if any(not item_is_within(title_item,row,parents) for title_item in title_items): fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+        row_items=indexed_subtree(row,children,MAXIMUM_ROW_SCAN_NODES); title_region=exact_title_region(row_items,thread["title"])
+        lifecycle,lifecycle_evidence,status_regions=rendered_lifecycle(row_items,thread["threadId"],thread["title"])
+        visible.append(thread["threadId"])
+        evidence += [evidence_region("expected-task-status",thread["threadId"],lifecycle_evidence["value"],region) for region in status_regions]
+        evidence.append(evidence_region("expected-task-title",thread["threadId"],thread["title"],title_region))
+    return surface_proof("sidebar",container,items,"present",visible),evidence
+def created_tasks_container(scanned,parents,children):
+    toggles=[]
+    for item in scanned:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item)
+        if role in ("button","push button") and ((name in SUMMARY_TOGGLE_NAMES and not description) or (description in SUMMARY_TOGGLE_NAMES and not name)): toggles.append(item)
+    if len(toggles) == 0: fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    if len(toggles) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    toggle=toggles[0]
+    if not strict_state(toggle,pyatspi.STATE_PRESSED): fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    headers=[]
+    for item in scanned:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item)
+        text=name if name and not description else description if description and not name else ""
+        match=CREATED_TASKS_HEADER.fullmatch(text.strip()) if role in ("button","push button") else None
+        if match is not None: headers.append((item,match))
+    if len(headers) > 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    if not headers: return toggle,[toggle],"empty",0
+    header,match=headers[0]; current=header; container=None
+    if not strict_state(header,pyatspi.STATE_EXPANDED): fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    for _depth in range(6):
+        current=parents.get(id(current))
+        if current is None: break
+        if strict_facts(current)[0] in ("presentation","section"): container=current; break
+    if container is None or not strictly_shown(container): fail("ARCHIVE_SURFACE_UNSUPPORTED")
+    return container,indexed_subtree(container,children),"present",None if match.group(1) is None else int(match.group(1))
+def archive_created_tasks_surface(scanned,parents,children,expected_threads):
+    container,items,state,declared_count=created_tasks_container(scanned,parents,children)
+    if state == "empty": return surface_proof("createdTasks",container,items,state,[]),[]
+    candidates=[]; candidate_by_row={}
+    for item in items:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item)
+        if role in ("button","push button") and any(CREATED_TASKS_MORE.fullmatch(value.strip()) for value in (name,description) if value): fail("ARCHIVE_SURFACE_INCOMPLETE")
+        if role not in ("button","push button"): continue
+        row_items=indexed_subtree(item,children,MAXIMUM_ROW_SCAN_NODES); texts=set()
+        for child in row_items:
+            if not strictly_shown(child): continue
+            _child_role,child_name,child_description,_child_attrs=strict_facts(child)
+            texts.update(value for value in (child_name,child_description) if value)
+        lifecycle=created_tasks_lifecycle(row_items)
+        if lifecycle is not None:
+            candidate=(item,row_items,texts,lifecycle); candidates.append(candidate); candidate_by_row[id(item)]=candidate
+    for thread in expected_threads:
+        title_items=exact_visible_text_items(items,thread["title"])
+        if not title_items: continue
+        rows=[]
+        for title_item in title_items:
+            row=nearest_role_ancestor(title_item,container,parents,{"button","push button"})
+            if row is None: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+            if all(row is not existing for existing in rows): rows.append(row)
+        if len(rows) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+        if id(rows[0]) not in candidate_by_row: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+    if declared_count is not None and declared_count != len(candidates): fail("ARCHIVE_SURFACE_INCOMPLETE")
+    expected_by_title={thread["title"]:thread for thread in expected_threads}; visible=[]; evidence=[]
+    for _row,row_items,texts,lifecycle in candidates:
+        matches=[thread for title,thread in expected_by_title.items() if title in texts]
+        if len(matches) != 1: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+        thread=matches[0]
+        if thread["threadId"] in visible: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+        title_region=exact_title_region(row_items,thread["title"]); visible.append(thread["threadId"])
+        evidence.append(evidence_region("expected-task-title",thread["threadId"],thread["title"],title_region))
+        evidence.append(evidence_region("expected-task-status",thread["threadId"],lifecycle[1],lifecycle[2]))
+    return surface_proof("createdTasks",container,items,state,visible),evidence
+def archive_mcp_visual_surface(scanned,parents,children,expected_threads):
+    container=exact_visible_name(scanned,MCP_VISUAL_CONTAINER_NAME,{"group","panel","section"}); items=indexed_subtree(container,children)
+    visible=[]; evidence=[]
+    for thread in expected_threads:
+        title_items=exact_visible_text_items(items,thread["title"])
+        links=[]
+        exact_label="Open Codex task "+thread["threadId"]
+        for item in items:
+            if not strictly_shown(item): continue
+            role,name,description,_attrs=strict_facts(item)
+            if role in ("link","hyperlink") and ((name == exact_label and not description) or (description == exact_label and not name)): links.append(item)
+        if len(links) > 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+        if not links:
+            if title_items: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+            continue
+        current=links[0]; row=None
+        for _depth in range(12):
+            if current is None or current is container: break
+            if any(marker in strict_facts(current)[0] for marker in ROW_ROLE_MARKERS): row=current; break
+            current=parents.get(id(current))
+        if row is None: fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+        if any(not item_is_within(title_item,row,parents) for title_item in title_items): fail("ARCHIVE_SURFACE_IDENTITY_UNSUPPORTED")
+        row_items=indexed_subtree(row,children,MAXIMUM_ROW_SCAN_NODES); title_region=exact_title_region(row_items,thread["title"])
+        visible.append(thread["threadId"]); evidence.append(evidence_region("expected-task-title",thread["threadId"],thread["title"],title_region))
+    return surface_proof("mcpVisual",container,items,"present",visible),evidence
+def exact_class_item(row_items,class_name):
+    matches=[]
+    for item in row_items:
+        if not strictly_shown(item): continue
+        classes=set(strict_attributes(item).get("class","").split())
+        if class_name in classes: matches.append(item)
+    if len(matches) == 0: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+    if len(matches) != 1: fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return matches[0]
+def exact_single_text(item):
+    _role,name,description,_attrs=strict_facts(item)
+    values=[value for value in (name,description) if value]
+    if len(values) != 1 or len(values[0]) > 512 or re.search(r"[\x00-\x1f\x7f]",values[0]): fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+    return values[0]
+def visible_descendant_sidebar_rows(scanned,parents,children,expected_descendants):
+    container=unique_visible_attribute(scanned,SIDEBAR_CONTAINER_ATTRIBUTE); items=indexed_subtree(container,children)
+    records=[]; evidence=[]; sealed_titles={value["title"] for value in expected_descendants}
+    for expected in expected_descendants:
+        title_items=[item for title in sealed_titles for item in exact_visible_text_items(items,title) if title == expected["title"]]
+        rows=[]
+        for item in items:
+            if not strictly_shown(item): continue
+            attrs=strict_attributes(item)
+            if attrs.get(SIDEBAR_ROW_ID_ATTRIBUTE) == expected["taskId"]: rows.append((item,attrs))
+        if len(rows) > 1: fail("DESCENDANT_SURFACE_AMBIGUOUS")
+        if not rows:
+            if title_items: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+            continue
+        row,attrs=rows[0]
+        observed_title=attrs.get(SIDEBAR_ROW_TITLE_ATTRIBUTE)
+        if observed_title not in sealed_titles: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+        row_items=indexed_subtree(row,children,MAXIMUM_ROW_SCAN_NODES); title_region=exact_title_region(row_items,observed_title)
+        rendered,lifecycle_evidence,status_regions=rendered_lifecycle(row_items,expected["taskId"],observed_title)
+        if rendered not in ("idle","running","waitingOnApproval","waitingOnUserInput"): fail("DESCENDANT_SURFACE_STATUS_MISMATCH")
+        record={"taskId":expected["taskId"],"title":observed_title,"renderedStatus":rendered,"lifecycleEvidence":lifecycle_evidence}
+        records.append(record); evidence.append(evidence_region("expected-task-title",expected["taskId"],observed_title,title_region))
+        evidence += [evidence_region("expected-task-status",expected["taskId"],lifecycle_evidence["value"],region) for region in status_regions]
+    return container,records,evidence
+def visible_descendant_mcp_rows(scanned,parents,children,expected_descendants):
+    container=exact_visible_name(scanned,MCP_VISUAL_CONTAINER_NAME,{"group","panel","section"}); items=indexed_subtree(container,children)
+    records=[]; evidence=[]; sealed_titles={value["title"] for value in expected_descendants}
+    for expected in expected_descendants:
+        title_items=[item for title in sealed_titles for item in exact_visible_text_items(items,title) if title == expected["title"]]
+        exact_label="Open Codex task "+expected["taskId"]; links=[]
+        for item in items:
+            if not strictly_shown(item): continue
+            role,name,description,_attrs=strict_facts(item)
+            if role in ("link","hyperlink") and ((name == exact_label and not description) or (description == exact_label and not name)): links.append(item)
+        if len(links) > 1: fail("DESCENDANT_SURFACE_AMBIGUOUS")
+        if not links:
+            if title_items: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+            continue
+        current=links[0]; row=None
+        for _depth in range(12):
+            if current is None or current is container: break
+            if any(marker in strict_facts(current)[0] for marker in ROW_ROLE_MARKERS): row=current; break
+            current=parents.get(id(current))
+        if row is None: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+        row_items=indexed_subtree(row,children,MAXIMUM_ROW_SCAN_NODES)
+        title_item=exact_class_item(row_items,"member-task"); status_item=exact_class_item(row_items,"status")
+        title=exact_single_text(title_item); status_text=exact_single_text(status_item); attrs=strict_attributes(row)
+        rendered=attrs.get("data-status")
+        if title not in sealed_titles: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+        if MCP_MEMBER_STATUSES.get(rendered) != status_text: fail("DESCENDANT_SURFACE_STATUS_MISMATCH")
+        title_region=rect(title_item); status_region=rect(status_item)
+        lifecycle_evidence={"kind":"text","value":status_text,"scan":{"complete":True,"scannedNodes":len(row_items),"maximumNodes":MAXIMUM_ROW_SCAN_NODES}}
+        records.append({"taskId":expected["taskId"],"title":title,"renderedStatus":rendered,"lifecycleEvidence":lifecycle_evidence})
+        evidence.append(evidence_region("expected-task-title",expected["taskId"],title,title_region)); evidence.append(evidence_region("expected-task-status",expected["taskId"],status_text,status_region))
+    return container,records,evidence
+def merge_descendant_rows(target,records):
+    for record in records:
+        previous=target.get(record["taskId"])
+        if previous is not None and previous != record: fail("DESCENDANT_SURFACE_IDENTITY_MISMATCH")
+        target[record["taskId"]]=record
+def exact_filter_button(scanned,label):
+    matches=[]
+    for item in scanned:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item); text=name if name and not description else description if description and not name else ""
+        match=FILTER_COUNTER.fullmatch(text.strip()) if role in ("button","push button","toggle button") else None
+        if match is not None and match.group(1).casefold() == label.casefold(): matches.append(item)
+    if len(matches) != 1: fail("DESCENDANT_SURFACE_INCOMPLETE" if not matches else "DESCENDANT_SURFACE_AMBIGUOUS")
+    return matches[0]
+def select_execution_filter(desktop,label):
+    scanned=complete_scan(desktop); button=exact_filter_button(scanned,label)
+    if not strict_state(button,pyatspi.STATE_PRESSED):
+        activate(button); time.sleep(.25); scanned=complete_scan(desktop); button=exact_filter_button(scanned,label)
+    if not strict_state(button,pyatspi.STATE_PRESSED): fail("DESCENDANT_SURFACE_INCOMPLETE")
+def expand_execution_groups(desktop):
+    for _attempt in range(8):
+        scanned=complete_scan(desktop); controls=[]; closed=[]
+        for item in scanned:
+            if not strictly_shown(item): continue
+            role,name,description,_attrs=strict_facts(item); text=name if name and not description else description if description and not name else ""
+            if role in ("button","push button","toggle button") and SHOW_MORE.fullmatch(text.strip()): controls.append(item)
+            if role in ("button","push button","toggle button") and (CURRENT_GROUP_HEADER.fullmatch(text.strip()) or re.fullmatch(r"done\s*\(\s*[0-9]{1,3}\s*\)",text.strip(),re.I)) and not strict_state(item,pyatspi.STATE_EXPANDED): closed.append(item)
+        if closed:
+            if len(closed) > 4: fail("DESCENDANT_SURFACE_INCOMPLETE")
+            for control in closed: activate(control)
+            time.sleep(.25); continue
+        if not controls: return
+        if len(controls) > 3: fail("DESCENDANT_SURFACE_INCOMPLETE")
+        for control in controls: activate(control)
+        time.sleep(.25)
+    fail("DESCENDANT_SURFACE_INCOMPLETE")
+def phase_screenshot(scanned,records,evidence,surface,view,sequence):
+    task_ids=sorted(record["taskId"] for record in records)
+    if not task_ids: fail("DESCENDANT_SURFACE_INCOMPLETE")
+    for record in records: record["phaseSequence"]=sequence
+    protection=protected_inventory(None,scanned); protected=proof_regions(protection); preserved=[]
+    for task_id in task_ids:
+        candidates=[value for value in evidence if value["taskId"] == task_id]
+        title=next((value for value in candidates if value["kind"] == "expected-task-title" and not any(overlaps(value,region) for region in protected) and not any(overlaps(value,selected) for selected in preserved)),None)
+        if title is None: fail("PROTECTED_GEOMETRY_UNAVAILABLE")
+        preserved.append(title)
+        record=next(value for value in records if value["taskId"] == task_id)
+        status=next((value for value in candidates if value["kind"] == "expected-task-status" and not any(overlaps(value,region) for region in protected) and not any(overlaps(value,selected) for selected in preserved)),None)
+        if (surface == "mcpVisual" or record["renderedStatus"] != "idle") and status is None: fail("PROTECTED_GEOMETRY_UNAVAILABLE")
+        if status is not None: preserved.append(status)
+    captured=privacy_screenshot(preserved,protected,"expected-task-evidence-only",len(scanned)); png=base64.b64decode(captured["bytesBase64"])
+    return {"schemaVersion":1,"sequence":sequence,"surface":surface,"view":view,"taskIds":task_ids,"scan":{"complete":True,"scannedNodes":len(scanned),"maximumNodes":MAXIMUM_SCAN_NODES},"screenshot":{"bytesBase64":captured["bytesBase64"],"byteLength":len(png),"digest":"sha256:"+hashlib.sha256(png).hexdigest(),"width":captured["width"],"height":captured["height"],"mediaType":"image/png","privacy":captured["privacy"],"protectedRegions":protected,"protectedInventory":protection,"protection":{"geometryCertain":True,"inventoryComplete":True,"mode":"mask"}}}
+def collect_sidebar_descendants(desktop,expected_descendants,sequence):
+    records={}; phases=[]; page_count=0
+    while len(records) < len(expected_descendants):
+        scanned,parents=complete_scan_index(desktop); children=indexed_children(scanned,parents)
+        container,visible,evidence=visible_descendant_sidebar_rows(scanned,parents,children,expected_descendants)
+        unseen=[record for record in visible if record["taskId"] not in records]
+        if unseen:
+            phases.append(phase_screenshot(scanned,unseen,evidence,"sidebar","scroll-page",sequence+len(phases)))
+            merge_descendant_rows(records,unseen)
+            if len(records) == len(expected_descendants): break
+        page_count += 1
+        if page_count > 40: fail("DESCENDANT_SURFACE_INCOMPLETE")
+        try:
+            container.queryComponent().grabFocus(); pyatspi.Registry.generateKeyboardEvent(0,"Page_Down",pyatspi.KEY_SYM)
+        except SystemExit: raise
+        except Exception: fail("DESCENDANT_SURFACE_INCOMPLETE")
+        time.sleep(.25)
+    for _page in range(page_count):
+        try: pyatspi.Registry.generateKeyboardEvent(0,"Page_Up",pyatspi.KEY_SYM)
+        except Exception: fail("DESCENDANT_SURFACE_INCOMPLETE")
+    ordered=[records[value["taskId"]] for value in expected_descendants]
+    return ordered,phases,sequence+len(phases)
+def collect_mcp_descendants(desktop,expected_descendants,sequence):
+    records={}; phases=[]
+    if len(expected_descendants) == 1:
+        scanned,parents=complete_scan_index(desktop); children=indexed_children(scanned,parents)
+        _container,visible,evidence=visible_descendant_mcp_rows(scanned,parents,children,expected_descendants)
+        if len(visible) != 1: fail("DESCENDANT_SURFACE_INCOMPLETE")
+        return visible,[phase_screenshot(scanned,visible,evidence,"mcpVisual","standalone",sequence)],sequence+1
+    for view,statuses in (("current",{"inProgress","interrupted"}),("done",{"completed"})):
+        selected=[value for value in expected_descendants if value["latestTurnStatus"] in statuses]
+        if not selected: continue
+        select_execution_filter(desktop,view); expand_execution_groups(desktop)
+        scanned,parents=complete_scan_index(desktop); children=indexed_children(scanned,parents)
+        _container,visible,evidence=visible_descendant_mcp_rows(scanned,parents,children,selected)
+        if sorted(record["taskId"] for record in visible) != sorted(value["taskId"] for value in selected): fail("DESCENDANT_SURFACE_INCOMPLETE")
+        merge_descendant_rows(records,visible); phases.append(phase_screenshot(scanned,visible,evidence,"mcpVisual",view,sequence+len(phases)))
+    if any(value["latestTurnStatus"] in ("inProgress","interrupted") for value in expected_descendants): select_execution_filter(desktop,"current")
+    ordered=[records.get(value["taskId"]) for value in expected_descendants]
+    if any(value is None for value in ordered): fail("DESCENDANT_SURFACE_INCOMPLETE")
+    return ordered,phases,sequence+len(phases)
+def classify_descendant_surfaces(desktop,expected_descendants):
+    if not expected_descendants: return {"schemaVersion":1,"sidebar":[],"mcpVisual":[],"observationPhases":[]}
+    sidebar,sidebar_phases,next_sequence=collect_sidebar_descendants(desktop,expected_descendants,1)
+    mcp_visual,mcp_phases,_next_sequence=collect_mcp_descendants(desktop,expected_descendants,next_sequence)
+    phases=[*sidebar_phases,*mcp_phases]
+    if [phase["sequence"] for phase in phases] != list(range(1,len(phases)+1)): fail("DESCENDANT_SURFACE_INCOMPLETE")
+    return {"schemaVersion":1,"sidebar":sidebar,"mcpVisual":mcp_visual,"observationPhases":phases}
+def classify_archive_surfaces(desktop,expected_threads):
+    scanned,parents=complete_scan_index(desktop); children=indexed_children(scanned,parents)
+    sidebar,sidebar_evidence=archive_sidebar_surface(scanned,parents,children,expected_threads)
+    created,created_evidence=archive_created_tasks_surface(scanned,parents,children,expected_threads)
+    mcp,mcp_evidence=archive_mcp_visual_surface(scanned,parents,children,expected_threads)
+    proofs=[sidebar,created,mcp]
+    if [proof["surface"] for proof in proofs] != list(ARCHIVE_SURFACE_ORDER): fail("ARCHIVE_SURFACE_INCOMPLETE")
+    geometries=[tuple(proof["geometry"][field] for field in ("x","y","width","height")) for proof in proofs]
+    if len(set(geometries)) != len(geometries): fail("ARCHIVE_SURFACE_AMBIGUOUS")
+    return scanned,proofs,[sidebar_evidence,created_evidence,mcp_evidence]
 def locate(desktop, target):
     matches=[]
     for item in walk(desktop):
@@ -48,7 +530,10 @@ def activate(item):
 def rect(item):
     try:
         box=item.queryComponent().getExtents(0)
-        return {"x":int(box.x),"y":int(box.y),"width":int(box.width),"height":int(box.height)}
+        value={"x":int(box.x),"y":int(box.y),"width":int(box.width),"height":int(box.height)}
+        if value["x"] < 0 or value["y"] < 0 or value["width"] < 1 or value["height"] < 1: fail("GEOMETRY_UNAVAILABLE")
+        return value
+    except SystemExit: raise
     except Exception: fail("GEOMETRY_UNAVAILABLE")
 def task_ids(desktop):
     values=[]
@@ -57,20 +542,251 @@ def task_ids(desktop):
         for value in THREAD.findall(text):
             if value not in values: values.append(value)
     return values
-def screenshot(exclude, raw=False):
-    with tempfile.TemporaryDirectory(prefix="nelos-capture-") as directory:
-        source=os.path.join(directory,"source.png"); target=os.path.join(directory,"masked.png")
-        subprocess.run(["/usr/bin/scrot",source],check=True,timeout=20,env=os.environ)
-        command=["/usr/bin/convert",source]
-        for region in exclude:
-            x,y,w,h=(int(region[k]) for k in ("x","y","width","height"))
-            command += ["-fill","black","-draw",f"rectangle {x},{y} {x+w},{y+h}"]
-        command.append(target); subprocess.run(command,check=True,timeout=20,env=os.environ)
-        if not raw: return {"bytesBase64":base64.b64encode(open(target,"rb").read()).decode()}
-        size=subprocess.check_output(["/usr/bin/identify","-format","%w %h",target],text=True,timeout=10).split()
-        rgba=subprocess.check_output(["/usr/bin/convert",target,"rgba:-"],timeout=20)
-        return {"width":int(size[0]),"height":int(size[1]),"rgbaBase64":base64.b64encode(rgba).decode()}
-
+def shown(item):
+    try:
+        states=item.getState()
+        return states.contains(pyatspi.STATE_SHOWING) and states.contains(pyatspi.STATE_VISIBLE)
+    except Exception: return False
+def strictly_shown(item):
+    try:
+        states=item.getState()
+        return states.contains(pyatspi.STATE_SHOWING) and states.contains(pyatspi.STATE_VISIBLE)
+    except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+def protected_inventory(desktop, scanned=None):
+    items=complete_scan(desktop) if scanned is None else scanned
+    conversations=[]
+    for item in items:
+        if "document" not in strict_facts(item)[0] or not strictly_shown(item): continue
+        conversations.append({"kind":"conversation",**rect(item)})
+    unique_conversations={tuple(value[field] for field in ("x","y","width","height")):value for value in conversations}
+    if len(unique_conversations) != 1: fail("PROTECTED_GEOMETRY_UNAVAILABLE")
+    conversation=next(iter(unique_conversations.values())); credentials=[]; seen=set()
+    for item in items:
+        role,_name,_description,attrs=strict_facts(item)
+        if not strictly_shown(item) or ("password text" not in role and "password=true" not in attrs.lower()): continue
+        region={"kind":"credential",**rect(item)}; key=tuple(region[field] for field in ("x","y","width","height"))
+        if key not in seen: credentials.append(region); seen.add(key)
+    return {"schemaVersion":1,"conversation":conversation,"credentialInventory":{"complete":True,"count":len(credentials),"regions":credentials},"traversal":{"complete":True,"scannedNodes":len(items),"maximumNodes":MAXIMUM_SCAN_NODES}}
+def proof_regions(proof):
+    return [proof["conversation"],*proof["credentialInventory"]["regions"]]
+def canonical_lifecycle_text(value):
+    if not isinstance(value,str) or re.search(r"[\x00-\x1f\x7f]",value): return None
+    return re.sub(r"\s+"," ",value).strip().casefold()
+def rendered_lifecycle(items, expected_id, observed_title):
+    observations=[]
+    for item in items:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item); matched=False
+        # Preserve pixels only for a component whose complete accessible text
+        # canonicalizes to one finite UI indicator. Substring matches and
+        # combined row/title/prompt text are deliberately not evidence.
+        for text in (name,description):
+            if text in (expected_id,observed_title): continue
+            label=TEXT_LIFECYCLE_LABELS.get(canonical_lifecycle_text(text))
+            if label is not None:
+                lifecycle,value=label; observations.append((lifecycle,"text",value,item)); matched=True; break
+        canonical_role=canonical_lifecycle_text(role)
+        if not matched and canonical_role in RUNNING_ROLES:
+            observations.append(("running","role",canonical_role,item)); matched=True
+        if not matched and canonical_role in BUSY_STATE_ROLES and not name and not description:
+            try:
+                if item.getState().contains(pyatspi.STATE_BUSY): observations.append(("running","state","busy",item))
+            except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+    scan={"complete":True,"scannedNodes":len(items),"maximumNodes":MAXIMUM_ROW_SCAN_NODES}
+    if not observations:
+        return "idle",{"kind":"complete-absence","value":"no-running-approval-or-input-indicator","scan":scan},[]
+    states={value[0] for value in observations}
+    if len(states) != 1: fail("RENDERED_LIFECYCLE_UNAVAILABLE")
+    lifecycle=next(iter(states)); candidates=[]
+    for state,kind,value,item in observations:
+        if state != lifecycle: continue
+        region=rect(item); candidates.append((region["width"]*region["height"],region["x"],region["y"],kind,value,region))
+    _area,_x,_y,kind,value,region=sorted(candidates,key=lambda item:item[:5])[0]
+    return lifecycle,{"kind":kind,"value":value,"scan":scan},[region]
+def task_row(scanned, expected_id, required=True):
+    candidates={}
+    for item in scanned:
+        if not strictly_shown(item): continue
+        _role,name,description,attrs=strict_facts(item)
+        if expected_id not in THREAD.findall(" ".join((name,description,attrs))): continue
+        current=item; chosen=None
+        for _depth in range(12):
+            if current is None: break
+            if any(marker in strict_facts(current)[0] for marker in ROW_ROLE_MARKERS): chosen=current; break
+            try: current=current.parent
+            except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+        if chosen is None: continue
+        region=rect(chosen); candidates[tuple(region[field] for field in ("x","y","width","height"))]=chosen
+    if len(candidates) == 0 and not required: return None,None
+    if len(candidates) != 1: fail("EXPECTED_TASK_IDENTITY_MISMATCH")
+    row=next(iter(candidates.values())); row_items=complete_scan(row,MAXIMUM_ROW_SCAN_NODES); row_ids=set()
+    for item in row_items:
+        if strictly_shown(item): row_ids.update(THREAD.findall(" ".join(strict_facts(item)[1:])))
+    if expected_id not in row_ids or any(value != expected_id for value in row_ids): fail("EXPECTED_TASK_IDENTITY_MISMATCH")
+    return row,row_items
+def title_evidence(row_items, expected_id, expected_title):
+    exact=[]; fallbacks=[]
+    for item in row_items:
+        if not strictly_shown(item): continue
+        role,name,description,_attrs=strict_facts(item)
+        for text in (name,description):
+            if not text: continue
+            if text == expected_title: exact.append((text,item)); continue
+            if not any(marker in role for marker in TITLE_ROLE_MARKERS) or expected_id in text or THREAD.search(text) or STATUS_PATTERN.search(text): continue
+            if len(text) <= 512 and not re.search(r"[\x00-\x1f\x7f]",text): fallbacks.append((text,item))
+    values=exact if exact else fallbacks
+    if not values: fail("EXPECTED_TASK_TITLE_UNAVAILABLE")
+    if not exact and len(set(text for text,_item in values)) != 1: fail("EXPECTED_TASK_TITLE_AMBIGUOUS")
+    candidates=[]
+    for text,item in values:
+        region=rect(item); candidates.append((region["width"]*region["height"],region["x"],region["y"],text,region))
+    _area,_x,_y,observed_title,region=sorted(candidates,key=lambda value:value[:3])[0]
+    return observed_title,region
+def evidence_region(kind,task_id,text,region):
+    return {"kind":kind,"taskId":task_id,"textDigest":"sha256:"+hashlib.sha256(text.encode("utf8")).hexdigest(),**region}
+def expected_task_visibility(desktop,expected_id,expected_title):
+    scanned,parents=complete_scan_index(desktop); matching=[]
+    for item in scanned:
+        if not strictly_shown(item): continue
+        _role,name,description,attrs=strict_facts(item)
+        if expected_id in THREAD.findall(" ".join((name,description,attrs))): matching.append(item)
+    if not matching:
+        return False,len(scanned)
+    candidates={}
+    for item in matching:
+        current=item
+        for _depth in range(12):
+            if current is None: break
+            if strictly_shown(current) and any(marker in strict_facts(current)[0] for marker in ROW_ROLE_MARKERS):
+                candidates[id(current)]=current; break
+            current=parents.get(id(current))
+    if len(candidates) != 1: fail("EXPECTED_TASK_IDENTITY_AMBIGUOUS")
+    row=next(iter(candidates.values())); children={}
+    for item in scanned:
+        parent=parents.get(id(item))
+        if parent is not None: children.setdefault(id(parent),[]).append(item)
+    row_items=[]; stack=[row]
+    while stack:
+        item=stack.pop(); row_items.append(item)
+        if len(row_items) > MAXIMUM_ROW_SCAN_NODES: fail("ACCESSIBILITY_TREE_LIMIT")
+        stack.extend(reversed(children.get(id(item),[])))
+    row_ids=set()
+    for item in row_items:
+        if strictly_shown(item): row_ids.update(THREAD.findall(" ".join(strict_facts(item)[1:])))
+    if row_ids != {expected_id}: fail("EXPECTED_TASK_IDENTITY_MISMATCH")
+    exact=[]
+    for item in row_items:
+        if not strictly_shown(item): continue
+        _role,name,description,_attrs=strict_facts(item)
+        if name == expected_title or description == expected_title: exact.append(item)
+    if not exact: fail("EXPECTED_TASK_TITLE_UNAVAILABLE")
+    exact_geometry={tuple(rect(item)[field] for field in ("x","y","width","height")) for item in exact}
+    if len(exact_geometry) != 1: fail("EXPECTED_TASK_TITLE_AMBIGUOUS")
+    return True,len(scanned)
+def aggregate_task_counters(scanned):
+    current=set(); done=set(); groups={"needsInput":set(),"inProgress":set(),"queued":set()}; group_keys={"needs input":"needsInput","in progress":"inProgress","queued":"queued"}
+    for item in scanned:
+        if not strictly_shown(item): continue
+        _role,name,description,_attrs=strict_facts(item)
+        for text in (name,description):
+            normalized=re.sub(r"\s+"," ",text).strip()
+            if not normalized: continue
+            pair=AGGREGATE_PAIR.fullmatch(normalized)
+            if pair:
+                current.add(int(pair.group(1))); done.add(int(pair.group(2))); continue
+            group=CURRENT_GROUP_HEADER.fullmatch(normalized)
+            if group:
+                groups[group_keys[group.group(1).casefold()]].add(int(group.group(2))); continue
+            match=AGGREGATE_COUNTER.fullmatch(normalized)
+            if not match: continue
+            value=int(match.group(2))
+            if match.group(1).casefold() in ("current","working"): current.add(value)
+            else: done.add(value)
+    if len(current) != 1 or len(done) != 1 or any(len(values) > 1 for values in groups.values()): fail("AGGREGATE_COUNTER_UNAVAILABLE")
+    current_value=next(iter(current)); done_value=next(iter(done)); group_values={key:next(iter(values)) if values else 0 for key,values in groups.items()}
+    if current_value > 500 or done_value > 500 or current_value+done_value > 500 or sum(group_values.values()) != current_value: fail("AGGREGATE_COUNTER_UNAVAILABLE")
+    return {"schemaVersion":1,"source":"visible-codex-desktop-atspi","current":current_value,"done":done_value,"groups":group_values,"scan":{"complete":True,"scannedNodes":len(scanned),"maximumNodes":MAXIMUM_SCAN_NODES}}
+def overlaps(left,right):
+    return left["x"] < right["x"]+right["width"] and left["x"]+left["width"] > right["x"] and left["y"] < right["y"]+right["height"] and left["y"]+left["height"] > right["y"]
+def runtime_mount_type(path):
+    try:
+        resolved=os.path.realpath(path); matches=[]
+        with open("/proc/self/mountinfo","r",encoding="utf8") as stream:
+            for line in stream:
+                fields=line.rstrip("\n").split(" "); separator=fields.index("-")
+                mount_point=fields[4].replace("\\040"," ")
+                if resolved == mount_point or resolved.startswith(mount_point.rstrip("/")+"/"):
+                    matches.append((len(mount_point),fields[separator+1]))
+        return sorted(matches)[-1][1] if matches else None
+    except Exception: fail("CAPTURE_CACHE_UNAVAILABLE")
+def create_magick_cache():
+    runtime_root=f"/run/user/{os.getuid()}"
+    try:
+        info=os.lstat(runtime_root)
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or os.path.realpath(runtime_root) != runtime_root or runtime_mount_type(runtime_root) not in ("tmpfs","ramfs"):
+            fail("CAPTURE_CACHE_UNAVAILABLE")
+        target=os.path.join(runtime_root,"nelos-imagemagick-"+secrets.token_hex(16))
+        os.mkdir(target,0o700); created=os.lstat(target)
+        if not stat.S_ISDIR(created.st_mode) or stat.S_ISLNK(created.st_mode) or created.st_uid != os.getuid() or stat.S_IMODE(created.st_mode) != 0o700:
+            fail("CAPTURE_CACHE_UNAVAILABLE")
+        return target
+    except SystemExit: raise
+    except Exception: fail("CAPTURE_CACHE_UNAVAILABLE")
+def remove_magick_cache(path):
+    spilled=False
+    try:
+        entries=list(os.scandir(path))
+        if len(entries) > 16: fail("CAPTURE_CACHE_SPILL")
+        for entry in entries:
+            spilled=True
+            entry_info=entry.stat(follow_symlinks=False)
+            if not (stat.S_ISREG(entry_info.st_mode) or stat.S_ISLNK(entry_info.st_mode)) or entry_info.st_nlink != 1:
+                fail("CAPTURE_CACHE_SPILL")
+            os.unlink(entry.path)
+        os.rmdir(path)
+    except SystemExit: raise
+    except Exception: fail("CAPTURE_CACHE_SPILL")
+    if spilled: fail("CAPTURE_CACHE_SPILL")
+def memory_only_magick(executable,arguments,*,input_bytes=None,timeout=20,text=False):
+    cache=create_magick_cache(); result=None
+    environment={**os.environ,
+        "MAGICK_MEMORY_LIMIT":MAGICK_MEMORY_LIMIT,
+        "MAGICK_MAP_LIMIT":"0",
+        "MAGICK_DISK_LIMIT":"0",
+        "MAGICK_AREA_LIMIT":MAGICK_AREA_LIMIT,
+        "MAGICK_WIDTH_LIMIT":MAGICK_DIMENSION_LIMIT,
+        "MAGICK_HEIGHT_LIMIT":"4320",
+        "MAGICK_TMPDIR":cache,
+        "TMPDIR":cache,
+        "TMP":cache,
+        "TEMP":cache,
+    }
+    try:
+        result=subprocess.check_output([executable,*magick_limit_arguments(),*arguments],input=input_bytes,timeout=timeout,env=environment,text=text)
+    except subprocess.CalledProcessError: fail("CAPTURE_LIMIT")
+    finally:
+        remove_magick_cache(cache)
+    return result
+def privacy_screenshot(preserved,protected,mode,scanned_nodes):
+    # Every ImageMagick process receives zero map/disk limits. Its only temp
+    # path is a unique, mode-0700 runtime directory on verified tmpfs; any
+    # observed entry is removed and turns the capture into a typed failure.
+    # Raw pixels otherwise stay in anonymous pipes and Python memory.
+    raw=memory_only_magick("/usr/bin/import",["-window","root","png:-"])
+    if len(raw) < 1 or len(raw) > 67108864: fail("CAPTURE_LIMIT")
+    size=memory_only_magick("/usr/bin/identify",["-format","%w %h","png:-"],input_bytes=raw,timeout=10).decode().split()
+    if len(size) != 2: fail("GEOMETRY_UNAVAILABLE")
+    width,height=(int(size[0]),int(size[1]))
+    if width < 1 or height < 1 or width > 7680 or height > 4320: fail("GEOMETRY_UNAVAILABLE")
+    for region in preserved:
+        if region["x"] < 0 or region["y"] < 0 or region["width"] < 1 or region["height"] < 1 or region["x"]+region["width"] > width or region["y"]+region["height"] > height or any(overlaps(region,value) for value in protected): fail("PROTECTED_GEOMETRY_UNAVAILABLE")
+    mask=["(","-size",f"{width}x{height}","xc:black","-fill","white"]
+    for region in preserved: mask += ["-draw",f'rectangle {region["x"]},{region["y"]} {region["x"]+region["width"]-1},{region["y"]+region["height"]-1}']
+    arguments=["png:-",*mask,")","-alpha","off","-compose","CopyOpacity","-composite","-background","black","-alpha","remove","png32:-"]
+    masked=memory_only_magick("/usr/bin/convert",arguments,input_bytes=raw); raw=b""
+    if len(masked) < 1 or len(masked) > 16777216: fail("CAPTURE_LIMIT")
+    privacy={"schemaVersion":1,"classificationComplete":True,"maskedBase":"full-frame-black","mode":mode,"preservedRegions":preserved,"rawPixelsPersisted":False,"traversal":{"complete":True,"scannedNodes":scanned_nodes,"maximumNodes":MAXIMUM_SCAN_NODES}}
+    return {"bytesBase64":base64.b64encode(masked).decode(),"width":width,"height":height,"privacy":privacy}
 try: request=json.load(sys.stdin)
 except Exception: fail("INVALID_CONTRACT")
 operation=sys.argv[1] if len(sys.argv)==2 else ""
@@ -79,12 +795,12 @@ binding=request.get("binding",{}); user=binding.get("automationUser")
 try: account=pwd.getpwnam(user)
 except Exception: fail("AUTOMATION_IDENTITY_UNAVAILABLE")
 os.environ.clear(); os.environ.update({"PATH":"/usr/sbin:/usr/bin:/sbin:/bin","HOME":account.pw_dir,"DISPLAY":":0","DBUS_SESSION_BUS_ADDRESS":f"unix:path=/run/user/{account.pw_uid}/bus"})
+os.setgroups([]); os.setgid(account.pw_gid); os.setuid(account.pw_uid)
 try:
     environment=subprocess.check_output(["/usr/bin/systemctl","--user","show-environment"],text=True,timeout=10,env=os.environ)
     for line in environment.splitlines():
         if "=" in line and line.split("=",1)[0] in ("DISPLAY","XAUTHORITY","AT_SPI_BUS_ADDRESS","DBUS_SESSION_BUS_ADDRESS"): os.environ[line.split("=",1)[0]]=line.split("=",1)[1]
 except Exception: fail("ACCESSIBILITY_BUS_UNAVAILABLE")
-os.setgid(account.pw_gid); os.setuid(account.pw_uid)
 try:
     import pyatspi
     desktop=pyatspi.Registry.getDesktop(0); payload=request.get("payload",{})
@@ -134,12 +850,80 @@ try:
         item=locate(desktop,payload.get("target",{})); expected=payload.get("expected",{}); result=item is not None and (not expected.get("state") or expected["state"].lower() in str(item.getState()).lower())
     elif operation == "text_present": result=base64.b64decode(request.get("bytesBase64","")).decode("utf8") in " ".join(" ".join(facts(item)[1:3]) for item in walk(desktop))
     elif operation == "window_count": result=sum(1 for item in walk(desktop) if locate(item,payload.get("target",{})) is not None)
-    elif operation == "protected_capture_regions":
-        conversation=locate(desktop,{"role":"document"}); credential=locate(desktop,{"role":"password text"})
-        if conversation is None or credential is None: fail("PROTECTED_GEOMETRY_UNAVAILABLE")
-        result=[{"kind":"conversation",**rect(conversation)},{"kind":"credential",**rect(credential)}]
-    elif operation == "capture_screenshot": result=screenshot(payload.get("exclude",[]),False)
-    elif operation == "capture_evidence": result=screenshot(payload.get("exclude",[]),True)
+    elif operation == "protected_capture_regions": result=protected_inventory(desktop)
+    elif operation == "capture_evidence":
+        if set(payload) != {"expectedTask"} or not isinstance(payload.get("expectedTask"),dict) or set(payload["expectedTask"]) != {"taskId","title"} or not THREAD.fullmatch(payload["expectedTask"].get("taskId","")) or not isinstance(payload["expectedTask"].get("title"),str) or not (1 <= len(payload["expectedTask"]["title"]) <= 512): fail("INVALID_CONTRACT")
+        expected_id=payload["expectedTask"]["taskId"]; expected_title=payload["expectedTask"]["title"]; scanned=complete_scan(desktop)
+        item,row_items=task_row(scanned,expected_id); observed_title,title_region=title_evidence(row_items,expected_id,expected_title)
+        lifecycle,lifecycle_evidence,status_regions=rendered_lifecycle(row_items,expected_id,observed_title)
+        protection_proof=protected_inventory(desktop,scanned); regions=proof_regions(protection_proof)
+        preserved=[evidence_region("expected-task-status",expected_id,lifecycle_evidence["value"],region) for region in status_regions]
+        preserved.append(evidence_region("expected-task-title",expected_id,observed_title,title_region))
+        preserved=list({tuple(value[field] for field in ("x","y","width","height")):value for value in preserved}.values())
+        captured=privacy_screenshot(preserved,regions,"expected-task-evidence-only",len(scanned)); png=base64.b64decode(captured["bytesBase64"])
+        rgba=memory_only_magick("/usr/bin/convert",["png:-","rgba:-"],input_bytes=png); png=b""
+        result={"width":captured["width"],"height":captured["height"],"rgbaBase64":base64.b64encode(rgba).decode(),"renderedLifecycle":lifecycle,"lifecycleEvidence":lifecycle_evidence,"privacy":captured["privacy"],"protectedInventory":protection_proof,"protectedRegions":regions}
+    elif operation == "expected_task_visible":
+        if set(payload) != {"taskId","title"} or not THREAD.fullmatch(payload.get("taskId", "")) or not isinstance(payload.get("title"),str) or not (1 <= len(payload["title"]) <= 512): fail("INVALID_CONTRACT")
+        expected_id=payload["taskId"]; expected_title=payload["title"]; visible,scanned_nodes=expected_task_visibility(desktop,expected_id,expected_title)
+        result={"schemaVersion":1,"taskId":expected_id,"title":expected_title,"state":"visible" if visible else "missing","scan":{"complete":True,"scannedNodes":scanned_nodes,"maximumNodes":MAXIMUM_SCAN_NODES}}
+    elif operation == "observe_task_surface":
+        if set(payload) != {"taskId","title","lifecycle","descendants"} or payload.get("lifecycle") not in ("active","completed") or not THREAD.fullmatch(payload.get("taskId", "")) or not isinstance(payload.get("title"),str) or not (1 <= len(payload["title"]) <= 512) or not isinstance(payload.get("descendants"),list) or len(payload["descendants"]) > 32: fail("INVALID_CONTRACT")
+        descendant_ids=[]
+        for descendant in payload["descendants"]:
+            if set(descendant) != {"taskId","parentTaskId","title","latestTurnId","latestTurnStatus"} or not THREAD.fullmatch(descendant.get("taskId","")) or not THREAD.fullmatch(descendant.get("parentTaskId","")) or not THREAD.fullmatch(descendant.get("latestTurnId","")) or descendant.get("latestTurnStatus") not in ("completed","inProgress","interrupted") or not isinstance(descendant.get("title"),str) or not (1 <= len(descendant["title"]) <= 512) or re.search(r"[\x00-\x1f\x7f]",descendant["title"]) or descendant["taskId"] in descendant_ids: fail("INVALID_CONTRACT")
+            descendant_ids.append(descendant["taskId"])
+        if descendant_ids != sorted(descendant_ids) or payload["taskId"] in descendant_ids or any(descendant["parentTaskId"] != payload["taskId"] and descendant["parentTaskId"] not in descendant_ids for descendant in payload["descendants"]): fail("INVALID_CONTRACT")
+        expected_id=payload["taskId"]; expected_title=payload["title"]; scanned,parents=complete_scan_index(desktop); children=indexed_children(scanned,parents)
+        item,row_items=task_row(scanned,expected_id); observed_title,title_region=title_evidence(row_items,expected_id,expected_title); states=item.getState()
+        if not states.contains(pyatspi.STATE_SHOWING) or not states.contains(pyatspi.STATE_VISIBLE): fail("EXPECTED_TASK_NOT_VISIBLE")
+        selected=states.contains(pyatspi.STATE_SELECTED) or states.contains(pyatspi.STATE_FOCUSED)
+        if not selected:
+            active_id=None
+            for focused in scanned:
+                try:
+                    if focused.getState().contains(pyatspi.STATE_FOCUSED):
+                        ids=THREAD.findall(" ".join(strict_facts(focused)[1:]));
+                        if ids: active_id=ids[0]; break
+                except SystemExit: raise
+                except Exception: fail("ACCESSIBILITY_SCAN_INCOMPLETE")
+            selected=active_id == expected_id
+        if not selected: fail("EXPECTED_TASK_NOT_ACTIVE")
+        lifecycle,lifecycle_evidence,status_regions=rendered_lifecycle(row_items,expected_id,observed_title); aggregate_counters=aggregate_task_counters(scanned)
+        protection_proof=protected_inventory(desktop,scanned); regions=proof_regions(protection_proof)
+        preserved=[evidence_region("expected-task-status",expected_id,lifecycle_evidence["value"],region) for region in status_regions]
+        preserved.append(evidence_region("expected-task-title",expected_id,observed_title,title_region))
+        preserved={tuple(value[field] for field in ("x","y","width","height")):value for value in preserved}.values()
+        captured=privacy_screenshot(list(preserved),regions,"expected-task-evidence-only",len(scanned)); png=base64.b64decode(captured["bytesBase64"])
+        descendant_tasks=classify_descendant_surfaces(desktop,payload["descendants"])
+        result={"taskId":expected_id,"title":observed_title,"lifecycle":payload["lifecycle"],"renderedLifecycle":lifecycle,"lifecycleEvidence":lifecycle_evidence,"descendantTasks":descendant_tasks,"aggregateTaskCounters":aggregate_counters,"accessibilityRole":strict_facts(item)[0],"selected":True,"screenshot":{"bytesBase64":captured["bytesBase64"],"byteLength":len(png),"digest":"sha256:"+hashlib.sha256(png).hexdigest(),"width":captured["width"],"height":captured["height"],"mediaType":"image/png","privacy":captured["privacy"],"protectedRegions":regions,"protectedInventory":protection_proof,"protection":{"geometryCertain":True,"inventoryComplete":True,"mode":"mask"}}}
+    elif operation == "observe_archive_surface":
+        expected_fields={"schemaVersion","runId","sequence","phase","expectedThreads"}
+        if "expectedAppInstanceId" in payload: expected_fields.add("expectedAppInstanceId")
+        if set(payload) != expected_fields or payload.get("schemaVersion") != 1 or payload.get("runId") != binding.get("runId") or payload.get("phase") not in ("afterCleanup","afterRestart") or not isinstance(payload.get("sequence"),int) or payload["sequence"] < 1 or payload["sequence"] > 50 or not isinstance(payload.get("expectedThreads"),list) or not (1 <= len(payload["expectedThreads"]) <= 100): fail("INVALID_CONTRACT")
+        expected_ids=[]
+        for thread in payload["expectedThreads"]:
+            if set(thread) != {"threadId","title"} or not THREAD.fullmatch(thread.get("threadId","")) or not isinstance(thread.get("title"),str) or not (1 <= len(thread["title"]) <= 240) or re.search(r"[\x00-\x1f\x7f]",thread["title"]) or thread["threadId"] in expected_ids: fail("INVALID_CONTRACT")
+            expected_ids.append(thread["threadId"])
+        if len(set(thread["title"] for thread in payload["expectedThreads"])) != len(payload["expectedThreads"]): fail("INVALID_CONTRACT")
+        scanned,surface_scans,surface_evidence=classify_archive_surfaces(desktop,payload["expectedThreads"])
+        surface_by_name={proof["surface"]:proof for proof in surface_scans}
+        protection_proof=protected_inventory(desktop,scanned); regions=proof_regions(protection_proof)
+        preserved=[]; screenshot_ids=[]
+        for thread in payload["expectedThreads"]:
+            task_candidates=[value for group in surface_evidence for value in group if value["taskId"] == thread["threadId"]]
+            title=next((value for value in task_candidates if value["kind"] == "expected-task-title" and not any(overlaps(value,region) for region in regions) and not any(overlaps(value,selected) for selected in preserved)),None)
+            if title is None: continue
+            preserved.append(title); screenshot_ids.append(thread["threadId"])
+            status=next((value for value in task_candidates if value["kind"] == "expected-task-status" and not any(overlaps(value,region) for region in regions) and not any(overlaps(value,selected) for selected in preserved)),None)
+            if status is not None: preserved.append(status)
+        captured=privacy_screenshot(preserved,regions,"expected-archive-evidence-only",len(scanned)); png=base64.b64decode(captured["bytesBase64"])
+        try: pid=subprocess.check_output(["/usr/bin/systemctl","--user","show","-p","MainPID","--value","nelos-codex-desktop.service"],text=True,timeout=10,env=os.environ).strip()
+        except Exception: fail("APP_INSTANCE_UNAVAILABLE")
+        if not pid.isdigit() or int(pid) < 1: fail("APP_INSTANCE_UNAVAILABLE")
+        app_instance_id="desktop-pid-"+pid
+        if payload.get("expectedAppInstanceId") is not None and payload["expectedAppInstanceId"] != app_instance_id: fail("APP_INSTANCE_IDENTITY_MISMATCH")
+        result={"schemaVersion":1,"runId":binding["runId"],"fencingToken":binding["fencingToken"],"sequence":payload["sequence"],"phase":payload["phase"],"appInstanceId":app_instance_id,"observedAt":time.strftime("%Y-%m-%dT%H:%M:%S.000Z",time.gmtime()),"scan":{"complete":True,"scannedNodes":len(scanned),"maximumNodes":MAXIMUM_SCAN_NODES},"surfaceScans":surface_scans,"sidebarThreadIds":surface_by_name["sidebar"]["threadIds"],"createdTasksThreadIds":surface_by_name["createdTasks"]["threadIds"],"mcpVisualThreadIds":surface_by_name["mcpVisual"]["threadIds"],"screenshotThreadIds":screenshot_ids,"screenshot":{"bytesBase64":captured["bytesBase64"],"byteLength":len(png),"digest":"sha256:"+hashlib.sha256(png).hexdigest(),"width":captured["width"],"height":captured["height"],"mediaType":"image/png","privacy":captured["privacy"],"protectedRegions":regions,"protectedInventory":protection_proof,"protection":{"geometryCertain":True,"inventoryComplete":True,"mode":"mask"}}}
     elif operation == "health": result={"crashed":False,"stalled":False}
     else: fail("FORBIDDEN_OPERATION")
     sys.stdout.write(json.dumps(result,separators=(",",":")))

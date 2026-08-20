@@ -6,6 +6,7 @@ import {
   REMOTE_DESKTOP_CHECKPOINT_TYPES_V1,
   validateRemoteDesktopScenarioV1,
 } from "nelos/remote-desktop-contract";
+import { protectedCaptureRegionsV1 } from "../protected-capture-proof.mjs";
 
 export { SealedValueError, SealedValueResolver } from "./sealed-value-resolver.mjs";
 
@@ -119,7 +120,16 @@ export class DesktopGuiScenarioDriver {
     this.#clock = clock;
   }
 
-  async runScenario(input) {
+  async cleanupSealedValues(valueRefs, options = {}) {
+    if (typeof this.#resolver.cleanup !== "function") throw new DesktopGuiDriverError("INVALID_SEALED_RESOLVER", "sealed value resolver cannot attest terminal absence");
+    return this.#resolver.cleanup(structuredClone(valueRefs), options);
+  }
+
+  async runScenario(input, { beforeAction = null, afterAction = null, hardDeadlineAt = null } = {}) {
+    if (beforeAction !== null && typeof beforeAction !== "function") throw new DesktopGuiDriverError("INVALID_SCENARIO_HOOK", "before-action observer must be a function");
+    if (afterAction !== null && typeof afterAction !== "function") throw new DesktopGuiDriverError("INVALID_SCENARIO_HOOK", "after-action observer must be a function");
+    const hardDeadline = hardDeadlineAt === null ? null : Date.parse(hardDeadlineAt);
+    if (hardDeadlineAt !== null && !Number.isFinite(hardDeadline)) throw new DesktopGuiDriverError("INVALID_SCENARIO_HOOK", "absolute run deadline is invalid");
     let scenario;
     try {
       scenario = validateRemoteDesktopScenarioV1(structuredClone(input));
@@ -132,30 +142,58 @@ export class DesktopGuiScenarioDriver {
     const result = { scenarioId: scenario.scenarioId, taskId: scenario.task.taskId, startedAt, finishedAt: null, outcome: "failed", failure: null, actions: [], checkpoints: [], assertions: [] };
     const abort = new AbortController();
     let lastAction = null;
+    const hardRemaining = () => hardDeadline === null ? Number.MAX_SAFE_INTEGER : Math.max(0, hardDeadline - this.#clock.now());
+    const boundedRemaining = () => Math.min(remaining(startedMs, scenario.deadlineMs, this.#clock), hardRemaining());
+    const deadlineCode = () => hardRemaining() <= remaining(startedMs, scenario.deadlineMs, this.#clock) ? "RUN_DEADLINE_EXPIRED" : "SCENARIO_DEADLINE";
     try {
-      await deadline(this.#establishFreshTask(scenario, abort.signal), remaining(startedMs, scenario.deadlineMs, this.#clock), "SCENARIO_DEADLINE", abort.signal, abort);
+      if (hardRemaining() === 0) throw new DesktopGuiDriverError("RUN_DEADLINE_EXPIRED", "production run deadline expired before GUI task activation");
+      await deadline(this.#establishFreshTask(scenario, abort.signal), boundedRemaining(), deadlineCode(), abort.signal, abort);
       for (const action of scenario.actions) {
         lastAction = action;
         const scenarioRemaining = remaining(startedMs, scenario.deadlineMs, this.#clock);
+        const runRemaining = hardRemaining();
+        if (runRemaining === 0) throw new DesktopGuiDriverError("RUN_DEADLINE_EXPIRED", "production run deadline expired before the next GUI action");
         if (scenarioRemaining === 0) throw new DesktopGuiDriverError("SCENARIO_DEADLINE", "scenario deadline expired");
         const actionStartedAt = nowIso(this.#clock);
+        const actionLimitMs = Math.min(action.timeoutMs, scenarioRemaining, runRemaining);
+        const actionDeadlineAt = this.#clock.now() + actionLimitMs;
+        const actionTimeoutCode = runRemaining <= Math.min(action.timeoutMs, scenarioRemaining)
+          ? "RUN_DEADLINE_EXPIRED" : scenarioRemaining <= action.timeoutMs ? "SCENARIO_DEADLINE" : "ACTION_TIMEOUT";
+        const actionRemaining = () => Math.max(0, actionDeadlineAt - this.#clock.now());
+        const actionAbort = new AbortController();
+        const actionSignal = AbortSignal.any([abort.signal, actionAbort.signal]);
         let actionError = null;
         try {
-          const actionAbort = new AbortController();
-          const actionSignal = AbortSignal.any([abort.signal, actionAbort.signal]);
-          const timeoutCode = scenarioRemaining <= action.timeoutMs ? "SCENARIO_DEADLINE" : "ACTION_TIMEOUT";
-          await deadline(this.#perform(action, actionSignal), Math.min(action.timeoutMs, scenarioRemaining), timeoutCode, abort.signal, actionAbort);
+          await deadline(this.#verifyActiveTaskBeforeSubmit(action, scenario, actionSignal), actionRemaining(), actionTimeoutCode, abort.signal, actionAbort);
+          if (beforeAction !== null) {
+            const hookRemaining = actionRemaining();
+            if (hookRemaining === 0) throw new DesktopGuiDriverError(actionTimeoutCode, "deadline expired before the pre-action observer");
+            await deadline(beforeAction({ action: structuredClone(action), scenarioId: scenario.scenarioId, taskId: scenario.task.taskId, signal: actionSignal }), hookRemaining, actionTimeoutCode, abort.signal, actionAbort);
+          }
+          if (actionRemaining() === 0) throw new DesktopGuiDriverError(actionTimeoutCode, "deadline expired at the model-submit boundary");
+          await deadline(this.#perform(action, actionSignal), actionRemaining(), actionTimeoutCode, abort.signal, actionAbort);
           result.actions.push({ actionId: action.actionId, actionType: action.type, startedAt: actionStartedAt, finishedAt: nowIso(this.#clock), outcome: "succeeded" });
         } catch (error) {
           actionError = mapFailure(error);
           result.actions.push({ actionId: action.actionId, actionType: action.type, startedAt: actionStartedAt, finishedAt: nowIso(this.#clock), outcome: ["ACTION_TIMEOUT", "SCENARIO_DEADLINE"].includes(actionError.code) ? "timed_out" : "failed" });
         }
         if (actionError) {
-          try { await this.#collectAfterAction(scenario, action, result, true, abort, startedMs); } catch { /* preserve the primary action failure */ }
+          if (actionError.code !== "RUN_DEADLINE_EXPIRED") {
+            try { await this.#collectAfterAction(scenario, action, result, true, abort, startedMs, hardDeadline); } catch { /* preserve the primary action failure */ }
+          }
           throw actionError;
         }
-        await this.#collectAfterAction(scenario, action, result, false, abort, startedMs);
-        const health = await deadline(this.#boundary.health({ signal: abort.signal }), remaining(startedMs, scenario.deadlineMs, this.#clock), "SCENARIO_DEADLINE", abort.signal, abort);
+        if (afterAction !== null) {
+          const hookRemaining = actionRemaining();
+          if (hookRemaining === 0) throw new DesktopGuiDriverError(actionTimeoutCode, "deadline expired before the post-action observer");
+          await deadline(afterAction({ action: structuredClone(action), scenarioId: scenario.scenarioId, taskId: scenario.task.taskId, signal: actionSignal }), hookRemaining, actionTimeoutCode, abort.signal, actionAbort);
+        }
+        actionAbort.abort();
+        if (hardRemaining() === 0) throw new DesktopGuiDriverError("RUN_DEADLINE_EXPIRED", "production run deadline expired after the GUI action");
+        await this.#collectAfterAction(scenario, action, result, false, abort, startedMs, hardDeadline);
+        const healthRemaining = boundedRemaining(); const healthDeadlineCode = deadlineCode();
+        if (healthRemaining === 0) throw new DesktopGuiDriverError(healthDeadlineCode, "deadline expired before the Desktop health observation");
+        const health = await deadline(this.#boundary.health({ signal: abort.signal }), healthRemaining, healthDeadlineCode, abort.signal, abort);
         if (health?.crashed) throw new DesktopGuiDriverError("DESKTOP_CRASH", "Desktop crashed");
         if (health?.stalled) throw new DesktopGuiDriverError("TASK_STALLED", "Desktop task stalled");
       }
@@ -164,8 +202,8 @@ export class DesktopGuiScenarioDriver {
     } catch (error) {
       const failure = mapFailure(error);
       const trigger = failureTrigger(failure.code);
-      if (lastAction && trigger !== null && scenario.failureCaptureTriggers.includes(trigger) && !abort.signal.aborted) {
-        try { await this.#collectAfterAction(scenario, lastAction, result, true, abort, startedMs); } catch { /* failure capture is best-effort except for protected screenshots in the primary path */ }
+      if (failure.code !== "RUN_DEADLINE_EXPIRED" && lastAction && trigger !== null && scenario.failureCaptureTriggers.includes(trigger) && !abort.signal.aborted) {
+        try { await this.#collectAfterAction(scenario, lastAction, result, true, abort, startedMs, hardDeadline); } catch { /* failure capture is best-effort except for protected screenshots in the primary path */ }
       }
       abort.abort();
       result.failure = { code: failure.code };
@@ -199,6 +237,14 @@ export class DesktopGuiScenarioDriver {
     return structuredClone(binding);
   }
 
+  async #verifyActiveTaskBeforeSubmit(action, scenario, signal) {
+    if (action.type !== "keypress" || this.#binding(action.targetRef).key !== "ENTER") return;
+    const active = await this.#boundary.activeTask({ signal });
+    if (active?.taskId !== scenario.task.taskId) {
+      throw new DesktopGuiDriverError("TASK_IDENTITY_CHANGED", "active Desktop task changed before the model-submit boundary");
+    }
+  }
+
   async #perform(action, signal) {
     const target = this.#binding(action.targetRef);
     switch (action.type) {
@@ -219,17 +265,27 @@ export class DesktopGuiScenarioDriver {
     }
   }
 
-  async #collectAfterAction(scenario, action, result, failed, abort, startedMs) {
+  async #collectAfterAction(scenario, action, result, failed, abort, startedMs, hardDeadline) {
     const signal = abort.signal;
+    const boundedRemaining = () => Math.min(
+      remaining(startedMs, scenario.deadlineMs, this.#clock),
+      hardDeadline === null ? Number.MAX_SAFE_INTEGER : Math.max(0, hardDeadline - this.#clock.now()),
+    );
+    const deadlineCode = () => hardDeadline !== null && hardDeadline - this.#clock.now() <= remaining(startedMs, scenario.deadlineMs, this.#clock)
+      ? "RUN_DEADLINE_EXPIRED" : "SCENARIO_DEADLINE";
     for (const checkpoint of scenario.checkpoints.filter(({ checkpointId, afterActionId, failureOnly }) => afterActionId === action.actionId && (!failureOnly || failed) && !result.checkpoints.some((item) => item.checkpointId === checkpointId))) {
-      const checkpointRemaining = remaining(startedMs, scenario.deadlineMs, this.#clock);
-      if (checkpointRemaining === 0) throw new DesktopGuiDriverError("SCENARIO_DEADLINE", "scenario deadline expired");
-      const captured = await deadline(this.#checkpoint(checkpoint, scenario, signal), checkpointRemaining, "SCENARIO_DEADLINE", signal, abort);
+      const checkpointRemaining = boundedRemaining();
+      const checkpointDeadlineCode = deadlineCode();
+      if (checkpointRemaining === 0) throw new DesktopGuiDriverError(checkpointDeadlineCode, "GUI checkpoint deadline expired");
+      const captured = await deadline(this.#checkpoint(checkpoint, scenario, signal), checkpointRemaining, checkpointDeadlineCode, signal, abort);
+      if (boundedRemaining() === 0) throw new DesktopGuiDriverError(deadlineCode(), "GUI checkpoint deadline expired");
       result.checkpoints.push(captured.record);
       for (const assertion of scenario.assertions.filter(({ checkpointId }) => checkpointId === checkpoint.checkpointId)) {
-        const assertionRemaining = remaining(startedMs, scenario.deadlineMs, this.#clock);
-        if (assertionRemaining === 0) throw new DesktopGuiDriverError("SCENARIO_DEADLINE", "scenario deadline expired");
-        const passed = await deadline(this.#assert(assertion, signal), assertionRemaining, "SCENARIO_DEADLINE", signal, abort);
+        const assertionRemaining = boundedRemaining();
+        const assertionDeadlineCode = deadlineCode();
+        if (assertionRemaining === 0) throw new DesktopGuiDriverError(assertionDeadlineCode, "GUI assertion deadline expired");
+        const passed = await deadline(this.#assert(assertion, signal), assertionRemaining, assertionDeadlineCode, signal, abort);
+        if (boundedRemaining() === 0) throw new DesktopGuiDriverError(deadlineCode(), "GUI assertion deadline expired");
         result.assertions.push({ assertionId: assertion.assertionId, passed, observedRef: passed ? assertion.expectedRef : null });
       }
     }
@@ -245,11 +301,17 @@ export class DesktopGuiScenarioDriver {
       const state = await this.#boundary.windowState({ signal });
       return { record: { checkpointId: checkpoint.checkpointId, type: checkpoint.type, observation: sanitizeTree(state) } };
     }
-    const regions = await this.#boundary.protectedCaptureRegions({ kinds: [...PROTECTED_REGION_KINDS], signal });
-    if (!Array.isArray(regions) || PROTECTED_REGION_KINDS.some((kind) => !regions.some((region) => region?.kind === kind && validGeometry(region)))) {
+    const proof = await this.#boundary.protectedCaptureRegions({ kinds: [...PROTECTED_REGION_KINDS], signal });
+    let regions;
+    try { regions = protectedCaptureRegionsV1(proof); }
+    catch {
       throw new DesktopGuiDriverError("PROTECTED_GEOMETRY_UNAVAILABLE", "protected screenshot geometry could not be located");
     }
-    const image = await this.#boundary.captureScreenshot({ exclude: regions.map(({ kind, x, y, width, height }) => ({ kind, x, y, width, height })), signal });
+    const image = await this.#boundary.captureScreenshot({
+      exclude: regions.map(({ kind, x, y, width, height }) => ({ kind, x, y, width, height })),
+      expectedTask: { taskId: scenario.task.taskId, title: scenario.scenarioId },
+      signal,
+    });
     const bytes = Buffer.isBuffer(image) ? image : Buffer.from(image);
     try {
       return { record: { checkpointId: checkpoint.checkpointId, type: checkpoint.type, observation: { digest: digestBytes(bytes), byteLength: bytes.length, sanitized: true, scenarioId: scenario.scenarioId } } };
@@ -274,10 +336,6 @@ export class DesktopGuiScenarioDriver {
       default: return false;
     }
   }
-}
-
-function validGeometry(region) {
-  return [region.x, region.y, region.width, region.height].every(Number.isFinite) && region.width > 0 && region.height > 0;
 }
 
 function failureTrigger(code) {

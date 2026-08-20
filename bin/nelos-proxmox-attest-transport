@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { runProxmoxSshTransportV1 } from "../src/proxmox-ssh-transport.mjs";
+
+await runProxmoxSshTransportV1({ mode: "attestor" });

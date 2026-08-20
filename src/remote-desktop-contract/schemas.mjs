@@ -1,5 +1,6 @@
 const digest = Object.freeze({ type: "string", pattern: "^sha256:[0-9a-f]{64}$" });
 const identity = Object.freeze({ type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" });
+const macAddress = Object.freeze({ type: "string", pattern: "^02(?::[0-9A-F]{2}){5}$" });
 const timestamp = Object.freeze({ type: "string", format: "date-time" });
 const positiveInteger = Object.freeze({ type: "integer", minimum: 1 });
 const nonNegativeInteger = Object.freeze({ type: "integer", minimum: 0 });
@@ -62,18 +63,41 @@ const policy = closed(
     diagnostics: closed(["maxCount", "maxBytes"], { maxCount: positiveInteger, maxBytes: positiveInteger }),
   },
 );
-const providerIdentity = closed(["providerId", "hostId", "vmId"], {
-  providerId: identity, hostId: identity, vmId: identity,
+const providerIdentity = Object.freeze({
+  ...closed(["providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest"], {
+    providerId: identity, hostId: identity, vmId: identity, macAddress, networkId: identity,
+    gatewayId: identity, networkPolicyDigest: digest,
+  }),
+  allOf: Object.freeze([Object.freeze({
+    if: Object.freeze({
+      anyOf: Object.freeze([
+        Object.freeze({ properties: Object.freeze({ providerId: Object.freeze({ const: "proxmox-lab" }) }), required: Object.freeze(["providerId"]) }),
+        Object.freeze({ properties: Object.freeze({ hostId: Object.freeze({ const: "prox2" }) }), required: Object.freeze(["hostId"]) }),
+        Object.freeze({ properties: Object.freeze({ gatewayId: Object.freeze({ const: "9023" }) }), required: Object.freeze(["gatewayId"]) }),
+        Object.freeze({ properties: Object.freeze({ networkId: Object.freeze({ const: "nelosbld" }) }), required: Object.freeze(["networkId"]) }),
+      ]),
+    }),
+    then: Object.freeze({
+      properties: Object.freeze({
+        gatewayId: Object.freeze({ const: "9023" }),
+        hostId: Object.freeze({ const: "prox2" }),
+        networkId: Object.freeze({ const: "nelosbld" }),
+        providerId: Object.freeze({ const: "proxmox-lab" }),
+      }),
+      required: Object.freeze(["gatewayId", "hostId", "networkId", "providerId"]),
+    }),
+  })]),
 });
 const scenarioMetadata = closed(["evidenceClass", "scenarioId", "taskId", "startedAt", "finishedAt", "outcome"], {
   evidenceClass: { const: "scenario_metadata" }, scenarioId: identity, taskId: identity,
   startedAt: timestamp, finishedAt: timestamp, outcome: { enum: ["passed", "failed", "timed_out"] },
 });
 const exportIdentities = closed(
-  ["candidateDigest", "desktopBundleDigest", "goldenImageDigest", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "benchmarkProfileDigest", "scenarioManifestDigest"],
+  ["candidateDigest", "desktopBundleDigest", "goldenImageDigest", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "benchmarkProfileDigest", "scenarioManifestDigest"],
   {
     candidateDigest: digest, desktopBundleDigest: digest, goldenImageDigest: digest,
-    providerId: identity, hostId: identity, vmId: identity, leaseId: identity, fencingToken: identity,
+    providerId: identity, hostId: identity, vmId: identity, macAddress, networkId: identity, gatewayId: identity,
+    networkPolicyDigest: digest, leaseId: identity, fencingToken: identity,
     benchmarkProfileDigest: digest, scenarioManifestDigest: digest,
   },
 );
@@ -96,24 +120,46 @@ const assertionOutcome = closed(["evidenceClass", "scenarioId", "assertionId", "
   evidenceClass: { const: "assertion_outcome" }, scenarioId: identity, assertionId: identity,
   passed: { type: "boolean" }, observedRef: { oneOf: [identity, { type: "null" }] },
 });
-const cleanupAttestation = closed(["evidenceClass", "runId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "terminalOutcomeDigest"], {
+const cleanupAttestation = closed(["evidenceClass", "runId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "terminalOutcomeDigest"], {
   evidenceClass: { const: "cleanup_attestation" }, runId: identity, providerId: identity,
-  hostId: identity, vmId: identity, leaseId: identity, fencingToken: identity, terminalOutcomeDigest: digest,
+  hostId: identity, vmId: identity, macAddress, networkId: identity, gatewayId: identity,
+  networkPolicyDigest: digest, leaseId: identity, fencingToken: identity, terminalOutcomeDigest: digest,
 });
 const terminalReceiptBinding = {
-  receiptId: identity, providerId: identity, hostId: identity, vmId: identity,
+  receiptId: identity, providerId: identity, hostId: identity, vmId: identity, macAddress, networkId: identity, gatewayId: identity,
+  networkPolicyDigest: digest,
   leaseId: identity, fencingToken: identity, mutationStatus: { const: "committed" }, attestationDigest: digest,
 };
-const destructionReceipt = closed(
-  ["receiptId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "mutationStatus", "destroyed", "attestationDigest"],
-  { ...terminalReceiptBinding, destroyed: { const: true } },
+const credentialDispositionBase = {
+  attestationDigest: digest,
+  codexHome: { const: "/home/nelosauto/.codex" },
+  filesystemType: { const: "tmpfs" },
+  powerState: { const: "stopped" },
+  reusableCredentialsAbsent: { const: true },
+  schemaVersion: { const: 1 },
+  secretBytesIncluded: { const: false },
+  swapPolicy: { const: "disabled-and-attested-before-auth" },
+  type: { const: "nelos.credential-terminal-disposition.v1" },
+};
+const destructionCredentialDisposition = closed(
+  ["attestationDigest", "codexHome", "filesystemType", "method", "powerState", "reusableCredentialsAbsent", "schemaVersion", "secretBytesIncluded", "swapPolicy", "type"],
+  { ...credentialDispositionBase, method: { const: "powered-off-before-destroy" } },
 );
-const reconciliation = closed(["operationId", "providerId", "hostId", "vmId", "leaseId", "fencingToken"], {
-  operationId: identity, providerId: identity, hostId: identity, vmId: identity, leaseId: identity, fencingToken: identity,
+const quarantineCredentialDisposition = closed(
+  ["attestationDigest", "codexHome", "filesystemType", "method", "powerState", "reusableCredentialsAbsent", "schemaVersion", "secretBytesIncluded", "swapPolicy", "type"],
+  { ...credentialDispositionBase, method: { const: "powered-off-quarantine" } },
+);
+const destructionReceipt = closed(
+  ["receiptId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "mutationStatus", "credentialDisposition", "destroyed", "macAbsent", "networkInventoryComplete", "attestationDigest"],
+  { ...terminalReceiptBinding, credentialDisposition: destructionCredentialDisposition, destroyed: { const: true }, macAbsent: { const: true }, networkInventoryComplete: { const: true } },
+);
+const reconciliation = closed(["operationId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken"], {
+  operationId: identity, providerId: identity, hostId: identity, vmId: identity, macAddress, networkId: identity,
+  gatewayId: identity, networkPolicyDigest: digest, leaseId: identity, fencingToken: identity,
 });
 const quarantineReceipt = closed(
-  ["receiptId", "providerId", "hostId", "vmId", "leaseId", "fencingToken", "mutationStatus", "quarantined", "attestationDigest", "reconciliation"],
-  { ...terminalReceiptBinding, quarantined: { const: true }, reconciliation },
+  ["receiptId", "providerId", "hostId", "vmId", "macAddress", "networkId", "gatewayId", "networkPolicyDigest", "leaseId", "fencingToken", "mutationStatus", "credentialDisposition", "quarantined", "attestationDigest", "reconciliation"],
+  { ...terminalReceiptBinding, credentialDisposition: quarantineCredentialDisposition, quarantined: { const: true }, reconciliation },
 );
 
 export const REMOTE_DESKTOP_SCHEMA_VERSION = 1;

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-gateway-policy.schema.json",
+  "title": "Nelos golden-builder gateway egress policy binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiAllow", "bindingDigest", "buildNonce", "expiresAt", "gateway", "helper", "httpsAllow", "kind", "nft",
+    "originalRulesetDigest", "reservationDigest", "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-gateway-policy" },
+    "reservationDigest": { "$ref": "#/$defs/sha256" },
+    "buildNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "gateway": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configDigest", "hostId", "providerId", "vmId"],
+      "properties": { "providerId": { "const": "proxmox-lab" }, "hostId": { "const": "prox2" }, "vmId": { "const": 9023 }, "configDigest": { "$ref": "#/$defs/sha256" } }
+    },
+    "helper": {
+      "type": "object", "additionalProperties": false,
+      "required": ["digest", "path"],
+      "properties": { "path": { "const": "/usr/libexec/nelos-golden-gateway-policy" }, "digest": { "$ref": "#/$defs/sha256" } }
+    },
+    "nft": {
+      "type": "object", "additionalProperties": false,
+      "required": ["approvedIpv4Set", "family", "forwardChain", "sourceCidr", "table"],
+      "properties": {
+        "family": { "const": "inet" }, "table": { "const": "nelosbld" }, "forwardChain": { "const": "forward" },
+        "approvedIpv4Set": { "const": "approved_ipv4" }, "sourceCidr": { "const": "10.77.77.0/24" }
+      }
+    },
+    "apiAllow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["address", "port", "protocol"],
+      "properties": { "address": { "const": "192.168.1.110" }, "port": { "const": 8006 }, "protocol": { "const": "tcp" } }
+    },
+    "httpsAllow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["destinations", "port", "protocol"],
+      "properties": {
+        "port": { "const": 443 }, "protocol": { "const": "tcp" },
+        "destinations": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            { "$ref": "#/$defs/persistentDestination" },
+            { "$ref": "#/$defs/snapshotDestination" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "originalRulesetDigest": { "$ref": "#/$defs/sha256" },
+    "bindingDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "ipv4": { "type": "string", "pattern": "^(?:0|[1-9][0-9]{0,2})(?:\\.(?:0|[1-9][0-9]{0,2})){3}$" },
+    "destination": {
+      "type": "object", "additionalProperties": false,
+      "required": ["addresses", "expiresAt", "host", "resolvedAt", "ttlSeconds"],
+      "properties": {
+        "host": { "enum": ["persistent.oaistatic.com", "snapshot.ubuntu.com"] },
+        "addresses": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/ipv4" } },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "ttlSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "persistentDestination": {
+      "allOf": [ { "$ref": "#/$defs/destination" }, { "type": "object", "properties": { "host": { "const": "persistent.oaistatic.com" } } } ]
+    },
+    "snapshotDestination": {
+      "allOf": [ { "$ref": "#/$defs/destination" }, { "type": "object", "properties": { "host": { "const": "snapshot.ubuntu.com" } } } ]
+    }
+  }
+}

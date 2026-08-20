@@ -29,8 +29,9 @@ async function fixture() {
   };
 }
 
-test("passes a digest-bound capture when visual, native, and Nelos lifecycle phases agree", async () => {
+test("passes a digest-bound capture when visible lifecycle matches the native app process", async () => {
   const { input } = await fixture();
+  input.nelosThreads[0].status = "notLoaded";
   input.visualSurfaces.push({ surface: "mcpVisual", entries: [{ threadId: ID, observedName: "Build Proxmox Desktop backend", nameResolution: "exact", observedStatus: "running" }] });
   const report = await validateDeveloperVisualState(input);
   assert.equal(report.outcome, "passed");
@@ -38,7 +39,7 @@ test("passes a digest-bound capture when visual, native, and Nelos lifecycle pha
   assert.equal(report.counts.visibleEntries, 2);
 });
 
-test("reports sidebar, Created tasks, native inventory, and Nelos contradictions", async () => {
+test("reports sidebar and Created tasks contradictions against the native app process only", async () => {
   const { input } = await fixture();
   input.visualSurfaces.push({ surface: "createdTasks", entries: [{ threadId: ID, observedName: "Build Proxmox Desktop backend", nameResolution: "exact", observedStatus: "done" }] });
   input.nativeThreads[0].status = "idle";
@@ -48,9 +49,45 @@ test("reports sidebar, Created tasks, native inventory, and Nelos contradictions
   assert.deepEqual(new Set(report.findings.map(({ code }) => code)), new Set([
     "VISUAL_NATIVE_STATUS_MISMATCH",
     "VISUAL_SURFACE_CONTRADICTION",
-    "NATIVE_NELOS_STATUS_MISMATCH",
   ]));
   assert.equal(report.findings.filter(({ code }) => code === "VISUAL_NATIVE_STATUS_MISMATCH").length, 2);
+});
+
+test("does not mistake process-local Nelos notLoaded for lifecycle while retaining stale sidebar findings", async () => {
+  const { input } = await fixture();
+  const ids = [
+    "01a01ccf-e79d-7f70-9c3a-1f171d42519b",
+    "01a01d45-3ecc-7493-a00d-c1c9955cd031",
+    "01a01d37-1734-7551-9e75-2e515cc23efc",
+    "01a01ae1-1daf-78f2-8e61-45c31aeb98a1",
+  ];
+  const titles = ["Investigate Nelos bug", "Remediate live lane", "Live Desktop validation", "Build Desktop GUI scenario driver"];
+  input.nativeThreads = ids.map((threadId, index) => ({ threadId, title: titles[index], status: index === 0 ? "active" : "notLoaded" }));
+  input.nelosThreads = ids.map((threadId, index) => ({ threadId, title: titles[index], status: "notLoaded" }));
+  input.visualSurfaces = [{
+    surface: "sidebar",
+    entries: ids.map((threadId, index) => ({ threadId, observedName: titles[index], nameResolution: "exact", observedStatus: "running" })),
+  }];
+  const report = await validateDeveloperVisualState(input);
+  assert.equal(report.outcome, "failed");
+  assert.equal(report.findings.length, 3);
+  assert.deepEqual(report.findings.map(({ code }) => code), Array(3).fill("VISUAL_NATIVE_STATUS_MISMATCH"));
+  assert.deepEqual(new Set(report.findings.map(({ threadId }) => threadId)), new Set(ids.slice(1)));
+});
+
+test("fails closed on native or Nelos system-error load states", async () => {
+  const native = await fixture();
+  native.input.nativeThreads[0].status = "systemError";
+  native.input.visualSurfaces[0].entries[0].observedStatus = "systemError";
+  let report = await validateDeveloperVisualState(native.input);
+  assert.equal(report.outcome, "failed");
+  assert.deepEqual(new Set(report.findings.map(({ code }) => code)), new Set(["NATIVE_SYSTEM_ERROR", "VISUAL_SYSTEM_ERROR"]));
+
+  const nelos = await fixture();
+  nelos.input.nelosThreads[0].status = "systemError";
+  report = await validateDeveloperVisualState(nelos.input);
+  assert.equal(report.outcome, "failed");
+  assert.ok(report.findings.some(({ code }) => code === "NELOS_SYSTEM_ERROR"));
 });
 
 test("flags generic or incorrect visual names instead of guessing task identity", async () => {

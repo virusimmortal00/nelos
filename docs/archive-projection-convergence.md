@@ -24,6 +24,28 @@ The closed input binds:
 - a content-addressed `nelos-developer-visual-state-validation` report for each
   checkpoint.
 
+The three Desktop inventories are not aliases for one generic row scan. One
+complete bounded AT-SPI traversal must independently prove, in order:
+
+- the Codex sidebar scroll container and rows identified by the app-owned
+  `data-app-action-sidebar-thread-id` and title attributes;
+- the open `Created tasks` summary container, whose rows map to task IDs only
+  through the run's unique sealed titles; and
+- the `Nelos task workers` MCP visual container and exact
+  `Open Codex task <thread-id>` links.
+
+Each proof retains its accessibility role, contract name, state, bounded scan,
+geometry, and independently derived task IDs. The three container geometries
+must be distinct. A missing marker, duplicate container, non-unique title,
+closed summary, unclassifiable row, declared-count disagreement, or visible
+`Show N more…` control fails closed as a typed unsupported, ambiguous, identity,
+or incomplete surface result. It is never converted into an empty inventory.
+In particular, an exact visible sealed title is positive evidence of a row:
+the classifier must reject the observation if that row lacks the exact sidebar
+thread ID, a supported Created Tasks lifecycle token, or the exact MCP task-link
+ARIA identity. A malformed marker can never turn a visible expected row into an
+absence claim.
+
 Every checkpoint has a contiguous sequence, canonical timestamp, phase,
 cleanup state, and opaque app-instance identity. A required `afterRestart`
 checkpoint must follow a pre-restart checkpoint and use a different app
@@ -37,6 +59,12 @@ deadline. Cleanup marked complete while a projection retains a task produces
 drift, stale maps, native visibility, sidebar residue, Created Tasks residue,
 MCP residue, insufficient checkpoints, and failed restart identity each have a
 separate typed finding.
+
+Archive screenshots remain full-frame black by default. An independently
+classified expected title/status region may be restored only when it does not
+overlap conversation or credential geometry. Surface membership is retained
+even when its pixels stay protected, so screenshot coverage is recorded
+separately from the three visual inventories.
 
 Historical investigations may set `requireArchiveReceipts` to `false` when the
 bounded historical API no longer exposes the original receipt. They must still

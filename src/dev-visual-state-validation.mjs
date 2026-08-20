@@ -18,7 +18,7 @@ const STATUS_PHASE = new Map([
   ["done", "terminal"], ["completed", "terminal"], ["accepted", "terminal"],
   ["archived", "terminal"], ["succeeded", "terminal"],
   ["inactive", "inactive"], ["idle", "inactive"], ["notLoaded", "inactive"], ["planned", "inactive"],
-  ["queued", "inactive"], ["unknown", "unknown"],
+  ["queued", "inactive"], ["unknown", "unknown"], ["systemError", "error"],
 ]);
 
 export class DeveloperVisualStateValidationError extends Error {
@@ -147,6 +147,8 @@ export async function validateDeveloperVisualState(input) {
       if (!visualById.has(id)) visualById.set(id, []);
       visualById.get(id).push(visual);
 
+      if (observedStatus === "systemError") findings.push(finding("VISUAL_SYSTEM_ERROR", id, { surface: surface.surface }));
+
       const authoritative = nativeById.get(id);
       if (!authoritative) {
         findings.push(finding("VISIBLE_THREAD_MISSING_FROM_NATIVE_INVENTORY", id, { surface: surface.surface, observedName }));
@@ -172,10 +174,11 @@ export async function validateDeveloperVisualState(input) {
 
   for (const [id, native] of nativeById) {
     const nelos = nelosById.get(id);
-    if (nelos && STATUS_PHASE.get(native.status) !== STATUS_PHASE.get(nelos.status)) {
-      findings.push(finding("NATIVE_NELOS_STATUS_MISMATCH", id, { nativeStatus: native.status, nelosStatus: nelos.status }));
-    }
+    if (native.status === "systemError") findings.push(finding("NATIVE_SYSTEM_ERROR", id, { nativeStatus: native.status }));
     if (nelos && native.title !== nelos.title) findings.push(finding("NATIVE_NELOS_NAME_MISMATCH", id, { nativeTitle: native.title, nelosTitle: nelos.title }));
+  }
+  for (const [id, nelos] of nelosById) {
+    if (nelos.status === "systemError") findings.push(finding("NELOS_SYSTEM_ERROR", id, { nelosLoadState: nelos.status }));
   }
 
   findings.sort((left, right) => `${left.threadId}:${left.code}:${left.surface ?? ""}`.localeCompare(`${right.threadId}:${right.code}:${right.surface ?? ""}`));

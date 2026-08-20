@@ -1,0 +1,25 @@
+[Unit]
+Description=Nelos isolated ChatGPT device authentication
+ConditionPathExists=/etc/nelos-desktop/run-binding.json
+
+[Service]
+Type=simple
+User=nelosauto
+Group=nelosauto
+UMask=0077
+EnvironmentFile=/run/nelos-desktop/auth/environment
+ExecStart=/usr/bin/env -i HOME=/home/nelosauto CODEX_HOME=/home/nelosauto/.codex USER=nelosauto LOGNAME=nelosauto PATH=/usr/bin:/bin LC_ALL=C NELOS_RUN_ID=${NELOS_RUN_ID} NELOS_DEVICE_AUTH_STATE_DIR=/run/nelos-desktop/auth /usr/lib/chatgpt/resources/cua_node/bin/node /usr/libexec/nelos-device-auth-controller login
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/nelosauto/.codex /run/nelos-desktop/auth
+LimitCORE=0
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+StandardOutput=null
+StandardError=journal
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
