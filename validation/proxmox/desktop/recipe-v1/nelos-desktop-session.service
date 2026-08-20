@@ -1,0 +1,13 @@
+[Unit]
+Description=Nelos bounded graphical Desktop readiness bridge
+After=gdm3.service
+Requires=gdm3.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+ExecStart=/bin/bash -ceu 'for n in {1..120}; do uid=$(id -u nelos-automation); sid=$(loginctl list-sessions --no-legend | awk -v u="$uid" "$3 == u {print $1; exit}"); if [[ -n $sid ]] && [[ $(loginctl show-session "$sid" -p Type --value) == x11 ]] && [[ $(loginctl show-session "$sid" -p State --value) == active ]]; then install -o root -g root -m 0440 /dev/null /var/lib/nelos-desktop/gui-ready; printf "session=%s\nuid=%s\ntype=x11\n" "$sid" "$uid" >/var/lib/nelos-desktop/gui-ready; exit 0; fi; sleep 1; done; exit 1'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

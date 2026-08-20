@@ -24,15 +24,21 @@ function decodeBinding(description) {
  * behind the same narrow boundary.
  */
 export class ProxmoxVeDesktopAdapterV1 {
-  constructor({ transport, receiptStore, providerId, qgaAttempts = 12 } = {}) {
+  constructor({ transport, receiptStore, providerId, qgaAttempts = 12, taskAttempts = 120, taskPollMs = 1_000, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
     if (typeof transport?.request !== "function") throw new TypeError("transport.request is required");
     if (typeof receiptStore?.commit !== "function") throw new TypeError("receiptStore.commit is required");
     if (typeof providerId !== "string" || providerId.length === 0) throw new TypeError("providerId is required");
     if (!Number.isSafeInteger(qgaAttempts) || qgaAttempts < 1 || qgaAttempts > 120) throw new TypeError("qgaAttempts is invalid");
+    if (!Number.isSafeInteger(taskAttempts) || taskAttempts < 1 || taskAttempts > 600) throw new TypeError("taskAttempts is invalid");
+    if (!Number.isSafeInteger(taskPollMs) || taskPollMs < 1 || taskPollMs > 10_000) throw new TypeError("taskPollMs is invalid");
+    if (typeof wait !== "function") throw new TypeError("wait is invalid");
     this.transport = transport;
     this.receiptStore = receiptStore;
     this.providerId = providerId;
     this.qgaAttempts = qgaAttempts;
+    this.taskAttempts = taskAttempts;
+    this.taskPollMs = taskPollMs;
+    this.wait = wait;
   }
 
   async call(method, path, body = undefined, options = undefined) {
@@ -80,10 +86,16 @@ export class ProxmoxVeDesktopAdapterV1 {
     const response = await this.call(method, path, body);
     const upid = response?.data ?? response?.upid ?? null;
     if (typeof upid !== "string" || upid.length === 0) return { status: "ambiguous", providerOperationId: null };
-    const task = await this.call("GET", `/nodes/${encode(body.node)}/tasks/${encode(upid)}/status`);
-    const status = task?.data ?? task;
-    if (status?.status === "stopped" && SUCCESS.has(status.exitstatus)) return { status: "committed", providerOperationId: upid };
-    return { status: status?.status === "stopped" ? "failed" : "ambiguous", providerOperationId: upid };
+    for (let attempt = 0; attempt < this.taskAttempts; attempt += 1) {
+      const task = await this.call("GET", `/nodes/${encode(body.node)}/tasks/${encode(upid)}/status`);
+      const status = task?.data ?? task;
+      if (status?.status === "stopped") {
+        return { status: SUCCESS.has(status.exitstatus) ? "committed" : "failed", providerOperationId: upid };
+      }
+      if (typeof status?.status !== "string") return { status: "ambiguous", providerOperationId: upid };
+      if (attempt + 1 < this.taskAttempts) await this.wait(this.taskPollMs);
+    }
+    return { status: "timed_out", providerOperationId: upid };
   }
 
   cloneVm({ binding, configuration, goldenImage }) {
@@ -144,10 +156,14 @@ export class ProxmoxVeDesktopAdapterV1 {
 
   async reconcileMutation({ binding, mutation, providerOperationId }) {
     if (providerOperationId) {
-      const task = await this.call("GET", `/nodes/${encode(binding.hostId)}/tasks/${encode(providerOperationId)}/status`);
-      const status = task?.data ?? task;
-      if (status?.status === "stopped" && SUCCESS.has(status.exitstatus)) return { status: "committed", providerOperationId };
-      return { status: "ambiguous", providerOperationId };
+      for (let attempt = 0; attempt < this.taskAttempts; attempt += 1) {
+        const task = await this.call("GET", `/nodes/${encode(binding.hostId)}/tasks/${encode(providerOperationId)}/status`);
+        const status = task?.data ?? task;
+        if (status?.status === "stopped") return { status: SUCCESS.has(status.exitstatus) ? "committed" : "failed", providerOperationId };
+        if (typeof status?.status !== "string") return { status: "ambiguous", providerOperationId };
+        if (attempt + 1 < this.taskAttempts) await this.wait(this.taskPollMs);
+      }
+      return { status: "timed_out", providerOperationId };
     }
     const observed = await this.inspectVm(binding);
     const committed = mutation === "destroy" ? observed === null : observed !== null;

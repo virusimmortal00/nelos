@@ -18,7 +18,9 @@ and fresh writable state only on a disposable clone.
 
 The adapter never discovers a free VMID. The caller supplies an owned provider,
 host, VMID, golden image, active lease, reservation, and fencing token; all are
-compared with fresh provider state before any mutation. Ambiguous operations are
-observed once through the provider's reconciliation endpoint and are never
-blindly retried. Cleanup is successful only after exact absence is attested;
-otherwise the VM is quarantined with all reconciliation identities retained.
+compared with fresh provider state before any mutation. Every asynchronous
+mutation is polled to a bounded terminal task result before the adapter can
+return a committed outcome. Reconciliation uses the same bounded observation
+rule and never blindly repeats a mutation. Cleanup is successful only after
+exact absence is attested; otherwise the VM is quarantined with all
+reconciliation identities retained.

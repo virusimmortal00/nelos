@@ -54,6 +54,7 @@
     "./remote-desktop-evidence": "./src/remote-desktop-evidence/index.mjs",
     "./remote-desktop-runner": "./src/remote-desktop-runner/index.mjs",
     "./homelab-desktop-runtime": "./src/homelab-desktop-runtime.mjs",
+    "./proxmox-desktop-runtime": "./src/proxmox-desktop-runtime.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"
   },
   "files": [

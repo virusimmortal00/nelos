@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly binding_file=/etc/nelos-desktop/run-binding.json
+readonly ready_file=/var/lib/nelos-desktop/gui-ready
+readonly max_request_bytes=16384
+[[ -f ${binding_file} && ! -L ${binding_file} ]] || { echo '{"error":"HELPER_UNAVAILABLE"}' >&2; exit 70; }
+request="$(head -c $((max_request_bytes + 1)))"
+[[ ${#request} -le ${max_request_bytes} ]] || { echo '{"error":"OUTPUT_LIMIT"}' >&2; exit 65; }
+
+jq -e 'keys == ["binding","deadlineAt","maxOutputBytes","operation"] and
+  (.binding | keys == ["fencingToken","hostId","leaseId","providerId","runId","vmid"]) and
+  (.maxOutputBytes | type == "number" and . >= 1 and . <= 1048576) and
+  (.operation | IN("auth-status","gui-ready","capture","diagnostics"))' <<<"${request}" >/dev/null || { echo '{"error":"INVALID_CONTRACT"}' >&2; exit 65; }
+jq -e --argjson expected "$(<"${binding_file}")" '.binding == $expected' <<<"${request}" >/dev/null || { echo '{"error":"IDENTITY_MISMATCH"}' >&2; exit 77; }
+deadline="$(jq -r .deadlineAt <<<"${request}")"
+deadline_epoch="$(date -d "${deadline}" +%s 2>/dev/null || echo 0)"
+(( deadline_epoch > $(date +%s) && deadline_epoch <= $(date +%s) + 600 )) || { echo '{"error":"DEADLINE_EXPIRED"}' >&2; exit 75; }
+operation="$(jq -r .operation <<<"${request}")"
+limit="$(jq -r .maxOutputBytes <<<"${request}")"
+
+run_bounded() {
+  local seconds=$((deadline_epoch - $(date +%s)))
+  local output
+  output="$(timeout --signal=KILL "${seconds}s" "$@")" || { echo '{"error":"HELPER_FAILED"}' >&2; exit 70; }
+  (( ${#output} <= limit )) || { echo '{"error":"OUTPUT_LIMIT"}' >&2; exit 65; }
+  printf '%s\n' "${output}"
+}
+
+case "${operation}" in
+  gui-ready)
+    [[ -f ${ready_file} && ! -L ${ready_file} ]] || { echo '{"error":"GUI_NOT_READY"}' >&2; exit 69; }
+    run_bounded jq -n --arg receipt "$(sha256sum "${ready_file}" | cut -d' ' -f1)" '{ready:true,receiptSha256:("sha256:"+$receipt)}'
+    ;;
+  auth-status)
+    readonly auth_file=/var/lib/nelos-desktop/device-auth.json
+    [[ -f ${auth_file} && ! -L ${auth_file} ]] || { echo '{"error":"AUTH_UNAVAILABLE"}' >&2; exit 69; }
+    run_bounded jq -c --argjson binding "$(<"${binding_file}")" 'select(.binding == $binding and .developerSessionImported == false and .modelBacked == true and (.accounts|length) == 1 and .accounts[0].automation == true)' "${auth_file}"
+    ;;
+  capture)
+    readonly capture_file=/etc/nelos-desktop/capture-request.json
+    [[ -f ${capture_file} && ! -L ${capture_file} ]] || { echo '{"error":"UNSAFE_CAPTURE"}' >&2; exit 77; }
+    geometry="$(jq -er 'select(keys == ["height","output","width","x","y"]) | "\(.width)x\(.height)+\(.x)+\(.y)"' "${capture_file}")" || { echo '{"error":"UNSAFE_CAPTURE"}' >&2; exit 77; }
+    output="$(jq -r .output "${capture_file}")"
+    [[ ${output} =~ ^/var/lib/nelos-desktop/evidence/[A-Za-z0-9._-]+\.png$ ]] || { echo '{"error":"UNSAFE_CAPTURE"}' >&2; exit 77; }
+    install -d -o nelos-automation -g nelos-automation -m 0700 /var/lib/nelos-desktop/evidence
+    run_bounded runuser -u nelos-automation -- env DISPLAY=:0 scrot -a "${geometry}" "${output}"
+    ;;
+  diagnostics)
+    run_bounded jq -n --arg session "$(loginctl list-sessions --no-legend | awk '$3 == "nelos-automation" {print $1; exit}')" --arg active "$(systemctl is-active gdm3)" '{gdm:$active,session:$session}'
+    ;;
+esac

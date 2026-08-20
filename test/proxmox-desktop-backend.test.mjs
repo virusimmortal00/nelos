@@ -288,11 +288,15 @@ test("QGA controls are closed and guest-exec has a fixed executable allowlist", 
 
 test("concrete Proxmox adapter maps lifecycle calls through an injected offline transport", async () => {
   const calls = [];
+  const taskStates = [
+    { data: { status: "running" } },
+    { data: { status: "stopped", exitstatus: "OK" } },
+  ];
   const transport = {
     async request(call) {
       calls.push(structuredClone(call));
       if (call.path.endsWith("/clone")) return { data: "UPID:node:clone:1" };
-      if (call.path.includes("/tasks/")) return { data: { status: "stopped", exitstatus: "OK" } };
+      if (call.path.includes("/tasks/")) return taskStates.shift();
       if (call.path.endsWith("/config")) {
         const error = new Error("not found");
         error.status = 404;
@@ -303,7 +307,7 @@ test("concrete Proxmox adapter maps lifecycle calls through an injected offline 
     },
   };
   const receiptStore = { async commit(value) { return { committed: true, receiptId: value.receiptId, attestationDigest: value.attestationDigest }; } };
-  const adapter = new ProxmoxVeDesktopAdapterV1({ transport, receiptStore, providerId: "proxmox-lab" });
+  const adapter = new ProxmoxVeDesktopAdapterV1({ transport, receiptStore, providerId: "proxmox-lab", taskPollMs: 1, wait: async () => {} });
   const value = request("create");
   const binding = { ...value.provider, leaseId: value.lease.leaseId, fencingToken: value.lease.fencingToken };
   const clone = await adapter.cloneVm({
@@ -312,9 +316,33 @@ test("concrete Proxmox adapter maps lifecycle calls through an injected offline 
     configuration: { cloneMode: "linked" },
   });
   assert.equal(clone.status, "committed");
+  assert.equal(calls.filter(({ path }) => path.includes("/tasks/")).length, 2);
   assert.equal(calls[0].path, "/nodes/pve-node-01/qemu/9001/clone");
   assert.equal(calls[0].body.newid, 9051);
   assert.equal(calls[0].body.full, 0);
   assert.doesNotMatch(JSON.stringify(calls[0].body), /password|credential|authorized_keys/iu);
   assert.deepEqual(await adapter.attestVmAbsent(binding), { ...binding, absent: true });
+});
+
+test("concrete adapter preserves non-not-found failures and bounds nonterminal Proxmox tasks", async () => {
+  const receiptStore = { async commit() { throw new Error("not reached"); } };
+  const denied = new ProxmoxVeDesktopAdapterV1({
+    providerId: "proxmox-lab", receiptStore,
+    transport: { async request() { throw Object.assign(new Error("denied"), { status: 403 }); } },
+  });
+  await assert.rejects(denied.inspectVm(request().provider), /denied/u);
+
+  let observations = 0;
+  const timed = new ProxmoxVeDesktopAdapterV1({
+    providerId: "proxmox-lab", receiptStore, taskAttempts: 3, taskPollMs: 1, wait: async () => {},
+    transport: { async request({ path }) {
+      if (path.endsWith("/status/start")) return { data: "UPID:node:start:bounded" };
+      observations += 1;
+      return { data: { status: "running" } };
+    } },
+  });
+  const value = request("start");
+  const binding = { ...value.provider, leaseId: value.lease.leaseId, fencingToken: value.lease.fencingToken };
+  assert.deepEqual(await timed.startVm({ binding }), { status: "timed_out", providerOperationId: "UPID:node:start:bounded" });
+  assert.equal(observations, 3);
 });
