@@ -50,7 +50,10 @@ long-lived
   `native-authorize-launch` request, bounded capabilities copied from the
   current native host tool registry, and explicit user intent. It
   deterministically produces the receipt that must be replayed through the
-  planning tool and never launches work itself;
+  planning tool and never launches work itself. Its MCP annotation is
+  non-destructive so hosts with an approval policy of `never` can produce the
+  receipt; the required `userIntentConfirmed: true` input remains the explicit
+  authorization gate;
 - `nelos_launch_verify_batch` — performs one all-or-nothing idempotent gate for
   1–16 launched wave members. It binds receipts to a persisted plan-run,
   wave index, digest, and authoritative member contract; resolves subagents

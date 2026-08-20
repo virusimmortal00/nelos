@@ -708,7 +708,7 @@ const TOOLS = [
       "The caller must replay the receipt through the planning lifecycle; " +
       "this tool never launches work.",
     inputSchema: LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
-    annotations: DESTRUCTIVE_STATEFUL_ANNOTATIONS,
+    annotations: STATEFUL_ANNOTATIONS,
     async run(args) {
       return {
         command: "launch authorize",
