@@ -53,6 +53,7 @@
     "./remote-desktop-contract": "./src/remote-desktop-contract/index.mjs",
     "./remote-desktop-evidence": "./src/remote-desktop-evidence/index.mjs",
     "./remote-desktop-runner": "./src/remote-desktop-runner/index.mjs",
+    "./homelab-desktop-runtime": "./src/homelab-desktop-runtime.mjs",
     "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"
   },
   "files": [
@@ -80,7 +81,7 @@
     "check:experiment-ci": "node --check src/experiment-ci-gates.mjs && node --check scripts/run-experiment-ci-gate.mjs && node --check scripts/bind-release-experiment-canary.mjs",
     "check:signed-in-pilot": "node --check src/signed-in-pilot-telemetry.mjs && node --check scripts/build-signed-in-pilot.mjs && node --check scripts/run-signed-in-pilot-canary.mjs && node --check scripts/signed-in-codex-vm-adapter.mjs && node --check scripts/report-signed-in-pilot.mjs && node --import ./scripts/test-bootstrap.mjs --test test/signed-in-pilot.test.mjs",
     "check:desktop-gui-driver": "node --check src/desktop-gui-scenario-driver/index.mjs && node --check src/desktop-gui-scenario-driver/sealed-value-resolver.mjs && node --check src/desktop-gui-scenario-driver/linux-atspi-boundary.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-gui-scenario-driver.test.mjs",
-    "check:desktop-runner": "node --check src/remote-desktop-runner/index.mjs && node --check src/remote-desktop-runner/journal.mjs && node --check src/archive-projection-lane.mjs && node --check bin/nelos-desktop-runner && node --check src/dev-screen-capture.mjs && node --check bin/nelos-capture-screen && node --check src/dev-visual-state-validation.mjs && node --check bin/nelos-validate-visual-state && node --check src/archive-projection-convergence.mjs && node --check bin/nelos-validate-archive-convergence && node --import ./scripts/test-bootstrap.mjs --test test/remote-desktop-runner.test.mjs test/dev-screen-capture.test.mjs test/dev-visual-state-validation.test.mjs test/archive-projection-convergence.test.mjs test/archive-projection-lane.test.mjs",
+    "check:desktop-runner": "node --check src/remote-desktop-runner/index.mjs && node --check src/remote-desktop-runner/journal.mjs && node --check src/archive-projection-lane.mjs && node --check src/homelab-desktop-runtime.mjs && node --check bin/nelos-desktop-runner && node --check src/dev-screen-capture.mjs && node --check bin/nelos-capture-screen && node --check src/dev-visual-state-validation.mjs && node --check bin/nelos-validate-visual-state && node --check src/archive-projection-convergence.mjs && node --check bin/nelos-validate-archive-convergence && node --import ./scripts/test-bootstrap.mjs --test test/homelab-desktop-runtime.test.mjs test/proxmox-desktop-backend.test.mjs test/desktop-gui-scenario-driver.test.mjs test/remote-desktop-evidence.test.mjs test/remote-desktop-runner.test.mjs test/dev-screen-capture.test.mjs test/dev-visual-state-validation.test.mjs test/archive-projection-convergence.test.mjs test/archive-projection-lane.test.mjs",
     "experiment:ci": "node scripts/run-experiment-ci-gate.mjs",
     "compatibility": "npm run compatibility:required",
     "compatibility:required": "NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs node scripts/run-required-compatibility.mjs",

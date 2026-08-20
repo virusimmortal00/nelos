@@ -26,8 +26,10 @@ if (!command || !configPath) {
     } else {
       if (!process.argv.includes("--authorize-live") && !process.argv.includes("--offline-adapter")) throw new Error("mutation commands require explicit --authorize-live or test-only --offline-adapter");
       if (typeof config.runtimeModule !== "string") throw new Error("runtimeModule is required for mutation commands");
-      const runtimeUrl = new URL(config.runtimeModule, pathToFileURL(absoluteConfig));
-      const module = await import(runtimeUrl.href);
+      const runtimeSpecifier = /^(?:\.|\/|file:)/u.test(config.runtimeModule)
+        ? new URL(config.runtimeModule, pathToFileURL(absoluteConfig)).href
+        : config.runtimeModule;
+      const module = await import(runtimeSpecifier);
       if (typeof module.createRemoteDesktopRuntime !== "function") throw new Error("runtime module must export createRemoteDesktopRuntime(config)");
       const runtime = await module.createRemoteDesktopRuntime(config);
       const runner = new ResumableRemoteDesktopRunnerV1({ journalDirectory: config.journalDirectory, ...runtime });

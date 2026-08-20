@@ -35,8 +35,8 @@ export class ProxmoxVeDesktopAdapterV1 {
     this.qgaAttempts = qgaAttempts;
   }
 
-  async call(method, path, body = undefined) {
-    return this.transport.request({ method, path, ...(body === undefined ? {} : { body }) });
+  async call(method, path, body = undefined, options = undefined) {
+    return this.transport.request({ method, path, ...(body === undefined ? {} : { body }) }, options);
   }
 
   async inspectVm({ hostId, vmId }) {
@@ -62,6 +62,18 @@ export class ProxmoxVeDesktopAdapterV1 {
       if (error?.status === 404 || error?.code === "PVE_NOT_FOUND") return null;
       throw error;
     }
+  }
+
+  async inspectRuntimeBinding({ hostId, vmId }) {
+    const response = await this.call("GET", `/nodes/${encode(hostId)}/qemu/${encode(vmId)}/config`);
+    const data = response?.data ?? response;
+    const owned = decodeBinding(data?.description);
+    if (owned === null) return null;
+    return {
+      providerId: owned.providerId, hostId: owned.hostId, vmId: String(owned.vmId),
+      leaseId: owned.leaseId, fencingToken: owned.fencingToken, imageId: owned.imageId,
+      runId: owned.runId, automationUser: owned.automationUser, stateRoot: owned.stateRoot,
+    };
   }
 
   async mutate(method, path, body) {
@@ -99,6 +111,8 @@ export class ProxmoxVeDesktopAdapterV1 {
         imageId: configuration.goldenImageId,
         state: "configured",
         stateRoot: configuration.writableState.root,
+        runId: configuration.writableState.root.split("/").at(-1),
+        automationUser: configuration.automation.user,
       }),
     });
   }

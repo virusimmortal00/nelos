@@ -87,6 +87,36 @@ nelos-desktop-runner run \
   --authorize-live
 ```
 
+The packaged homelab entrypoint is `nelos/homelab-desktop-runtime`. A production
+run packet points `runtimeModule` at that module and adds this closed, non-secret
+configuration. The state root must be named for the run and directly contain
+the journal and evidence directories; the sealed-value root must also end in
+the run ID but remains a separate one-shot staging namespace.
+
+```json
+{
+  "runtimeModule": "nelos/homelab-desktop-runtime",
+  "journalDirectory": "/srv/nelos/runs/RUN_ID/journal",
+  "homelab": {
+    "schemaVersion": 1,
+    "stateRoot": "/srv/nelos/runs/RUN_ID",
+    "sealedValueRoot": "/run/nelos-sealed/RUN_ID",
+    "guiBindings": {
+      "new-task-button": { "role": "button", "name": "New task" },
+      "task-composer": { "role": "textbox" }
+    },
+    "deadlines": { "providerMs": 30000, "qgaMs": 20000, "archiveMs": 60000 },
+    "outputLimits": { "providerBytes": 8388608, "qgaBytes": 8388608, "archiveReportBytes": 10485760 }
+  }
+}
+```
+
+The module invokes only `/usr/libexec/nelos-proxmox-transport` on the host and
+the fixed AT-SPI/archive helpers in the admitted guest through QGA. The provider
+helper obtains its scoped Proxmox credentials outside this JSON. Do not add
+tokens, passwords, cookies, sealed values, commands, endpoints, or helper paths
+to the run packet.
+
 `--offline-adapter` is test-only and must never appear in a production ticket.
 Do not place secrets or sealed benchmark values in the run packet, journal,
 command line, logs, or evidence plan.

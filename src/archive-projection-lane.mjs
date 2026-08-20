@@ -64,22 +64,22 @@ export class ArchiveProjectionLaneV1 {
     const stage = async (name, operation) => {
       const remaining = deadlineAt - this.clock.now();
       if (remaining < 1) throw new ArchiveProjectionLaneError("ARCHIVE_CONVERGENCE_DEADLINE", `${name} exceeded the shared convergence deadline`);
-      let timer;
+      let timer; const abort = new AbortController();
       try {
         return await Promise.race([
-          operation(),
-          new Promise((resolve, reject) => { timer = setTimeout(() => reject(new ArchiveProjectionLaneError("ARCHIVE_CONVERGENCE_DEADLINE", `${name} exceeded the shared convergence deadline`)), remaining); }),
+          operation(abort.signal),
+          new Promise((resolve, reject) => { timer = setTimeout(() => { abort.abort(); reject(new ArchiveProjectionLaneError("ARCHIVE_CONVERGENCE_DEADLINE", `${name} exceeded the shared convergence deadline`)); }, remaining); }),
         ]);
       } finally { clearTimeout(timer); }
     };
-    const archiveReceipts = await stage("archive", () => this.adapter.archiveTasks({ schemaVersion: 1, runId: input.runId, expectedThreads: input.expectedThreads }));
-    const afterCleanup = await stage("post-cleanup checkpoint", () => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 1, phase: "afterCleanup", expectedThreads: input.expectedThreads }));
-    const restart = await stage("Desktop restart", () => this.adapter.restartDesktop({ schemaVersion: 1, runId: input.runId, previousAppInstanceId: afterCleanup.appInstanceId }));
+    const archiveReceipts = await stage("archive", (signal) => this.adapter.archiveTasks({ schemaVersion: 1, runId: input.runId, expectedThreads: input.expectedThreads }, { signal }));
+    const afterCleanup = await stage("post-cleanup checkpoint", (signal) => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 1, phase: "afterCleanup", expectedThreads: input.expectedThreads }, { signal }));
+    const restart = await stage("Desktop restart", (signal) => this.adapter.restartDesktop({ schemaVersion: 1, runId: input.runId, previousAppInstanceId: afterCleanup.appInstanceId }, { signal }));
     exactObject(restart, ["newAppInstanceId", "previousAppInstanceId", "restarted", "schemaVersion", "type"], "restart receipt");
     if (restart.schemaVersion !== 1 || restart.type !== "desktop-restart" || restart.restarted !== true || restart.previousAppInstanceId !== afterCleanup.appInstanceId || restart.newAppInstanceId === restart.previousAppInstanceId) {
       throw new ArchiveProjectionLaneError("INVALID_RESTART_RECEIPT", "Desktop restart did not prove a new app instance");
     }
-    const afterRestart = await stage("post-restart checkpoint", () => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 2, phase: "afterRestart", expectedThreads: input.expectedThreads, expectedAppInstanceId: restart.newAppInstanceId }));
+    const afterRestart = await stage("post-restart checkpoint", (signal) => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 2, phase: "afterRestart", expectedThreads: input.expectedThreads, expectedAppInstanceId: restart.newAppInstanceId }, { signal }));
     const report = await validateArchiveProjectionConvergence({ schemaVersion: 1, startedAt: input.startedAt, policy: input.policy, expectedThreads: input.expectedThreads, archiveReceipts, checkpoints: [afterCleanup, afterRestart] });
     return Object.freeze({ schemaVersion: 1, type: "archive-projection-convergence", runId: input.runId, outcome: report.outcome, restart: structuredClone(restart), report });
   }
