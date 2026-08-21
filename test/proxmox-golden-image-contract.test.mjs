@@ -19,6 +19,13 @@ test("Desktop clone build preserves the source OS disk and uses isolated Cloud-I
   assert.match(wrapper, /`-only=\$\{PACKER_TARGET\}`/u);
 });
 
+test("Packer variable validation messages satisfy its full-sentence contract", async () => {
+  const hcl = await readFile(hclPath, "utf8");
+  const messages = [...hcl.matchAll(/error_message\s*=\s*"([^"]+)"/gu)].map((match) => match[1]);
+  assert.equal(messages.length, 4);
+  for (const message of messages) assert.match(message, /^[A-Z].*[.?]$/u);
+});
+
 test("golden provisioning removes the ephemeral communicator key before attesting no credentials", async () => {
   const [script, binder] = await Promise.all([readFile(provisionPath, "utf8"), readFile(bindRuntimePath, "utf8")]);
   const deletion = script.indexOf("-name authorized_keys -delete");

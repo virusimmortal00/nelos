@@ -12,7 +12,7 @@ variable "source_template_vmid" {
   type = number
   validation {
     condition     = var.source_template_vmid == 9024
-    error_message = "source template VMID must be fixed at 9024"
+    error_message = "Source template VMID must be fixed at 9024."
   }
 }
 
@@ -20,7 +20,7 @@ variable "output_template_vmid" {
   type = number
   validation {
     condition     = var.output_template_vmid == 9027
-    error_message = "output template VMID must be fixed at 9027"
+    error_message = "Output template VMID must be fixed at 9027."
   }
 }
 
@@ -28,7 +28,7 @@ variable "output_template_mac" {
   type = string
   validation {
     condition     = var.output_template_mac == "02:4E:45:4C:90:27"
-    error_message = "output template MAC must use the fixed 9027 reservation"
+    error_message = "Output template MAC must use the fixed 9027 reservation."
   }
 }
 
@@ -44,7 +44,7 @@ variable "build_nonce" {
   type = string
   validation {
     condition     = can(regex("^[0-9a-f]{32}$", var.build_nonce))
-    error_message = "build nonce must be exactly 32 lowercase hexadecimal characters"
+    error_message = "Build nonce must be exactly 32 lowercase hexadecimal characters."
   }
 }
 

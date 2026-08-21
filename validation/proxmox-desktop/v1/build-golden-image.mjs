@@ -790,7 +790,7 @@ export function validatePackerSourceV1(text) {
     /required_version\s*=\s*"= 1\.15\.4"/u,
     /version\s*=\s*"= 1\.2\.4"/u,
     /source\s*=\s*"github\.com\/hashicorp\/proxmox"/u,
-    /variable\s+"build_nonce"\s*\{\s*type\s*=\s*string\s*validation\s*\{\s*condition\s*=\s*can\(regex\("\^\[0-9a-f\]\{32\}\$",\s*var\.build_nonce\)\)\s*error_message\s*=\s*"build nonce must be exactly 32 lowercase hexadecimal characters"\s*\}\s*\}/su,
+    /variable\s+"build_nonce"\s*\{\s*type\s*=\s*string\s*validation\s*\{\s*condition\s*=\s*can\(regex\("\^\[0-9a-f\]\{32\}\$",\s*var\.build_nonce\)\)\s*error_message\s*=\s*"Build nonce must be exactly 32 lowercase hexadecimal characters\."\s*\}\s*\}/su,
     /variable\s+"source_template_vmid"\s*\{[^}]*condition\s*=\s*var\.source_template_vmid\s*==\s*9024[^}]*\}/su,
     /variable\s+"output_template_vmid"\s*\{[^}]*condition\s*=\s*var\.output_template_vmid\s*==\s*9027[^}]*\}/su,
     /clone_vm_id\s*=\s*var\.source_template_vmid/u,
