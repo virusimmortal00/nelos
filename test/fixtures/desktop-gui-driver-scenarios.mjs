@@ -11,6 +11,10 @@ export const desktopGuiBindings = Object.freeze({
   "one-window": { role: "application", count: 1 },
 });
 
+// The disk-backed sealed-value resolver unlinks and fsyncs its fixture directory.
+// Leave shared CI runners enough I/O headroom; timeout-specific tests override it.
+const SEALED_VALUE_FIXTURE_TIMEOUT_MS = 1_000;
+
 export function desktopGuiScenario({ scenarioId = "scenario-driver-1", taskId = "desktop-task-driver-1", deadlineMs = 1_000 } = {}) {
   return {
     schemaVersion: 1,
@@ -18,7 +22,7 @@ export function desktopGuiScenario({ scenarioId = "scenario-driver-1", taskId = 
     task: { taskId, createdForScenario: scenarioId, fresh: true },
     actions: [
       { actionId: "menu", type: "select_menu", targetRef: "task-menu", valueRef: null, timeoutMs: 100 },
-      { actionId: "type", type: "type_text_ref", targetRef: "task-composer", valueRef: "prompt-one", timeoutMs: 100 },
+      { actionId: "type", type: "type_text_ref", targetRef: "task-composer", valueRef: "prompt-one", timeoutMs: SEALED_VALUE_FIXTURE_TIMEOUT_MS },
       { actionId: "wait", type: "wait_for", targetRef: "task-ready", valueRef: null, timeoutMs: 100 },
     ],
     checkpoints: [
