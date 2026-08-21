@@ -280,6 +280,7 @@ test("Desktop production surfaces select their exact contract and validation fai
     "validation/proxmox-desktop/v1/golden-image.pkr.hcl",
     "validation/proxmox/desktop/helpers/nelos-proxmox-run-binding.py",
     "validation/proxmox/README.md",
+    "validation/proxmox/test/proxmox-template-contract.test.mjs",
   ];
   const selection = selectImpactedCompatibilityContractsV1(
     COMPATIBILITY_CONTRACT_REGISTRY_V1,

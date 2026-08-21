@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, chown, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -63,6 +63,7 @@ async function fixture(t, options = {}) {
   await writeFile(join(root, ".nelos-network-policy-observer-fake-root"), "nelos-network-policy-observer-fake-root-v1\n", { mode: 0o600 });
   const libexec = join(root, "usr/libexec"); await mkdir(libexec, { recursive: true, mode: 0o755 });
   const installed = join(libexec, "nelos-network-policy-observer"); await copyFile(source, installed); await chmod(installed, 0o755);
+  await chown(installed, process.getuid(), process.getgid());
   const nft = join(root, "nft.mjs");
   const completeRuleset = ruleset(options);
   const setValue = approvedSet(options);

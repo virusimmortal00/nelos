@@ -21,6 +21,10 @@ async function directory() {
   return mkdtemp(join(tmpdir(), "nelos-screen-capture-"));
 }
 
+function captureWithMacOSFakes(options) {
+  return captureDeveloperScreen({ ...options, platform: "darwin" });
+}
+
 function windowRecord(overrides = {}) {
   return {
     bounds: { x: 40, y: 20, width: 1280, height: 800 },
@@ -44,7 +48,7 @@ test("captures one explicit display with a fixed tool and content-addressed loca
   const root = await directory();
   const outputDirectory = join(root, "evidence");
   let invocation;
-  const result = await captureDeveloperScreen({
+  const result = await captureWithMacOSFakes({
     outputDirectory,
     display: 2,
     maxBytes: 1024,
@@ -82,7 +86,7 @@ test("captures one exact app window with fixed native tools and selector-bound p
   const outputDirectory = join(await directory(), "evidence");
   let catalogInvocation;
   let captureInvocation;
-  const result = await captureDeveloperScreen({
+  const result = await captureWithMacOSFakes({
     outputDirectory,
     appBundleId: "com.openai.codex",
     windowId: 4318,
@@ -129,7 +133,7 @@ test("fails closed on zero or ambiguous app matches until an exact window is sel
   ]) {
     let captureCalls = 0;
     await assert.rejects(
-      captureDeveloperScreen({
+      captureWithMacOSFakes({
         outputDirectory: join(await directory(), "evidence"),
         appBundleId: "com.openai.codex",
         listWindows: async () => windowCatalog(windows),
@@ -143,7 +147,7 @@ test("fails closed on zero or ambiguous app matches until an exact window is sel
 
 test("an exact title can select one window without exposing that title in metadata", async () => {
   const outputDirectory = join(await directory(), "evidence");
-  const result = await captureDeveloperScreen({
+  const result = await captureWithMacOSFakes({
     outputDirectory,
     appBundleId: "com.openai.codex",
     windowTitle: "Settings",
@@ -167,7 +171,7 @@ test("rejects escaped or malformed native catalogs before invoking screencapture
   ]) {
     let captureCalls = 0;
     await assert.rejects(
-      captureDeveloperScreen({
+      captureWithMacOSFakes({
         outputDirectory: join(await directory(), "evidence"),
         appBundleId: "com.openai.codex",
         windowId: 4318,
@@ -184,7 +188,7 @@ test("rejects protection requests before enumeration because local app-window ca
   let catalogCalls = 0;
   let captureCalls = 0;
   await assert.rejects(
-    captureDeveloperScreen({
+    captureWithMacOSFakes({
       outputDirectory: join(await directory(), "evidence"),
       appBundleId: "com.openai.codex",
       protectedRegions: "0,0,100,100",
@@ -197,7 +201,7 @@ test("rejects protection requests before enumeration because local app-window ca
   assert.equal(captureCalls, 0);
 });
 
-test("rejects unsafe paths, invalid arguments, and non-macOS execution before capture", async () => {
+test("rejects unsafe paths and invalid arguments before capture", async () => {
   const root = await directory();
   let calls = 0;
   const runCapture = async () => { calls += 1; };
@@ -207,14 +211,26 @@ test("rejects unsafe paths, invalid arguments, and non-macOS execution before ca
     { outputDirectory: join(root, "out"), display: 0, runCapture },
     { outputDirectory: join(root, "out"), maxBytes: 0, runCapture },
     { outputDirectory: join(root, "out"), label: "Not Safe", runCapture },
-    { outputDirectory: join(root, "out"), platform: "linux", runCapture },
     { outputDirectory: join(root, "out"), display: 1, appBundleId: "com.openai.codex", runCapture },
     { outputDirectory: join(root, "out"), appBundleId: "not-a-bundle", runCapture },
     { outputDirectory: join(root, "out"), windowId: 4318, runCapture },
     { outputDirectory: join(root, "out"), appBundleId: "com.openai.codex", windowTitle: "bad\ntitle", runCapture },
   ]) {
-    await assert.rejects(captureDeveloperScreen(options));
+    await assert.rejects(captureWithMacOSFakes(options));
   }
+  assert.equal(calls, 0);
+});
+
+test("rejects non-macOS execution before invoking an injected capture function", async () => {
+  let calls = 0;
+  await assert.rejects(
+    captureDeveloperScreen({
+      outputDirectory: join(await directory(), "evidence"),
+      platform: "linux",
+      runCapture: async () => { calls += 1; },
+    }),
+    (error) => error.code === "UNSUPPORTED_PLATFORM",
+  );
   assert.equal(calls, 0);
 });
 
@@ -225,7 +241,7 @@ test("rejects a symlink capture directory", async () => {
   const link = join(root, "evidence");
   await symlink(target, link);
   await assert.rejects(
-    captureDeveloperScreen({ outputDirectory: link, runCapture: async () => {} }),
+    captureWithMacOSFakes({ outputDirectory: link, runCapture: async () => {} }),
     (error) => error.code === "UNSAFE_OUTPUT",
   );
 });
@@ -237,7 +253,7 @@ test("fails closed and removes owned capture bytes when format or budget validat
   ]) {
     const outputDirectory = join(await directory(), "evidence");
     await assert.rejects(
-      captureDeveloperScreen({
+      captureWithMacOSFakes({
         outputDirectory,
         maxBytes,
         nonce: () => "abcdef012345",
@@ -252,7 +268,7 @@ test("fails closed and removes owned capture bytes when format or budget validat
 test("wraps tool failure without leaving an evidence artifact", async () => {
   const outputDirectory = join(await directory(), "evidence");
   await assert.rejects(
-    captureDeveloperScreen({
+    captureWithMacOSFakes({
       outputDirectory,
       nonce: () => "abcdef012345",
       runCapture: async () => { throw new Error("permission denied"); },
@@ -268,7 +284,7 @@ test("never overwrites an existing capture when a generated name collides", asyn
   const existingPath = join(outputDirectory, "screen-20260819T172000000Z-0123456789ab.png");
   await writeFile(existingPath, "existing-evidence");
   await assert.rejects(
-    captureDeveloperScreen({
+    captureWithMacOSFakes({
       outputDirectory,
       clock: () => new Date("2026-08-19T17:20:00.000Z"),
       nonce: () => "0123456789ab",

@@ -40,20 +40,21 @@ async function fixture(t, { mode = "normal" } = {}) {
   const clientFactory = () => new PinnedCodexTaskPreparationClientV1({
     command: fakeCommand,
     expectedCommand: fakeCommand,
-    environment: { ...process.env, NELOS_FAKE_PRODUCTION_TASK_STATE: statePath },
+    environment: { ...process.env, CODEX_HOME: codexHome, NELOS_FAKE_PRODUCTION_TASK_STATE: statePath },
     requestTimeoutMs: 2_000,
     spawnProcess: (_command, args, options) => spawn(process.execPath, [fakeCommand, ...args], options),
   });
   const rootInfo = await lstat(root);
   const dependencies = { clientFactory, expectedUid: rootInfo.uid, expectedGid: rootInfo.gid };
   const input = { root, cwd, title: "production-desktop-scenario", authorizeCreate: true };
-  return { base, clientFactory, dependencies, input, root, statePath };
+  return { base, clientFactory, codexHome, dependencies, input, root, statePath };
 }
 
 async function state(path) { return JSON.parse(await readFile(path, "utf8")); }
 
 test("one-shot preparation creates, titles, reads back, and content-addresses one empty persistent task", async (t) => {
   const value = await fixture(t);
+  assert.equal(value.clientFactory().expectedCodexHome, value.codexHome);
   await assert.rejects(
     prepareProductionTaskV1({ ...value.input, authorizeCreate: false }, value.dependencies),
     errorCode("TASK_CREATION_AUTHORIZATION_REQUIRED"),

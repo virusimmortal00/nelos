@@ -1185,6 +1185,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/support/fake-proxmox-lease-authority.mjs",
           "test/support/fake-golden-production-runtime.mjs",
           "test/support/fake-resumable-desktop-runtime.mjs",
+          "validation/proxmox/test/proxmox-template-contract.test.mjs",
         ]),
         documentation: Object.freeze([
           "docs/archive-projection-convergence.md",
