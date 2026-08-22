@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-lifecycle-identity.schema.json",
+  "title": "Nelos disposable Ubuntu golden-builder identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mac",
+    "name",
+    "ownershipNonce",
+    "sshPublicKey",
+    "sshPublicKeyFingerprint",
+    "sshUser",
+    "vmId"
+  ],
+  "properties": {
+    "vmId": { "const": 9026 },
+    "name": { "type": "string", "pattern": "^nelos-golden-builder-[0-9a-f]{12}$" },
+    "mac": { "const": "02:4E:45:4C:90:26" },
+    "sshUser": { "const": "codex" },
+    "ownershipNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "sshPublicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]{40,120}={0,2}$" },
+    "sshPublicKeyFingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" }
+  }
+}

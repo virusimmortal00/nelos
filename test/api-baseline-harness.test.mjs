@@ -530,15 +530,15 @@ test("tracked public calibration projections contain no hidden grading material"
   assert.equal(tracked.some((path) => /calibration-tranche-1\/(?:packages|candidate-envelopes|private-material)\//u.test(path)), false);
 });
 
-test("npm/plugin payload excludes calibration and keeps the 0.12.18 release invariant", async () => {
+test("npm/plugin payload excludes calibration and keeps the 0.12.19 release invariant", async () => {
   const packageMetadata = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, "package.json"), "utf8"));
   const plugin = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".codex-plugin/plugin.json"), "utf8"));
   const mcp = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".mcp.json"), "utf8"));
-  assert.equal(packageMetadata.version, "0.12.18");
-  assert.equal(plugin.version, "0.12.18");
-  assert.equal(plugin.releaseBuildIdentity, "nelos-release-v1:0.12.18");
-  assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, "0.12.18");
-  assert.equal(mcp.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY, "nelos-release-v1:0.12.18");
+  assert.equal(packageMetadata.version, "0.12.19");
+  assert.equal(plugin.version, "0.12.19");
+  assert.equal(plugin.releaseBuildIdentity, "nelos-release-v1:0.12.19");
+  assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, "0.12.19");
+  assert.equal(mcp.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY, "nelos-release-v1:0.12.19");
   assert.equal(packageMetadata.files.some((path) => path.startsWith("experiments")), false);
   assert.equal(packageMetadata.scripts["calibration:build"], undefined);
   const packed = JSON.parse((await executeFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: REPOSITORY_ROOT })).stdout)[0];

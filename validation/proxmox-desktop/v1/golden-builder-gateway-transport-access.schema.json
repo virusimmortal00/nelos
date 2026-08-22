@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-gateway-transport-access.schema.json",
+  "title": "Nelos golden-builder gateway SSH/QGA transport access v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attestor", "host", "hostHelperDigest", "kind", "limits", "provider", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-gateway-transport-access" },
+    "hostHelperDigest": { "$ref": "#/$defs/sha256" },
+    "host": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hostFingerprint", "hostPublicKey", "knownHostsFile", "sshHost", "sshPort"],
+      "properties": {
+        "sshHost": { "const": "192.168.1.110" }, "sshPort": { "const": 22 },
+        "hostPublicKey": { "$ref": "#/$defs/publicKey" },
+        "hostFingerprint": { "const": "SHA256:/7TgXiGHrARF8+hFiOuUGlC/mrRFheILcEKs6FiANzg" },
+        "knownHostsFile": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "provider": { "$ref": "#/$defs/provider" },
+    "attestor": { "$ref": "#/$defs/attestor" },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maxOutputBytes", "operationTimeoutMs", "transportAttempts"],
+      "properties": {
+        "operationTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 300000 },
+        "maxOutputBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576 },
+        "transportAttempts": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "publicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\\r\\n]{1,256})?$", "maxLength": 4096 },
+    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096, "description": "Canonical absolute path with no . or .. traversal segments." },
+    "principal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identityFile", "publicKey", "publicKeyFingerprint", "sshUser"],
+      "properties": {
+        "identityFile": { "$ref": "#/$defs/absolutePath" }, "publicKey": { "$ref": "#/$defs/publicKey" },
+        "publicKeyFingerprint": { "$ref": "#/$defs/fingerprint" }, "sshUser": { "type": "string" }
+      }
+    },
+    "provider": {
+      "allOf": [ { "$ref": "#/$defs/principal" }, { "type": "object", "properties": { "sshUser": { "const": "nelos-golden-gateway-provider" } } } ]
+    },
+    "attestor": {
+      "allOf": [ { "$ref": "#/$defs/principal" }, { "type": "object", "properties": { "sshUser": { "const": "nelos-golden-gateway-attestor" } } } ]
+    }
+  }
+}

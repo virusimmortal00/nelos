@@ -7,6 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import {
+  PLUGIN_PAYLOAD_PATHS,
   validatePluginRelease,
   validatePluginReleaseChange,
 } from "../scripts/validate-plugin-release.mjs";
@@ -17,6 +18,11 @@ import {
 
 const execFileAsync = promisify(execFile);
 const sourceRepository = "https://github.com/virusimmortal00/nelos.git";
+
+test("Desktop candidate and validation sources are release-intent payload", () => {
+  assert.ok(PLUGIN_PAYLOAD_PATHS.includes("scripts/stage-production-desktop-candidate.mjs"));
+  assert.ok(PLUGIN_PAYLOAD_PATHS.includes("validation"));
+});
 
 async function git(root, ...args) {
   await execFileAsync("git", args, { cwd: root });
@@ -111,12 +117,12 @@ test("ordinary evaluation evidence is validated from Git without a bump", async 
       sourceRevisionType: "git",
       cacheIdentity,
     });
-    await mkdir(join(root, "docs"));
-    await writeFile(join(root, "docs", "evaluation-observation.md"), "initial evidence\n");
+    await mkdir(join(root, "validation"));
+    await writeFile(join(root, "validation", "desktop-contract.json"), "initial evidence\n");
     await git(root, "add", ".");
     await git(root, "commit", "-m", "base");
 
-    await writeFile(join(root, "docs", "evaluation-observation.md"), "observed fix evidence\n");
+    await writeFile(join(root, "validation", "desktop-contract.json"), "observed fix evidence\n");
 
     assert.deepEqual(await validatePluginRelease({ baseRef: "HEAD", root }), {
       changed: true,

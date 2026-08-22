@@ -23,12 +23,15 @@ function fakeCodexAppServer({
   initializeOverrides = {},
   initialTurns = [],
   initialTitle = "Release coordination",
+  listedThreadIds = [],
+  listNextCursor = null,
   persistRename = true,
   rejectedMethods = [],
   readDelays = {},
   readErrors = {},
   readSequences = {},
   threadOverrides = {},
+  turnsByThread = {},
 } = {}) {
   let ignoredNameSets = 0;
   let ignoredReads = 0;
@@ -40,6 +43,7 @@ function fakeCodexAppServer({
   let turnOrdinal = 0;
   const requests = [];
   const turns = [...initialTurns];
+  const threadTurns = new Map(Object.entries(turnsByThread).map(([id, values]) => [id, [...values]]));
   const threads = new Map(Object.entries(threadOverrides));
   const sequences = new Map(
     Object.entries(readSequences).map(([id, values]) => [id, [...values]]),
@@ -109,6 +113,11 @@ function fakeCodexAppServer({
             platformOs: "macos",
             ...initializeOverrides,
           };
+        } else if (message.method === "thread/list") {
+          result = {
+            data: listedThreadIds.map((id) => ({ id })),
+            nextCursor: listNextCursor,
+          };
         } else if (message.method === "thread/read") {
           const resolvedThreadId = message.params.threadId;
           activeReads += 1;
@@ -147,9 +156,10 @@ function fakeCodexAppServer({
           if (persistRename) title = message.params.name;
           result = {};
         } else if (message.method === "thread/turns/list") {
+          const selectedTurns = threadTurns.get(message.params.threadId) ?? turns;
           const ordered = message.params.sortDirection === "asc"
-            ? [...turns]
-            : [...turns].reverse();
+            ? [...selectedTurns]
+            : [...selectedTurns].reverse();
           const offset = message.params.cursor === undefined
             ? 0
             : Number.parseInt(message.params.cursor.slice("cursor:".length), 10);
@@ -406,6 +416,22 @@ test("inspection lazily starts one app server and returns bounded metadata", asy
   await bridge.close();
 });
 
+test("visible task observation uses an exact complete unarchived thread/list page", async () => {
+  const fake = fakeCodexAppServer({ listedThreadIds: ["thread-visible"] });
+  const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess, requestTimeoutMs: 1_000 });
+  assert.deepEqual(await bridge.visibleThreadIds({ threadIds: ["thread-visible", "thread-absent"] }), ["thread-visible"]);
+  assert.deepEqual(fake.requests.filter(({ method }) => method === "thread/list").map(({ params }) => params), [
+    { limit: 20, sortKey: "updated_at", sortDirection: "desc", sourceKinds: ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"], archived: false, searchTerm: "thread-visible", useStateDbOnly: true },
+    { limit: 20, sortKey: "updated_at", sortDirection: "desc", sourceKinds: ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"], archived: false, searchTerm: "thread-absent", useStateDbOnly: true },
+  ]);
+  await bridge.close();
+
+  const incomplete = fakeCodexAppServer({ listNextCursor: "cursor:20" });
+  const incompleteBridge = new CodexAppServerBridgeV1({ spawnProcess: incomplete.spawnProcess, requestTimeoutMs: 1_000 });
+  await assert.rejects(incompleteBridge.visibleThreadIds({ threadIds: ["thread-absent"] }), (error) => error.bridgeCode === "invalid-response");
+  await incompleteBridge.close();
+});
+
 test("latest turn inspection returns the current native turn identity and status", async () => {
   const fake = fakeCodexAppServer({
     initialTurns: [
@@ -432,6 +458,52 @@ test("latest turn inspection returns the current native turn identity and status
     },
   );
   await bridge.close();
+});
+
+test("complete native parent history derives exact working, terminal, and interrupted descendant counters", async () => {
+  const collab = (id, senderThreadId, receiverThreadIds) => ({
+    type: "collabAgentToolCall", id, tool: "spawnAgent", status: "completed", senderThreadId, receiverThreadIds,
+    agentsStates: Object.fromEntries(receiverThreadIds.map((receiver) => [receiver, { status: "completed" }])),
+  });
+  const oldRootTurns = Array.from({ length: 21 }, (_value, index) => ({ id: `root-turn-${index}`, status: "completed", items: index === 0 ? [collab("spawn-root", "root", ["child-a", "child-b", "child-c"])] : [] }));
+  const fake = fakeCodexAppServer({ threadOverrides: {
+    "child-a": { name: "Alpha worker" },
+    "child-b": { name: "Beta worker" },
+    "child-c": { name: "Gamma worker" },
+    "child-d": { name: "Delta worker" },
+  }, turnsByThread: {
+    root: oldRootTurns,
+    "child-a": [{ id: "turn-a", status: "inProgress", items: [] }],
+    "child-b": [{ id: "turn-b", status: "completed", items: [] }],
+    "child-c": [{ id: "turn-c", status: "interrupted", items: [collab("spawn-c", "child-c", ["child-d"])] }],
+    "child-d": [{ id: "turn-d", status: "completed", items: [] }],
+  } });
+  const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess, requestTimeoutMs: 1_000 });
+  const topology = await bridge.collaborationTopologyCounters({ rootThreadId: "root" });
+  assert.deepEqual({
+    source: topology.source, complete: topology.complete, descendantCount: topology.descendantCount,
+    working: topology.working, completed: topology.completed, interrupted: topology.interrupted, terminal: topology.terminal,
+  }, {
+    source: "codex-app-server-parent-history-latest-turn", complete: true, descendantCount: 4,
+    working: 1, completed: 2, interrupted: 1, terminal: 3,
+  });
+  assert.match(topology.topologyDigest, /^sha256:[0-9a-f]{64}$/u);
+  assert.deepEqual(topology.descendants, [
+    { taskId: "child-a", parentTaskId: "root", title: "Alpha worker", latestTurnId: "turn-a", latestTurnStatus: "inProgress" },
+    { taskId: "child-b", parentTaskId: "root", title: "Beta worker", latestTurnId: "turn-b", latestTurnStatus: "completed" },
+    { taskId: "child-c", parentTaskId: "root", title: "Gamma worker", latestTurnId: "turn-c", latestTurnStatus: "interrupted" },
+    { taskId: "child-d", parentTaskId: "child-c", title: "Delta worker", latestTurnId: "turn-d", latestTurnStatus: "completed" },
+  ]);
+  assert.ok(fake.requests.some(({ method, params }) => method === "thread/turns/list" && params.threadId === "root" && params.cursor === "cursor:20"));
+  await bridge.close();
+
+  const unsupported = fakeCodexAppServer({ turnsByThread: {
+    root: [{ id: "root-turn", status: "completed", items: [collab("spawn", "root", ["child"])] }],
+    child: [{ id: "child-turn", status: "failed", items: [] }],
+  } });
+  const unsupportedBridge = new CodexAppServerBridgeV1({ spawnProcess: unsupported.spawnProcess, requestTimeoutMs: 1_000 });
+  await assert.rejects(unsupportedBridge.collaborationTopologyCounters({ rootThreadId: "root" }), (error) => error.bridgeCode === "topology-incomplete");
+  await unsupportedBridge.close();
 });
 
 test("collaboration agent inspection returns the newest bounded authoritative state", async () => {

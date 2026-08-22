@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly fake_marker_bytes='nelos-bind-runtime-fake-root-v1'
+execution_root=/
+fake_root=0
+fake_group_id="$(id -g)"
+
+metadata() {
+  if /usr/bin/stat -c '%u:%g:%a:%h:%s' "$1" >/dev/null 2>&1; then
+    /usr/bin/stat -c '%u:%g:%a:%h:%s' "$1"
+  else
+    /usr/bin/stat -f '%u:%g:%Lp:%l:%z' "$1"
+  fi
+}
+
+die() { printf '%s\n' "$1" >&2; exit "${2:-77}"; }
+path_at() { if [[ ${execution_root} == / ]]; then printf '%s' "$1"; else printf '%s%s' "${execution_root}" "$1"; fi; }
+
+if [[ $# -eq 1 ]]; then
+  [[ ${EUID} -eq 0 ]] || exit 70
+  encoded_binding=$1
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin
+  export PATH
+elif [[ $# -eq 3 && $1 == --fake-root ]]; then
+  execution_root=$2
+  encoded_binding=$3
+  fake_root=1
+  [[ ${execution_root} == /* && ${execution_root} != / && -d ${execution_root} && ! -L ${execution_root} ]] || exit 70
+  IFS=: read -r root_uid root_gid root_mode root_links _root_size <<<"$(metadata "${execution_root}")"
+  [[ ${root_uid} == "${EUID}" && ${root_mode} == 700 && ${root_links} -ge 2 ]] || exit 70
+  fake_group_id=${root_gid}
+  marker="${execution_root}/.nelos-bind-runtime-fake-root"
+  [[ -f ${marker} && ! -L ${marker} ]] || exit 70
+  IFS=: read -r marker_uid marker_gid marker_mode marker_links marker_size <<<"$(metadata "${marker}")"
+  [[ ${marker_uid} == "${EUID}" && ${marker_gid} == "${fake_group_id}" && ${marker_mode} == 600 && ${marker_links} == 1 && ${marker_size} == 32 ]] || exit 70
+  [[ $(<"${marker}") == "${fake_marker_bytes}" ]] || exit 70
+  fake_bin="${execution_root}/.nelos-bind-runtime-bin"
+  [[ -d ${fake_bin} && ! -L ${fake_bin} ]] || exit 70
+  IFS=: read -r bin_uid bin_gid bin_mode _bin_links _bin_size <<<"$(metadata "${fake_bin}")"
+  [[ ${bin_uid} == "${EUID}" && ${bin_gid} == "${fake_group_id}" && ${bin_mode} == 700 ]] || exit 70
+  for fake_command in flock systemctl; do
+    fake_path="${fake_bin}/${fake_command}"
+    [[ -f ${fake_path} && ! -L ${fake_path} && -x ${fake_path} ]] || exit 70
+    IFS=: read -r command_uid command_gid command_mode command_links command_size <<<"$(metadata "${fake_path}")"
+    [[ ${command_uid} == "${EUID}" && ${command_gid} == "${fake_group_id}" && ${command_mode} == 700 && ${command_links} == 1 && ${command_size} -ge 1 && ${command_size} -le 16384 ]] || exit 70
+  done
+  PATH="${fake_bin}:/usr/bin:/bin"
+  export PATH
+else
+  exit 70
+fi
+
+for command in base64 flock jq python3 stat systemctl; do command -v "${command}" >/dev/null || exit 70; done
+(( ${#encoded_binding} >= 4 && ${#encoded_binding} <= 21848 && ${#encoded_binding} % 4 == 0 )) || exit 65
+[[ ${encoded_binding} =~ ^[A-Za-z0-9+/]*={0,2}$ ]] || exit 65
+binding="$(printf '%s' "${encoded_binding}" | base64 --decode | jq -ce '
+  select(
+    keys == ["automationUser","fencingToken","gatewayId","hostId","imageId","leaseId","macAddress","networkId","networkPolicyDigest","providerId","runId","stateRoot","vmId"] and
+    ([.automationUser,.fencingToken,.gatewayId,.hostId,.imageId,.leaseId,.networkId,.providerId,.runId,.vmId] | all(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"))) and
+    (.gatewayId | test("^[1-9][0-9]{2,8}$")) and .gatewayId != .vmId and
+    .providerId == "proxmox-lab" and .hostId == "prox2" and .gatewayId == "9023" and .networkId == "nelosbld" and
+    (.macAddress | type == "string" and test("^02(:[0-9A-F]{2}){5}$")) and
+    (.networkPolicyDigest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+    .automationUser == "nelosauto" and
+    (.stateRoot == ("/var/lib/nelos-desktop/runs/" + .runId))
+  )
+')" || exit 65
+(( ${#binding} >= 2 && ${#binding} <= 16384 )) || exit 65
+binding="$(jq -cS . <<<"${binding}")"
+
+readonly expected_root_uid="$([[ ${fake_root} -eq 0 ]] && printf 0 || printf '%s' "${EUID}")"
+readonly expected_root_gid="$([[ ${fake_root} -eq 0 ]] && printf 0 || printf '%s' "${fake_group_id}")"
+pending_temporary=
+cleanup_pending_temporary() {
+  [[ -z ${pending_temporary} ]] || /usr/bin/unlink "${pending_temporary}" 2>/dev/null || true
+}
+trap cleanup_pending_temporary EXIT
+
+fsync_path() {
+  /usr/bin/python3 - "$1" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+fd = os.open(path, flags)
+try:
+    mode = os.fstat(fd).st_mode
+    if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+        raise RuntimeError("unsupported fsync target")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
+}
+
+assert_directory() {
+  local path=$1 owner=$2 group=$3 mode=$4 details
+  [[ -d ${path} && ! -L ${path} ]] || die "unsafe runtime directory: ${path}"
+  details="$(metadata "${path}")" || die "runtime directory metadata is unavailable: ${path}"
+  IFS=: read -r actual_owner actual_group actual_mode _actual_links _actual_size <<<"${details}"
+  [[ ${actual_owner} == "${owner}" && ${actual_group} == "${group}" && ${actual_mode} == "${mode}" ]] || die "unsafe runtime directory metadata: ${path}"
+}
+
+ensure_directory() {
+  local path=$1 owner=$2 group=$3 mode=$4 parent
+  if [[ -e ${path} || -L ${path} ]]; then
+    assert_directory "${path}" "${owner}" "${group}" "${mode}"
+    return
+  fi
+  parent="$(dirname -- "${path}")"
+  if [[ ${fake_root} -eq 0 ]]; then
+    install -d -o "${owner}" -g "${group}" -m "${mode}" "${path}"
+  else
+    mkdir -p "${path}"
+    chmod "${mode}" "${path}"
+  fi
+  assert_directory "${path}" "${owner}" "${group}" "${mode}"
+  fsync_path "${path}"
+  fsync_path "${parent}"
+}
+
+assert_regular() {
+  local path=$1 owner=$2 group=$3 mode=$4 maximum=$5 details
+  [[ -f ${path} && ! -L ${path} ]] || die "unsafe runtime file: ${path}"
+  details="$(metadata "${path}")" || die "runtime file metadata is unavailable: ${path}"
+  IFS=: read -r actual_owner actual_group actual_mode actual_links actual_size <<<"${details}"
+  [[ ${actual_owner} == "${owner}" && ${actual_group} == "${group}" && ${actual_mode} == "${mode}" && ${actual_links} == 1 && ${actual_size} -ge 2 && ${actual_size} -le ${maximum} ]] || die "unsafe runtime file metadata: ${path}"
+}
+
+publish_json() {
+  local destination=$1 bytes=$2 directory name temporary
+  directory="$(dirname -- "${destination}")"
+  name="$(basename -- "${destination}")"
+  [[ ! -e ${destination} && ! -L ${destination} ]] || die "runtime publication target already exists: ${destination}"
+  temporary="$(mktemp "${directory}/.${name}.XXXXXXXX")"
+  pending_temporary=${temporary}
+  printf '%s\n' "${bytes}" >"${temporary}"
+  if [[ ${fake_root} -eq 0 ]]; then chown root:root "${temporary}"; fi
+  chmod 0440 "${temporary}"
+  assert_regular "${temporary}" "${expected_root_uid}" "${expected_root_gid}" 440 16384
+  fsync_path "${temporary}"
+  [[ ! -e ${destination} && ! -L ${destination} ]] || die "runtime publication target appeared concurrently: ${destination}"
+  mv -f "${temporary}" "${destination}"
+  pending_temporary=
+  assert_regular "${destination}" "${expected_root_uid}" "${expected_root_gid}" 440 16384
+  fsync_path "${directory}"
+}
+
+remove_durable() {
+  local path=$1 directory
+  directory="$(dirname -- "${path}")"
+  unlink "${path}"
+  fsync_path "${directory}"
+}
+
+run_root="$(path_at /run)"
+[[ -d ${run_root} && ! -L ${run_root} ]] || exit 70
+lock_parent="$(path_at /run/lock)"
+if [[ ! -e ${lock_parent} && ! -L ${lock_parent} ]]; then
+  if [[ ${fake_root} -eq 0 ]]; then install -d -o root -g root -m 0755 "${lock_parent}"; else mkdir -p "${lock_parent}"; chmod 0755 "${lock_parent}"; fi
+fi
+[[ -d ${lock_parent} && ! -L ${lock_parent} ]] || exit 70
+lock_directory="${lock_parent}/nelos-bind-runtime"
+ensure_directory "${lock_directory}" "${expected_root_uid}" "${expected_root_gid}" 700
+exec 9<"${lock_directory}"
+flock -w 10 9 || die "another runtime binding operation did not finish within its bound" 75
+
+etc_root="$(path_at /etc/nelos-desktop)"
+state_parent="$(path_at /var/lib/nelos-desktop)"
+observations="${state_parent}/observations"
+runs_root="${state_parent}/runs"
+ensure_directory "${etc_root}" "${expected_root_uid}" "${expected_root_gid}" 750
+ensure_directory "${state_parent}" "${expected_root_uid}" "${expected_root_gid}" 750
+ensure_directory "${observations}" "${expected_root_uid}" "${expected_root_gid}" 750
+ensure_directory "${runs_root}" "${expected_root_uid}" "${expected_root_gid}" 700
+
+if [[ ${fake_root} -eq 0 ]]; then
+  uid="$(id -u nelosauto)"; gid="$(id -g nelosauto)"
+  [[ ${uid} -ge 1000 && ${gid} -ge 1000 ]] || die "automation account identity is unsafe"
+else
+  uid=${EUID}; gid=${fake_group_id}
+fi
+workspace="$(path_at /home/nelosauto/workspace)"
+ensure_directory "${workspace}" "${uid}" "${gid}" 700
+state_root="$(path_at "$(jq -r .stateRoot <<<"${binding}")")"
+[[ ${state_root} == "$(path_at "/var/lib/nelos-desktop/runs/$(jq -r .runId <<<"${binding}")")" ]] || exit 77
+
+binding_file="${etc_root}/run-binding.json"
+intent_file="${etc_root}/run-binding.intent.json"
+auth_file="${state_parent}/device-auth.json"
+ready_file="${state_parent}/gui-ready.json"
+
+read_exact_binding_file() {
+  local path=$1 observed
+  assert_regular "${path}" "${expected_root_uid}" "${expected_root_gid}" 440 16384
+  observed="$(jq -ce 'select(type == "object")' "${path}")" || die "runtime binding JSON is invalid: ${path}"
+  observed="$(jq -cS . <<<"${observed}")"
+  [[ ${observed} == "${binding}" ]] || die "a disposable VM cannot be rebound to a different run or fence"
+}
+
+validate_optional_bound_artifact() {
+  local path=$1 kind=$2
+  [[ -e ${path} || -L ${path} ]] || return 0
+  assert_regular "${path}" "${expected_root_uid}" "${expected_root_gid}" 440 65536
+  if [[ ${kind} == auth ]]; then
+    jq -e --argjson expected "${binding}" '
+      keys == ["accountBindingDigest","accountType","authMethod","authenticated","binding","credentialStore","developerSessionImported","schemaVersion"] and
+      .schemaVersion == 1 and .authenticated == true and .accountType == "chatgpt" and
+      (.accountBindingDigest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+      .authMethod == "chatgptDeviceCode" and .credentialStore == "file" and
+      .developerSessionImported == false and .binding == $expected
+    ' "${path}" >/dev/null || die "existing device-auth receipt is unsafe or differently bound"
+  else
+    jq -e --argjson expected "${binding}" '
+      keys == ["accessibilityBus","binding","captureReady","ready","schemaVersion","sessionUser"] and
+      .schemaVersion == 1 and .binding == $expected and .ready == true and
+      .accessibilityBus == true and .captureReady == true and .sessionUser == "nelosauto"
+    ' "${path}" >/dev/null || die "existing GUI readiness receipt is unsafe or differently bound"
+  fi
+}
+
+if [[ -e ${binding_file} || -L ${binding_file} ]]; then
+  read_exact_binding_file "${binding_file}"
+  validate_optional_bound_artifact "${auth_file}" auth
+  validate_optional_bound_artifact "${ready_file}" ready
+  if [[ -e ${intent_file} || -L ${intent_file} ]]; then
+    read_exact_binding_file "${intent_file}"
+    remove_durable "${intent_file}"
+  fi
+  ensure_directory "${state_root}" "${expected_root_uid}" "${expected_root_gid}" 700
+  exit 0
+fi
+
+if [[ -e ${auth_file} || -L ${auth_file} || -e ${ready_file} || -L ${ready_file} ]]; then
+  die "readiness or authentication state exists without an immutable run binding"
+fi
+if [[ -e ${intent_file} || -L ${intent_file} ]]; then
+  read_exact_binding_file "${intent_file}"
+else
+  publish_json "${intent_file}" "${binding}"
+fi
+
+ensure_directory "${state_root}" "${expected_root_uid}" "${expected_root_gid}" 700
+systemctl stop nelos-desktop-session.service >/dev/null
+if systemctl is-active --quiet nelos-desktop-session.service; then
+  die "Desktop readiness service remained active after stop"
+fi
+if [[ -e ${auth_file} || -L ${auth_file} || -e ${ready_file} || -L ${ready_file} ]]; then
+  die "readiness or authentication state appeared during runtime binding"
+fi
+
+publish_json "${binding_file}" "${binding}"
+remove_durable "${intent_file}"

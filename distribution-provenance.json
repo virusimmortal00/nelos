@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "distribution": "nelos",
-  "revision": "0.12.18",
+  "revision": "0.12.19",
   "sourceRepository": "https://github.com/virusimmortal00/nelos.git",
-  "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.12.18",
-  "integrity": "sha256:5c57b7ac8599109ecd6ab92dffa6359ab713fbe12c6882f1dc1fa18304a2be3d",
+  "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.12.19",
+  "integrity": "sha256:2cc24866afb7bb888e9e84a0296cad3596765b2c26023d2b9d6045cb70187ae7",
   "skillIntegrity": "sha256:2c4982ae8e7fa691fcd72dbe5e849574b319271fd4fc0280b5b9a0537e3ef1ae",
   "requiredCliCommands": [
     "doctor",

@@ -1,0 +1,14 @@
+[Unit]
+Description=Nelos bounded graphical Desktop readiness bridge
+After=gdm3.service
+Requires=gdm3.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+LimitCORE=0
+ExecStart=/usr/libexec/nelos-check-gui-readiness
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

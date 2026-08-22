@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-host-install-receipt.schema.json",
+  "title": "Nelos golden-builder trusted-console host receipt v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["action", "completedAt", "hostBindingDigest", "kind", "planDigest", "principalIdentities", "receiptDigest", "result", "schemaVersion", "targetsDigest"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "nelos-golden-builder-host-install-receipt" },
+    "action": { "enum": ["install", "remove", "verify"] }, "result": { "enum": ["absent", "installed"] },
+    "planDigest": { "$ref": "#/$defs/sha256" }, "hostBindingDigest": { "$ref": "#/$defs/sha256" }, "targetsDigest": { "$ref": "#/$defs/sha256" },
+    "principalIdentities": { "$ref": "#/$defs/principalIdentities" },
+    "completedAt": { "type": "string", "format": "date-time" }, "receiptDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "principalIdentities": {
+      "type": "array", "minItems": 1, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["gid", "role", "uid", "user"],
+        "properties": {
+          "gid": { "type": "integer", "minimum": 1 },
+          "role": { "enum": ["provider", "attestor"] },
+          "uid": { "type": "integer", "minimum": 1 },
+          "user": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+#!/usr/bin/env node
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+
+import { canonicalJsonV1 } from "../validation/proxmox-desktop/v1/build-golden-image.mjs";
+import {
+  installGoldenBuilderHostV1,
+  LocalGoldenBuilderHostBoundaryV1,
+  reconcileGoldenBuilderHostV1,
+  removeGoldenBuilderHostV1,
+  verifyGoldenBuilderHostV1,
+} from "../validation/proxmox-desktop/v1/golden-builder-host-installer.mjs";
+
+function fail(code, message) { process.stderr.write(`${canonicalJsonV1({ error: code, message })}\n`); process.exitCode = 1; }
+function parse(argv) {
+  const command = argv.shift(); const values = {};
+  if (!new Set(["install", "reconcile", "remove", "verify"]).has(command)) throw Object.assign(new Error("command must be install, verify, remove, or reconcile"), { code: "INVALID_OPERATION" });
+  while (argv.length) {
+    const name = argv.shift(); const value = argv.shift();
+    if (!value || !new Set(["--authorize-plan", "--binding", "--guest-helper", "--host-helper", "--plan", "--receipt"]).has(name) || values[name]) throw Object.assign(new Error("host installer arguments are invalid"), { code: "INVALID_OPERATION" });
+    values[name] = value;
+  }
+  for (const required of ["--binding", "--host-helper", "--plan", "--receipt"]) if (!values[required]) throw Object.assign(new Error(`${required} is required`), { code: "INVALID_OPERATION" });
+  if (["install", "remove", "reconcile"].includes(command) && !values["--authorize-plan"]) throw Object.assign(new Error("mutation requires --authorize-plan"), { code: "MUTATION_AUTHORIZATION_REQUIRED" });
+  return { command, values };
+}
+async function sealed(path, json = false) {
+  if (!isAbsolute(path) || resolve(path) !== path) throw Object.assign(new Error("input path must be absolute and canonical"), { code: "UNSAFE_PATH" });
+  const canonical = await realpath(path).catch(() => null); const info = canonical ? await lstat(canonical).catch(() => null) : null;
+  if (!canonical || canonical !== path || !info?.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.uid !== 0 || info.gid !== 0 || !new Set([0o400, 0o440]).has(info.mode & 0o777) || info.size > 1_048_576) throw Object.assign(new Error("input is not a sealed root-owned regular file"), { code: "UNSEALED_INPUT" });
+  const bytes = await readFile(path);
+  if (!json) return bytes;
+  let value; try { value = JSON.parse(bytes); } catch { throw Object.assign(new Error("sealed input is not JSON"), { code: "INVALID_JSON" }); }
+  if (!bytes.equals(Buffer.from(`${canonicalJsonV1(value)}\n`))) throw Object.assign(new Error("sealed JSON input is not canonical"), { code: "NONCANONICAL_INPUT" });
+  return value;
+}
+
+try {
+  const { command, values } = parse(process.argv.slice(2));
+  const [plan, hostBinding, hostHelperBytes, guestHelperBytes] = await Promise.all([
+    sealed(values["--plan"], true), sealed(values["--binding"], true), sealed(values["--host-helper"]),
+    values["--guest-helper"] ? sealed(values["--guest-helper"]) : null,
+  ]);
+  const input = { plan, hostBinding, hostHelperBytes, guestHelperBytes, authorizePlan: values["--authorize-plan"] ?? null, receiptPath: values["--receipt"] };
+  const options = { boundary: new LocalGoldenBuilderHostBoundaryV1() };
+  const result = command === "install" ? await installGoldenBuilderHostV1(input, options)
+    : command === "verify" ? await verifyGoldenBuilderHostV1(input, options)
+      : command === "remove" ? await removeGoldenBuilderHostV1(input, options)
+        : await reconcileGoldenBuilderHostV1(input, options);
+  process.stdout.write(`${canonicalJsonV1({ action: result.action, hostBindingDigest: result.hostBindingDigest, planDigest: result.planDigest, receiptDigest: result.receiptDigest, result: result.result, targetsDigest: result.targetsDigest })}\n`);
+} catch (error) { fail(error?.code ?? "HOST_INSTALLER_FAILED", error?.message ?? "host installer failed"); }

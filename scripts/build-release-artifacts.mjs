@@ -21,6 +21,8 @@ import { fileURLToPath } from "node:url";
 import {
   SOURCE_REPOSITORY,
   computeDistributionIntegrity,
+  listDistributionFiles,
+  materializeGitDistributionProvenance,
   pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
 import { assertAgentPluginLayout } from "./generate-mcp-config.mjs";
@@ -307,10 +309,72 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
     lockMetadata,
     version,
     releaseNotes,
+    actualIntegrity,
   };
 }
 
-async function npmPack(destination, root, releaseProvenance) {
+export function assertPackedDistributionInventory(result, expectedFiles) {
+  if (!Array.isArray(result?.files)) {
+    fail("npm pack did not report its file inventory");
+  }
+  const observedFiles = result.files
+    .map(({ path }) => path)
+    .filter((path) => typeof path === "string")
+    .sort();
+  if (
+    observedFiles.length !== expectedFiles.length ||
+    observedFiles.some((path, index) => path !== expectedFiles[index])
+  ) {
+    const missing = expectedFiles.filter((path) => !observedFiles.includes(path));
+    const unexpected = observedFiles.filter((path) => !expectedFiles.includes(path));
+    fail(
+      `npm pack inventory differs from the provenance-covered distribution ` +
+      `(missing=${missing.join(",") || "none"}; unexpected=${unexpected.join(",") || "none"})`,
+    );
+  }
+}
+
+async function packOnce(destination, root, packExecutable) {
+  const { stdout } = await execFileAsync(
+    packExecutable,
+    ["pack", "--json", "--pack-destination", destination],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  );
+  const parsed = json(stdout, "package manager pack output");
+  const result = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (!result?.filename || (Array.isArray(parsed) && parsed.length !== 1)) {
+    fail("package manager pack did not return exactly one artifact");
+  }
+  assertPackedDistributionInventory(
+    result,
+    await listDistributionFiles(root, { includeProvenance: true }),
+  );
+  return {
+    path: join(destination, basename(result.filename)),
+    result,
+  };
+}
+
+async function extractPackage(archivePath, destination) {
+  await mkdir(destination, { recursive: true });
+  await execFileAsync("/usr/bin/tar", ["-xzf", archivePath, "-C", destination], {
+    encoding: "utf8",
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return join(destination, "package");
+}
+
+async function npmPack(
+  destination,
+  root,
+  releaseProvenance,
+  packExecutable = "npm",
+) {
   const stageParent = await mkdtemp(join(tmpdir(), "nelos-release-source-"));
   const stageRoot = join(stageParent, "package");
   try {
@@ -322,21 +386,46 @@ async function npmPack(destination, root, releaseProvenance) {
       join(stageRoot, "distribution-provenance.json"),
       `${JSON.stringify(releaseProvenance, null, 2)}\n`,
     );
-    const { stdout } = await execFileAsync(
-      "npm",
-      ["pack", "--json", "--pack-destination", destination],
+    const normalizationPackDirectory = join(stageParent, "normalization-pack");
+    const normalizationExtractDirectory = join(stageParent, "normalization-extract");
+    await mkdir(normalizationPackDirectory);
+    const normalizationPack = await packOnce(
+      normalizationPackDirectory,
+      stageRoot,
+      packExecutable,
+    );
+    const normalizedRoot = await extractPackage(
+      normalizationPack.path,
+      normalizationExtractDirectory,
+    );
+    const normalizedIntegrity = await computeDistributionIntegrity(normalizedRoot);
+    const normalizedProvenance = materializeGitDistributionProvenance(
+      releaseProvenance,
       {
-        cwd: stageRoot,
-        encoding: "utf8",
-        env: { ...process.env, npm_config_ignore_scripts: "true" },
-        maxBuffer: 4 * 1024 * 1024,
+        sourceRevision: releaseProvenance.sourceRevision,
+        integrity: normalizedIntegrity,
       },
     );
-    const result = json(stdout, "npm pack output");
-    if (!Array.isArray(result) || result.length !== 1 || !result[0]?.filename) {
-      fail("npm pack did not return exactly one artifact");
+    await writeFile(
+      join(normalizedRoot, "distribution-provenance.json"),
+      `${JSON.stringify(normalizedProvenance, null, 2)}\n`,
+    );
+    const finalPack = await packOnce(destination, normalizedRoot, packExecutable);
+    const verificationRoot = await extractPackage(
+      finalPack.path,
+      join(stageParent, "verification-extract"),
+    );
+    if (await computeDistributionIntegrity(verificationRoot) !== normalizedIntegrity) {
+      fail("packed candidate bytes do not match their materialized distribution integrity");
     }
-    return join(destination, result[0].filename);
+    const packedProvenance = json(
+      await readFile(join(verificationRoot, "distribution-provenance.json"), "utf8"),
+      "packed distribution provenance",
+    );
+    if (JSON.stringify(packedProvenance) !== JSON.stringify(normalizedProvenance)) {
+      fail("packed candidate provenance changed after materialization");
+    }
+    return { path: finalPack.path, provenance: normalizedProvenance };
   } finally {
     await rm(stageParent, { recursive: true, force: true });
   }
@@ -357,34 +446,57 @@ async function assertEmptyOutputDirectory(root, outputDirectory) {
   }
 }
 
+async function createReleaseSnapshot(root, sourceCommit) {
+  const parent = await mkdtemp(join(tmpdir(), "nelos-release-snapshot-"));
+  const snapshotRoot = join(parent, "source");
+  try {
+    await git(root, "worktree", "add", "--detach", snapshotRoot, sourceCommit);
+    return { parent, root: snapshotRoot };
+  } catch (error) {
+    await rm(parent, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function removeReleaseSnapshot(root, snapshot) {
+  try {
+    await git(root, "worktree", "remove", "--force", snapshot.root);
+  } finally {
+    await rm(snapshot.parent, { recursive: true, force: true });
+  }
+}
+
 export async function buildReleaseArtifacts({
   tag,
   outputDirectory,
   root = repositoryRoot,
   environment = process.env,
+  packExecutable = "npm",
 }) {
-  const inputs = await readReleaseInputs(tag, root);
   const sourceCommit = await validateAnnotatedTag(tag, root, environment);
-  const releaseProvenance = {
-    ...inputs.provenance,
-    sourceRepository: SOURCE_REPOSITORY,
-    sourceRevision: sourceCommit,
-    sourceRevisionType: "git",
-    cacheIdentity: pluginCacheIdentity({
-      sourceRepository: SOURCE_REPOSITORY,
-      version: inputs.version,
-    }),
-  };
-  const output = resolve(root, outputDirectory);
-  await assertEmptyOutputDirectory(root, output);
-
-  const firstPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-a-"));
-  const secondPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-b-"));
+  const snapshot = await createReleaseSnapshot(root, sourceCommit);
   try {
-    const [firstPackage, secondPackage] = await Promise.all([
-      npmPack(firstPackDirectory, root, releaseProvenance),
-      npmPack(secondPackDirectory, root, releaseProvenance),
-    ]);
+    const inputs = await readReleaseInputs(tag, snapshot.root);
+    const releaseProvenance = materializeGitDistributionProvenance(
+      inputs.provenance,
+      { sourceRevision: sourceCommit, integrity: inputs.actualIntegrity },
+    );
+    const output = resolve(root, outputDirectory);
+    await assertEmptyOutputDirectory(root, output);
+
+    const firstPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-a-"));
+    const secondPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-b-"));
+    try {
+      const [firstPack, secondPack] = await Promise.all([
+        npmPack(firstPackDirectory, snapshot.root, releaseProvenance, packExecutable),
+        npmPack(secondPackDirectory, snapshot.root, releaseProvenance, packExecutable),
+      ]);
+    const firstPackage = firstPack.path;
+    const secondPackage = secondPack.path;
+    if (JSON.stringify(firstPack.provenance) !== JSON.stringify(secondPack.provenance)) {
+      fail("two clean pack runs produced different materialized provenance");
+    }
+    const packedReleaseProvenance = firstPack.provenance;
     const [firstDigest, secondDigest] = await Promise.all([
       sha256(firstPackage),
       sha256(secondPackage),
@@ -402,7 +514,7 @@ export async function buildReleaseArtifacts({
     const notesPath = join(output, "release-notes.md");
     await Promise.all([
       copyFile(firstPackage, packagePath),
-      writeFile(provenancePath, `${JSON.stringify(releaseProvenance, null, 2)}\n`),
+      writeFile(provenancePath, `${JSON.stringify(packedReleaseProvenance, null, 2)}\n`),
       writeFile(
         sbomPath,
         `${JSON.stringify(
@@ -438,8 +550,8 @@ export async function buildReleaseArtifacts({
           tag,
           sourceRepository: SOURCE_REPOSITORY,
           sourceCommit,
-          cacheIdentity: releaseProvenance.cacheIdentity,
-          distributionIntegrity: inputs.provenance.integrity,
+          cacheIdentity: packedReleaseProvenance.cacheIdentity,
+          distributionIntegrity: packedReleaseProvenance.integrity,
           artifacts: artifactRecords,
         },
         null,
@@ -462,18 +574,22 @@ export async function buildReleaseArtifacts({
         }),
     );
     await writeFile(join(output, "SHA256SUMS"), `${checksumLines.join("\n")}\n`);
-    return {
-      version: inputs.version,
-      tag,
-      sourceCommit,
-      packageDigest: firstDigest,
-      outputDirectory: output,
-    };
+      return {
+        version: inputs.version,
+        tag,
+        sourceCommit,
+        packageDigest: firstDigest,
+        distributionIntegrity: packedReleaseProvenance.integrity,
+        outputDirectory: output,
+      };
+    } finally {
+      await Promise.all([
+        rm(firstPackDirectory, { recursive: true, force: true }),
+        rm(secondPackDirectory, { recursive: true, force: true }),
+      ]);
+    }
   } finally {
-    await Promise.all([
-      rm(firstPackDirectory, { recursive: true, force: true }),
-      rm(secondPackDirectory, { recursive: true, force: true }),
-    ]);
+    await removeReleaseSnapshot(root, snapshot);
   }
 }
 

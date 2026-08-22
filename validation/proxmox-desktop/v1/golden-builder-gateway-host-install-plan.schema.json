@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-gateway-host-install-plan.schema.json",
+  "title": "Nelos golden-builder gateway host installation plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["guestHelperDigest", "guestHelperPath", "guestVmId", "hostBindingDigest", "hostBindingPath", "hostHelperDigest", "hostHelperPath", "kind", "knownHostsLine", "planDigest", "principals", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-gateway-host-install-plan" },
+    "hostBindingDigest": { "$ref": "#/$defs/sha256" }, "hostBindingPath": { "const": "/etc/nelos-golden/gateway-transport-binding.json" },
+    "hostHelperDigest": { "$ref": "#/$defs/sha256" }, "hostHelperPath": { "const": "/usr/libexec/nelos-proxmox-golden-gateway-transport" },
+    "guestHelperDigest": { "$ref": "#/$defs/sha256" }, "guestHelperPath": { "const": "/usr/libexec/nelos-golden-gateway-policy" }, "guestVmId": { "const": 9023 },
+    "knownHostsLine": { "type": "string", "pattern": "^192\\.168\\.1\\.110 ssh-ed25519 [A-Za-z0-9+/]+={0,2}\\n$", "maxLength": 4096 },
+    "principals": { "type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{ "$ref": "#/$defs/provider" }, { "$ref": "#/$defs/attestor" }], "items": false },
+    "planDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "principal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorizedKey", "authorizedKeysPath", "home", "role", "shell", "sudoers", "sudoersPath", "user"],
+      "properties": { "role": { "enum": ["provider", "attestor"] }, "user": { "type": "string" }, "home": { "type": "string" }, "shell": { "const": "/bin/sh" }, "authorizedKeysPath": { "type": "string" }, "authorizedKey": { "type": "string", "maxLength": 8192 }, "sudoersPath": { "type": "string" }, "sudoers": { "type": "string", "maxLength": 4096 } }
+    },
+    "provider": { "allOf": [{ "$ref": "#/$defs/principal" }, { "properties": { "role": { "const": "provider" }, "user": { "const": "nelos-golden-gateway-provider" }, "home": { "const": "/var/lib/nelos-golden-gateway-provider" }, "authorizedKeysPath": { "const": "/var/lib/nelos-golden-gateway-provider/.ssh/authorized_keys" }, "sudoersPath": { "const": "/etc/sudoers.d/nelos-golden-gateway-provider" } } }] },
+    "attestor": { "allOf": [{ "$ref": "#/$defs/principal" }, { "properties": { "role": { "const": "attestor" }, "user": { "const": "nelos-golden-gateway-attestor" }, "home": { "const": "/var/lib/nelos-golden-gateway-attestor" }, "authorizedKeysPath": { "const": "/var/lib/nelos-golden-gateway-attestor/.ssh/authorized_keys" }, "sudoersPath": { "const": "/etc/sudoers.d/nelos-golden-gateway-attestor" } } }] }
+  }
+}

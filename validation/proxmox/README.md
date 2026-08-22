@@ -1,5 +1,10 @@
 # Proxmox validator template
 
+The production graphical guest lane is documented separately in
+[`../../docs/proxmox-linux-desktop.md`](../../docs/proxmox-linux-desktop.md) and
+is installed from [`desktop/recipe-v1`](desktop/recipe-v1). The template builder
+below remains the base validator image path.
+
 Status: source-only foundation. The repository contains an executable,
 checksum-pinned recipe; it does not contain a VM image, Proxmox backup, live
 cluster configuration, credential, generated variable file, or live validation

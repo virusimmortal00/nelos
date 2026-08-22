@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/proxmox-desktop-host-run-cleanup-intent.schema.json",
+  "title": "Nelos Proxmox Desktop host-run cleanup intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["completedEffects", "installationReceiptSha256", "kind", "packetSha256", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos.proxmox-desktop.host-run-cleanup-intent.v1" },
+    "packetSha256": { "$ref": "#/$defs/sha256" },
+    "installationReceiptSha256": { "$ref": "#/$defs/sha256" },
+    "completedEffects": {
+      "type": "array", "maxItems": 19, "uniqueItems": true,
+      "items": { "enum": [
+        "revoke-provider-key", "revoke-attestor-key", "revoke-provider-sudo", "revoke-attestor-sudo",
+        "remove-provider-ssh-directory", "remove-attestor-ssh-directory", "remove-provider-home", "remove-attestor-home",
+        "remove-provider-account", "remove-attestor-account", "remove-lease-authority-binding", "remove-operator-binding",
+        "remove-provider-binding", "remove-run-binding", "remove-installation-receipt", "remove-fake-account-state",
+        "remove-empty-binding-directory", "confirm-exact-absence", "publish-cleanup-receipt"
+      ] }
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-acl-bootstrap-plan.schema.json",
+  "title": "Nelos Proxmox golden-builder scoped ACL bootstrap plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "buildNonce", "expiresAt", "kind", "network", "planDigest", "reservationDigest", "reservationId",
+    "rollbackCommands", "schemaVersion", "setupCommands", "tokenRequests"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-acl-bootstrap-plan" },
+    "reservationDigest": { "$ref": "#/$defs/sha256" },
+    "reservationId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "buildNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aclPath", "vnet", "zone"],
+      "properties": {
+        "vnet": { "const": "nelosbld" },
+        "zone": { "const": "nelosbld" },
+        "aclPath": { "const": "/sdn/zones/nelosbld/nelosbld" }
+      }
+    },
+    "setupCommands": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "items": { "$ref": "#/$defs/command" }
+    },
+    "tokenRequests": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/buildToken" },
+        { "$ref": "#/$defs/attestorToken" }
+      ],
+      "items": false
+    },
+    "rollbackCommands": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/command" }
+    },
+    "planDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "tokenId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$" },
+    "userId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$" },
+    "tokenName": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "command": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "buildToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "outputName", "tokenId", "tokenName", "user"],
+      "properties": {
+        "kind": { "const": "build" },
+        "outputName": { "const": "build-token" },
+        "tokenId": { "$ref": "#/$defs/tokenId" },
+        "tokenName": { "$ref": "#/$defs/tokenName" },
+        "user": { "$ref": "#/$defs/userId" }
+      }
+    },
+    "attestorToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "outputName", "tokenId", "tokenName", "user"],
+      "properties": {
+        "kind": { "const": "attestor" },
+        "outputName": { "const": "attestor-token" },
+        "tokenId": { "$ref": "#/$defs/tokenId" },
+        "tokenName": { "$ref": "#/$defs/tokenName" },
+        "user": { "$ref": "#/$defs/userId" }
+      }
+    }
+  }
+}

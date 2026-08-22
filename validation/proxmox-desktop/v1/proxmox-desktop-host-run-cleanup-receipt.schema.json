@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/proxmox-desktop-host-run-cleanup-receipt.schema.json",
+  "title": "Nelos Proxmox Desktop host-run cleanup receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["completedEffects", "installationReceiptSha256", "kind", "packetSha256", "receiptSha256", "removed", "schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos.proxmox-desktop.host-run-cleanup-receipt.v1" },
+    "packetSha256": { "$ref": "#/$defs/sha256" },
+    "installationReceiptSha256": { "$ref": "#/$defs/sha256" },
+    "receiptSha256": { "$ref": "#/$defs/sha256" },
+    "removed": { "const": true },
+    "completedEffects": {
+      "type": "array", "minItems": 19, "maxItems": 19, "uniqueItems": true,
+      "prefixItems": [
+        { "const": "revoke-provider-key" }, { "const": "revoke-attestor-key" }, { "const": "revoke-provider-sudo" }, { "const": "revoke-attestor-sudo" },
+        { "const": "remove-provider-ssh-directory" }, { "const": "remove-attestor-ssh-directory" }, { "const": "remove-provider-home" }, { "const": "remove-attestor-home" },
+        { "const": "remove-provider-account" }, { "const": "remove-attestor-account" }, { "const": "remove-lease-authority-binding" }, { "const": "remove-operator-binding" },
+        { "const": "remove-provider-binding" }, { "const": "remove-run-binding" }, { "const": "remove-installation-receipt" }, { "const": "remove-fake-account-state" },
+        { "const": "remove-empty-binding-directory" }, { "const": "confirm-exact-absence" }, { "const": "publish-cleanup-receipt" }
+      ],
+      "items": false
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

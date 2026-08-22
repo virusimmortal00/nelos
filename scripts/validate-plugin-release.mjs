@@ -24,8 +24,10 @@ export const PLUGIN_PAYLOAD_PATHS = Object.freeze([
   "completions",
   "docs",
   "package.json",
+  "scripts/stage-production-desktop-candidate.mjs",
   "skills",
   "src",
+  "validation",
 ]);
 
 export function validatePluginReleaseChange({

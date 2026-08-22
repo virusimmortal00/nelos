@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
+
+import { canonicalJsonV1 } from "../validation/proxmox-desktop/v1/build-golden-image.mjs";
+import { executeGoldenBuilderGuestControllerV1, validateGoldenBuilderGuestControllerAccessV1 } from "../validation/proxmox-desktop/v1/golden-builder-guest-controller.mjs";
+import { GoldenBuilderGatewayPolicyAdapterV1 } from "../validation/proxmox-desktop/v1/golden-builder-gateway-policy.mjs";
+import { createGoldenBuilderGatewaySshTransportsV1 } from "../validation/proxmox-desktop/v1/golden-builder-gateway-qga-transport.mjs";
+import {
+  createGoldenBuilderProductionRunIdentityV1,
+  GoldenBuilderArtifactStoreV1,
+  GoldenBuilderProductionRunnerV1,
+} from "../validation/proxmox-desktop/v1/golden-builder-production-runner.mjs";
+import { ProxmoxGoldenBuilderAdapterV1, createGoldenBuilderSshTransportsV1 } from "../validation/proxmox-desktop/v1/golden-builder-proxmox-transport.mjs";
+
+function error(code, message) { process.stderr.write(`${canonicalJsonV1({ error: code, message })}\n`); process.exitCode = 1; }
+function exact(value, fields, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")) throw Object.assign(new Error(`${label} fields differ`), { code: "INVALID_RUN_CONFIG" });
+}
+function parse(argv) {
+  const command = argv.shift(); const values = {};
+  if (!new Set(["cancel", "identity", "inspect", "resume", "run"]).has(command)) throw Object.assign(new Error("command must be identity, run, resume, cancel, or inspect"), { code: "INVALID_OPERATION" });
+  while (argv.length) { const name = argv.shift(); const value = argv.shift(); if (!value || !new Set(["--authorize-run", "--config"]).has(name) || values[name]) throw Object.assign(new Error("runner arguments are invalid"), { code: "INVALID_OPERATION" }); values[name] = value; }
+  if (!values["--config"] || command === "run" && !values["--authorize-run"]) throw Object.assign(new Error("--config and exact first-run authorization are required"), { code: "INVALID_OPERATION" });
+  return { command, values };
+}
+async function sealedJson(path) {
+  if (!isAbsolute(path) || resolve(path) !== path) throw Object.assign(new Error("config path is not absolute and canonical"), { code: "UNSAFE_PATH" });
+  const canonical = await realpath(path).catch(() => null); const info = canonical ? await lstat(canonical).catch(() => null) : null;
+  if (!canonical || canonical !== path || !info?.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !new Set([0o400, 0o440, 0o600, 0o640]).has(info.mode & 0o777)) throw Object.assign(new Error("config is not one sealed regular file"), { code: "UNSEALED_INPUT" });
+  const bytes = await readFile(path); let value; try { value = JSON.parse(bytes); } catch { throw Object.assign(new Error("config is not JSON"), { code: "INVALID_JSON" }); }
+  if (!bytes.equals(Buffer.from(`${canonicalJsonV1(value)}\n`))) throw Object.assign(new Error("config is not canonical JSON"), { code: "NONCANONICAL_INPUT" });
+  return value;
+}
+
+try {
+  const { command, values } = parse(process.argv.slice(2)); const config = await sealedJson(values["--config"]);
+  exact(config, ["artifactDirectory", "builderTransportAccess", "gatewayPolicyBinding", "gatewayTransportAccess", "guestControllerAccess", "journalDirectory", "kind", "lifecycleBinding", "reservation", "schemaVersion", "toolchainLockDigest"], "productionRunConfig");
+  if (config.schemaVersion !== 1 || config.kind !== "nelos-golden-builder-production-config" || !isAbsolute(config.journalDirectory) || !isAbsolute(config.artifactDirectory)) throw Object.assign(new Error("production run config identity differs"), { code: "INVALID_RUN_CONFIG" });
+  validateGoldenBuilderGuestControllerAccessV1(config.guestControllerAccess);
+  const activeExpired = Date.now() >= Date.parse(config.reservation?.expiresAt);
+  const cleanupOnly = command === "cancel" || command === "resume" && activeExpired;
+  const identity = createGoldenBuilderProductionRunIdentityV1(config, { now: Date.now(), allowExpiredForCleanup: cleanupOnly || command === "inspect" });
+  if (command === "identity") { process.stdout.write(`${canonicalJsonV1({ runDigest: identity.runDigest })}\n`); }
+  else {
+    const [builderTransports, gatewayTransports] = await Promise.all([
+      createGoldenBuilderSshTransportsV1({ access: config.builderTransportAccess }),
+      createGoldenBuilderGatewaySshTransportsV1({ access: config.gatewayTransportAccess, policyBinding: config.gatewayPolicyBinding, reservation: config.reservation, allowExpiredBinding: cleanupOnly }),
+    ]);
+    const providerReceipts = new GoldenBuilderArtifactStoreV1(join(config.artifactDirectory, "provider-receipts"));
+    const gatewayReceipts = new GoldenBuilderArtifactStoreV1(join(config.artifactDirectory, "gateway-receipts"));
+    const builderAdapter = new ProxmoxGoldenBuilderAdapterV1({ lifecycleBinding: config.lifecycleBinding, reservation: config.reservation, ...builderTransports, receiptStore: providerReceipts, allowExpiredForCleanup: cleanupOnly });
+    const gatewayAdapter = new GoldenBuilderGatewayPolicyAdapterV1({ binding: config.gatewayPolicyBinding, reservation: config.reservation, ...gatewayTransports, receiptStore: gatewayReceipts, allowExpiredBinding: cleanupOnly });
+    const runner = new GoldenBuilderProductionRunnerV1({
+      journalDirectory: config.journalDirectory, reservation: config.reservation, lifecycleBinding: config.lifecycleBinding,
+      gatewayPolicyBinding: config.gatewayPolicyBinding, toolchainLockDigest: config.toolchainLockDigest,
+      builderAdapter, gatewayAdapter,
+      bundleStore: new GoldenBuilderArtifactStoreV1(join(config.artifactDirectory, "controller-bundles")),
+      terminalStore: new GoldenBuilderArtifactStoreV1(join(config.artifactDirectory, "terminal-receipts")),
+      executeController: (input) => executeGoldenBuilderGuestControllerV1({ ...input, access: config.guestControllerAccess }),
+      allowExpiredForCleanup: cleanupOnly,
+    });
+    const result = command === "run" ? await runner.start({ authorizeRun: values["--authorize-run"] }) : command === "resume" ? await runner.resume() : command === "cancel" ? await runner.cancel() : await runner.inspect();
+    process.stdout.write(`${canonicalJsonV1({ generation: result.generation, lastEvent: result.lastEvent, runDigest: result.runDigest, state: result.state })}\n`);
+  }
+} catch (failure) { error(failure?.code ?? "GOLDEN_BUILDER_RUNNER_FAILED", failure?.message ?? "golden builder runner failed"); }

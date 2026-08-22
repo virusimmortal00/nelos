@@ -115,6 +115,7 @@ test("changed paths select direct contracts and transitive dependents", () => {
   assert.deepEqual(selection.selectedCapabilityIds, [
     "app-server.protocol-shapes",
     "app-server.strict-bridge",
+    "nelos.desktop-production",
     "nelos.lifecycle-invariants",
   ]);
   assert.deepEqual(selection.pathSelections[0].capabilityIds, [
@@ -190,6 +191,7 @@ test("experimentation contracts have a bounded independent compatibility owner",
   assert.deepEqual(selection.unmappedSensitivePaths, []);
   assert.deepEqual(selection.selectedCapabilityIds, [
     "nelos.experimentation-contracts",
+    "nelos.desktop-production",
     "nelos.lifecycle-invariants",
   ]);
   assert.ok(selection.pathSelections.every(({ capabilityIds }) =>
@@ -197,7 +199,11 @@ test("experimentation contracts have a bounded independent compatibility owner",
   assert.deepEqual(
     selection.pathSelections.find(({ path }) => path === "package.json")
       .capabilityIds,
-    ["nelos.experimentation-contracts", "nelos.lifecycle-invariants"],
+    [
+      "nelos.experimentation-contracts",
+      "nelos.desktop-production",
+      "nelos.lifecycle-invariants",
+    ],
   );
 });
 
@@ -228,6 +234,7 @@ test("renames inspect old and new paths and deletions retain their old mapping",
   assert.deepEqual(rename.directCapabilityIds, [
     "app-server.protocol-shapes",
     "app-server.strict-bridge",
+    "nelos.desktop-production",
     "nelos.lifecycle-invariants",
   ]);
 
@@ -251,6 +258,47 @@ test("compatibility-sensitive unmapped files fail closed actionably", () => {
   assert.match(selection.action, /Add each compatibility-sensitive path/u);
   assert.deepEqual(selection.selectedCapabilityIds, [
     "nelos.lifecycle-invariants",
+  ]);
+});
+
+test("Desktop production surfaces select their exact contract and validation fails closed", () => {
+  const capability = COMPATIBILITY_CONTRACT_REGISTRY_V1.capabilities.find(
+    ({ id }) => id === "nelos.desktop-production",
+  );
+  assert.ok(capability);
+  assert.deepEqual(capability.mappings.checks, ["repo.desktop-production-contracts"]);
+
+  const paths = [
+    "bin/nelos-prepare-production-run",
+    "bin/nelos-volume-attestor-host-installer",
+    "docs/production-desktop-candidate.md",
+    "docs/archive-projection-convergence.md",
+    "scripts/stage-production-desktop-candidate.mjs",
+    "src/production-guest-task.mjs",
+    "test/fixtures/production-run-composer-v1.mjs",
+    "test/support/fake-proxmox-lease-authority.mjs",
+    "validation/proxmox-desktop/v1/golden-image.pkr.hcl",
+    "validation/proxmox/desktop/helpers/nelos-proxmox-run-binding.py",
+    "validation/proxmox/README.md",
+    "validation/proxmox/test/proxmox-template-contract.test.mjs",
+  ];
+  const selection = selectImpactedCompatibilityContractsV1(
+    COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    paths.map((path) => ({ status: "modified", path })),
+  );
+  assert.equal(selection.ok, true);
+  assert.deepEqual(selection.unmappedSensitivePaths, []);
+  assert.ok(selection.pathSelections.every(({ capabilityIds }) =>
+    capabilityIds.length === 1 && capabilityIds[0] === "nelos.desktop-production"));
+  assert.ok(selection.selectedCapabilityIds.includes("nelos.desktop-production"));
+
+  const unmapped = selectImpactedCompatibilityContractsV1(
+    COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    [{ status: "added", path: "validation/new-provider/unsafe-helper.sh" }],
+  );
+  assert.equal(unmapped.ok, false);
+  assert.deepEqual(unmapped.unmappedSensitivePaths, [
+    "validation/new-provider/unsafe-helper.sh",
   ]);
 });
 

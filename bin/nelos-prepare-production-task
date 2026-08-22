@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+import { isAbsolute } from "node:path";
+
+import { prepareProductionTaskV1 } from "../src/production-task-preparation.mjs";
+
+function usage() {
+  return `Usage: nelos-prepare-production-task --packet-root PATH --cwd PATH --title TITLE [--authorize-task-create]\n\n` +
+    `Creates at most one empty, non-ephemeral Codex task through the pinned local app-server.\n` +
+    `The authorization flag is required only for the first creation; adoption never calls thread/start.\n`;
+}
+
+function fail(message) {
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 2;
+}
+
+function parse(argv) {
+  const value = { authorizeCreate: false, cwd: null, root: null, title: null };
+  const seen = new Set();
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--help" || argument === "-h") return { help: true };
+    if (argument === "--authorize-task-create") {
+      if (seen.has(argument)) throw new Error("--authorize-task-create may be supplied only once");
+      seen.add(argument); value.authorizeCreate = true; continue;
+    }
+    const field = argument === "--packet-root" ? "root" : argument === "--cwd" ? "cwd" : argument === "--title" ? "title" : null;
+    if (field === null || seen.has(argument)) throw new Error(`unknown or duplicate option: ${argument}`);
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith("--")) throw new Error(`${argument} requires one value`);
+    seen.add(argument); value[field] = next; index += 1;
+  }
+  if (!value.root || !value.cwd || !value.title) throw new Error("--packet-root, --cwd, and --title are required");
+  if (!isAbsolute(value.root) || !isAbsolute(value.cwd)) throw new Error("--packet-root and --cwd must be absolute paths");
+  return value;
+}
+
+try {
+  const input = parse(process.argv.slice(2));
+  if (input.help) process.stdout.write(usage());
+  else {
+    const result = await prepareProductionTaskV1(input);
+    process.stdout.write(`${JSON.stringify({ ok: true, ...result }, null, 2)}\n`);
+  }
+} catch (error) {
+  fail(`${error?.code ?? "TASK_PREPARATION_FAILED"}: ${error?.message ?? "production task preparation failed"}`);
+}

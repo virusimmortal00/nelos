@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import {
   chmod,
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -12,16 +13,18 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
   DISTRIBUTION_ENTRIES,
+  MANAGED_CLI_BINS,
   MANAGED_CLI_COMMANDS,
   compareProvenance,
   computeDistributionIntegrity,
   computeFileIntegrity,
   listPathCommands,
+  materializeGitDistributionProvenance,
   readRequiredProvenance,
 } from "../src/distribution-provenance.mjs";
 
@@ -199,6 +202,7 @@ test("the provenance revision stays aligned with package and plugin releases", a
 
 test("the distributed plugin ships the active MCP tool surface and nothing dormant", async () => {
   const packageMetadata = JSON.parse(await readFile(packagePath, "utf8"));
+  const packageLock = JSON.parse(await readFile(join(packageRoot, "package-lock.json"), "utf8"));
   // The socket-free tool surface (docs/mcp-tool-surface.md) is an active,
   // provenance-covered distribution entry. The retired live-state prototype's
   // built runtime surfaces stay excluded, and the server remains
@@ -207,9 +211,18 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
   assert.ok(DISTRIBUTION_ENTRIES.includes(".mcp.json"));
   assert.ok(DISTRIBUTION_ENTRIES.includes("mcp.json"));
   assert.ok(DISTRIBUTION_ENTRIES.includes("plugin.json"));
+  assert.ok(DISTRIBUTION_ENTRIES.includes("validation"));
+  assert.ok(DISTRIBUTION_ENTRIES.includes("LICENSE"));
   assert.ok(packageMetadata.files.includes(".mcp.json"));
   assert.ok(packageMetadata.files.includes("mcp.json"));
   assert.ok(packageMetadata.files.includes("plugin.json"));
+  assert.ok(packageMetadata.files.includes("validation/"));
+  assert.ok(packageMetadata.files.includes("LICENSE"));
+  for (const command of ["nelos-golden-builder-runner", "nelos-golden-host-installer", "nelos-prepare-production-run", "nelos-prepare-production-guest-task", "nelos-prepare-production-task", "nelos-proxmox-transport", "nelos-proxmox-attest-transport", "nelos-observe-current-lease"]) {
+    assert.equal(packageMetadata.bin[command], `bin/${command}`);
+    assert.equal(MANAGED_CLI_BINS[command], `bin/${command}`);
+  }
+  assert.deepEqual(packageLock.packages[""].bin, packageMetadata.bin);
   assert.deepEqual(
     packageMetadata.files
       .filter((path) => path.startsWith("corpus/"))
@@ -231,6 +244,85 @@ test("the distributed plugin ships the active MCP tool surface and nothing dorma
     packageMetadata.devDependencies["@modelcontextprotocol/ext-apps"],
     "1.7.5",
   );
+});
+
+test("Git release provenance binds the exact commit and recomputed candidate digest", () => {
+  const sourceRevision = "a".repeat(40);
+  const integrity = `sha256:${"b".repeat(64)}`;
+  const materialized = materializeGitDistributionProvenance(
+    {
+      schemaVersion: 1,
+      distribution: "nelos",
+      revision: "1.2.3",
+      sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+    },
+    { sourceRevision, integrity },
+  );
+  assert.deepEqual(materialized, {
+    schemaVersion: 1,
+    distribution: "nelos",
+    revision: "1.2.3",
+    sourceRepository: "https://github.com/virusimmortal00/nelos.git",
+    sourceRevision,
+    sourceRevisionType: "git",
+    cacheIdentity: "https://github.com/virusimmortal00/nelos.git#nelos@1.2.3",
+    integrity,
+  });
+  assert.throws(
+    () => materializeGitDistributionProvenance(materialized, {
+      sourceRevision: "not-a-commit",
+      integrity,
+    }),
+    /full SHA-1 commit/u,
+  );
+  assert.throws(
+    () => materializeGitDistributionProvenance(materialized, {
+      sourceRevision,
+      integrity: "sha256:stale",
+    }),
+    /SHA-256 integrity digest/u,
+  );
+});
+
+test("Desktop-era integrity requires validation, license, and staging entries while legacy roots remain readable", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-desktop-integrity-boundary-"));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  for (const entry of DISTRIBUTION_ENTRIES) {
+    if (["validation", "LICENSE", "scripts/stage-production-desktop-candidate.mjs"].includes(entry)) continue;
+    const sourceInfo = await lstat(join(packageRoot, entry));
+    if (sourceInfo.isDirectory()) await mkdir(join(root, entry), { recursive: true });
+    else {
+      await mkdir(dirname(join(root, entry)), { recursive: true });
+      await writeFile(
+        join(root, entry),
+        entry === "package.json" ? '{"name":"nelos","version":"0.12.18"}\n' : "fixture\n",
+      );
+    }
+  }
+  await assert.rejects(computeDistributionIntegrity(root), { code: "ENOENT" });
+  await mkdir(join(root, "validation"));
+  await assert.rejects(computeDistributionIntegrity(root), { code: "ENOENT" });
+  await writeFile(join(root, "LICENSE"), "fixture license\n");
+  await assert.rejects(computeDistributionIntegrity(root), { code: "ENOENT" });
+  await mkdir(join(root, "scripts"), { recursive: true });
+  await writeFile(join(root, "scripts", "stage-production-desktop-candidate.mjs"), "fixture staging script\n");
+  assert.match(await computeDistributionIntegrity(root), /^sha256:[a-f0-9]{64}$/u);
+
+  await writeFile(join(root, "package.json"), '{"name":"nelos","version":"0.12.17"}\n');
+  await rm(join(root, "validation"), { recursive: true, force: true });
+  await rm(join(root, "LICENSE"));
+  await rm(join(root, "scripts", "stage-production-desktop-candidate.mjs"));
+  assert.match(await computeDistributionIntegrity(root), /^sha256:[a-f0-9]{64}$/u);
+});
+
+test("the copied distribution can load the production Proxmox Desktop runtime", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-packed-desktop-runtime-"));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  for (const entry of DISTRIBUTION_ENTRIES) {
+    await cp(join(packageRoot, entry), join(root, entry), { recursive: true });
+  }
+  const loaded = await import(`${pathToFileURL(join(root, "src", "homelab-desktop-runtime.mjs")).href}?test=${Date.now()}`);
+  assert.equal(typeof loaded.createHomelabRemoteDesktopRuntimeV1, "function");
 });
 
 test("read-only verification detects a tampered PATH command without executing it", async () => {

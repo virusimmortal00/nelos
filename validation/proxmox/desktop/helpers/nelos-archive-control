@@ -1,0 +1,41 @@
+#!/usr/bin/python3
+import json, os, pathlib, subprocess, sys
+
+ALLOWED={"archive_tasks","restart_desktop","reconcile_convergence"}
+def fail(code): sys.stderr.write(json.dumps({"error":code})+"\n"); sys.exit(70)
+def read_json(path):
+    info=path.lstat()
+    if not path.is_file() or path.is_symlink() or info.st_nlink != 1 or info.st_size > 1048576: fail("UNTRUSTED_OBSERVATION")
+    return json.loads(path.read_text())
+try: request=json.load(sys.stdin)
+except Exception: fail("INVALID_CONTRACT")
+operation=sys.argv[1] if len(sys.argv)==2 else ""
+if operation not in ALLOWED or request.get("operation") != operation or request.get("schemaVersion") != 1: fail("FORBIDDEN_OPERATION")
+binding=request.get("binding",{}); payload=request.get("payload",{}); root=pathlib.Path(binding.get("stateRoot",""))
+if not isinstance(binding,dict) or not isinstance(payload,dict) or not isinstance(binding.get("runId"),str) or not isinstance(binding.get("automationUser"),str): fail("INVALID_CONTRACT")
+if operation == "archive_tasks":
+    threads=payload.get("expectedThreads")
+    if not isinstance(threads,list) or len(threads)>100 or any(not isinstance(thread,dict) or not isinstance(thread.get("title"),str) or not isinstance(thread.get("threadId"),str) for thread in threads): fail("INVALID_CONTRACT")
+elif operation == "restart_desktop" and not isinstance(payload.get("previousAppInstanceId"),str): fail("INVALID_CONTRACT")
+if operation == "archive_tasks":
+    receipts=[]
+    for index,thread in enumerate(threads):
+        control={"schemaVersion":1,"binding":binding,"operation":"select_menu","payload":{"target":{"role":"list item","name":thread["title"]},"menuPath":["Archive"]},"bytesBase64":""}
+        completed=subprocess.run(["/usr/libexec/nelos-atspi-control","select_menu"],input=json.dumps(control),text=True,capture_output=True,timeout=30)
+        if completed.returncode != 0: fail("ARCHIVE_ACTION_FAILED")
+        receipts.append({"schemaVersion":1,"type":"native-archive","actionId":f"{binding['runId']}-archive-{index+1}","threadId":thread["threadId"],"archived":True})
+    result=receipts
+elif operation == "restart_desktop":
+    user=binding["automationUser"]
+    uid=subprocess.check_output(["/usr/bin/id","-u",user],text=True).strip(); env=["/usr/sbin/runuser","-u",user,"--","env",f"XDG_RUNTIME_DIR=/run/user/{uid}",f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus","/usr/bin/systemctl","--user"]
+    before=subprocess.check_output(env+["show","-p","MainPID","--value","nelos-codex-desktop.service"],text=True).strip()
+    subprocess.run(env+["restart","nelos-codex-desktop.service"],check=True,timeout=30)
+    after=subprocess.check_output(env+["show","-p","MainPID","--value","nelos-codex-desktop.service"],text=True).strip()
+    if not before or not after or before == after: fail("RESTART_IDENTITY_UNCHANGED")
+    result={"schemaVersion":1,"type":"desktop-restart","previousAppInstanceId":payload["previousAppInstanceId"],"newAppInstanceId":f"desktop-pid-{after}","restarted":True}
+elif operation == "reconcile_convergence":
+    receipt=root/"archive-convergence-receipt.json"
+    if not receipt.exists(): fail("RECONCILIATION_REQUIRED")
+    result=read_json(receipt)
+else: fail("FORBIDDEN_OPERATION")
+sys.stdout.write(json.dumps(result,separators=(",",":")))

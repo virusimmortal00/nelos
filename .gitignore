@@ -25,3 +25,7 @@ validation/proxmox/**/*.raw
 validation/proxmox/**/*.vma
 validation/proxmox/**/*.vma.gz
 validation/proxmox/**/*.vma.zst
+
+# Local syntax/probe bytecode; never part of the Desktop candidate.
+test/fixtures/__pycache__/
+validation/proxmox/desktop/helpers/__pycache__/

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Nelos Accessibility Bridge
+Exec=/bin/sh -c 'dbus-update-activation-environment --systemd DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS AT_SPI_BUS_ADDRESS; gsettings set org.gnome.desktop.interface toolkit-accessibility true; install -m 0600 /dev/null "$XDG_RUNTIME_DIR/nelos-accessibility-ready"'
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

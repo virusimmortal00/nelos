@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/virusimmortal00/nelos/validation/proxmox-desktop/v1/golden-builder-host-install-intent.schema.json",
+  "title": "Nelos privileged-host resumable installation intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action", "completedEffects", "hostBindingDigest", "kind", "planDigest", "principalIdentities", "schemaVersion", "targetsDigest"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "nelos-golden-builder-host-install-intent" },
+    "action": { "enum": ["install", "remove"] },
+    "completedEffects": {
+      "type": "array", "maxItems": 22, "uniqueItems": true,
+      "items": { "enum": [
+        "host-file:/usr/libexec/nelos-proxmox-golden-builder-helper",
+        "host-file:/etc/nelos-golden/builder-host-binding.json",
+        "host-file:/usr/libexec/nelos-proxmox-golden-gateway-transport",
+        "host-file:/etc/nelos-golden/gateway-transport-binding.json",
+        "guest-file:9023:/usr/libexec/nelos-golden-gateway-policy",
+        "host-file:/usr/libexec/nelos-proxmox-volume-measure",
+        "host-file:/etc/nelos-golden/volume-measurement-binding.json",
+        "principal:provider:user", "principal:provider:lock", "principal:provider:home",
+        "principal:provider:ssh", "principal:provider:authorized-key", "principal:provider:sudoers", "principal:provider:visudo",
+        "principal:attestor:user", "principal:attestor:lock", "principal:attestor:home",
+        "principal:attestor:ssh", "principal:attestor:authorized-key", "principal:attestor:sudoers", "principal:attestor:visudo",
+        "receipt"
+      ] }
+    },
+    "planDigest": { "$ref": "#/$defs/sha256" },
+    "hostBindingDigest": { "$ref": "#/$defs/sha256" },
+    "principalIdentities": { "$ref": "#/$defs/principalIdentities" },
+    "targetsDigest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "principalIdentities": {
+      "type": "array", "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["gid", "role", "uid", "user"],
+        "properties": {
+          "gid": { "type": "integer", "minimum": 1 },
+          "role": { "enum": ["provider", "attestor"] },
+          "uid": { "type": "integer", "minimum": 1 },
+          "user": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

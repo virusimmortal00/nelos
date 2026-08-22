@@ -22,6 +22,45 @@ const DETERMINISTIC_KINDS = new Set([
 ]);
 const DEFAULT_BASE = "HEAD^";
 const DEFAULT_HEAD = "HEAD";
+export const OFFLINE_COMPATIBILITY_NODE_TEST_CONCURRENCY_V1 = 1;
+export const OFFLINE_COMPATIBILITY_NODE_TEST_TIMEOUT_MS_V1 = 600_000;
+
+export const DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS = Object.freeze([
+  "test/desktop-gui-scenario-driver.test.mjs",
+  "test/device-auth-readiness-integration.test.mjs",
+  "test/homelab-desktop-runtime.test.mjs",
+  "test/nelos-bind-runtime.test.mjs",
+  "test/production-archive-surface-observer.test.mjs",
+  "test/production-evidence-lifecycle.test.mjs",
+  "test/production-guest-task-helper.test.mjs",
+  "test/production-guest-task.test.mjs",
+  "test/production-run-composer.test.mjs",
+  "test/production-task-preparation.test.mjs",
+  "test/production-task-surface-observer.test.mjs",
+  "test/protected-capture-proof.test.mjs",
+  "test/proxmox-desktop-backend.test.mjs",
+  "test/proxmox-desktop-identity.test.mjs",
+  "test/proxmox-desktop-runtime.test.mjs",
+  "test/proxmox-golden-builder-acl-bootstrap.test.mjs",
+  "test/proxmox-golden-builder-gateway-policy.test.mjs",
+  "test/proxmox-golden-builder-gateway-transport.test.mjs",
+  "test/proxmox-golden-builder-transport.test.mjs",
+  "test/proxmox-golden-builder-workflow.test.mjs",
+  "test/proxmox-golden-guest-controller.test.mjs",
+  "test/proxmox-golden-host-installer.test.mjs",
+  "test/proxmox-golden-image-build-wrapper.test.mjs",
+  "test/proxmox-golden-image-contract.test.mjs",
+  "test/proxmox-golden-image-recovery.test.mjs",
+  "test/proxmox-golden-production-runner.test.mjs",
+  "test/proxmox-lease-authority.test.mjs",
+  "test/proxmox-network-policy-observer.test.mjs",
+  "test/proxmox-operator-run-binding.test.mjs",
+  "test/proxmox-production-admission.test.mjs",
+  "test/proxmox-ssh-transport.test.mjs",
+  "test/remote-desktop-contract.test.mjs",
+  "test/remote-desktop-evidence.test.mjs",
+  "test/remote-desktop-runner.test.mjs",
+]);
 
 export class OfflineCompatibilityGateError extends Error {
   constructor(message, { code = "infrastructure-error", cause } = {}) {
@@ -276,6 +315,7 @@ async function validateGeneratedSchema({ registry, root }) {
 
 function offlineChildEnvironment() {
   const environment = {
+    HOME: "/var/empty",
     LANG: "C",
     LC_ALL: "C",
     TZ: "UTC",
@@ -286,18 +326,25 @@ function offlineChildEnvironment() {
   return environment;
 }
 
-async function runNodeTests(root, testPaths) {
+export async function runOfflineNodeTestsV1(root, testPaths, { execNode = execFileAsync } = {}) {
   const blocker = resolve(root, "scripts/offline-network-blocker.cjs");
+  const bootstrap = resolve(root, "scripts/test-bootstrap.mjs");
   try {
-    await execFileAsync(
+    await execNode(
       process.execPath,
-      ["--require", blocker, "--test", ...testPaths],
+      [
+        "--require", blocker,
+        "--import", bootstrap,
+        `--test-concurrency=${OFFLINE_COMPATIBILITY_NODE_TEST_CONCURRENCY_V1}`,
+        "--test",
+        ...testPaths,
+      ],
       {
         cwd: root,
         encoding: "utf8",
         env: offlineChildEnvironment(),
         maxBuffer: 8 * 1024 * 1024,
-        timeout: 60_000,
+        timeout: OFFLINE_COMPATIBILITY_NODE_TEST_TIMEOUT_MS_V1,
       },
     );
   } catch (error) {
@@ -337,24 +384,24 @@ function defaultCheckRunners() {
     ["repo.supported-version-consistency", validateSupportedVersionConsistency],
     [
       "repo.model-catalog-invariants",
-      ({ root }) => runNodeTests(root, [
+      ({ root }) => runOfflineNodeTestsV1(root, [
         "test/model-catalog-freshness.test.mjs",
         "test/check-model-catalog.test.mjs",
       ]),
     ],
     [
       "repo.app-server-invariants",
-      ({ root }) => runNodeTests(root, [
+      ({ root }) => runOfflineNodeTestsV1(root, [
         "test/mcp-app-server-bridge.test.mjs",
       ]),
     ],
     [
       "repo.protocol-contracts",
-      ({ root }) => runNodeTests(root, ["test/protocol-contract.test.mjs"]),
+      ({ root }) => runOfflineNodeTestsV1(root, ["test/protocol-contract.test.mjs"]),
     ],
     [
       "repo.experimentation-contracts",
-      ({ root }) => runNodeTests(root, [
+      ({ root }) => runOfflineNodeTestsV1(root, [
         "test/experimentation-contract-kernel.test.mjs",
         "test/experimentation-contract-experiment.test.mjs",
         "test/corpus-release-contract.test.mjs",
@@ -365,8 +412,12 @@ function defaultCheckRunners() {
       ]),
     ],
     [
+      "repo.desktop-production-contracts",
+      ({ root }) => runOfflineNodeTestsV1(root, DESKTOP_PRODUCTION_OFFLINE_TEST_PATHS),
+    ],
+    [
       "repo.routing-evaluation",
-      ({ root }) => runNodeTests(root, ["test/routing-evaluation.test.mjs"]),
+      ({ root }) => runOfflineNodeTestsV1(root, ["test/routing-evaluation.test.mjs"]),
     ],
     ["schema.app-server-v0144x", validateGeneratedSchema],
   ]);

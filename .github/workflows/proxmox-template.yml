@@ -13,6 +13,7 @@ on:
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
       - "src/distribution-provenance.mjs"
+      - "validation/proxmox-desktop/**"
       - "validation/proxmox/**"
   push:
     paths:
@@ -26,6 +27,7 @@ on:
       - "scripts/offline-network-blocker.cjs"
       - "scripts/test-bootstrap.mjs"
       - "src/distribution-provenance.mjs"
+      - "validation/proxmox-desktop/**"
       - "validation/proxmox/**"
 
 permissions:
@@ -38,6 +40,7 @@ jobs:
     env:
       CHECKPOINT_DISABLE: "1"
       CI: "true"
+      DESKTOP_PACKER_DIR: validation/proxmox-desktop/v1
       PACKER_DIR: validation/proxmox/packer
 
     steps:
@@ -65,6 +68,29 @@ jobs:
           command -v shellcheck
           bash -n validation/proxmox/scripts/*.sh
           shellcheck validation/proxmox/scripts/*.sh
+
+      - name: Validate Desktop production source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check:desktop-runner
+
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+
+          roots = (
+              Path("validation/proxmox-desktop"),
+              Path("validation/proxmox/desktop"),
+          )
+          paths = sorted(path for root in roots for path in root.rglob("*.py"))
+          paths.extend([
+              Path("validation/proxmox/desktop/helpers/nelos-archive-control"),
+              Path("validation/proxmox/desktop/helpers/nelos-atspi-control"),
+          ])
+          for path in paths:
+              ast.parse(path.read_text(encoding="utf8"), filename=str(path))
+          PY
 
       - name: Install checksum-pinned Packer tooling
         shell: bash
@@ -143,6 +169,17 @@ jobs:
             no_proxy= \
             "${tools_root}/bin/packer" init "$PACKER_DIR"
 
+          env \
+            HTTP_PROXY="$offline_proxy" \
+            HTTPS_PROXY="$offline_proxy" \
+            ALL_PROXY="$offline_proxy" \
+            NO_PROXY= \
+            http_proxy="$offline_proxy" \
+            https_proxy="$offline_proxy" \
+            all_proxy="$offline_proxy" \
+            no_proxy= \
+            "${tools_root}/bin/packer" init "$DESKTOP_PACKER_DIR"
+
           echo "${tools_root}/bin" >> "$GITHUB_PATH"
           {
             echo "PACKER_PLUGIN_PATH=${PACKER_PLUGIN_PATH}"
@@ -163,6 +200,8 @@ jobs:
           packer version
           packer fmt -check -diff -recursive "$PACKER_DIR"
           packer validate -syntax-only "$PACKER_DIR"
+          packer fmt -check -diff "$DESKTOP_PACKER_DIR/golden-image.pkr.hcl"
+          packer validate -syntax-only "$DESKTOP_PACKER_DIR/golden-image.pkr.hcl"
 
           synthetic_vars="${RUNNER_TEMP}/nelos-synthetic.pkrvars.json"
           jq -n '{
@@ -176,6 +215,20 @@ jobs:
             build_nonce: "00000000-0000-4000-8000-000000000000"
           }' > "$synthetic_vars"
           chmod 0600 "$synthetic_vars"
+
+          desktop_synthetic_vars="${RUNNER_TEMP}/nelos-desktop-synthetic.pkrvars.json"
+          jq -n '{
+            source_template_vmid: 9024,
+            output_template_vmid: 9027,
+            output_template_mac: "02:4E:45:4C:90:27",
+            proxmox_node: "prox2-ci",
+            storage_pool: "local-lvm-ci",
+            build_nonce: "00000000000000000000000000000000"
+          }' > "$desktop_synthetic_vars"
+          chmod 0600 "$desktop_synthetic_vars"
+          : > "$DESKTOP_PACKER_DIR/candidate-runtime.tar"
+          sha256sum "$DESKTOP_PACKER_DIR/candidate-runtime.tar" \
+            > "$DESKTOP_PACKER_DIR/candidate-runtime.tar.sha256"
 
           offline_proxy="http://127.0.0.1:9"
           env \
@@ -191,3 +244,17 @@ jobs:
             all_proxy="$offline_proxy" \
             no_proxy= \
             packer validate -var-file="$synthetic_vars" "$PACKER_DIR"
+
+          env \
+            PROXMOX_URL="https://proxmox.invalid:8006/api2/json" \
+            PROXMOX_USERNAME="validator@pve!synthetic" \
+            PROXMOX_TOKEN="synthetic" \
+            HTTP_PROXY="$offline_proxy" \
+            HTTPS_PROXY="$offline_proxy" \
+            ALL_PROXY="$offline_proxy" \
+            NO_PROXY= \
+            http_proxy="$offline_proxy" \
+            https_proxy="$offline_proxy" \
+            all_proxy="$offline_proxy" \
+            no_proxy= \
+            packer validate -var-file="$desktop_synthetic_vars" "$DESKTOP_PACKER_DIR"
