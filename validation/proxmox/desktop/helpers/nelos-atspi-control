@@ -346,7 +346,7 @@ def visible_descendant_sidebar_rows(scanned,parents,children,expected_descendant
     container=unique_visible_attribute(scanned,SIDEBAR_CONTAINER_ATTRIBUTE); items=indexed_subtree(container,children)
     records=[]; evidence=[]; sealed_titles={value["title"] for value in expected_descendants}
     for expected in expected_descendants:
-        title_items=[item for title in sealed_titles for item in exact_visible_text_items(items,title) if title == expected["title"]]
+        title_items=exact_visible_text_items(items,expected["title"])
         rows=[]
         for item in items:
             if not strictly_shown(item): continue
@@ -370,7 +370,7 @@ def visible_descendant_mcp_rows(scanned,parents,children,expected_descendants):
     container=exact_visible_name(scanned,MCP_VISUAL_CONTAINER_NAME,{"group","panel","section"}); items=indexed_subtree(container,children)
     records=[]; evidence=[]; sealed_titles={value["title"] for value in expected_descendants}
     for expected in expected_descendants:
-        title_items=[item for title in sealed_titles for item in exact_visible_text_items(items,title) if title == expected["title"]]
+        title_items=exact_visible_text_items(items,expected["title"])
         exact_label="Open Codex task "+expected["taskId"]; links=[]
         for item in items:
             if not strictly_shown(item): continue

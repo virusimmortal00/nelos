@@ -149,15 +149,16 @@ test("fake-root install is content-addressed, exact-mode, and idempotent", async
 test("unknown packet fields, duplicate keys, host-key mismatch, and unsealed input fail closed", async (t) => {
   const item = await fixture(t);
   const cases = [
-    { ...item.packet, unexpected: true },
-    { ...item.packet, access: { ...item.packet.access, attestorPublicKey: item.packet.access.providerPublicKey } },
-    { ...item.packet, controller: { ...item.packet.controller, hostFingerprint: item.provider.fingerprint } },
+    [{ ...item.packet, unexpected: true }, 65, "INVALID_PACKET"],
+    [{ ...item.packet, access: { ...item.packet.access, attestorPublicKey: item.packet.access.providerPublicKey } }, 77, "INDEPENDENT_ATTESTOR_REQUIRED"],
+    [{ ...item.packet, controller: { ...item.packet.controller, hostFingerprint: item.provider.fingerprint } }, 77, "HOST_KEY_MISMATCH"],
   ];
-  for (const [index, packet] of cases.entries()) {
+  for (const [index, [packet, expectedCode, marker]] of cases.entries()) {
     const path = join(item.work, `invalid-${index}.json`);
     await writeFile(path, bytes(packet), { mode: 0o400 }); await chmod(path, 0o400);
     const result = await run(["render", "--packet", path]);
-    assert.notEqual(result.code, 0);
+    assert.equal(result.code, expectedCode, result.stderr);
+    assert.match(result.stderr, new RegExp(marker, "u"));
   }
   await chmod(item.packetPath, 0o644);
   const unsealed = await run(["install", "--packet", item.packetPath, "--fake-root", item.fakeRoot]);

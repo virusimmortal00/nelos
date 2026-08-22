@@ -35,7 +35,7 @@
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
     "publicKey": { "type": "string", "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [^\\r\\n]{1,256})?$", "maxLength": 4096 },
-    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096 },
+    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096, "description": "Canonical absolute path with no . or .. traversal segments." },
     "principal": {
       "type": "object", "additionalProperties": false,
       "required": ["identityFile", "publicKey", "publicKeyFingerprint", "sshUser"],

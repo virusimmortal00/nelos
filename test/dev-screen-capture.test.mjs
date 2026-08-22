@@ -35,6 +35,7 @@ function windowRecord(overrides = {}) {
     ownerPid: 4242,
     sharingState: 1,
     title: "ChatGPT",
+    titleAvailable: true,
     windowId: 4318,
     ...overrides,
   };

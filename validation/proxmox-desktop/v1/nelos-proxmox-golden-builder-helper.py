@@ -261,8 +261,10 @@ def command_json(arguments, deadline, allow_404=False):
     try:
         return json.loads(result.stdout)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        text = result.stdout.decode("utf-8", "strict").strip()
-        return text
+        try:
+            return result.stdout.decode("utf-8", "strict").strip()
+        except UnicodeDecodeError:
+            fail("PVE_RESPONSE_INVALID", "Proxmox response is not UTF-8", 70)
 
 
 def pvesh(verb, path, deadline, parameters=None, allow_404=False):

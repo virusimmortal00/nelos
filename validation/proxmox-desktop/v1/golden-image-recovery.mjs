@@ -102,7 +102,7 @@ export async function openGoldenImageJournalV1(rootInput, reservationInput, { cl
     get entries() { return structuredClone(entries); },
     get attempt() { return 1 + entries.filter(({ phase }) => phase === "retry-admitted").length; },
     async record(phase, details) {
-      queue = queue.then(async () => {
+      const current = queue.then(async () => {
         if (!ALLOWED_PHASES.has(phase) || !plain(details) || entries.length >= 128) fail("INVALID_JOURNAL", "golden recovery journal phase, details, or bound differs");
         const previousDigest = entries.at(-1)?.digest ?? null;
         const unsigned = {
@@ -118,18 +118,19 @@ export async function openGoldenImageJournalV1(rootInput, reservationInput, { cl
           details,
         };
         const entry = { ...unsigned, digest: sha256V1(unsigned) };
-        const next = {
+        const nextJournal = {
           schemaVersion: 1,
           reservationId: reservation.reservationId,
           providerId: reservation.providerId,
           outputVmId: reservation.outputTemplate.vmId,
           entries: [...entries, entry],
         };
-        const bytes = Buffer.from(`${canonicalJsonV1(next)}\n`);
+        const bytes = Buffer.from(`${canonicalJsonV1(nextJournal)}\n`);
         await writeAtomic(path, bytes, root);
-        entries = next.entries;
+        entries = nextJournal.entries;
       });
-      await queue;
+      queue = current.catch(() => {});
+      await current;
     },
   };
   if (mode === "created") await journal.record("admitted", { sourceCommit: reservation.sourceCommit });

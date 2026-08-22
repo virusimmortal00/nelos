@@ -11,6 +11,14 @@ if len(sys.argv) != 3:
 
 helper_path = pathlib.Path(sys.argv[1])
 mode = sys.argv[2]
+valid_modes = {
+    "valid", "clean-tree", "aliased", "collapsed-created", "duplicate-mcp",
+    "missing-created", "show-more", "missing-sidebar-id", "wrong-sidebar-id",
+    "missing-created-status", "wrong-created-status", "missing-mcp-aria",
+    "wrong-mcp-aria",
+}
+if mode not in valid_modes:
+    raise SystemExit(64)
 source = helper_path.read_text(encoding="utf8")
 marker = "try: request=json.load(sys.stdin)"
 if source.count(marker) != 1:

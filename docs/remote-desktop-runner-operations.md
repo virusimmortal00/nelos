@@ -157,15 +157,15 @@ nelos-observe-current-lease \
 # Copy the exact `path` from that canonical JSON result into CURRENT_LEASE_PATH.
 nelos-desktop-runner run \
   --config /srv/nelos/runs/RUN_ID/packet/run.json \
-  --current-lease-observation CURRENT_LEASE_PATH \
+  --current-lease-observation "$CURRENT_LEASE_PATH" \
   --authorize-live
 nelos-desktop-runner inspect --config /srv/nelos/runs/RUN_ID/packet/run.json
 nelos-desktop-runner resume \
   --config /srv/nelos/runs/RUN_ID/packet/run.json \
-  --current-lease-observation CURRENT_LEASE_PATH
+  --current-lease-observation "$CURRENT_LEASE_PATH"
 nelos-desktop-runner cancel \
   --config /srv/nelos/runs/RUN_ID/packet/run.json \
-  --current-lease-observation CURRENT_LEASE_PATH
+  --current-lease-observation "$CURRENT_LEASE_PATH"
 ```
 
 The first `run`, not only recovery, requires this fresh independent authority

@@ -266,8 +266,7 @@ export class ProxmoxVeDesktopAdapterV1 {
       protection: 0,
       tags: "nelos-desktop;disposable;automation-only",
       ciuser: configuration.automation.user,
-      cipassword: undefined,
-      sshkeys: undefined,
+      delete: "cipassword,sshkeys",
       description: bindingDescription(binding, {
         imageId: configuration.goldenImageId,
         state: "configured",
@@ -411,10 +410,9 @@ export class ProxmoxVeDesktopAdapterV1 {
         binding, command: "/usr/libexec/nelos-credential-boundary", arguments: ["prepare"],
         attempts: this.qgaAttempts, errorCode: "CREDENTIAL_BOUNDARY_UNATTESTED", deadlineAt,
       });
-      const credentialBoundary = parseCredentialBoundaryResponse(boundaryResult.stdout, runtimeBinding ?? {
-        ...binding,
-        runId: (await this.inspectRuntimeBinding({ hostId: binding.hostId, vmId: binding.vmId }))?.runId,
-      });
+      const expectedBoundaryBinding = runtimeBinding ?? await this.inspectRuntimeBinding({ hostId: binding.hostId, vmId: binding.vmId });
+      if (!expectedBoundaryBinding) throw Object.assign(new Error("runtime binding is unavailable"), { code: "CREDENTIAL_BOUNDARY_UNATTESTED" });
+      const credentialBoundary = parseCredentialBoundaryResponse(boundaryResult.stdout, expectedBoundaryBinding);
       const identityResult = await this.execGuestAndWait({ binding, command: "/usr/libexec/nelos-desktop-identity", arguments: [], attempts: this.qgaAttempts, errorCode: "DESKTOP_IDENTITY_MISMATCH", deadlineAt });
       const installedDesktopIdentity = parseInstalledDesktopIdentity(identityResult.stdout);
       const startedAuth = await this.execGuestAndWait({ binding, command: "/usr/libexec/nelos-device-auth", arguments: ["start"], attempts: this.qgaAttempts, errorCode: "DEVICE_AUTH_FAILED", deadlineAt });

@@ -45,7 +45,7 @@ function measurementContent(value, role, config) {
   const name = role === "source" ? value.sourceTemplate.name : value.outputTemplate.name;
   const volumes = Object.entries(config).filter(([key]) => /^(?:efidisk|ide|sata|scsi|virtio)[0-9]+$/u.test(key))
     .map(([diskKey, encoded]) => ({ diskKey, volumeId: encoded.split(",", 1)[0] }))
-    .filter(({ volumeId }) => !volumeId.endsWith(":cloudinit"))
+    .filter(({ volumeId }) => !volumeId.endsWith("-cloudinit"))
     .sort((left, right) => left.diskKey.localeCompare(right.diskKey))
     .map((item, index) => ({ ...item, byteLength: index === 0 ? 4_194_304 : 68_719_476_736, digest: `sha256:${(role === "source" ? "1" : "2").repeat(64)}` }));
   return {

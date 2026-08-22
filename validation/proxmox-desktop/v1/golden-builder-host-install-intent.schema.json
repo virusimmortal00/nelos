@@ -10,7 +10,7 @@
     "kind": { "const": "nelos-golden-builder-host-install-intent" },
     "action": { "enum": ["install", "remove"] },
     "completedEffects": {
-      "type": "array", "maxItems": 18, "uniqueItems": true,
+      "type": "array", "maxItems": 22, "uniqueItems": true,
       "items": { "enum": [
         "host-file:/usr/libexec/nelos-proxmox-golden-builder-helper",
         "host-file:/etc/nelos-golden/builder-host-binding.json",

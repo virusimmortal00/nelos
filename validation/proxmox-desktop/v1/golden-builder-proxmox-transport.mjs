@@ -267,7 +267,8 @@ export class ProxmoxGoldenBuilderAdapterV1 {
       } catch (error) {
         if (error instanceof GoldenBuilderTransportError && ["PROVIDER_RECEIPT_INVALID", "INVALID_CONTRACT"].includes(error.code)) throw error;
         lastError = error;
-        if (!MUTATIONS.has(operation) || attempt + 1 >= this.transportAttempts) break;
+        const explicitlyAmbiguousMutation = MUTATIONS.has(operation) && error?.code === "TRANSPORT_OUTCOME_UNKNOWN";
+        if ((MUTATIONS.has(operation) && !explicitlyAmbiguousMutation) || attempt + 1 >= this.transportAttempts) break;
       }
     }
     throw new GoldenBuilderTransportError(MUTATIONS.has(operation) ? "BUILDER_MUTATION_UNCERTAIN" : "BUILDER_TRANSPORT_FAILED", "bounded builder transport did not return one verified receipt", { cause: lastError?.code ?? "TRANSPORT_FAILED", operation, operationId: envelope.operationId });
@@ -322,7 +323,7 @@ function defaultRunCommand({ args, input, timeoutMs, maxOutputBytes }) {
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (chunk) => { length += chunk.length; if (length > maxOutputBytes) { overflow = true; child.kill("SIGKILL"); } else stdout.push(chunk); });
     child.stderr.on("data", (chunk) => { if (Buffer.concat(stderr).length < 16_384) stderr.push(chunk.subarray(0, 16_384)); });
-    child.once("error", rejectPromise);
+    child.once("error", (error) => { clearTimeout(timer); rejectPromise(error); });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
       if (overflow) return rejectPromise(Object.assign(new Error("remote builder response exceeded its bound"), { code: "OUTPUT_LIMIT" }));

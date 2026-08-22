@@ -29,8 +29,9 @@ function exact(value, fields, label) {
 async function sealedJson(path, label) {
   const absolute = resolve(path); let info;
   try { info = await lstat(absolute); } catch { fail("SEALED_INPUT_UNAVAILABLE", `${label} is unavailable`); }
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !new Set([0o400, 0o440, 0o600, 0o640]).has(info.mode & 0o777)) fail("UNTRUSTED_INPUT", `${label} is not sealed`);
-  const bytes = await readFile(absolute); let value;
+  const canonical = await realpath(absolute).catch(() => null);
+  if (canonical !== absolute || !info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !new Set([0o400, 0o440, 0o600, 0o640]).has(info.mode & 0o777)) fail("UNTRUSTED_INPUT", `${label} is not one sealed canonical file`);
+  const bytes = await readFile(canonical); let value;
   try { value = JSON.parse(bytes); } catch { fail("INVALID_JSON", `${label} is not valid JSON`); }
   if (!bytes.equals(Buffer.from(`${canonicalJsonV1(value)}\n`))) fail("NONCANONICAL_INPUT", `${label} is not canonical JSON`);
   return value;

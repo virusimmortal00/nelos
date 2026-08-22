@@ -130,7 +130,7 @@ function defaultRunCommand({ argv, timeoutMs, maxOutputBytes }) {
       stderrLength += chunk.length;
       if (stderrLength > maxOutputBytes) { overflow = true; child.kill("SIGKILL"); }
     });
-    child.once("error", () => rejectPromise(new GoldenBuilderAclBootstrapError("COMMAND_FAILED", "bounded ACL command could not start")));
+    child.once("error", () => { clearTimeout(timer); rejectPromise(new GoldenBuilderAclBootstrapError("COMMAND_FAILED", "bounded ACL command could not start")); });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
       if (overflow) return rejectPromise(new GoldenBuilderAclBootstrapError("OUTPUT_LIMIT", "bounded ACL command exceeded its output limit"));

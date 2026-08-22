@@ -12,9 +12,14 @@ except Exception: fail("INVALID_CONTRACT")
 operation=sys.argv[1] if len(sys.argv)==2 else ""
 if operation not in ALLOWED or request.get("operation") != operation or request.get("schemaVersion") != 1: fail("FORBIDDEN_OPERATION")
 binding=request.get("binding",{}); payload=request.get("payload",{}); root=pathlib.Path(binding.get("stateRoot",""))
+if not isinstance(binding,dict) or not isinstance(payload,dict) or not isinstance(binding.get("runId"),str) or not isinstance(binding.get("automationUser"),str): fail("INVALID_CONTRACT")
+if operation == "archive_tasks":
+    threads=payload.get("expectedThreads")
+    if not isinstance(threads,list) or len(threads)>100 or any(not isinstance(thread,dict) or not isinstance(thread.get("title"),str) or not isinstance(thread.get("threadId"),str) for thread in threads): fail("INVALID_CONTRACT")
+elif operation == "restart_desktop" and not isinstance(payload.get("previousAppInstanceId"),str): fail("INVALID_CONTRACT")
 if operation == "archive_tasks":
     receipts=[]
-    for index,thread in enumerate(payload.get("expectedThreads",[])):
+    for index,thread in enumerate(threads):
         control={"schemaVersion":1,"binding":binding,"operation":"select_menu","payload":{"target":{"role":"list item","name":thread["title"]},"menuPath":["Archive"]},"bytesBase64":""}
         completed=subprocess.run(["/usr/libexec/nelos-atspi-control","select_menu"],input=json.dumps(control),text=True,capture_output=True,timeout=30)
         if completed.returncode != 0: fail("ARCHIVE_ACTION_FAILED")

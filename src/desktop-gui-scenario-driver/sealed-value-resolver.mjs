@@ -100,7 +100,13 @@ export class SealedValueResolver {
    * The returned closed inventory can be journaled before infrastructure
    * cleanup; any undeclared .sealed file or unsafe inode fails closed.
    */
-  async cleanup(valueRefs) {
+  async cleanup(valueRefs, { signal = null, deadlineAt = null } = {}) {
+    const assertActive = () => {
+      if (signal?.aborted || (Number.isFinite(deadlineAt) && Date.now() >= deadlineAt)) {
+        throw new SealedValueError("SEALED_VALUE_CLEANUP_ABORTED", "sealed value cleanup exceeded its cancellation boundary");
+      }
+    };
+    assertActive();
     if (!Array.isArray(valueRefs) || valueRefs.length > 1_000 ||
         valueRefs.some((valueRef) => !VALUE_REF.test(valueRef ?? "")) || new Set(valueRefs).size !== valueRefs.length) {
       throw new SealedValueError("INVALID_VALUE_REF", "declared sealed value inventory is invalid");
@@ -110,6 +116,7 @@ export class SealedValueResolver {
     const root = await this.#rootHandle();
     try {
       for (const valueRef of declaredValueRefs) {
+        assertActive();
         const opened = await this.#openValue(root, valueRef, { allowMissing: true });
         if (opened === null) { alreadyAbsentValueRefs.push(valueRef); continue; }
         try {

@@ -9,8 +9,10 @@ function argumentsFor(argv) {
   const accepted = new Set(["--scenario", "--bindings", "--sealed-root"]);
   const result = {};
   for (let index = 0; index < argv.length; index += 2) {
-    if (!accepted.has(argv[index]) || argv[index + 1] === undefined) throw new Error("usage: nelos-desktop-gui-driver --scenario FILE --bindings FILE --sealed-root DIRECTORY");
-    result[argv[index].slice(2)] = argv[index + 1];
+    const name = argv[index];
+    const key = name?.slice(2);
+    if (!accepted.has(name) || argv[index + 1] === undefined || Object.hasOwn(result, key)) throw new Error("usage: nelos-desktop-gui-driver --scenario FILE --bindings FILE --sealed-root DIRECTORY");
+    result[key] = argv[index + 1];
   }
   if (!result.scenario || !result.bindings || !result["sealed-root"]) throw new Error("missing required driver argument");
   return result;

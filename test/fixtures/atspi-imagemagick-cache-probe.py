@@ -3,6 +3,7 @@
 
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -68,7 +69,7 @@ except ProbeFailure as error:
     outcome = {"result": None, "error": error.code}
 
 remaining = [path.name for path in root.iterdir()]
-root.rmdir()
+shutil.rmtree(root, ignore_errors=True)
 outcome["cacheDirectoriesCreated"] = len(created)
 outcome["remainingEntries"] = remaining
 sys.stdout.write(json.dumps(outcome, separators=(",", ":")))

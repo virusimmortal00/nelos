@@ -309,7 +309,7 @@ function persistentVolumes(config) {
   const entries = Object.entries(config)
     .filter(([key]) => /^(?:efidisk|ide|sata|scsi|virtio)[0-9]+$/u.test(key))
     .map(([diskKey, value]) => ({ diskKey, volumeId: typeof value === "string" ? value.split(",", 1)[0] : null }))
-    .filter(({ volumeId }) => volumeId && !volumeId.endsWith(":cloudinit"))
+    .filter(({ volumeId }) => volumeId && !volumeId.endsWith(":cloudinit") && !volumeId.endsWith("-cloudinit"))
     .sort((left, right) => left.diskKey < right.diskKey ? -1 : left.diskKey > right.diskKey ? 1 : 0);
   if (entries.length < 1 || entries.some(({ volumeId }) => !VOLUME_ID.test(volumeId))) {
     fail("VOLUME_MEASUREMENT_INVALID", "VM persistent volume assignments are missing or unsupported");
@@ -634,6 +634,7 @@ function runProcess(executable, args, { input = null, env = cleanEnvironment(), 
       target.push(chunk);
     };
     child.stdout.on("data", collect(stdout)); child.stderr.on("data", collect(stderr));
+    child.stdin.on("error", (error) => { clearTimeout(timer); rejectPromise(error); });
     child.once("error", (error) => { clearTimeout(timer); rejectPromise(error); });
     child.once("close", (code) => {
       clearTimeout(timer);

@@ -395,7 +395,7 @@ test("guest Desktop observer persists only the recomputed protected screenshot a
     screenshot: { ...protectedScreenshot(png, digest, TASK.title, "spinner", { path: false }), width: 100, height: 80 },
   };
   await writeFile(control, `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${JSON.stringify(controlResult)}'\n`); await chmod(control, 0o755);
-  const helper = new URL("../validation/proxmox/desktop/helpers/nelos-desktop-atspi.mjs", import.meta.url).pathname;
+  const helper = fileURLToPath(new URL("../validation/proxmox/desktop/helpers/nelos-desktop-atspi.mjs", import.meta.url));
   const envelope = (operation, payload) => `${JSON.stringify({ schemaVersion: 1, binding: BINDING, operation, payload, byteLength: 0, deadlineAt: new Date(Date.now() + 30_000).toISOString(), maxOutputBytes: 65_536 })}\n`;
   const observed = await runHelper(helper, "observe_task_surface", envelope("observe_task_surface", { ...TASK, descendants: [] }), { NELOS_DESKTOP_HELPER_ROOT: root, NELOS_ATSPI_CONTROL: control });
   assert.equal(observed.attestation.screenshot.digest, digest);

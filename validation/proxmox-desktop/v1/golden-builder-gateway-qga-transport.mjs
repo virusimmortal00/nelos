@@ -119,9 +119,10 @@ function defaultRunCommand({ args, input, timeoutMs, maxOutputBytes }) {
     const child = spawn("/usr/bin/ssh", args, { shell: false, stdio: ["pipe", "pipe", "pipe"], env: { PATH: "/usr/bin:/bin", LC_ALL: "C" } });
     const stdout = []; let length = 0; let overflow = false;
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.stdin.on("error", () => {});
     child.stdout.on("data", (chunk) => { length += chunk.length; if (length > maxOutputBytes) { overflow = true; child.kill("SIGKILL"); } else stdout.push(chunk); });
     child.stderr.on("data", (chunk) => { length += chunk.length; if (length > maxOutputBytes) { overflow = true; child.kill("SIGKILL"); } });
-    child.once("error", () => rejectPromise(new GoldenBuilderGatewayTransportError("SSH_FAILED", "pinned gateway SSH transport could not start")));
+    child.once("error", () => { clearTimeout(timer); rejectPromise(new GoldenBuilderGatewayTransportError("SSH_FAILED", "pinned gateway SSH transport could not start")); });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
       if (overflow) return rejectPromise(new GoldenBuilderGatewayTransportError("OUTPUT_LIMIT", "gateway SSH transport exceeded its output bound"));

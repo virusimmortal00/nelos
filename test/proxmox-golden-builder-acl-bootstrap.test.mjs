@@ -154,9 +154,9 @@ test("executor captures two one-shot values into distinct 0400 files and returns
 
 test("wrong VNet zone or ACL path fails before any identity mutation", async (t) => {
   const value = reservation(); const plan = createScopedAclBootstrapPlanV2(value, { now: NOW }); const root = await privateRoot(t);
-  for (const variant of [{ zone: "wrong" }, { aclPath: "/sdn/zones/nelos/vnets/nelosbld" }]) {
+  for (const [index, variant] of [{ zone: "wrong" }, { aclPath: "/sdn/zones/nelos/vnets/nelosbld" }].entries()) {
     const calls = [];
-    await assert.rejects(() => executeScopedAclBootstrapV1({ reservation: value, plan, tokenRoot: root, receiptPath: join(root, `receipt-${calls.length}.json`), authorizePlan: plan.planDigest }, {
+    await assert.rejects(() => executeScopedAclBootstrapV1({ reservation: value, plan, tokenRoot: root, receiptPath: join(root, `receipt-${index}.json`), authorizePlan: plan.planDigest }, {
       runCommand: successRunner(calls, variant), clock: { now: () => NOW }, expectedUid: process.getuid(),
     }), { code: "VNET_IDENTITY_MISMATCH" });
     assert.equal(calls.some(({ argv }) => argv[0] === "/usr/sbin/pveum"), false);

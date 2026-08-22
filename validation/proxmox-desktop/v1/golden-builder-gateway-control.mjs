@@ -47,18 +47,13 @@ async function contentAddressedStore(root) {
   };
 }
 
-function cleanupValidationNow(reservation, now) {
-  const expiry = Date.parse(reservation?.expiresAt);
-  return Number.isFinite(expiry) && Number.isSafeInteger(reservation?.maxBuildMs) ? Math.min(now, expiry - reservation.maxBuildMs - 120_001) : now;
-}
-
 export async function runGoldenBuilderGatewayControlV1({ reservationPath, policyPath, accessPath, receiptDir, operation, authorizeBinding = null }, {
   createTransports = createGoldenBuilderGatewaySshTransportsV1, clock = Date,
 } = {}) {
   if (!OPERATIONS.has(operation)) fail("INVALID_OPERATION", "gateway operation is not allowlisted");
   const cleanup = new Set(["restore", "confirm-restored"]).has(operation); const now = clock.now();
   const [reservationInput, policyInput, access] = await Promise.all([sealedJson(reservationPath, "reservation"), sealedJson(policyPath, "gateway policy"), sealedJson(accessPath, "gateway transport access")]);
-  const reservation = validateGoldenImageReservationV1(reservationInput, { now: cleanup ? cleanupValidationNow(reservationInput, now) : now });
+  const reservation = validateGoldenImageReservationV1(reservationInput, { now, allowExpiredForCleanup: cleanup });
   const binding = validateGoldenBuilderGatewayPolicyBindingV1(policyInput, reservation, { now, allowExpired: cleanup });
   validateGoldenBuilderGatewayTransportAccessV1(access);
   if (MUTATIONS.has(operation) && authorizeBinding !== binding.bindingDigest) fail("MUTATION_AUTHORIZATION_REQUIRED", "gateway mutation requires the exact policy binding digest");

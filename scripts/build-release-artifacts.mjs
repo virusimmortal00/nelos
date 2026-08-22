@@ -446,6 +446,26 @@ async function assertEmptyOutputDirectory(root, outputDirectory) {
   }
 }
 
+async function createReleaseSnapshot(root, sourceCommit) {
+  const parent = await mkdtemp(join(tmpdir(), "nelos-release-snapshot-"));
+  const snapshotRoot = join(parent, "source");
+  try {
+    await git(root, "worktree", "add", "--detach", snapshotRoot, sourceCommit);
+    return { parent, root: snapshotRoot };
+  } catch (error) {
+    await rm(parent, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function removeReleaseSnapshot(root, snapshot) {
+  try {
+    await git(root, "worktree", "remove", "--force", snapshot.root);
+  } finally {
+    await rm(snapshot.parent, { recursive: true, force: true });
+  }
+}
+
 export async function buildReleaseArtifacts({
   tag,
   outputDirectory,
@@ -453,22 +473,24 @@ export async function buildReleaseArtifacts({
   environment = process.env,
   packExecutable = "npm",
 }) {
-  const inputs = await readReleaseInputs(tag, root);
   const sourceCommit = await validateAnnotatedTag(tag, root, environment);
-  const releaseProvenance = materializeGitDistributionProvenance(
-    inputs.provenance,
-    { sourceRevision: sourceCommit, integrity: inputs.actualIntegrity },
-  );
-  const output = resolve(root, outputDirectory);
-  await assertEmptyOutputDirectory(root, output);
-
-  const firstPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-a-"));
-  const secondPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-b-"));
+  const snapshot = await createReleaseSnapshot(root, sourceCommit);
   try {
-    const [firstPack, secondPack] = await Promise.all([
-      npmPack(firstPackDirectory, root, releaseProvenance, packExecutable),
-      npmPack(secondPackDirectory, root, releaseProvenance, packExecutable),
-    ]);
+    const inputs = await readReleaseInputs(tag, snapshot.root);
+    const releaseProvenance = materializeGitDistributionProvenance(
+      inputs.provenance,
+      { sourceRevision: sourceCommit, integrity: inputs.actualIntegrity },
+    );
+    const output = resolve(root, outputDirectory);
+    await assertEmptyOutputDirectory(root, output);
+
+    const firstPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-a-"));
+    const secondPackDirectory = await mkdtemp(join(tmpdir(), "nelos-release-pack-b-"));
+    try {
+      const [firstPack, secondPack] = await Promise.all([
+        npmPack(firstPackDirectory, snapshot.root, releaseProvenance, packExecutable),
+        npmPack(secondPackDirectory, snapshot.root, releaseProvenance, packExecutable),
+      ]);
     const firstPackage = firstPack.path;
     const secondPackage = secondPack.path;
     if (JSON.stringify(firstPack.provenance) !== JSON.stringify(secondPack.provenance)) {
@@ -552,19 +574,22 @@ export async function buildReleaseArtifacts({
         }),
     );
     await writeFile(join(output, "SHA256SUMS"), `${checksumLines.join("\n")}\n`);
-    return {
-      version: inputs.version,
-      tag,
-      sourceCommit,
-      packageDigest: firstDigest,
-      distributionIntegrity: packedReleaseProvenance.integrity,
-      outputDirectory: output,
-    };
+      return {
+        version: inputs.version,
+        tag,
+        sourceCommit,
+        packageDigest: firstDigest,
+        distributionIntegrity: packedReleaseProvenance.integrity,
+        outputDirectory: output,
+      };
+    } finally {
+      await Promise.all([
+        rm(firstPackDirectory, { recursive: true, force: true }),
+        rm(secondPackDirectory, { recursive: true, force: true }),
+      ]);
+    }
   } finally {
-    await Promise.all([
-      rm(firstPackDirectory, { recursive: true, force: true }),
-      rm(secondPackDirectory, { recursive: true, force: true }),
-    ]);
+    await removeReleaseSnapshot(root, snapshot);
   }
 }
 

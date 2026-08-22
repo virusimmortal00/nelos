@@ -108,6 +108,12 @@ test("node verification requires the immutable starter corpus lock", async () =>
 
 test("Proxmox workflow validates the pinned Desktop production source lane", async () => {
   const workflow = await text("../.github/workflows/proxmox-template.yml");
+  const toolchain = JSON.parse(await text("../validation/proxmox/toolchain.lock.json"));
+  assert.equal(toolchain.artifacts.packer.version, "1.15.4");
+  assert.equal(
+    toolchain.artifacts.packer.sha256,
+    "15f97a6a99645c7d5308c609973b5280837b38e112beac413ccbce80da927cf1",
+  );
   assert.equal(
     (workflow.match(/- "validation\/proxmox-desktop\/\*\*"/gu) ?? []).length,
     2,
@@ -129,6 +135,8 @@ test("Proxmox workflow validates the pinned Desktop production source lane", asy
   assert.match(workflow, /build_nonce: "0{32}"/u);
   assert.match(workflow, /\.artifacts\.packer\.sha256/u);
   assert.match(workflow, /\.artifacts\.packerProxmoxPlugin\.sha256/u);
+  assert.match(workflow, /sha256sum --check/u);
+  assert.match(workflow, /download_verified "\$packer_url" "\$packer_sha" "\$packer_zip"/u);
   assert.doesNotMatch(workflow, /hashicorp\/setup-packer|packer@latest/u);
 });
 

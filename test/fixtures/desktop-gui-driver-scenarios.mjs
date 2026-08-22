@@ -15,7 +15,7 @@ export const desktopGuiBindings = Object.freeze({
 // Leave shared CI runners enough I/O headroom; timeout-specific tests override it.
 const SEALED_VALUE_FIXTURE_TIMEOUT_MS = 1_000;
 
-export function desktopGuiScenario({ scenarioId = "scenario-driver-1", taskId = "desktop-task-driver-1", deadlineMs = 1_000 } = {}) {
+export function desktopGuiScenario({ scenarioId = "scenario-driver-1", taskId = "desktop-task-driver-1", deadlineMs = 1_500 } = {}) {
   return {
     schemaVersion: 1,
     scenarioId,

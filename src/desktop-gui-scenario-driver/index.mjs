@@ -53,8 +53,12 @@ function sanitizeTree(value) {
 }
 
 function deadline(promise, timeoutMs, code, signal, abortController = null) {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) return Promise.reject(new DesktopGuiDriverError(code, "deadline expired"));
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    Promise.resolve(promise).catch(() => {});
+    return Promise.reject(new DesktopGuiDriverError(code, "deadline expired"));
+  }
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DesktopGuiDriverError(code, "operation aborted")); return; }
     const timer = setTimeout(() => {
       reject(new DesktopGuiDriverError(code, "deadline expired"));
       abortController?.abort();

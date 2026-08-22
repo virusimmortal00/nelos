@@ -23,7 +23,7 @@ export const MACOS_SWIFT_TOOL = "/usr/bin/swift";
 export const MACOS_WINDOW_CATALOG_HELPER = fileURLToPath(new URL("./macos-window-catalog.swift", import.meta.url));
 
 const BUNDLE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$/u;
-const WINDOW_KEYS = ["bounds", "bundleId", "isOnScreen", "layer", "ownerName", "ownerPid", "sharingState", "title", "windowId"];
+const WINDOW_KEYS = ["bounds", "bundleId", "isOnScreen", "layer", "ownerName", "ownerPid", "sharingState", "title", "titleAvailable", "windowId"];
 const BOUNDS_KEYS = ["height", "width", "x", "y"];
 
 export class DeveloperScreenCaptureError extends Error {
@@ -108,7 +108,7 @@ function parseWindowCatalog(value, appBundleId) {
     if (!Number.isSafeInteger(entry.ownerPid) || entry.ownerPid < 1 || entry.ownerPid > 0x7fff_ffff ||
         !Number.isSafeInteger(entry.layer) || Math.abs(entry.layer) > 10_000 ||
         !Number.isSafeInteger(entry.sharingState) || entry.sharingState < 0 || entry.sharingState > 2 ||
-        typeof entry.isOnScreen !== "boolean") {
+        typeof entry.isOnScreen !== "boolean" || typeof entry.titleAvailable !== "boolean") {
       throw new DeveloperScreenCaptureError("INVALID_WINDOW_CATALOG", `window catalog entry ${index} has invalid process or capture state`);
     }
     return Object.freeze({
@@ -117,6 +117,7 @@ function parseWindowCatalog(value, appBundleId) {
       ownerPid: entry.ownerPid,
       ownerName: boundedCatalogString(entry.ownerName, `window catalog entry ${index} ownerName`),
       title: boundedCatalogString(entry.title, `window catalog entry ${index} title`, { allowEmpty: true }),
+      titleAvailable: entry.titleAvailable,
       layer: entry.layer,
       isOnScreen: entry.isOnScreen,
       sharingState: entry.sharingState,
@@ -157,7 +158,7 @@ function timestamp(value) {
 }
 
 async function defaultRunCapture({ tool, args }) {
-  await execFileAsync(tool, args, { windowsHide: true });
+  await execFileAsync(tool, args, { timeout: 15_000, windowsHide: true });
 }
 
 async function defaultListWindows({ tool, args }) {
@@ -178,6 +179,9 @@ function selectWindow(catalog, { appBundleId, windowId, windowTitle }) {
   let candidates = parseWindowCatalog(catalog, appBundleId)
     .filter((entry) => entry.layer === 0 && entry.sharingState > 0);
   if (windowId !== undefined) candidates = candidates.filter((entry) => entry.windowId === windowId);
+  if (windowTitle !== undefined && candidates.length > 0 && candidates.every((entry) => !entry.titleAvailable)) {
+    throw new DeveloperScreenCaptureError("SCREEN_RECORDING_PERMISSION_REQUIRED", "window titles are unavailable; grant Screen Recording permission");
+  }
   if (windowTitle !== undefined) candidates = candidates.filter((entry) => entry.title === windowTitle);
   if (candidates.length === 0) {
     throw new DeveloperScreenCaptureError("WINDOW_NOT_FOUND", "no capturable window matched the exact application/window selector");
@@ -318,7 +322,7 @@ export async function captureDeveloperScreen({
       capturedAt: capturedAt.toISOString(),
       display: source,
       image: imageName,
-      bytes: imageInfo.size,
+      bytes: image.length,
       digest,
       localOnly: true,
     });

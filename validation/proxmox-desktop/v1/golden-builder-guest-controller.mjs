@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { canonicalJsonV1, sha256V1 } from "./build-golden-image.mjs";
 
 const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/u;
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const INPUT_FIELDS = Object.freeze([
   "attestorTokenFile", "buildTokenFile", "nodeArchive", "packerArchive", "pluginArchive",
@@ -20,6 +22,13 @@ function plain(value) { return value !== null && typeof value === "object" && !A
 function exact(value, fields, label) {
   if (!plain(value) || Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")) fail("INVALID_CONTROLLER_ACCESS", `${label} fields differ from the closed contract`);
   return value;
+}
+function openSshFingerprint(publicKey) {
+  const fields = typeof publicKey === "string" ? publicKey.split(" ") : [];
+  if (fields.length !== 2 || fields[0] !== "ssh-ed25519" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(fields[1])) return null;
+  const bytes = Buffer.from(fields[1], "base64");
+  if (bytes.length !== 51 || bytes.toString("base64") !== fields[1]) return null;
+  return `SHA256:${createHash("sha256").update(bytes).digest("base64").replace(/=+$/u, "")}`;
 }
 
 export function validateGoldenBuilderGuestControllerAccessV1(value) {
@@ -54,7 +63,8 @@ function runBounded(command, args, { input = null, timeoutMs, maxOutputBytes, al
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     const collect = (target) => (chunk) => { length += chunk.length; if (length > maxOutputBytes) { overflow = true; child.kill("SIGKILL"); } else target.push(chunk); };
     child.stdout.on("data", collect(stdout)); child.stderr.on("data", collect(stderr));
-    child.once("error", rejectPromise);
+    child.stdin.on("error", (error) => { clearTimeout(timer); rejectPromise(error); });
+    child.once("error", (error) => { clearTimeout(timer); rejectPromise(error); });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
       if (overflow) return rejectPromise(Object.assign(new Error("guest controller output exceeded its bound"), { code: "OUTPUT_LIMIT" }));
@@ -111,9 +121,12 @@ export function createDefaultGoldenBuilderGuestBoundaryV1() {
 
 export async function executeGoldenBuilderGuestControllerV1({ binding, bundle, controllerIdentity, packet, observation, access: inputAccess, cleanupOnly = false }, { boundary = createDefaultGoldenBuilderGuestBoundaryV1() } = {}) {
   const access = validateGoldenBuilderGuestControllerAccessV1(inputAccess);
-  if (!plain(binding?.builderVm) || packet?.packetDigest !== bundle?.builderPacket?.packetDigest || packet?.packetDigest !== controllerIdentity?.packetDigest ||
+  if (!plain(binding?.builderVm) || !SHA256.test(packet?.packetDigest ?? "") || packet?.packetDigest !== bundle?.builderPacket?.packetDigest || packet?.packetDigest !== controllerIdentity?.packetDigest ||
       observation?.status !== "running" || observation?.guest?.hostKeyFingerprint !== packet?.builderVm?.sshHostFingerprint ||
-      observation?.guest?.sshAddress === undefined || observation?.guest?.hostPublicKey === undefined || typeof cleanupOnly !== "boolean" || typeof boundary?.invoke !== "function" || typeof boundary?.transfer !== "function") {
+      typeof observation?.guest?.sshAddress !== "string" || /\s/u.test(observation.guest.sshAddress) ||
+      typeof observation?.guest?.hostPublicKey !== "string" || /[\r\n]/u.test(observation.guest.hostPublicKey) ||
+      openSshFingerprint(observation.guest.hostPublicKey) !== packet?.builderVm?.sshHostFingerprint ||
+      typeof cleanupOnly !== "boolean" || typeof boundary?.invoke !== "function" || typeof boundary?.transfer !== "function") {
     fail("INVALID_CONTROLLER_INVOCATION", "guest controller input identities differ");
   }
   const [identityFile, stagingRoot, sourceRoot] = await Promise.all([

@@ -30,14 +30,19 @@ function collectObjectSchemas(schema, path = "$") {
     found.push(...collectObjectSchemas(child, `${path}.properties.${field}`));
   }
   if (schema?.items) found.push(...collectObjectSchemas(schema.items, `${path}.items`));
-  for (const [index, child] of (schema?.oneOf ?? []).entries()) {
-    found.push(...collectObjectSchemas(child, `${path}.oneOf[${index}]`));
+  for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+    for (const [index, child] of (schema?.[keyword] ?? []).entries()) {
+      found.push(...collectObjectSchemas(child, `${path}.${keyword}[${index}]`));
+    }
+  }
+  for (const keyword of ["then", "else"]) {
+    if (schema?.[keyword]) found.push(...collectObjectSchemas(schema[keyword], `${path}.${keyword}`));
   }
   return found;
 }
 
 function schemaRejectsUnknownProperty(schema, field) {
-  return schema?.type === "object" && schema.additionalProperties === false && !Object.hasOwn(schema.properties, field);
+  return schema?.type === "object" && schema.additionalProperties === false && !Object.hasOwn(schema.properties ?? {}, field);
 }
 
 test("v1 schemas are closed and valid run binds all immutable remote Desktop identities", () => {

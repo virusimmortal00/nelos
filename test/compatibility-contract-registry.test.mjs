@@ -289,7 +289,7 @@ test("Desktop production surfaces select their exact contract and validation fai
   assert.equal(selection.ok, true);
   assert.deepEqual(selection.unmappedSensitivePaths, []);
   assert.ok(selection.pathSelections.every(({ capabilityIds }) =>
-    capabilityIds.includes("nelos.desktop-production")));
+    capabilityIds.length === 1 && capabilityIds[0] === "nelos.desktop-production"));
   assert.ok(selection.selectedCapabilityIds.includes("nelos.desktop-production"));
 
   const unmapped = selectImpactedCompatibilityContractsV1(

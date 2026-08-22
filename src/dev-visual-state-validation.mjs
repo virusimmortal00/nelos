@@ -96,7 +96,12 @@ async function verifyCapture(capture) {
   if (!imageInfo.isFile() || imageInfo.isSymbolicLink() || !metadataInfo.isFile() || metadataInfo.isSymbolicLink()) {
     throw new DeveloperVisualStateValidationError("INVALID_CAPTURE", "capture image and metadata must be regular non-symlink files");
   }
-  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  if (imageInfo.size > 10 * 1024 * 1024 || metadataInfo.size > 10 * 1024 * 1024) {
+    throw new DeveloperVisualStateValidationError("INVALID_CAPTURE", "capture image or metadata exceeds its bound");
+  }
+  let metadata;
+  try { metadata = JSON.parse(await readFile(metadataPath, "utf8")); }
+  catch { throw new DeveloperVisualStateValidationError("INVALID_CAPTURE", "capture metadata is not valid JSON"); }
   assertExactObject(metadata, CAPTURE_KEYS, "capture metadata");
   if (metadata.schemaVersion !== 1 || metadata.kind !== "nelos-developer-screen-capture" || metadata.localOnly !== true ||
       !Number.isSafeInteger(metadata.bytes) || metadata.bytes !== imageInfo.size || !DIGEST.test(metadata.digest) ||

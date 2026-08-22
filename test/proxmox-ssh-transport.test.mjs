@@ -98,7 +98,9 @@ test("independent attestation requires another credential and rejects mutations 
   const second = await controllerEnv(t);
   const attest = Object.fromEntries(Object.entries(second).map(([name, value]) => [name.replace("NELOS_PROXMOX_", "NELOS_PROXMOX_ATTEST_"), value]));
   const sameCredential = { ...provider, ...attest, NELOS_PROXMOX_ATTEST_IDENTITY_FILE: provider.NELOS_PROXMOX_IDENTITY_FILE };
-  assert.equal((await run(sameCredential, "{}", attestHelper)).code, 78);
+  const sameCredentialResult = await run(sameCredential, "{}", attestHelper);
+  assert.equal(sameCredentialResult.code, 78, sameCredentialResult.stderr);
+  assert.match(sameCredentialResult.stderr, /INDEPENDENT_ATTESTOR_REQUIRED/u);
   const copiedRoot = await mkdtemp(join(tmpdir(), "nelos-proxmox-copied-key-"));
   t.after(() => rm(copiedRoot, { recursive: true, force: true }));
   const copiedCredential = join(copiedRoot, "copied-provider-key");

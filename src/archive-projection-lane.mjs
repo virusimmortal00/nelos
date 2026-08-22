@@ -26,7 +26,7 @@ function validateRequest(request) {
   exactObject(request.policy, POLICY_KEYS, "request.policy");
   if (!Number.isSafeInteger(request.policy.maxConvergenceMs) || request.policy.maxConvergenceMs < 1 || request.policy.maxConvergenceMs > 3_600_000 ||
       request.policy.requireArchiveReceipts !== true || request.policy.requireRestartCheckpoint !== true ||
-      !Number.isSafeInteger(request.policy.requiredConsecutiveAbsent) || request.policy.requiredConsecutiveAbsent < 2 || request.policy.requiredConsecutiveAbsent > 10) {
+      !Number.isSafeInteger(request.policy.requiredConsecutiveAbsent) || request.policy.requiredConsecutiveAbsent !== 2) {
     throw new ArchiveProjectionLaneError("INVALID_ARCHIVE_LANE_POLICY", "live archive convergence requires receipts, restart, and two clean checkpoints");
   }
   const started = new Date(request.startedAt);

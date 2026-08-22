@@ -155,6 +155,7 @@ export async function runDisposableGoldenBuilderV1({
     }
     await journal.record("builder-identity-proven", { observationDigest: sha256V1(observation) });
     const ownership = /^nelos-golden-builder-v1:([0-9a-f]{32})$/u.exec(binding.builderVm.ownership);
+    if (!ownership) fail("BUILDER_IDENTITY_MISMATCH", "builder ownership marker is not the exact nonce form");
     const packet = createGoldenBuilderPacketV1({
       reservation,
       builder: {

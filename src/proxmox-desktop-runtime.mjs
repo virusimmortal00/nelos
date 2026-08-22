@@ -876,7 +876,9 @@ function admissionVerificationReceiptFor({ binding, candidateVerification, confi
 }
 
 async function readAuthorizationReceipt(path, expected, root) {
-  const info = await lstat(path);
+  let info;
+  try { info = await lstat(path); }
+  catch { fail("AUTHORIZATION_REQUIRED", "authorization receipt is unavailable", "/authorizationReceipt"); }
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.uid !== root.uid || info.gid !== root.gid || (info.mode & 0o777) !== 0o400 || info.size > 16_384) fail("AUTHORIZATION_REQUIRED", "authorization receipt is not a sealed regular file", "/authorizationReceipt");
   let observed;
   try { observed = JSON.parse(await readFile(path, "utf8")); } catch { fail("AUTHORIZATION_REQUIRED", "authorization receipt is not valid JSON", "/authorizationReceipt"); }

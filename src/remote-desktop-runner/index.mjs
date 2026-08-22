@@ -194,16 +194,24 @@ function sealedValueCleanupReceipt(run, declaredValueRefs, value) {
 function serializeEvidenceCollection(value) {
   return {
     screenshots: (value.screenshots ?? []).map((item) => ({ ...item, frame: { ...item.frame, rgba: Buffer.from(item.frame.rgba).toString("base64") } })),
-    recordings: structuredClone(value.recordings ?? []),
+    recordings: (value.recordings ?? []).map(({ encodeSanitizedFrames: _encodeSanitizedFrames, ...item }) => ({
+      ...structuredClone(item),
+      frames: (item.frames ?? []).map((frame) => ({ ...structuredClone(frame), rgba: Buffer.from(frame.rgba).toString("base64") })),
+    })),
     diagnostics: structuredClone(value.diagnostics ?? []),
     ...(value.authAttestation === undefined ? {} : { authAttestation: structuredClone(value.authAttestation) }),
   };
 }
 
-function deserializeEvidenceCollection(value) {
+function deserializeEvidenceCollection(value, plannedRecordings = []) {
+  const encoders = new Map(plannedRecordings.map(({ artifactId, encodeSanitizedFrames }) => [artifactId, encodeSanitizedFrames]));
   return {
     screenshots: (value?.screenshots ?? []).map((item) => ({ ...item, frame: { ...item.frame, rgba: Buffer.from(item.frame.rgba, "base64") } })),
-    recordings: structuredClone(value?.recordings ?? []),
+    recordings: (value?.recordings ?? []).map((item) => ({
+      ...structuredClone(item),
+      frames: (item.frames ?? []).map((frame) => ({ ...structuredClone(frame), rgba: Buffer.from(frame.rgba, "base64") })),
+      ...(encoders.get(item.artifactId) === undefined ? {} : { encodeSanitizedFrames: encoders.get(item.artifactId) }),
+    })),
     diagnostics: structuredClone(value?.diagnostics ?? []),
     ...(value?.authAttestation === undefined ? {} : { authAttestation: structuredClone(value.authAttestation) }),
   };
@@ -382,7 +390,7 @@ export class ResumableRemoteDesktopRunnerV1 {
   async cancel({ run, plan }) {
     return this.journal.withRunLock(async () => {
       const current = await this.journal.load();
-      if (current.identityDigest !== identityFor(run, plan, this.productionGuard?.admission ?? null) ||
+      if (current.identityDigest !== identityFor(run, plan, this.productionGuard?.admission ?? null) || current.planDigest !== contentDigest(plan) ||
           contentDigest(productionAdmissionIdentity(current.productionAdmission)) !== contentDigest(productionAdmissionIdentity(this.productionGuard?.admission ?? null))) throw new RemoteDesktopRunnerError("RESUME_IDENTITY_MISMATCH", "cancel inputs do not match the journal");
       const recovery = recoveryAdmission(this.productionGuard?.admission ?? null, "cancel");
       await this.journal.update((value) => ({
@@ -623,9 +631,13 @@ export class ResumableRemoteDesktopRunnerV1 {
           }
           return current;
         }
-        await this.#providerEffect("provision", "create", current.run, plan, plan.operationUsage.provision);
+        const provisionReceipt = await this.#providerEffect("provision", "create", current.run, plan, plan.operationUsage.provision);
         current = await this.journal.load();
-        await this.#setRun(transitionRemoteDesktopRun(current.run, "running"));
+        if (provisionReceipt?.created === true) await this.#setRun(transitionRemoteDesktopRun(current.run, "running"));
+        else if (provisionReceipt?.destroyed === true || provisionReceipt?.quarantined === true) {
+          const outcome = terminalOutcome(current.run, provisionReceipt);
+          await this.#setRun(transitionRemoteDesktopRun(current.run, "cleaning"), { terminalOutcome: outcome });
+        } else throw new RemoteDesktopRunnerError("RECONCILIATION_REQUIRED", "provision did not prove creation, destruction, or quarantine");
       } catch (error) { await this.#recordFailure(error); }
     }
 
@@ -714,7 +726,7 @@ export class ResumableRemoteDesktopRunnerV1 {
           scenarioResults: current.scenarioResults,
           archiveConvergence: current.archiveConvergence,
           sealedValueCleanup: current.sealedValueCleanup,
-          evidenceCollection: deserializeEvidenceCollection(current.evidenceCollection),
+          evidenceCollection: deserializeEvidenceCollection(current.evidenceCollection, plan.evidence.recordings),
         });
         await this.journal.update((value) => ({ ...value, preDestroyInventoryDraft: structuredClone(receipt) }));
         await this.#checkpoint("after:pre-destroy-evidence");
@@ -793,7 +805,7 @@ export class ResumableRemoteDesktopRunnerV1 {
     if (mayFinalizeEvidence && !current.evidence && !current.effects.some(({ kind, status }) => kind === "evidence" && status === "committed")) {
       try {
         if (!current.evidenceCollection) throw new RemoteDesktopRunnerError("EVIDENCE_NOT_COLLECTED", "checkpoint evidence was not collected before destructive cleanup");
-        const collected = deserializeEvidenceCollection(current.evidenceCollection);
+        const collected = deserializeEvidenceCollection(current.evidenceCollection, plan.evidence.recordings);
         const mapped = scenarioEvidence(current.scenarioResults);
         const evidenceInput = {
           bundleDirectory: plan.evidence.bundleDirectory, run: current.run, currentUsage: current.usage,

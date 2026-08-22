@@ -22,7 +22,9 @@ assert_no_core_policy() {
   policy_file_is_exact "$(path_at /etc/sysctl.d/99-nelos-no-core.conf)" $'fs.suid_dumpable = 0\nkernel.core_pattern = /dev/null' || return 1
   policy_file_is_exact "$(path_at /etc/default/apport)" 'enabled=0' || return 1
   [[ $(cat "$(path_at /proc/sys/fs/suid_dumpable)" 2>/dev/null) == 0 && $(cat "$(path_at /proc/sys/kernel/core_pattern)" 2>/dev/null) == /dev/null ]] || return 1
-  [[ $(systemctl show --property DefaultLimitCORE --value 2>/dev/null) == 0 ]] || return 1
+  if [[ ${readiness_root} == / ]]; then
+    [[ $(systemctl show --property DefaultLimitCORE --value 2>/dev/null) == 0 ]] || return 1
+  fi
   local unit
   for unit in apport.service apport-autoreport.path apport-autoreport.service systemd-coredump.socket 'systemd-coredump@.service'; do
     [[ -L $(path_at "/etc/systemd/system/${unit}") && $(readlink "$(path_at "/etc/systemd/system/${unit}")") == /dev/null ]] || return 1

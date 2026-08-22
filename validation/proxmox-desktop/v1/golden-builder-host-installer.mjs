@@ -199,7 +199,7 @@ function validateIntent(intent, plan) {
       intent.completedEffects.some((item) => typeof item !== "string" || !effectIds(plan, intent.action).includes(item))) {
     fail("HOST_INSTALL_RECONCILIATION_REQUIRED", "host installation intent differs from the exact plan or effect graph");
   }
-  validatePrincipalIdentities(intent.principalIdentities, plan, { allowPartial: intent.action === "install", label: "hostInstallIntent.principalIdentities" });
+  validatePrincipalIdentities(intent.principalIdentities, plan, { allowPartial: true, label: "hostInstallIntent.principalIdentities" });
   return intent;
 }
 
@@ -564,7 +564,7 @@ export class LocalGoldenBuilderHostBoundaryV1 {
   #intent(plan) { return join(INTENT_ROOT, `${plan.planDigest.slice(7)}.intent.json`); }
   async beginIntent({ plan, targetsDigest, action, principalIdentities }) {
     await requireRootOwnedDirectoryChain(INTENT_ROOT, { createLeaf: true, leafMode: 0o700, exactLeafMode: 0o700 });
-    validatePrincipalIdentities(principalIdentities, plan, { allowPartial: action === "install", label: "new host intent principalIdentities" });
+    validatePrincipalIdentities(principalIdentities, plan, { allowPartial: true, label: "new host intent principalIdentities" });
     const path = this.#intent(plan); const value = { schemaVersion: 1, kind: "nelos-golden-builder-host-install-intent", action, completedEffects: [], planDigest: plan.planDigest, hostBindingDigest: plan.hostBindingDigest, principalIdentities, targetsDigest };
     const bytes = Buffer.from(`${canonicalJsonV1(value)}\n`);
     await atomicRootFile(path, bytes, 0o400);

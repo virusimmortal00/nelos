@@ -55,7 +55,8 @@ for rawWindow in rawWindows {
 
     seenWindowIdentifiers.insert(windowIdentifier)
     let ownerName = (rawWindow[kCGWindowOwnerName as String] as? String) ?? ""
-    let title = (rawWindow[kCGWindowName as String] as? String) ?? ""
+    let titleValue = rawWindow[kCGWindowName as String] as? String
+    let title = titleValue ?? ""
     let onScreen = (rawWindow[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
     let sharingState = (rawWindow[kCGWindowSharingState as String] as? NSNumber)?.intValue ?? 0
 
@@ -73,6 +74,7 @@ for rawWindow in rawWindows {
         "ownerPid": Int(ownerPid),
         "sharingState": sharingState,
         "title": title,
+        "titleAvailable": titleValue != nil,
         "windowId": Int(windowIdentifier),
     ])
 }

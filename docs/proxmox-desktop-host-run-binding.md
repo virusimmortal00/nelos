@@ -28,6 +28,7 @@ composer; no `jq` rewrite is needed:
 
 ```sh
 umask 077
+install -d -m 0700 -o "$(id -u)" -g "$(id -g)" /srv/nelos/candidates
 node scripts/stage-production-desktop-candidate.mjs \
   --out-dir /srv/nelos/candidates/CANDIDATE_ID \
   > /srv/nelos/inputs/candidate.json

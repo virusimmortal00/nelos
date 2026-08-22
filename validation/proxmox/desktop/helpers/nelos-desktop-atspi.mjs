@@ -51,7 +51,10 @@ async function trusted(path, max = 1_048_576) {
 async function output(value, limit) {
   const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
   if (bytes.length > limit) die(65, "OUTPUT_LIMIT", "helper output exceeds its bound");
-  process.stdout.write(bytes); bytes.fill(0);
+  await new Promise((resolvePromise, rejectPromise) => {
+    process.stdout.write(bytes, (error) => error ? rejectPromise(error) : resolvePromise());
+  });
+  bytes.fill(0);
 }
 function validProtectedInventory(value, width, height) {
   if (!fields(value, ["conversation", "credentialInventory", "schemaVersion", "traversal"]) || value.schemaVersion !== 1 ||

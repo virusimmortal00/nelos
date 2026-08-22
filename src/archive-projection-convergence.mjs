@@ -91,7 +91,9 @@ async function verifiedReportDigest(value, label) {
   const bytes = await readFile(resolved);
   const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   if (digest !== value.digest) throw new ArchiveProjectionConvergenceError("VISUAL_REPORT_DIGEST_MISMATCH", `${label} digest does not match its report`);
-  const report = JSON.parse(bytes);
+  let report;
+  try { report = JSON.parse(bytes); }
+  catch { throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} is not valid JSON`); }
   if (report?.schemaVersion !== 1 || report?.kind !== "nelos-developer-visual-state-validation" || !DIGEST.test(report?.capture?.digest)) {
     throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} does not reference a visual-state validation report`);
   }
@@ -199,9 +201,9 @@ export async function validateArchiveProjectionConvergence(input) {
   }
   if (policy.requireRestartCheckpoint) {
     const firstRestart = checkpoints.findIndex(({ phase }) => phase === "afterRestart");
-    if (firstRestart <= 0) {
+    if (firstRestart === 0) {
       findings.push(finding("MISSING_PRE_RESTART_CHECKPOINT", null));
-    } else if (checkpoints[firstRestart].appInstanceId === checkpoints[firstRestart - 1].appInstanceId) {
+    } else if (firstRestart > 0 && checkpoints[firstRestart].appInstanceId === checkpoints[firstRestart - 1].appInstanceId) {
       findings.push(finding("RESTART_INSTANCE_NOT_CHANGED", null, { checkpoint: checkpoints[firstRestart].sequence }));
     }
   }

@@ -66,7 +66,10 @@ async function main() {
   }
   await mkdir(root, { recursive: true, mode: 0o700 }); await chmod(root, 0o700);
   const statePath = join(root, "world.json");
-  try { await readFile(statePath); } catch { await atomic(statePath, { gateway: "original", builderPresent: false, builderStatus: "stopped", effects: { apply: 0, controller: 0, destroy: 0, provision: 0, restore: 0, stop: 0 } }); }
+  try { await readFile(statePath); } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    await atomic(statePath, { gateway: "original", builderPresent: false, builderStatus: "stopped", effects: { apply: 0, controller: 0, destroy: 0, provision: 0, restore: 0, stop: 0 } });
+  }
   const mutate = async (callback) => { const world = await load(statePath); callback(world); await atomic(statePath, world); return world; };
   const gatewayAdapter = {
     async preflight() { const world = await load(statePath); if (world.gateway !== "original") throw Object.assign(new Error("not baseline"), { code: "GATEWAY_PREFLIGHT_MISMATCH" }); return {}; },

@@ -1278,6 +1278,7 @@ export async function projectExecutionMapForToolResultV1(
     );
     const persistedProjection = {
       ...merged,
+      ...(planTask ? { task: planTask } : {}),
       webId: identity.webId,
       queenThreadId: identity.queenThreadId,
     };

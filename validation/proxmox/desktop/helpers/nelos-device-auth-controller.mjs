@@ -1,7 +1,7 @@
 #!/usr/lib/chatgpt/resources/cua_node/bin/node
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { open, rename } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { open, rename, unlink } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 const CODEX = process.env.NELOS_DEVICE_AUTH_CODEX ?? "/usr/lib/chatgpt/resources/codex";
@@ -36,7 +36,7 @@ function validateBounds() {
 }
 
 async function atomicJson(path, value) {
-  const temporary = `${path}.new`;
+  const temporary = `${path}.${process.pid}.${randomBytes(8).toString("hex")}.new`;
   const handle = await open(temporary, "wx", 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8");
@@ -44,7 +44,8 @@ async function atomicJson(path, value) {
   } finally {
     await handle.close();
   }
-  await rename(temporary, path);
+  try { await rename(temporary, path); }
+  catch (error) { await unlink(temporary).catch(() => {}); throw error; }
 }
 
 class AppServerSession {

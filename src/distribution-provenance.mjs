@@ -288,20 +288,42 @@ async function listIntegrityFiles(root, entry) {
   return files;
 }
 
-export async function listDistributionFiles(
-  root,
-  { includeProvenance = false } = {},
-) {
+async function selectedDistributionFiles(root, {
+  includeProvenance = false,
+  allowLegacyWithoutCorpus = false,
+  allowLegacyWithoutAgentPluginLayout = false,
+} = {}) {
+  const requireDesktopEntries = await requiresDesktopPackageEntries(root);
+  let omitLegacyAgentPluginLayout = false;
+  if (allowLegacyWithoutAgentPluginLayout) {
+    const presence = await Promise.all(["plugin.json", "mcp.json"].map(async (entry) => {
+      try { await lstat(join(root, entry)); return true; }
+      catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    }));
+    omitLegacyAgentPluginLayout = presence.every((entryPresent) => !entryPresent);
+  }
   const files = [];
   const entries = includeProvenance
     ? [...DISTRIBUTION_ENTRIES, PROVENANCE_FILENAME]
     : DISTRIBUTION_ENTRIES;
   for (const entry of entries) {
-    files.push(...(await listIntegrityFiles(root, entry)));
+    if (omitLegacyAgentPluginLayout && (entry === "plugin.json" || entry === "mcp.json")) continue;
+    if (allowLegacyWithoutCorpus && entry === "corpus") {
+      try { await lstat(join(root, entry)); }
+      catch (error) { if (error.code === "ENOENT") continue; throw error; }
+    }
+    try { files.push(...(await listIntegrityFiles(root, entry))); }
+    catch (error) {
+      if (error.code === "ENOENT" && !requireDesktopEntries && ["LICENSE", "validation", "scripts/stage-production-desktop-candidate.mjs"].includes(entry)) continue;
+      throw error;
+    }
   }
-  return files
-    .map((path) => relative(root, path).split("\\").join("/"))
-    .sort();
+  return files.map((path) => ({ path, relativePath: relative(root, path).split("\\").join("/") }))
+    .sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
+}
+
+export async function listDistributionFiles(root, options = {}) {
+  return (await selectedDistributionFiles(root, options)).map(({ relativePath }) => relativePath);
 }
 
 async function requiresDesktopPackageEntries(root) {
@@ -323,64 +345,11 @@ export async function computeDistributionIntegrity(
     allowLegacyWithoutAgentPluginLayout = false,
   } = {},
 ) {
-  const requireDesktopEntries = await requiresDesktopPackageEntries(root);
-  let omitLegacyAgentPluginLayout = false;
-  if (allowLegacyWithoutAgentPluginLayout) {
-    const presence = await Promise.all(
-      ["plugin.json", "mcp.json"].map(async (entry) => {
-        try {
-          await lstat(join(root, entry));
-          return true;
-        } catch (error) {
-          if (error.code === "ENOENT") return false;
-          throw error;
-        }
-      }),
-    );
-    omitLegacyAgentPluginLayout = presence.every((entryPresent) => !entryPresent);
-  }
-  const files = [];
-  for (const entry of DISTRIBUTION_ENTRIES) {
-    if (
-      omitLegacyAgentPluginLayout &&
-      (entry === "plugin.json" || entry === "mcp.json")
-    ) {
-      continue;
-    }
-    if (allowLegacyWithoutCorpus && entry === "corpus") {
-      try {
-        await lstat(join(root, entry));
-      } catch (error) {
-        if (error.code === "ENOENT") continue;
-        throw error;
-      }
-    }
-    try {
-      files.push(...(await listIntegrityFiles(root, entry)));
-    } catch (error) {
-      if (
-        error.code === "ENOENT" &&
-        !requireDesktopEntries &&
-        (
-          entry === "LICENSE" ||
-          entry === "validation" ||
-          entry === "scripts/stage-production-desktop-candidate.mjs"
-        )
-      ) {
-        continue;
-      }
-      throw error;
-    }
-  }
-  files.sort((left, right) => {
-    const leftPath = relative(root, left);
-    const rightPath = relative(root, right);
-    return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
-  });
+  const files = await selectedDistributionFiles(root, { allowLegacyWithoutCorpus, allowLegacyWithoutAgentPluginLayout });
 
   const hash = createHash("sha256");
-  for (const path of files) {
-    hash.update(relative(root, path));
+  for (const { path, relativePath } of files) {
+    hash.update(relativePath);
     hash.update("\0");
     hash.update(await readFile(path));
     hash.update("\0");

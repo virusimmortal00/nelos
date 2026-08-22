@@ -20,13 +20,15 @@ export class LinuxAtspiBoundary {
       const child = spawn(HELPER, [operation], { shell: false, stdio: ["pipe", "pipe", "ignore"], signal });
       const chunks = [];
       let size = 0;
+      let overflow = false;
       child.stdout.on("data", (chunk) => {
         size += chunk.length;
-        if (size > 8_388_608) child.kill("SIGKILL");
+        if (size > 8_388_608) { overflow = true; child.kill("SIGKILL"); }
         else chunks.push(chunk);
       });
       child.once("error", (error) => reject(new DesktopGuiDriverError(error.name === "AbortError" ? "ACTION_TIMEOUT" : "GUI_BOUNDARY_UNAVAILABLE", "Linux AT-SPI helper failed")));
       child.once("close", (code) => {
+        if (overflow) return reject(new DesktopGuiDriverError("INVALID_GUI_OBSERVATION", "Linux AT-SPI helper output exceeded its bound"));
         if (code !== 0) return reject(new DesktopGuiDriverError(code === 70 ? "DESKTOP_CRASH" : code === 71 ? "TASK_STALLED" : "ACTION_ERROR", "Linux AT-SPI operation failed"));
         try {
           const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -35,11 +37,13 @@ export class LinuxAtspiBoundary {
           reject(new DesktopGuiDriverError("INVALID_GUI_OBSERVATION", "Linux AT-SPI helper returned invalid data"));
         }
       });
+      child.stdin.on("error", () => reject(new DesktopGuiDriverError("GUI_BOUNDARY_UNAVAILABLE", "Linux AT-SPI helper input failed")));
       const header = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
-      child.stdin.write(header);
-      header.fill(0);
-      if (bytes !== null) child.stdin.write(bytes);
-      child.stdin.end();
+      child.stdin.write(header, () => {
+        header.fill(0);
+        if (bytes !== null) child.stdin.write(bytes);
+        child.stdin.end();
+      });
     });
   }
 

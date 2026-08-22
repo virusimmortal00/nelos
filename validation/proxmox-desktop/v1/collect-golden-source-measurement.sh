@@ -12,12 +12,17 @@ readonly request_file="$1" known_hosts="$2" identity="$3" source_config="$4" out
 for source in "$request_file" "$known_hosts" "$identity" "$source_config"; do
   /usr/bin/python3 -c 'import os,stat,sys; s=os.lstat(sys.argv[1]); assert stat.S_ISREG(s.st_mode) and s.st_nlink==1 and not s.st_mode & 0o022 and os.path.realpath(sys.argv[1])==sys.argv[1]' "$source" || die "measurement input is not one sealed canonical regular file"
 done
-readonly expected_host_fingerprint="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["hostKeyFingerprint"])' "$request_file")"
-readonly expected_identity_fingerprint="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["identityFingerprint"])' "$request_file")"
-readonly observed_hosts="$(/usr/bin/ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}')"
-readonly observed_identity="$(/usr/bin/ssh-keygen -lf "$identity" -E sha256 | awk 'NR == 1 {print $2}')"
+readonly expected_host_fingerprint
+expected_host_fingerprint="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["hostKeyFingerprint"])' "$request_file")"
+readonly expected_identity_fingerprint
+expected_identity_fingerprint="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["identityFingerprint"])' "$request_file")"
+readonly observed_hosts
+observed_hosts="$(/usr/bin/ssh-keygen -lf "$known_hosts" -E sha256 | awk '{print $2}')"
+readonly observed_identity
+observed_identity="$(/usr/bin/ssh-keygen -lf "$identity" -E sha256 | awk 'NR == 1 {print $2}')"
 [[ $observed_hosts == "$expected_host_fingerprint" && $observed_identity == "$expected_identity_fingerprint" ]] || die "volume-attestor host or principal fingerprint differs from the request"
-readonly payload="$(/usr/bin/python3 - "$request_file" "$source_config" <<'PY'
+readonly payload
+payload="$(/usr/bin/python3 - "$request_file" "$source_config" <<'PY'
 import datetime, hashlib, json, sys, time
 request=json.load(open(sys.argv[1], encoding="utf-8")); config=json.load(open(sys.argv[2], encoding="utf-8")); now=int(time.time()*1000)
 required={"apiTlsCaDigest","apiUrl","attestorTokenId","buildNonce","buildTokenId","cleanupExpiresAt","expiresAt","maxBuildMs","networkAclPath","node","outputTemplate","providerId","reservationId","schemaVersion","sourceCommit","sourceTemplateName","storage","volumeAttestor"}
@@ -32,9 +37,12 @@ payload={"schemaVersion":1,"providerId":request["providerId"],"node":request["no
 print(canonical(payload))
 PY
 )" || die "source-measurement request could not be derived"
-readonly host="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshHost"])' "$request_file")"
-readonly port="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshPort"])' "$request_file")"
-readonly user="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshUser"])' "$request_file")"
+readonly host
+host="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshHost"])' "$request_file")"
+readonly port
+port="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshPort"])' "$request_file")"
+readonly user
+user="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["volumeAttestor"]["sshUser"])' "$request_file")"
 readonly temporary="${output}.partial"
 [[ ! -e $temporary && ! -L $temporary ]] || die "partial measurement output already exists"
 printf '%s\n' "$payload" | /usr/bin/ssh -F /dev/null -T -p "$port" \

@@ -44,8 +44,9 @@ one-pixel ImageMagick probe with explicit `map=0` and `disk=0` limits. Productio
 mode-`0700` runtime cache directory, verify it remains empty, and fail closed on
 any attempted spill.
 
-After authentication, the QGA allowlist exposes a fixed
-`/usr/libexec/nelos-guest-task-control` route. It loads only the integrity-checked
+After authentication, the QGA allowlist exposes the fixed
+`/usr/libexec/nelos-desktop-atspi` route, which invokes the internal
+`/usr/libexec/nelos-guest-task-control` helper for task operations. The helper loads only the integrity-checked
 candidate installed at `/opt/nelos-desktop/nelos`, runs the pinned app-server
 and packaged Nelos MCP as `nelosauto` against `/home/nelosauto/.codex`, and uses
 the canonical mode-`0700` `/home/nelosauto/workspace`. Task preparation requires

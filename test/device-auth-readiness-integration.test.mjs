@@ -141,7 +141,7 @@ exit 1
   await writeFile(join(root, `run/user/${uid}/nelos-accessibility-ready`), "", { mode: 0o600 });
   const socketPath = join(root, `run/user/${uid}/bus`); const server = createServer();
   await new Promise((resolvePromise) => server.listen(socketPath, resolvePromise));
-  t.after(() => server.close());
+  t.after(() => new Promise((closed) => server.close(closed)));
   const readiness = await run("/bin/bash", ["-u", resolve("validation/proxmox/desktop/recipe-v1/check-gui-readiness.sh")], {
     ...environment, NELOS_READINESS_ROOT: root, NELOS_READINESS_TEST_MODE: "1", NELOS_READINESS_ATTEMPTS: "1",
   });

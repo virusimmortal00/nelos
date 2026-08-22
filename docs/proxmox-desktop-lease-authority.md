@@ -81,7 +81,8 @@ run binding and does not grant SSH access.
 
 Use a root-owned canonical `0400` request. `previousRecordDigest` is `null` for
 the first epoch and must be the exact current completed record digest for a
-later epoch:
+later epoch. Replace both timestamp values below with future instants before
+issuing a real lease:
 
 ```json
 {

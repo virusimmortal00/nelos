@@ -140,7 +140,7 @@ test("fresh Desktop task identities cannot be reused across scenarios", async ()
   assert.equal(second.failure.code, "REUSED_TASK_IDENTITY");
 });
 
-test("expected task must already exist before Desktop activation", async () => {
+test("a missing expected task maps to reused task identity before Desktop activation", async () => {
   const { boundary, driver } = await harness();
   boundary.tasks = [];
   const result = await driver.runScenario(desktopGuiScenario());

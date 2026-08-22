@@ -165,6 +165,9 @@ function validateConfig(config, clock = Date, { effectiveLease = null, operation
     assertWithin(stateRoot, resolve(homelab.observationRoot), "observation root");
   }
   if (config.plan.automation?.stateRoot !== `/var/lib/nelos-desktop/runs/${config.run.runId}` || config.plan.automation?.home !== `/home/${config.plan.automation?.user}` || config.plan.automation?.credentialRefs?.length !== 0) fail("WRITABLE_STATE_NOT_ISOLATED", "guest automation state is not isolated or contains credential references");
+  plain(config.plan.archiveConvergence, "config.plan.archiveConvergence");
+  plain(config.plan.archiveConvergence.policy, "config.plan.archiveConvergence.policy");
+  boundedInteger(config.plan.archiveConvergence.policy.maxConvergenceMs, "archiveConvergence.policy.maxConvergenceMs", 3_600_000);
   plain(config.currentLease, "config.currentLease");
   exactIdentity(config.currentLease, { ...config.run.provider, ...config.run.lease }, "STALE_FENCING_TOKEN");
   if (config.runPacket) {
@@ -186,6 +189,7 @@ function validateConfig(config, clock = Date, { effectiveLease = null, operation
   closed(homelab.outputLimits, ["providerBytes", "qgaBytes", "archiveReportBytes"], "config.homelab.outputLimits");
   boundedInteger(homelab.outputLimits.providerBytes, "providerBytes", 16_777_216); boundedInteger(homelab.outputLimits.qgaBytes, "qgaBytes", 16_777_216); boundedInteger(homelab.outputLimits.archiveReportBytes, "archiveReportBytes", 10_485_760);
   plain(homelab.guiBindings, "config.homelab.guiBindings");
+  if (!Array.isArray(config.run.scenarios)) fail("INVALID_HOMELAB_CONFIG", "run scenarios must be an array");
   for (const scenario of config.run.scenarios) {
     const submitActions = scenario.actions.filter((action) => action.type === "keypress" && homelab.guiBindings[action.targetRef]?.key === "ENTER");
     if (submitActions.length !== 1) fail("INVALID_HOMELAB_CONFIG", `scenario ${scenario.scenarioId} must declare exactly one allowlisted ENTER model-submit action`);
@@ -210,6 +214,7 @@ export class BoundedJsonProcessV1 {
       const timer = setTimeout(() => { abort.abort(); finish(rejectPromise, new HomelabDesktopRuntimeError("HELPER_DEADLINE", "helper invocation exceeded its deadline")); }, deadlineMs);
       signal?.addEventListener("abort", onAbort, { once: true });
       child.once("error", () => finish(rejectPromise, new HomelabDesktopRuntimeError("UNAVAILABLE_HELPER", "allowlisted helper is unavailable")));
+      child.stdin.on?.("error", () => finish(rejectPromise, new HomelabDesktopRuntimeError("UNAVAILABLE_HELPER", "allowlisted helper input failed")));
       child.stdout.on("data", (chunk) => { size += chunk.length; if (size > maxOutputBytes) { abort.abort(); finish(rejectPromise, new HomelabDesktopRuntimeError("HELPER_OUTPUT_LIMIT", "helper output exceeded its bound")); } else chunks.push(chunk); });
       child.once("close", (code) => {
         if (code === 44 && [PROVIDER_HELPER, ATTEST_HELPER].includes(executable) && operation === "request") {
@@ -221,9 +226,11 @@ export class BoundedJsonProcessV1 {
         try { finish(resolvePromise, JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { finish(rejectPromise, new HomelabDesktopRuntimeError("INVALID_HELPER_OUTPUT", "helper returned invalid JSON")); }
       });
       const header = Buffer.from(`${JSON.stringify(payload)}\n`);
-      child.stdin.write(header); header.fill(0);
-      if (inputBytes) child.stdin.write(inputBytes);
-      child.stdin.end();
+      child.stdin.write(header, () => {
+        header.fill(0);
+        if (inputBytes) child.stdin.write(inputBytes);
+        child.stdin.end();
+      });
     });
   }
 }
@@ -376,7 +383,7 @@ export class ProxmoxQgaHelperClientV1 {
     exactIdentity(observed, this.admitted.runtimeBinding);
   }
   async #boundedAdapterCall(method, path, payload, { signal = null, wallDeadlineAt }) {
-    const remaining = wallDeadlineAt - Date.now();
+    const remaining = wallDeadlineAt - this.clock.now();
     if (!Number.isSafeInteger(remaining) || remaining < 1 || signal?.aborted) fail("HELPER_DEADLINE", "QGA provider call exceeded its sealed deadline");
     const abort = new AbortController();
     const combined = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal;
@@ -392,7 +399,7 @@ export class ProxmoxQgaHelperClientV1 {
       signal?.addEventListener("abort", onExternalAbort, { once: true });
       if (signal?.aborted) { onExternalAbort(); return; }
       Promise.resolve().then(() => this.adapter.call(method, path, payload, { signal: combined, deadlineMs: remaining })).then(
-        (value) => Date.now() >= wallDeadlineAt ? rejectDeadline() : finish(resolvePromise, value),
+        (value) => this.clock.now() >= wallDeadlineAt ? rejectDeadline() : finish(resolvePromise, value),
         (error) => combined.aborted ? rejectDeadline() : finish(rejectPromise, error),
       );
     });
@@ -409,13 +416,13 @@ export class ProxmoxQgaHelperClientV1 {
   async #reconcilePid(pid, wallDeadlineAt) {
     let lastStatus = null;
     for (;;) {
-      const remaining = wallDeadlineAt - Date.now();
+      const remaining = wallDeadlineAt - this.clock.now();
       if (remaining <= 0) return null;
       try {
         lastStatus = await this.#status(pid, { wallDeadlineAt });
         if (lastStatus?.exited === 1 || lastStatus?.exited === true) return lastStatus;
       } catch { /* an unavailable status remains unresolved and fails closed below */ }
-      const sleepMs = Math.min(25, wallDeadlineAt - Date.now());
+      const sleepMs = Math.min(25, wallDeadlineAt - this.clock.now());
       if (sleepMs <= 0) return null;
       await new Promise((resolvePromise) => setTimeout(resolvePromise, sleepMs));
     }
@@ -456,7 +463,7 @@ export class ProxmoxQgaHelperClientV1 {
     const input = bytes ? Buffer.concat([envelope, bytes]) : envelope;
     const abort = new AbortController();
     const combinedSignal = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal;
-    const wallDeadlineAt = Date.now() + effectiveDeadlineMs;
+    const wallDeadlineAt = this.clock.now() + effectiveDeadlineMs;
     const executionWallDeadlineAt = wallDeadlineAt - reconciliationBudgetMs;
     const timer = setTimeout(() => abort.abort(), executionDeadlineMs);
     let pid = null;
@@ -471,7 +478,7 @@ export class ProxmoxQgaHelperClientV1 {
       if (!Number.isSafeInteger(pid)) fail("AMBIGUOUS_GUI_EFFECT", "QGA helper start did not return a process identity");
       this.unresolvedProcess = { operation, pid, wallDeadlineAt };
       for (;;) {
-        if (combinedSignal.aborted || Date.now() >= executionWallDeadlineAt) fail("HELPER_DEADLINE", "guest helper exceeded its execution deadline");
+        if (combinedSignal.aborted || this.clock.now() >= executionWallDeadlineAt) fail("HELPER_DEADLINE", "guest helper exceeded its execution deadline");
         const status = await this.#status(pid, { signal: combinedSignal, wallDeadlineAt: executionWallDeadlineAt });
         if (status?.exited === 1 || status?.exited === true) {
           this.unresolvedProcess = null;

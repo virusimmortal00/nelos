@@ -65,7 +65,7 @@ if (!fields(request, ["operation", "payload", "schemaVersion"]) || request.schem
     !fields(auth, ["accountBindingDigest", "accountType", "authMethod", "authenticated", "binding", "credentialStore", "developerSessionImported", "schemaVersion"]) ||
     auth.schemaVersion !== 1 || auth.authenticated !== true || auth.accountType !== "chatgpt" || auth.authMethod !== "chatgptDeviceCode" ||
     auth.credentialStore !== "file" || auth.developerSessionImported !== false || !SHA256.test(auth.accountBindingDigest ?? "") ||
-    JSON.stringify(auth.binding) !== JSON.stringify(binding)) die("GUEST_TASK_BINDING_MISMATCH", "guest task request is not bound to isolated authentication");
+    JSON.stringify(sortDeep(auth.binding)) !== JSON.stringify(sortDeep(binding))) die("GUEST_TASK_BINDING_MISMATCH", "guest task request is not bound to isolated authentication");
 
 if (!candidateRoot || !resolve(candidateRoot).startsWith("/")) die("GUEST_CANDIDATE_UNAVAILABLE", "verified guest candidate root is unavailable");
 const [{ prepareProductionTaskV1, PinnedCodexTaskPreparationClientV1 }, guestTask, observer, archiveObserver, bridgeModule] = await Promise.all([

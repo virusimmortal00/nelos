@@ -171,7 +171,7 @@ def measure_lvm_volume(storage, volume_id, vg, pool, deadline):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
                 env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"},
             )
-            if completed.returncode != 0:
+            if completed.returncode != 0 and sys.exc_info()[0] is None:
                 die("VOLUME_PATH_FAILED", "measured LVM volume could not be deactivated")
 
 
@@ -232,6 +232,8 @@ def main():
     status_path = f"/nodes/{binding['node']}/qemu/{target['vmId']}/status/current"
     config = pvesh(config_path)
     status_value = pvesh(status_path)
+    if isinstance(config, dict):
+        config = {key: value for key, value in config.items() if key != "digest"}
     if not isinstance(config, dict) or config.get("name") != target["name"] or int(config.get("template", 0)) != 1 or not isinstance(status_value, dict) or status_value.get("status") != "stopped" or digest(config) != request["configDigest"]:
         die("IDENTITY_MISMATCH", "stopped template configuration differs from the sealed request", 77)
     vg, pool = storage_identity(binding["storage"])
@@ -240,7 +242,7 @@ def main():
         if not DISK_KEY.fullmatch(disk_key) or not isinstance(encoded, str):
             continue
         volume_id = encoded.split(",", 1)[0]
-        if volume_id.endswith(":cloudinit"):
+        if volume_id.endswith(":cloudinit") or volume_id.endswith("-cloudinit"):
             continue
         if not VOLUME_ID.fullmatch(volume_id) or not volume_id.startswith(binding["storage"] + ":"):
             die("VOLUME_PATH_FAILED", "persistent volume assignment is outside the sealed storage")

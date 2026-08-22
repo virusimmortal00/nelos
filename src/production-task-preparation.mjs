@@ -360,6 +360,7 @@ export class PinnedCodexTaskPreparationClientV1 {
   }
 
   async close() {
+    this.#rejectAll(new ProductionTaskPreparationError("APP_SERVER_UNAVAILABLE", "pinned Codex app-server session closed"));
     if (!this.child) return;
     this.child.stdin.end();
     this.child.kill("SIGTERM");

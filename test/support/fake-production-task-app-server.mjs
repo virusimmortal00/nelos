@@ -19,7 +19,9 @@ function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
 let buffer = "";
 let queue = Promise.resolve();
 process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => { queue = queue.then(() => consume(chunk)); });
+process.stdin.on("data", (chunk) => {
+  queue = queue.then(() => consume(chunk)).catch(() => {});
+});
 
 async function consume(chunk) {
   buffer += chunk;
@@ -27,9 +29,10 @@ async function consume(chunk) {
   while ((newline = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, newline).trim(); buffer = buffer.slice(newline + 1);
     if (!line) continue;
-    const message = JSON.parse(line);
-    if (message.id === undefined) continue;
+    let message;
     try {
+      message = JSON.parse(line);
+      if (message.id === undefined) continue;
       const state = await readState();
       state.methods.push(message.method);
       if (message.method === "initialize") {
@@ -93,7 +96,7 @@ async function consume(chunk) {
       }
       throw new Error("unsupported method");
     } catch {
-      send({ id: message.id, error: { code: -32603, message: "fake app-server request failed" } });
+      send({ id: message?.id ?? null, error: { code: message ? -32603 : -32700, message: "fake app-server request failed" } });
     }
   }
 }
