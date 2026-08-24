@@ -5,6 +5,43 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.19] - 2026-08-24
+
+### User-facing changes
+
+- Distribution installation now refuses to replace the Nelos plugin cache
+  while any live Nelos worker is registered.
+- The installer holds worker registration exclusion from runtime inspection
+  through the completed cache transaction, closing the check-to-mutation race.
+- MCP initialization now reports mixed active versions immediately, and the
+  task workflow checks runtime health before every stateful Nelos operation.
+
+### Compatibility requirements
+
+- The distributable plugin identity advances to `0.12.19` for the runtime
+  generation guard.
+- Upgrades require quitting Codex completely, installing from an external
+  terminal, relaunching Codex, and opening a fresh task. Opening a fresh task
+  without the full shutdown does not retire sibling MCP workers.
+- The Codex and Node.js compatibility requirements remain unchanged from
+  `0.12.18`.
+
+### Migrations
+
+- No persisted-state migration is required. Use the full-shutdown upgrade
+  sequence above before installing this release.
+
+### Security fixes
+
+- No security fixes.
+
+### Known limitations
+
+- Nelos cannot prevent an external host or third-party process from replacing
+  plugin-cache bytes outside its installer. Runtime identity checks and the
+  central mutation fence detect that condition and block stateful work until a
+  complete restart.
+
 ## [0.12.18] - 2026-08-19
 
 ### User-facing changes
