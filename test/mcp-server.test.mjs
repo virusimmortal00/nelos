@@ -4383,6 +4383,8 @@ test("nelos_runtime_health reports and fences mixed cooperative generations", as
     }),
     workerRegistry,
   });
+  assert.match(responses[0].result.instructions, /Startup preflight blocked stateful Nelos work/u);
+  assert.match(responses[0].result.instructions, /Active versions: 0\.12\.5, 0\.12\.6/u);
   const body = toolBody(responses.at(-1)).body;
   assert.equal(body.health.state, "restart-required");
   assert.equal(body.health.mutationAllowed, false);
@@ -4476,7 +4478,7 @@ test("runtime admission fences stateful and destructive tools from annotations w
   }
   assert.equal(toolBody(responses[3]).isError, false);
   assert.equal(toolBody(responses[4]).isError, false);
-  assert.deepEqual(integrityChecks, [true, true, false]);
+  assert.deepEqual(integrityChecks, [false, true, true, false]);
 });
 
 test("runtime identity is derived once, at bootstrap, not per call", async () => {

@@ -266,6 +266,7 @@ async function installFixture(fixture, overrides = {}) {
     codexCommand: fixture.codexPath,
     force: true,
     env: fixture.env,
+    inspectRuntimeWorkers: async () => ({ liveWorkerCount: 0 }),
     ...overrides,
   });
 }
@@ -281,6 +282,31 @@ async function makeFixtureClean(fixture) {
     rm(join(fixture.binDir, "nelos-title"), { force: true }),
   ]);
 }
+
+test("installer refuses live control-plane cache replacement before mutation", async () => {
+  const fixture = await createFixture();
+  try {
+    const before = JSON.parse(
+      await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8"),
+    );
+    await assert.rejects(
+      installFixture(fixture, {
+        inspectRuntimeWorkers: async () => ({ liveWorkerCount: 2 }),
+      }),
+      /refusing to replace the Nelos plugin cache while 2 live Nelos workers are registered; quit Codex completely/u,
+    );
+    const after = JSON.parse(
+      await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8"),
+    );
+    assert.deepEqual(after, before);
+    assert.equal(
+      await readFile(join(fixture.pluginSource, "legacy-marker"), "utf8"),
+      "legacy source\n",
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
 async function startPluginAppServer(
   fixture,
