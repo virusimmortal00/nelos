@@ -8,9 +8,8 @@ description: Plan multi-stream feature or fix work into dependency-safe waves wi
 Planning quality must not depend on the queen's model. One bounded Sol planner
 decomposes; the queen judges. Use bundled MCP tools; never use the CLI as fallback. Native kinds:
 
-Before the first stateful call per task, call `nelos_runtime_health`.
-Continue only if `mutationAllowed` is true; otherwise perform its exact
-`recovery` action.
+Before mutations call `nelos_runtime_health`; require `mutationAllowed`, else use `recovery`.
+Never live-upgrade Nelos. Quit, install externally, relaunch and open fresh task; task alone leaves workers live.
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
   internal thread ID is verification evidence only. Never call it a spinoff.

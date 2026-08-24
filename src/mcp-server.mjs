@@ -131,9 +131,21 @@ export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
 export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
 export const MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 export const MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS =
-  "Before the first stateful Nelos call in a task, call nelos_runtime_health. " +
+  "Before each stateful Nelos call, call nelos_runtime_health. " +
   "Continue only when mutationAllowed is true; otherwise perform the one recovery action it returns.";
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+function runtimePreflightInstructions(health) {
+  if (health?.mutationAllowed === true) return MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS;
+  const versions = Array.isArray(health?.activeVersions) && health.activeVersions.length > 0
+    ? ` Active versions: ${health.activeVersions.join(", ")}.`
+    : "";
+  return (
+    `${MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS} Startup preflight blocked stateful Nelos work: ` +
+    `${health?.detail ?? "runtime health could not authorize mutations"}.${versions} ` +
+    `Recovery: ${health?.recovery ?? "Quit and relaunch Codex, then open a fresh task."}`
+  );
+}
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1575,6 +1587,7 @@ export function startNelosMcpServer({
       // failed registration remains diagnosable through runtime health and
       // causes stateful calls to fail closed.
       await workerLeaseResult;
+      const startupHealth = await runtimeHealth();
       send({
         jsonrpc: "2.0",
         id,
@@ -1585,7 +1598,7 @@ export function startNelosMcpServer({
             resources: { listChanged: false, subscribe: false },
           },
           serverInfo: { name: MCP_SERVER_NAME, version: serverVersion },
-          instructions: MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS,
+          instructions: runtimePreflightInstructions(startupHealth),
         },
       });
       negotiatedVersion = selectedProtocolVersion;

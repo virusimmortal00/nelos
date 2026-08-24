@@ -64,6 +64,7 @@ import {
   processMayOwnLease,
   readProcessIdentity,
 } from "./process-liveness.mjs";
+import { RuntimeWorkerRegistryV1 } from "./runtime-worker-registry.mjs";
 import {
   hasOnlyManagedSkillFiles,
   pathFingerprint,
@@ -2665,6 +2666,14 @@ async function reconcileCommittedPluginAfterAppServer({
 }
 
 export async function installDistribution(options = {}) {
+  const withRuntimeWorkerExclusion = options.withRuntimeWorkerExclusion ?? (
+    (callback) => new RuntimeWorkerRegistryV1().withRegistrationExclusion(callback)
+  );
+  return withRuntimeWorkerExclusion((runtimeWorkers) =>
+    installDistributionWithRuntimeExclusion(options, runtimeWorkers));
+}
+
+async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) {
   assertSupportedPlatform();
   const home = resolve(options.home ?? homedir());
   const codexHome = resolve(options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex"));
@@ -2705,6 +2714,20 @@ export async function installDistribution(options = {}) {
     sourcePath: expectedPluginSource,
   };
   const testFailpoint = options.testFailpoint ?? null;
+  if (
+    !runtimeWorkers ||
+    !Number.isSafeInteger(runtimeWorkers.liveWorkerCount) ||
+    runtimeWorkers.liveWorkerCount < 0
+  ) {
+    throw new Error("runtime worker preflight returned an invalid result");
+  }
+  if (runtimeWorkers.liveWorkerCount > 0) {
+    throw new Error(
+      `refusing to replace the Nelos plugin cache while ${runtimeWorkers.liveWorkerCount} live Nelos ` +
+      `${runtimeWorkers.liveWorkerCount === 1 ? "worker is" : "workers are"} registered; quit Codex completely, ` +
+      "run the installation from an external terminal, then relaunch Codex and open a fresh task",
+    );
+  }
   await ensureCanonicalDirectory(home, "home", { create: false });
   await ensureCanonicalDirectory(codexHome, "CODEX_HOME", {
     enforceMode: true,

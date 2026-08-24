@@ -48,7 +48,9 @@ tracks untagged `main`, a draft, or a prerelease.
 
 To upgrade, read the new release's **Compatibility requirements** and
 **Migrations**, then refresh the configured Git marketplace and reinstall from
-the refreshed snapshot:
+the refreshed snapshot. Quit Codex completely before running these commands;
+the installer refuses to replace the cache while any live Nelos worker is
+registered:
 
 ```bash
 codex plugin marketplace upgrade nelos-marketplace
@@ -277,9 +279,11 @@ a compatible Codex CLI and a reachable app server or developer launcher.
 Codex discovers plugin skills when a task starts. Restart Codex and start a
 fresh task after installation before validating agent-visible behavior. A
 `registry-refreshed` result confirms the running host's plugin metadata, but a
-fresh-task smoke test remains the authoritative check for the task-management
-skill. A running Desktop session can retain a stale skill locator after an
-initial install as well as after an upgrade. If a fresh task says that its
+full Codex restart followed by a fresh-task smoke test remains the authoritative
+check for the task-management skill. Registry metadata refresh does not retire
+task-scoped MCP workers. A running Desktop session can retain a stale skill
+locator after an initial install as well as after an upgrade. If a fresh task
+says that its
 advertised skill path is unavailable—or points one directory above the
 versioned installed bundle—restart Codex once and retry in a fresh task. Do
 not recreate or alias the obsolete cache directory. If the restarted task still

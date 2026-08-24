@@ -319,27 +319,34 @@ export class RuntimeWorkerRegistryV1 {
     });
   }
 
-  async inspect() {
-    return this.#withLock(async () => {
-      const { live, recovered } = await this.#reconcileUnlocked();
-      const generations = new Map();
-      for (const lease of live) {
-        const group = generations.get(lease.generationKey) ?? {
-          generationKey: lease.generationKey,
-          identity: lease.runtimeIdentity,
-          workers: [],
-        };
-        group.workers.push({ workerId: lease.workerId, pid: lease.pid, state: lease.state, heartbeatAt: lease.heartbeatAt });
-        generations.set(lease.generationKey, group);
-      }
-      const activeGenerations = [...generations.values()].sort((a, b) => a.generationKey.localeCompare(b.generationKey));
-      return {
-        state: activeGenerations.length > 1 ? "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
-        mutationAllowed: activeGenerations.length <= 1,
-        activeGenerations,
-        liveWorkerCount: live.length,
-        recoveredWorkerIds: recovered.map(({ workerId }) => workerId).sort(),
+  async #inspectUnlocked() {
+    const { live, recovered } = await this.#reconcileUnlocked();
+    const generations = new Map();
+    for (const lease of live) {
+      const group = generations.get(lease.generationKey) ?? {
+        generationKey: lease.generationKey,
+        identity: lease.runtimeIdentity,
+        workers: [],
       };
-    });
+      group.workers.push({ workerId: lease.workerId, pid: lease.pid, state: lease.state, heartbeatAt: lease.heartbeatAt });
+      generations.set(lease.generationKey, group);
+    }
+    const activeGenerations = [...generations.values()].sort((a, b) => a.generationKey.localeCompare(b.generationKey));
+    return {
+      state: activeGenerations.length > 1 ? "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
+      mutationAllowed: activeGenerations.length <= 1,
+      activeGenerations,
+      liveWorkerCount: live.length,
+      recoveredWorkerIds: recovered.map(({ workerId }) => workerId).sort(),
+    };
+  }
+
+  async inspect() {
+    return this.#withLock(() => this.#inspectUnlocked());
+  }
+
+  async withRegistrationExclusion(callback) {
+    if (typeof callback !== "function") throw new Error("runtime worker exclusion requires a callback");
+    return this.#withLock(async () => callback(await this.#inspectUnlocked()));
   }
 }
