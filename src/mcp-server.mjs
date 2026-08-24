@@ -131,7 +131,7 @@ export const MCP_DEFAULT_PROTOCOL_VERSION = MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
 export const MCP_MAX_MESSAGE_BYTES = 256 * 1024;
 export const MCP_DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 export const MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS =
-  "Before the first stateful Nelos call in a task, call nelos_runtime_health. " +
+  "Before each stateful Nelos call, call nelos_runtime_health. " +
   "Continue only when mutationAllowed is true; otherwise perform the one recovery action it returns.";
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 

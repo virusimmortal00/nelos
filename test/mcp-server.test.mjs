@@ -357,6 +357,7 @@ test("initialize returns the tools capability and server identity", async () => 
     version: "0.0.0-test",
   });
   assert.match(response.result.instructions, /nelos_runtime_health/u);
+  assert.match(response.result.instructions, /Before each stateful Nelos call/u);
   assert.match(response.result.instructions, /mutationAllowed/u);
 });
 

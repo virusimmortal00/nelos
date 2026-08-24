@@ -47,7 +47,7 @@ async function fixture(run) {
   let clock = Date.parse("2026-08-04T12:00:00.000Z");
   const active = new Map();
   const timers = [];
-  const registry = (pid, parentPid = 10) => {
+  const registry = (pid, parentPid = 10, overrides = {}) => {
     active.set(parentPid, active.get(parentPid) ?? processIdentity(parentPid));
     active.set(pid, active.get(pid) ?? processIdentity(pid));
     return new RuntimeWorkerRegistryV1({
@@ -57,7 +57,7 @@ async function fixture(run) {
       now: () => clock,
       readIdentity: async (target) => active.get(target) ?? null,
       readActiveIdentity: async (target) => active.get(target) ?? null,
-      withLock: async (callback) => callback(),
+      withLock: overrides.withLock ?? (async (callback) => callback()),
       setIntervalFn: (callback) => { const timer = { callback, unref() {} }; timers.push(timer); return timer; },
       clearIntervalFn: () => {},
     });
@@ -137,6 +137,33 @@ test("malformed protected leases fail closed instead of hiding a generation", as
   await fixture(async ({ directory, registry }) => {
     await writeFile(join(directory, `${"f".repeat(64)}.json`), "{}\n");
     await assert.rejects(registry(450).inspect(), /invalid lease/u);
+  });
+});
+
+test("registration exclusion holds the registry lock through its callback", async () => {
+  await fixture(async ({ registry }) => {
+    let locked = false;
+    let acquisitions = 0;
+    const withLock = async (callback) => {
+      assert.equal(locked, false);
+      locked = true;
+      acquisitions += 1;
+      try {
+        return await callback();
+      } finally {
+        locked = false;
+      }
+    };
+    const value = await registry(475, 10, { withLock }).withRegistrationExclusion(
+      async (report) => {
+        assert.equal(locked, true);
+        assert.equal(report.liveWorkerCount, 0);
+        return "held-through-callback";
+      },
+    );
+    assert.equal(value, "held-through-callback");
+    assert.equal(acquisitions, 1);
+    assert.equal(locked, false);
   });
 });
 

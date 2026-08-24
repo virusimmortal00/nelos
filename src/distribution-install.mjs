@@ -2666,6 +2666,14 @@ async function reconcileCommittedPluginAfterAppServer({
 }
 
 export async function installDistribution(options = {}) {
+  const withRuntimeWorkerExclusion = options.withRuntimeWorkerExclusion ?? (
+    (callback) => new RuntimeWorkerRegistryV1().withRegistrationExclusion(callback)
+  );
+  return withRuntimeWorkerExclusion((runtimeWorkers) =>
+    installDistributionWithRuntimeExclusion(options, runtimeWorkers));
+}
+
+async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) {
   assertSupportedPlatform();
   const home = resolve(options.home ?? homedir());
   const codexHome = resolve(options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex"));
@@ -2706,9 +2714,6 @@ export async function installDistribution(options = {}) {
     sourcePath: expectedPluginSource,
   };
   const testFailpoint = options.testFailpoint ?? null;
-  const inspectRuntimeWorkers = options.inspectRuntimeWorkers ?? (() =>
-    new RuntimeWorkerRegistryV1().inspect());
-  const runtimeWorkers = await inspectRuntimeWorkers();
   if (
     !runtimeWorkers ||
     !Number.isSafeInteger(runtimeWorkers.liveWorkerCount) ||
