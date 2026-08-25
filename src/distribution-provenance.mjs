@@ -38,9 +38,13 @@ export const REQUIRED_CLI_COMMANDS = [
   "worktree integration",
   "intelligence route",
   "intelligence verify",
+  "desktop-test",
 ];
 export const MANAGED_CLI_BINS = Object.freeze({
   "nelos": "bin/nelos",
+  "nelos-capture-screen": "bin/nelos-capture-screen",
+  "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
+  "nelos-validate-visual-state": "bin/nelos-validate-visual-state",
   "nelos-experiment": "bin/nelos-experiment",
   "nelos-title": "bin/nelos-title",
   "nelos-install-skill": "bin/nelos-install-skill",
@@ -64,9 +68,25 @@ export const DISTRIBUTION_ENTRIES = [
   "evals",
   "package.json",
   "scripts/evaluate-routing-scenarios.mjs",
+  "scripts/stage-production-desktop-candidate.mjs",
   "skills",
   "src",
+  "validation/desktop-smoke",
 ];
+
+export function materializeGitDistributionProvenance(provenance, { sourceRevision, integrity }) {
+  validateProvenance(provenance, "base distribution provenance");
+  if (!/^[a-f0-9]{40}$/u.test(sourceRevision ?? "")) throw new Error("Git distribution provenance requires a full SHA-1 commit");
+  if (!/^sha256:[a-f0-9]{64}$/u.test(integrity ?? "")) throw new Error("Git distribution provenance requires a SHA-256 integrity digest");
+  return validateProvenance({
+    ...provenance,
+    sourceRepository: SOURCE_REPOSITORY,
+    sourceRevision,
+    sourceRevisionType: "git",
+    cacheIdentity: pluginCacheIdentity({ sourceRepository: SOURCE_REPOSITORY, version: provenance.revision }),
+    integrity,
+  }, "materialized Git distribution provenance");
+}
 
 export function currentDirectoryPathEntries(pathValue = "") {
   return pathValue
@@ -244,13 +264,12 @@ async function listIntegrityFiles(root, entry) {
   return files;
 }
 
-export async function computeDistributionIntegrity(
-  root,
-  {
-    allowLegacyWithoutCorpus = false,
-    allowLegacyWithoutAgentPluginLayout = false,
-  } = {},
-) {
+async function selectedDistributionFiles(root, {
+  includeProvenance = false,
+  allowLegacyWithoutCorpus = false,
+  allowLegacyWithoutAgentPluginLayout = false,
+} = {}) {
+  const requireDesktopSmokeEntries = await requiresDesktopSmokeEntries(root);
   let omitLegacyAgentPluginLayout = false;
   if (allowLegacyWithoutAgentPluginLayout) {
     const presence = await Promise.all(
@@ -267,7 +286,8 @@ export async function computeDistributionIntegrity(
     omitLegacyAgentPluginLayout = presence.every((entryPresent) => !entryPresent);
   }
   const files = [];
-  for (const entry of DISTRIBUTION_ENTRIES) {
+  const entries = includeProvenance ? [...DISTRIBUTION_ENTRIES, PROVENANCE_FILENAME] : DISTRIBUTION_ENTRIES;
+  for (const entry of entries) {
     if (
       omitLegacyAgentPluginLayout &&
       (entry === "plugin.json" || entry === "mcp.json")
@@ -282,17 +302,43 @@ export async function computeDistributionIntegrity(
         throw error;
       }
     }
-    files.push(...(await listIntegrityFiles(root, entry)));
+    try {
+      files.push(...(await listIntegrityFiles(root, entry)));
+    } catch (error) {
+      if (
+        error.code === "ENOENT" &&
+        !requireDesktopSmokeEntries &&
+        ["scripts/stage-production-desktop-candidate.mjs", "validation/desktop-smoke"].includes(entry)
+      ) continue;
+      throw error;
+    }
   }
-  files.sort((left, right) => {
-    const leftPath = relative(root, left);
-    const rightPath = relative(root, right);
-    return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
-  });
+  return files.map((path) => ({ path, relativePath: relative(root, path).split("\\").join("/") }))
+    .sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
+}
+
+async function requiresDesktopSmokeEntries(root) {
+  try {
+    const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(version ?? "");
+    if (!match) return false;
+    const [major, minor, patch] = match.slice(1).map(Number);
+    return major > 0 || minor > 12 || (minor === 12 && patch >= 20);
+  } catch {
+    return false;
+  }
+}
+
+export async function listDistributionFiles(root, options = {}) {
+  return (await selectedDistributionFiles(root, options)).map(({ relativePath }) => relativePath);
+}
+
+export async function computeDistributionIntegrity(root, options = {}) {
+  const files = await selectedDistributionFiles(root, options);
 
   const hash = createHash("sha256");
-  for (const path of files) {
-    hash.update(relative(root, path));
+  for (const { path, relativePath } of files) {
+    hash.update(relativePath);
     hash.update("\0");
     hash.update(await readFile(path));
     hash.update("\0");

@@ -1,10 +1,13 @@
 {
   "name": "nelos",
-  "version": "0.12.19",
+  "version": "0.12.20",
   "description": "CLI and plugin tooling for planning and coordinating dependency-aware task webs.",
   "type": "module",
   "bin": {
     "nelos": "bin/nelos",
+    "nelos-capture-screen": "bin/nelos-capture-screen",
+    "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
+    "nelos-validate-visual-state": "bin/nelos-validate-visual-state",
     "nelos-experiment": "bin/nelos-experiment",
     "nelos-title": "bin/nelos-title",
     "nelos-install-skill": "bin/nelos-install-skill",
@@ -40,7 +43,14 @@
     "./runtime-lifecycle": "./src/runtime-lifecycle.mjs",
     "./experimentation-reporting": "./src/experimentation-reporting/index.mjs",
     "./dedicated-desktop-runtime": "./src/dedicated-desktop-runtime.mjs",
-    "./experiment-ci-gates": "./src/experiment-ci-gates.mjs"
+    "./experiment-ci-gates": "./src/experiment-ci-gates.mjs",
+    "./archive-projection-convergence": "./src/archive-projection-convergence.mjs",
+    "./archive-projection-lane": "./src/archive-projection-lane.mjs",
+    "./desktop-gui-scenario-driver": "./src/desktop-gui-scenario-driver/index.mjs",
+    "./desktop-smoke-contract": "./src/desktop-smoke-contract.mjs",
+    "./disposable-desktop-smoke": "./src/disposable-desktop-smoke.mjs",
+    "./dev-screen-capture": "./src/dev-screen-capture.mjs",
+    "./dev-visual-state-validation": "./src/dev-visual-state-validation.mjs"
   },
   "files": [
     ".codex-plugin/",
@@ -55,6 +65,8 @@
     "corpus/starter/release-lock.json",
     "docs/",
     "evals/",
+    "validation/desktop-smoke/",
+    "scripts/stage-production-desktop-candidate.mjs",
     "scripts/evaluate-routing-scenarios.mjs",
     "skills/",
     "src/"
@@ -97,7 +109,8 @@
     "verify:mcp-app:host": "node scripts/dev-mcp-app-ui.mjs --check",
     "verify:plugin-upgrade": "node scripts/verify-plugin-marketplace-upgrade.mjs",
     "demo:acceptance-gates": "node scripts/verify-golden-loop.mjs --iterations 1",
-    "eval:routing": "node scripts/evaluate-routing-scenarios.mjs"
+    "eval:routing": "node scripts/evaluate-routing-scenarios.mjs",
+    "check:desktop-smoke": "node --check src/desktop-smoke-contract.mjs && node --check src/disposable-desktop-smoke.mjs && node --check src/machine-desktop-smoke-adapter.mjs && node --check src/desktop-smoke-cli.mjs && node --check src/desktop-gui-scenario-driver/index.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-smoke-contract.test.mjs test/disposable-desktop-smoke.test.mjs test/desktop-gui-scenario-driver.test.mjs"
   },
   "engines": {
     "node": ">=20"
