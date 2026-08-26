@@ -1232,12 +1232,16 @@ export async function projectExecutionMapForToolResultV1(
     const authoritativePlanScope = incomingPlanRunId !== null &&
       result?.planRun?.planRunId === incomingPlanRunId &&
       typeof result?.plan?.objective === "string";
+    const authoritativeScopeAdmitted = authoritativePlanScope &&
+      (storedPlanRunId === null ||
+        incomingPlanRunId === storedPlanRunId ||
+        result.planRun.parentPlanRunId === storedPlanRunId);
     if (incomingPlanRunId !== null && storedPlanRunId !== null &&
-        incomingPlanRunId !== storedPlanRunId && !authoritativePlanScope) {
+        incomingPlanRunId !== storedPlanRunId && !authoritativeScopeAdmitted) {
       return visibleExecutionMapResponse({ ...priorMap, protocol: visibleResponse.protocol });
     }
     const legacyProjection = storedPlanRunId === null && hasPriorProjection;
-    const resetProjection = authoritativePlanScope &&
+    const resetProjection = authoritativeScopeAdmitted &&
       incomingPlanRunId !== storedPlanRunId;
     const { protocol, ...observedIncomingMap } = currentResponse;
     const resolvedPlanTask = await projectionPlanTask(
@@ -1245,7 +1249,7 @@ export async function projectExecutionMapForToolResultV1(
       incomingPlanRunId,
       planRunStore,
     );
-    const planTask = legacyProjection && !authoritativePlanScope
+    const planTask = legacyProjection && !authoritativeScopeAdmitted
       ? null
       : resolvedPlanTask;
     const incomingMap = planTask
@@ -1296,7 +1300,7 @@ export async function projectExecutionMapForToolResultV1(
       queenThreadId: identity.queenThreadId,
     };
     const planRunIdToPersist = incomingPlanRunId !== null &&
-      (!legacyProjection || authoritativePlanScope)
+      (!legacyProjection || authoritativeScopeAdmitted)
       ? incomingPlanRunId
       : null;
     if (

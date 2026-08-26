@@ -11,10 +11,13 @@ const ID = "01a01ae1-0000-7000-8000-000000000001";
 
 async function fixture({ stale = false, badRestart = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-archive-lane-"));
-  const path = join(directory, "visual.json");
-  const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: "passed" })}\n`);
-  await writeFile(path, bytes);
-  const report = { path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
+  const reports = [];
+  for (const [sequence, captureByte] of [[1, "a"], [2, "b"]]) {
+    const path = join(directory, `visual-${sequence}.json`);
+    const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { capturedAt: `2026-08-19T12:00:${sequence - 1}5.000Z`, digest: `sha256:${captureByte.repeat(64)}` }, outcome: "passed" })}\n`);
+    await writeFile(path, bytes);
+    reports.push({ path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` });
+  }
   const calls = [];
   const adapter = {
     async archiveTasks() { calls.push("archive"); return [{ schemaVersion: 1, type: "native-archive", actionId: "archive-1", threadId: ID, archived: true }]; },
@@ -25,7 +28,7 @@ async function fixture({ stale = false, badRestart = false } = {}) {
       return {
         sequence, observedAt: `2026-08-19T12:00:${sequence}0.000Z`, phase, appInstanceId, cleanupState: "complete",
         nelosWorkers: [{ workerId: "worker-a", archivedThreadIds: [ID] }], ordinaryMapThreadIds: [], nativeVisibleThreadIds: stale ? [ID] : [],
-        visualEvidence: { report, sidebarThreadIds: stale ? [ID] : [], createdTasksThreadIds: [], mcpVisualThreadIds: [] },
+        visualEvidence: { report: reports[sequence - 1], sidebarThreadIds: stale ? [ID] : [], createdTasksThreadIds: [], mcpVisualThreadIds: [] },
       };
     },
     async restartDesktop({ previousAppInstanceId }) {
@@ -108,4 +111,15 @@ test("reconciliation accepts only an identity-matching terminal receipt", async 
   const receipt = await value.lane.execute(value.request);
   const lane = new ArchiveProjectionLaneV1({ adapter: { ...value.adapter, async reconcileEffect() { return { ...receipt, runId: "other-run" }; } } });
   await assert.rejects(lane.reconcileEffect({ request: value.request }), (error) => error.code === "ARCHIVE_LANE_RECONCILIATION_REQUIRED");
+});
+
+test("reconciliation validates the complete terminal receipt before accepting success", async () => {
+  const value = await fixture();
+  const receipt = await value.lane.execute(value.request);
+  const accepted = new ArchiveProjectionLaneV1({ adapter: { ...value.adapter, async reconcileEffect() { return receipt; } } });
+  assert.deepEqual(await accepted.reconcileEffect({ request: value.request }), receipt);
+
+  const truncated = { ...receipt, report: { kind: receipt.report.kind, outcome: receipt.report.outcome } };
+  const rejected = new ArchiveProjectionLaneV1({ adapter: { ...value.adapter, async reconcileEffect() { return truncated; } } });
+  await assert.rejects(rejected.reconcileEffect({ request: value.request }), (error) => error.code === "ARCHIVE_LANE_RECONCILIATION_REQUIRED");
 });

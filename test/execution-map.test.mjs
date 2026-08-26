@@ -308,6 +308,7 @@ test("a newer plan run replaces stale current members and objective", async () =
       plan: currentPlan,
       planRun: {
         planRunId: `run:${"2".repeat(40)}`,
+        parentPlanRunId: `run:${"1".repeat(40)}`,
         webIdentity: { webId: "D1", queenThreadId: "queen-current" },
         waves: [],
       },
@@ -333,11 +334,11 @@ test("a delayed receipt from an older plan run cannot reset the current projecti
     objective,
     slices: [plannedSlice(id)],
   });
-  for (const [planned, planRunId] of [[plan("Old objective", "old-worker"), oldRunId], [plan("Current objective", "current-worker"), currentRunId]]) {
+  for (const [planned, planRunId, parentPlanRunId] of [[plan("Old objective", "old-worker"), oldRunId, null], [plan("Current objective", "current-worker"), currentRunId, oldRunId]]) {
     await projectExecutionMapForToolResultV1(
       "nelos_plan_slices",
       { queenThreadId: "queen-delayed" },
-      { plan: planned, planRun: { planRunId, webIdentity: { webId: "D3", queenThreadId: "queen-delayed" }, waves: [] } },
+      { plan: planned, planRun: { planRunId, parentPlanRunId, webIdentity: { webId: "D3", queenThreadId: "queen-delayed" }, waves: [] } },
       { webRegistry },
     );
   }
@@ -354,6 +355,27 @@ test("a delayed receipt from an older plan run cannot reset the current projecti
   const record = await webRegistry.read("queen-delayed");
   assert.equal(record.executionMapProjectionPlanRunId, currentRunId);
   assert.deepEqual(record.executionMapProjection.members.map(({ id }) => id), ["current-worker"]);
+});
+
+test("a delayed authoritative plan from an older run cannot reset the current projection", async () => {
+  const webRegistry = memoryWebRegistry();
+  const oldRunId = `run:${"6".repeat(40)}`;
+  const currentRunId = `run:${"7".repeat(40)}`;
+  const plan = (objective, id) => planWorkSlices({ schemaVersion: 1, objective, slices: [plannedSlice(id)] });
+  await projectExecutionMapForToolResultV1("nelos_plan_slices", { queenThreadId: "queen-authoritative-delay" }, {
+    plan: plan("Old objective", "old-worker"),
+    planRun: { planRunId: oldRunId, parentPlanRunId: null, webIdentity: { webId: "D4", queenThreadId: "queen-authoritative-delay" }, waves: [] },
+  }, { webRegistry });
+  await projectExecutionMapForToolResultV1("nelos_plan_slices", { queenThreadId: "queen-authoritative-delay" }, {
+    plan: plan("Current objective", "current-worker"),
+    planRun: { planRunId: currentRunId, parentPlanRunId: oldRunId, webIdentity: { webId: "D4", queenThreadId: "queen-authoritative-delay" }, waves: [] },
+  }, { webRegistry });
+  const delayed = await projectExecutionMapForToolResultV1("nelos_plan_slices", { queenThreadId: "queen-authoritative-delay" }, {
+    plan: plan("Old objective", "old-worker"),
+    planRun: { planRunId: oldRunId, parentPlanRunId: null, webIdentity: { webId: "D4", queenThreadId: "queen-authoritative-delay" }, waves: [] },
+  }, { webRegistry });
+  assert.equal(delayed.task, "Current objective");
+  assert.deepEqual(delayed.members.map(({ id }) => id), ["current-worker"]);
 });
 
 test("a scoped member receipt preserves a legacy projection until both plan identities can be compared", async () => {

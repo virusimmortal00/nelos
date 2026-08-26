@@ -10,9 +10,9 @@ import { validateArchiveProjectionConvergence } from "../src/archive-projection-
 const A = "01a01ae1-1dd0-77f1-8cda-e4285c58dd4c";
 const B = "01a01ae1-1daf-78f2-8e61-45ed08bb7863";
 
-async function visualReport(directory, name = "visual.json") {
+async function visualReport(directory, name, capturedAt, captureByte) {
   const path = join(directory, name);
-  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: "passed", counts: {}, findings: [] };
+  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { capturedAt, digest: `sha256:${captureByte.repeat(64)}` }, outcome: "passed", counts: {}, findings: [] };
   const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
   await writeFile(path, bytes);
   return { path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
@@ -20,8 +20,11 @@ async function visualReport(directory, name = "visual.json") {
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "nelos-archive-convergence-"));
-  const report = await visualReport(directory);
-  const visualEvidence = (overrides = {}) => ({ report, sidebarThreadIds: [], createdTasksThreadIds: [], mcpVisualThreadIds: [], ...overrides });
+  const reports = [
+    await visualReport(directory, "visual-1.json", "2026-08-19T17:00:05.000Z", "a"),
+    await visualReport(directory, "visual-2.json", "2026-08-19T17:00:15.000Z", "b"),
+  ];
+  const visualEvidence = (sequence, overrides = {}) => ({ report: reports[sequence - 1], sidebarThreadIds: [], createdTasksThreadIds: [], mcpVisualThreadIds: [], ...overrides });
   const checkpoint = (sequence, observedAt, phase, appInstanceId, overrides = {}) => ({
     sequence,
     observedAt,
@@ -34,11 +37,12 @@ async function fixture() {
     ],
     ordinaryMapThreadIds: [],
     nativeVisibleThreadIds: [],
-    visualEvidence: visualEvidence(),
+    visualEvidence: visualEvidence(sequence),
     ...overrides,
   });
   return {
-    report,
+    report: reports[0],
+    reports,
     checkpoint,
     input: {
       schemaVersion: 1,
@@ -132,10 +136,23 @@ test("wraps missing visual reports without exposing filesystem details", async (
 
 test("rejects a digest-bound visual report whose own validation failed", async () => {
   const failed = await fixture();
-  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: "failed", counts: {}, findings: [{ code: "VISUAL_SYSTEM_ERROR" }] };
+  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { capturedAt: "2026-08-19T17:00:05.000Z", digest: `sha256:${"a".repeat(64)}` }, outcome: "failed", counts: {}, findings: [{ code: "VISUAL_SYSTEM_ERROR" }] };
   const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
   await writeFile(failed.report.path, bytes);
   const report = { path: failed.report.path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
   for (const checkpoint of failed.input.checkpoints) checkpoint.visualEvidence.report = report;
   await assert.rejects(validateArchiveProjectionConvergence(failed.input), (error) => error.code === "INVALID_VISUAL_REPORT");
+});
+
+test("rejects visual evidence reused across checkpoints or captured outside its checkpoint window", async () => {
+  const reused = await fixture();
+  reused.input.checkpoints[1].visualEvidence.report = reused.input.checkpoints[0].visualEvidence.report;
+  await assert.rejects(validateArchiveProjectionConvergence(reused.input), (error) => error.code === "INVALID_VISUAL_REPORT");
+
+  const stale = await fixture();
+  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { capturedAt: "2026-08-19T17:00:09.000Z", digest: `sha256:${"c".repeat(64)}` }, outcome: "passed", counts: {}, findings: [] };
+  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+  await writeFile(stale.reports[1].path, bytes);
+  stale.input.checkpoints[1].visualEvidence.report.digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  await assert.rejects(validateArchiveProjectionConvergence(stale.input), (error) => error.code === "INVALID_VISUAL_REPORT");
 });

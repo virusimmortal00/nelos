@@ -101,7 +101,10 @@ async function verifiedReportDigest(value, label) {
   if (report?.schemaVersion !== 1 || report?.kind !== "nelos-developer-visual-state-validation" || report?.outcome !== "passed" || !DIGEST.test(report?.capture?.digest)) {
     throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} does not reference a visual-state validation report`);
   }
-  return { reportDigest: digest, captureDigest: report.capture.digest };
+  let capturedAt;
+  try { capturedAt = dateMillis(report.capture.capturedAt, `${label}.capture.capturedAt`); }
+  catch { throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} does not bind a canonical capture time`); }
+  return { reportDigest: digest, captureDigest: report.capture.digest, capturedAt };
 }
 
 function finding(code, threadIdValue, details = {}) {
@@ -152,6 +155,8 @@ export async function validateArchiveProjectionConvergence(input) {
     throw new ArchiveProjectionConvergenceError("INVALID_INPUT", "checkpoints must contain 1 through 50 entries");
   }
   const checkpoints = [];
+  const visualReportDigests = new Set();
+  const visualCaptureDigests = new Set();
   for (const [index, checkpoint] of input.checkpoints.entries()) {
     exactObject(checkpoint, CHECKPOINT_KEYS, `checkpoints[${index}]`);
     const sequence = integer(checkpoint.sequence, `checkpoints[${index}].sequence`, 1, 50);
@@ -177,6 +182,13 @@ export async function validateArchiveProjectionConvergence(input) {
     exactObject(checkpoint.visualEvidence, ["createdTasksThreadIds", "mcpVisualThreadIds", "report", "sidebarThreadIds"], `checkpoints[${index}].visualEvidence`);
     exactObject(checkpoint.visualEvidence.report, ["digest", "path"], `checkpoints[${index}].visualEvidence.report`);
     const report = await verifiedReportDigest(checkpoint.visualEvidence.report, `checkpoints[${index}].visualEvidence.report`);
+    const captureLowerBound = index === 0 ? startedAt : checkpoints.at(-1).observedAt;
+    if ((index === 0 ? report.capturedAt < captureLowerBound : report.capturedAt <= captureLowerBound) || report.capturedAt > observedAt ||
+        visualReportDigests.has(report.reportDigest) || visualCaptureDigests.has(report.captureDigest)) {
+      throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `checkpoints[${index}].visualEvidence.report is stale, reused, or outside its checkpoint window`);
+    }
+    visualReportDigests.add(report.reportDigest);
+    visualCaptureDigests.add(report.captureDigest);
     checkpoints.push({
       sequence,
       appInstanceId: identifier(checkpoint.appInstanceId, `checkpoints[${index}].appInstanceId`),

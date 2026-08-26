@@ -3,6 +3,25 @@ import { validateArchiveProjectionConvergence } from "./archive-projection-conve
 const POLICY_KEYS = ["maxConvergenceMs", "requireArchiveReceipts", "requireRestartCheckpoint", "requiredConsecutiveAbsent"];
 const CHECKPOINT_KEYS = ["appInstanceId", "cleanupState", "nelosWorkers", "nativeVisibleThreadIds", "observedAt", "ordinaryMapThreadIds", "phase", "sequence", "visualEvidence"];
 const THREAD_ID = /^[a-f0-9-]{8,80}$/u;
+const DIGEST = /^sha256:[a-f0-9]{64}$/u;
+const REPORT_KEYS = ["counts", "evidence", "findings", "kind", "outcome", "policy", "schemaVersion"];
+const REPORT_COUNT_KEYS = ["archiveReceipts", "checkpoints", "expectedThreads", "findings", "workers"];
+const REPORT_EVIDENCE_KEYS = ["captureDigest", "cleanupState", "observedAt", "phase", "sequence", "visualReportDigest"];
+const FINDING_DETAIL_KEYS = new Map([
+  ["MISSING_ARCHIVE_RECEIPT", []],
+  ["MISSING_RESTART_CHECKPOINT", []],
+  ["MISSING_PRE_RESTART_CHECKPOINT", []],
+  ["RESTART_INSTANCE_NOT_CHANGED", ["checkpoint"]],
+  ["NELOS_WORKER_ARCHIVE_STATE_STALE", ["checkpoint", "workerId"]],
+  ["ORDINARY_MAP_ARCHIVE_PROJECTION_STALE", ["checkpoint", "phase", "source"]],
+  ["NATIVE_ARCHIVE_PROJECTION_STALE", ["checkpoint", "phase", "source"]],
+  ["SIDEBAR_ARCHIVE_PROJECTION_STALE", ["checkpoint", "phase", "source"]],
+  ["CREATED_TASKS_ARCHIVE_PROJECTION_STALE", ["checkpoint", "phase", "source"]],
+  ["MCP_VISUAL_ARCHIVE_PROJECTION_STALE", ["checkpoint", "phase", "source"]],
+  ["CLEANUP_COMPLETE_BEFORE_PROJECTION_CONVERGENCE", ["checkpoint", "phase"]],
+  ["INSUFFICIENT_CONVERGENCE_CHECKPOINTS", ["observed", "required"]],
+  ["ARCHIVE_PROJECTION_DID_NOT_CONVERGE", ["deadlineAt", "requiredConsecutiveAbsent"]],
+]);
 
 export class ArchiveProjectionLaneError extends Error {
   constructor(code, message, details = null) {
@@ -49,6 +68,81 @@ function validateRequest(request) {
 function assertAdapter(adapter) {
   for (const method of ["archiveTasks", "observeCheckpoint", "restartDesktop", "reconcileEffect"]) {
     if (typeof adapter?.[method] !== "function") throw new ArchiveProjectionLaneError("INVALID_ARCHIVE_LANE_ADAPTER", `archive lane adapter is missing ${method}`);
+  }
+}
+
+function canonicalDate(value) {
+  if (typeof value !== "string") return false;
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) && new Date(millis).toISOString() === value;
+}
+
+function reportInteger(value, minimum = 0, maximum = 10_000) {
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function validateTerminalReceipt(receipt, request) {
+  exactObject(receipt, ["outcome", "report", "restart", "runId", "schemaVersion", "type"], "reconciled archive lane receipt");
+  if (receipt.schemaVersion !== 1 || receipt.type !== "archive-projection-convergence" || receipt.runId !== request.runId || !["passed", "failed"].includes(receipt.outcome)) {
+    throw new Error("receipt identity mismatch");
+  }
+  exactObject(receipt.restart, ["newAppInstanceId", "previousAppInstanceId", "restarted", "schemaVersion", "type"], "reconciled restart receipt");
+  if (receipt.restart.schemaVersion !== 1 || receipt.restart.type !== "desktop-restart" || receipt.restart.restarted !== true ||
+      typeof receipt.restart.previousAppInstanceId !== "string" || receipt.restart.previousAppInstanceId.length < 1 ||
+      typeof receipt.restart.newAppInstanceId !== "string" || receipt.restart.newAppInstanceId.length < 1 ||
+      receipt.restart.newAppInstanceId === receipt.restart.previousAppInstanceId) {
+    throw new Error("restart receipt mismatch");
+  }
+
+  const report = receipt.report;
+  exactObject(report, REPORT_KEYS, "reconciled convergence report");
+  exactObject(report.policy, POLICY_KEYS, "reconciled convergence policy");
+  exactObject(report.counts, REPORT_COUNT_KEYS, "reconciled convergence counts");
+  if (report.schemaVersion !== 1 || report.kind !== "nelos-archive-projection-convergence" || report.outcome !== receipt.outcome ||
+      JSON.stringify(report.policy) !== JSON.stringify(request.policy) ||
+      !Array.isArray(report.evidence) || !Array.isArray(report.findings) ||
+      !REPORT_COUNT_KEYS.every((key) => reportInteger(report.counts[key])) ||
+      report.counts.expectedThreads !== request.expectedThreads.length || report.counts.checkpoints !== report.evidence.length ||
+      report.counts.archiveReceipts > report.counts.expectedThreads || report.counts.workers < 1 || report.counts.workers > 32 ||
+      report.counts.checkpoints < 1 || report.counts.checkpoints > 50 ||
+      report.counts.findings !== report.findings.length ||
+      (report.outcome === "passed" ? report.findings.length !== 0 : report.findings.length === 0)) {
+    throw new Error("convergence report mismatch");
+  }
+  let priorObservedAt = Date.parse(request.startedAt);
+  const captureDigests = new Set();
+  const reportDigests = new Set();
+  for (const [index, evidence] of report.evidence.entries()) {
+    exactObject(evidence, REPORT_EVIDENCE_KEYS, `reconciled convergence evidence[${index}]`);
+    const observedAt = Date.parse(evidence.observedAt);
+    if (evidence.sequence !== index + 1 || !canonicalDate(evidence.observedAt) || observedAt < priorObservedAt ||
+        !["afterArchiveReceipt", "afterCleanup", "afterRestart", "settled"].includes(evidence.phase) ||
+        !["effects-required", "archiving", "complete", "attention"].includes(evidence.cleanupState) ||
+        !DIGEST.test(evidence.captureDigest) || !DIGEST.test(evidence.visualReportDigest) ||
+        captureDigests.has(evidence.captureDigest) || reportDigests.has(evidence.visualReportDigest)) {
+      throw new Error("convergence evidence mismatch");
+    }
+    captureDigests.add(evidence.captureDigest);
+    reportDigests.add(evidence.visualReportDigest);
+    priorObservedAt = observedAt;
+  }
+  for (const [index, finding] of report.findings.entries()) {
+    const detailKeys = FINDING_DETAIL_KEYS.get(finding?.code);
+    if (!detailKeys) throw new Error("unknown convergence finding");
+    exactObject(finding, ["code", "threadId", ...detailKeys], `reconciled convergence finding[${index}]`);
+    if (finding.threadId !== null && (typeof finding.threadId !== "string" || !THREAD_ID.test(finding.threadId))) {
+      throw new Error("convergence finding identity mismatch");
+    }
+    if ((Object.hasOwn(finding, "checkpoint") && !reportInteger(finding.checkpoint, 1, 50)) ||
+        (Object.hasOwn(finding, "workerId") && (typeof finding.workerId !== "string" || finding.workerId.length < 1 || finding.workerId.length > 240)) ||
+        (Object.hasOwn(finding, "phase") && !["afterArchiveReceipt", "afterCleanup", "afterRestart", "settled"].includes(finding.phase)) ||
+        (Object.hasOwn(finding, "source") && !["ordinaryMap", "nativeInventory", "sidebar", "createdTasks", "mcpVisual"].includes(finding.source)) ||
+        (Object.hasOwn(finding, "deadlineAt") && !canonicalDate(finding.deadlineAt)) ||
+        (Object.hasOwn(finding, "requiredConsecutiveAbsent") && !reportInteger(finding.requiredConsecutiveAbsent, 1, 10)) ||
+        (Object.hasOwn(finding, "required") && !reportInteger(finding.required, 1, 10)) ||
+        (Object.hasOwn(finding, "observed") && !reportInteger(finding.observed, 0, 10))) {
+      throw new Error("convergence finding details mismatch");
+    }
   }
 }
 
@@ -103,10 +197,15 @@ export class ArchiveProjectionLaneV1 {
   }
 
   async reconcileEffect(effect) {
-    const receipt = await this.adapter.reconcileEffect(structuredClone(effect));
-    exactObject(receipt, ["outcome", "report", "restart", "runId", "schemaVersion", "type"], "reconciled archive lane receipt");
-    if (receipt.schemaVersion !== 1 || receipt.type !== "archive-projection-convergence" || receipt.runId !== effect.request?.runId || !["passed", "failed"].includes(receipt.outcome) || receipt.report?.kind !== "nelos-archive-projection-convergence" || receipt.report.outcome !== receipt.outcome) {
+    let request;
+    try { request = validateRequest(effect?.request); }
+    catch {
       throw new ArchiveProjectionLaneError("ARCHIVE_LANE_RECONCILIATION_REQUIRED", "archive lane reconciliation did not return an identity-matching terminal receipt");
+    }
+    const receipt = await this.adapter.reconcileEffect(structuredClone(effect));
+    try { validateTerminalReceipt(receipt, request); }
+    catch {
+      throw new ArchiveProjectionLaneError("ARCHIVE_LANE_RECONCILIATION_REQUIRED", "archive lane reconciliation did not return a complete identity-matching terminal receipt");
     }
     return structuredClone(receipt);
   }
