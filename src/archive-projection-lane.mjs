@@ -1,6 +1,7 @@
 import { validateArchiveProjectionConvergence } from "./archive-projection-convergence.mjs";
 
 const POLICY_KEYS = ["maxConvergenceMs", "requireArchiveReceipts", "requireRestartCheckpoint", "requiredConsecutiveAbsent"];
+const CHECKPOINT_KEYS = ["appInstanceId", "cleanupState", "nelosWorkers", "nativeVisibleThreadIds", "observedAt", "ordinaryMapThreadIds", "phase", "sequence", "visualEvidence"];
 const THREAD_ID = /^[a-f0-9-]{8,80}$/u;
 
 export class ArchiveProjectionLaneError extends Error {
@@ -90,6 +91,7 @@ export class ArchiveProjectionLaneV1 {
     };
     const archiveReceipts = await stage("archive", (signal) => this.adapter.archiveTasks({ schemaVersion: 1, runId: input.runId, expectedThreads: input.expectedThreads }, { signal }));
     const afterCleanup = await stage("post-cleanup checkpoint", (signal) => this.adapter.observeCheckpoint({ schemaVersion: 1, runId: input.runId, sequence: 1, phase: "afterCleanup", expectedThreads: input.expectedThreads }, { signal }));
+    exactObject(afterCleanup, CHECKPOINT_KEYS, "post-cleanup checkpoint");
     const restart = await stage("Desktop restart", (signal) => this.adapter.restartDesktop({ schemaVersion: 1, runId: input.runId, previousAppInstanceId: afterCleanup.appInstanceId }, { signal }));
     exactObject(restart, ["newAppInstanceId", "previousAppInstanceId", "restarted", "schemaVersion", "type"], "restart receipt");
     if (restart.schemaVersion !== 1 || restart.type !== "desktop-restart" || restart.restarted !== true || restart.previousAppInstanceId !== afterCleanup.appInstanceId || restart.newAppInstanceId === restart.previousAppInstanceId) {

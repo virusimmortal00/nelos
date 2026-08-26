@@ -324,7 +324,7 @@ test("a newer plan run replaces stale current members and objective", async () =
   );
 });
 
-test("a scoped member receipt repairs a legacy web-wide projection", async () => {
+test("a scoped member receipt preserves a legacy projection until both plan identities can be compared", async () => {
   const webRegistry = memoryWebRegistry();
   await webRegistry.write({
     threadId: "queen-repair",
@@ -355,6 +355,7 @@ test("a scoped member receipt repairs a legacy web-wide projection", async () =>
         threadId: null,
       }],
     },
+    executionMapProjectionVersions: { "stale-planner": [2, 3] },
   });
   const runId = `run:${"3".repeat(40)}`;
   const currentObjective = "Build the current Desktop validation lane";
@@ -386,9 +387,13 @@ test("a scoped member receipt repairs a legacy web-wide projection", async () =>
     { webRegistry, planRunStore },
   );
 
-  assert.deepEqual(repaired.members.map(({ id }) => id), ["desktop-evidence"]);
-  assert.equal(repaired.members[0].status, "complete");
-  assert.equal(repaired.task, currentObjective);
+  assert.deepEqual(repaired.members.map(({ id }) => id), ["stale-planner", "desktop-evidence"]);
+  assert.equal(repaired.members[1].status, "complete");
+  assert.equal(repaired.task, "Stale objective");
+  assert.deepEqual(
+    (await webRegistry.read("queen-repair")).executionMapProjectionVersions["stale-planner"],
+    [2, 3],
+  );
   assert.equal(
     (await webRegistry.read("queen-repair")).executionMapProjectionPlanRunId,
     runId,

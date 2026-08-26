@@ -138,7 +138,9 @@ export class DesktopGuiScenarioDriver {
     try {
       scenario = validateDesktopSmokeScenarioV1(structuredClone(input));
     } catch (error) {
-      throw new DesktopGuiDriverError(ACTIONS.has(input?.actions?.[0]?.type) ? "INVALID_SCENARIO" : "FORBIDDEN_ACTION", "scenario was rejected by the disposable Desktop smoke contract");
+      const requestedActions = Array.isArray(input?.actions) ? input.actions : [];
+      const hasForbiddenAction = requestedActions.some((action) => !ACTIONS.has(action?.type));
+      throw new DesktopGuiDriverError(hasForbiddenAction ? "FORBIDDEN_ACTION" : "INVALID_SCENARIO", "scenario was rejected by the disposable Desktop smoke contract");
     }
     if (scenario.actions.some(({ type }) => !ACTIONS.has(type))) throw new DesktopGuiDriverError("FORBIDDEN_ACTION", "action is not allowlisted");
     const startedMs = this.#clock.now();

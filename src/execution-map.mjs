@@ -1225,8 +1225,10 @@ export async function projectExecutionMapForToolResultV1(
       identity,
       planRunStore,
     );
+    const storedPlanRunId = record?.executionMapProjectionPlanRunId ?? null;
     const resetProjection = incomingPlanRunId !== null &&
-      incomingPlanRunId !== record?.executionMapProjectionPlanRunId;
+      storedPlanRunId !== null &&
+      incomingPlanRunId !== storedPlanRunId;
     const { protocol: _priorProtocol, ...priorMap } =
       record?.executionMapProjection ?? {};
     const { protocol, ...observedIncomingMap } = currentResponse;

@@ -120,17 +120,21 @@ export class SealedValueResolver {
         const opened = await this.#openValue(root, valueRef, { allowMissing: true });
         if (opened === null) { alreadyAbsentValueRefs.push(valueRef); continue; }
         try {
+          assertActive();
           await unlink(opened.candidate);
           removedValueRefs.push(valueRef);
           this.#consumed.add(valueRef);
         } finally { await opened.handle.close(); }
       }
       await root.handle.sync();
+      assertActive();
       const remaining = (await readdir(root.canonical, { withFileTypes: true }))
         .filter((entry) => entry.name.endsWith(".sealed"))
         .map((entry) => entry.name.slice(0, -".sealed".length));
+      assertActive();
       if (remaining.some((valueRef) => !declared.has(valueRef))) throw new SealedValueError("UNDECLARED_SEALED_VALUE", "sealed value root contains an undeclared value");
       if (remaining.length !== 0) throw new SealedValueError("SEALED_VALUE_CLEANUP_FAILED", "declared sealed values remain after cleanup");
+      assertActive();
       return Object.freeze({
         schemaVersion: 1,
         kind: "sealed-value-absence",

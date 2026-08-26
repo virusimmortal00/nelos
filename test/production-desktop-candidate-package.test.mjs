@@ -18,7 +18,14 @@ async function git(root, ...args) {
 }
 
 async function cleanFixture(root) {
-  await cp(repositoryRoot, root, { recursive: true, filter(source) { return ![".git", "node_modules", "dist"].includes(basename(source)); } });
+  const transientPrefixes = [".nelos-cli-worktree-", ".nelos-integration-", ".nelos-worktree-"];
+  await cp(repositoryRoot, root, {
+    recursive: true,
+    filter(source) {
+      const name = basename(source);
+      return ![".git", "node_modules", "dist"].includes(name) && !transientPrefixes.some((prefix) => name.startsWith(prefix));
+    },
+  });
   const provenancePath = join(root, "distribution-provenance.json");
   const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
   provenance.integrity = await computeDistributionIntegrity(root);

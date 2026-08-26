@@ -132,6 +132,18 @@ test("terminal sealed-value cleanup forwards its cancellation and deadline optio
   assert.equal(observedOptions, options);
 });
 
+test("terminal sealed-value cleanup honors cancellation before destructive removal", async () => {
+  const value = await harness();
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    value.driver.cleanupSealedValues(["prompt-one"], { signal: controller.signal }),
+    (error) => error.code === "SEALED_VALUE_CLEANUP_ABORTED",
+  );
+  assert.equal((await stat(path.join(value.root, "prompt-one.sealed"))).isFile(), true);
+});
+
 test("fresh Desktop task identities cannot be reused across scenarios", async () => {
   const { driver } = await harness();
   assert.equal((await driver.runScenario(desktopGuiScenario())).outcome, "passed");
@@ -252,6 +264,14 @@ test("forbidden actions are rejected before touching the graphical boundary", as
   const { boundary, driver } = await harness();
   const scenario = desktopGuiScenario();
   scenario.actions[0].type = "shell";
+  await assert.rejects(driver.runScenario(scenario), (error) => error instanceof DesktopGuiDriverError && error.code === "FORBIDDEN_ACTION");
+  assert.deepEqual(boundary.calls, []);
+});
+
+test("forbidden actions later in a scenario are rejected before touching the graphical boundary", async () => {
+  const { boundary, driver } = await harness();
+  const scenario = desktopGuiScenario();
+  scenario.actions.push({ ...scenario.actions[0], actionId: "forbidden", type: "shell" });
   await assert.rejects(driver.runScenario(scenario), (error) => error instanceof DesktopGuiDriverError && error.code === "FORBIDDEN_ACTION");
   assert.deepEqual(boundary.calls, []);
 });

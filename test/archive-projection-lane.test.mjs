@@ -64,6 +64,16 @@ test("rejects a restart that does not produce a new app instance before the seco
   assert.deepEqual(value.calls, ["archive", "afterCleanup", "restart"]);
 });
 
+test("rejects a malformed cleanup checkpoint before requesting a Desktop restart", async () => {
+  const value = await fixture();
+  const lane = new ArchiveProjectionLaneV1({
+    adapter: { ...value.adapter, async observeCheckpoint() { value.calls.push("afterCleanup"); return null; } },
+    clock: value.clock,
+  });
+  await assert.rejects(lane.execute(value.request), (error) => error.code === "INVALID_ARCHIVE_LANE_INPUT");
+  assert.deepEqual(value.calls, ["archive", "afterCleanup"]);
+});
+
 test("rejects an expired shared convergence deadline before any archive mutation", async () => {
   const value = await fixture();
   const lane = new ArchiveProjectionLaneV1({ adapter: value.adapter, clock: { now: () => Date.parse("2026-08-19T12:00:30.000Z") } });
