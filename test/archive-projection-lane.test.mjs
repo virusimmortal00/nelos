@@ -12,7 +12,7 @@ const ID = "01a01ae1-0000-7000-8000-000000000001";
 async function fixture({ stale = false, badRestart = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "nelos-archive-lane-"));
   const path = join(directory, "visual.json");
-  const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: stale ? "failed" : "passed" })}\n`);
+  const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: "passed" })}\n`);
   await writeFile(path, bytes);
   const report = { path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
   const calls = [];

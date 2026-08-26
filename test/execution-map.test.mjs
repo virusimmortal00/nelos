@@ -324,6 +324,38 @@ test("a newer plan run replaces stale current members and objective", async () =
   );
 });
 
+test("a delayed receipt from an older plan run cannot reset the current projection", async () => {
+  const webRegistry = memoryWebRegistry();
+  const oldRunId = `run:${"4".repeat(40)}`;
+  const currentRunId = `run:${"5".repeat(40)}`;
+  const plan = (objective, id) => planWorkSlices({
+    schemaVersion: 1,
+    objective,
+    slices: [plannedSlice(id)],
+  });
+  for (const [planned, planRunId] of [[plan("Old objective", "old-worker"), oldRunId], [plan("Current objective", "current-worker"), currentRunId]]) {
+    await projectExecutionMapForToolResultV1(
+      "nelos_plan_slices",
+      { queenThreadId: "queen-delayed" },
+      { plan: planned, planRun: { planRunId, webIdentity: { webId: "D3", queenThreadId: "queen-delayed" }, waves: [] } },
+      { webRegistry },
+    );
+  }
+
+  const delayed = await projectExecutionMapForToolResultV1(
+    "nelos_spinoff_complete",
+    { webId: "D3", queenThreadId: "queen-delayed", workUnitId: "old-worker", planRunId: oldRunId, specRevision: 1, attempt: 1, memberThreadId: "thread-old", outcome: "succeeded" },
+    {},
+    { webRegistry },
+  );
+
+  assert.equal(delayed.task, "Current objective");
+  assert.deepEqual(delayed.members.map(({ id }) => id), ["current-worker"]);
+  const record = await webRegistry.read("queen-delayed");
+  assert.equal(record.executionMapProjectionPlanRunId, currentRunId);
+  assert.deepEqual(record.executionMapProjection.members.map(({ id }) => id), ["current-worker"]);
+});
+
 test("a scoped member receipt preserves a legacy projection until both plan identities can be compared", async () => {
   const webRegistry = memoryWebRegistry();
   await webRegistry.write({
@@ -394,10 +426,21 @@ test("a scoped member receipt preserves a legacy projection until both plan iden
     (await webRegistry.read("queen-repair")).executionMapProjectionVersions["stale-planner"],
     [2, 3],
   );
-  assert.equal(
-    (await webRegistry.read("queen-repair")).executionMapProjectionPlanRunId,
-    runId,
+  assert.equal((await webRegistry.read("queen-repair")).executionMapProjectionPlanRunId, undefined);
+
+  const authoritativePlan = planWorkSlices({
+    schemaVersion: 1,
+    objective: currentObjective,
+    slices: [plannedSlice("desktop-evidence", { title: "Desktop evidence" })],
+  });
+  const reset = await projectExecutionMapForToolResultV1(
+    "nelos_plan_slices",
+    { queenThreadId: "queen-repair" },
+    { plan: authoritativePlan, planRun: { planRunId: runId, webIdentity: { webId: "D2", queenThreadId: "queen-repair" }, waves: [] } },
+    { webRegistry },
   );
+  assert.deepEqual(reset.members.map(({ id }) => id), ["desktop-evidence"]);
+  assert.equal((await webRegistry.read("queen-repair")).executionMapProjectionPlanRunId, runId);
 });
 
 test("ordinary receipts hide archived spin-offs without losing the protocol receipt", () => {

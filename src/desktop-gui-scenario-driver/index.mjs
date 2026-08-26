@@ -19,6 +19,7 @@ const BOUNDARY_METHODS = Object.freeze([
   "textPresent", "windowCount", "protectedCaptureRegions", "captureScreenshot", "health",
 ]);
 const PROTECTED_REGION_KINDS = Object.freeze(["conversation", "credential"]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export class DesktopGuiDriverError extends Error {
   constructor(code, message, details = null) {
@@ -41,6 +42,13 @@ function nowIso(clock) {
 
 function digestBytes(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function supportedImageBytes(bytes) {
+  if (bytes.length >= 45 && bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) &&
+      bytes.readUInt32BE(8) === 13 && bytes.subarray(12, 16).toString("ascii") === "IHDR" &&
+      bytes.readUInt32BE(bytes.length - 12) === 0 && bytes.subarray(bytes.length - 8, bytes.length - 4).toString("ascii") === "IEND") return true;
+  return bytes.length >= 32 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
 }
 
 function sanitizeTree(value) {
@@ -203,7 +211,10 @@ export class DesktopGuiScenarioDriver {
         if (health?.crashed) throw new DesktopGuiDriverError("DESKTOP_CRASH", "Desktop crashed");
         if (health?.stalled) throw new DesktopGuiDriverError("TASK_STALLED", "Desktop task stalled");
       }
-      if (result.assertions.some(({ passed }) => !passed)) throw new DesktopGuiDriverError("ASSERTION_FAILURE", "one or more allowlisted assertions failed");
+      const executedAssertionIds = new Set(result.assertions.map(({ assertionId }) => assertionId));
+      if (result.assertions.some(({ passed }) => !passed) || scenario.assertions.some(({ assertionId }) => !executedAssertionIds.has(assertionId))) {
+        throw new DesktopGuiDriverError("ASSERTION_FAILURE", "one or more allowlisted assertions failed or did not execute");
+      }
       result.outcome = "passed";
     } catch (error) {
       const failure = mapFailure(error);
@@ -320,6 +331,7 @@ export class DesktopGuiScenarioDriver {
     });
     const bytes = Buffer.isBuffer(image) ? image : Buffer.from(image);
     try {
+      if (!supportedImageBytes(bytes)) throw new DesktopGuiDriverError("INVALID_GUI_OBSERVATION", "screenshot bytes are empty, truncated, or unsupported");
       return { record: { checkpointId: checkpoint.checkpointId, type: checkpoint.type, observation: { digest: digestBytes(bytes), byteLength: bytes.length, sanitized: true, scenarioId: scenario.scenarioId } } };
     } finally {
       bytes.fill(0);

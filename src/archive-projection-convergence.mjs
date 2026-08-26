@@ -98,7 +98,7 @@ async function verifiedReportDigest(value, label) {
   let report;
   try { report = JSON.parse(bytes); }
   catch { throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} is not valid JSON`); }
-  if (report?.schemaVersion !== 1 || report?.kind !== "nelos-developer-visual-state-validation" || !DIGEST.test(report?.capture?.digest)) {
+  if (report?.schemaVersion !== 1 || report?.kind !== "nelos-developer-visual-state-validation" || report?.outcome !== "passed" || !DIGEST.test(report?.capture?.digest)) {
     throw new ArchiveProjectionConvergenceError("INVALID_VISUAL_REPORT", `${label} does not reference a visual-state validation report`);
   }
   return { reportDigest: digest, captureDigest: report.capture.digest };

@@ -99,3 +99,16 @@ test("absence is still checked when destruction reports an error", async (t) => 
   }), (error) => error.code === "CLEANUP_NOT_PROVEN" && error.details.destroyCode === "DESTROY_FAILED");
   assert.deepEqual(calls.slice(-2), ["destroy", "absent"]);
 });
+
+test("a passed scenario cannot omit mandatory screenshot evidence", async (t) => {
+  const { root, calls, adapter } = await harness(t, {
+    async collectEvidence() { calls.push("evidence"); return { screenshots: [], diagnostics: [] }; },
+  });
+  await assert.rejects(runDisposableDesktopSmokeV1({
+    candidate: { ...identity, packagePath: root },
+    scenarioSet: { schemaVersion: 1, scenarioSetId: "release", scenarios: [desktopGuiScenario()] },
+    adapter,
+    controllerCodexHome: "/controller/.codex",
+  }), (error) => error.code === "INVALID_SMOKE_EVIDENCE");
+  assert.deepEqual(calls.slice(-2), ["destroy", "absent"]);
+});

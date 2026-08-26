@@ -57,11 +57,12 @@ export function validateDesktopSmokeScenarioV1(value) {
   }
   unique(value.checkpoints, "checkpointId", "checkpoint");
   const checkpointIds = new Set(value.checkpoints.map(({ checkpointId }) => checkpointId));
+  const checkpointById = new Map(value.checkpoints.map((checkpoint) => [checkpoint.checkpointId, checkpoint]));
   const assertions = new Set(DESKTOP_SMOKE_ASSERTION_TYPES_V1);
   for (const assertion of value.assertions) {
     exact(assertion, ["assertionId", "type", "targetRef", "expectedRef", "checkpointId"], "scenario assertion");
     identifier(assertion.assertionId, "assertionId"); identifier(assertion.targetRef, "targetRef"); identifier(assertion.checkpointId, "checkpointId");
-    if (!assertions.has(assertion.type) || !checkpointIds.has(assertion.checkpointId)) fail("scenario assertion is invalid");
+    if (!assertions.has(assertion.type) || !checkpointIds.has(assertion.checkpointId) || checkpointById.get(assertion.checkpointId).failureOnly) fail("scenario assertion is invalid or attached to a failure-only checkpoint");
     if (assertion.expectedRef !== null) identifier(assertion.expectedRef, "expectedRef");
   }
   unique(value.assertions, "assertionId", "assertion");

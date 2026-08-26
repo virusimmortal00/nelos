@@ -1226,17 +1226,28 @@ export async function projectExecutionMapForToolResultV1(
       planRunStore,
     );
     const storedPlanRunId = record?.executionMapProjectionPlanRunId ?? null;
-    const resetProjection = incomingPlanRunId !== null &&
-      storedPlanRunId !== null &&
-      incomingPlanRunId !== storedPlanRunId;
     const { protocol: _priorProtocol, ...priorMap } =
       record?.executionMapProjection ?? {};
+    const hasPriorProjection = Array.isArray(priorMap.members);
+    const authoritativePlanScope = incomingPlanRunId !== null &&
+      result?.planRun?.planRunId === incomingPlanRunId &&
+      typeof result?.plan?.objective === "string";
+    if (incomingPlanRunId !== null && storedPlanRunId !== null &&
+        incomingPlanRunId !== storedPlanRunId && !authoritativePlanScope) {
+      return visibleExecutionMapResponse({ ...priorMap, protocol: visibleResponse.protocol });
+    }
+    const legacyProjection = storedPlanRunId === null && hasPriorProjection;
+    const resetProjection = authoritativePlanScope &&
+      incomingPlanRunId !== storedPlanRunId;
     const { protocol, ...observedIncomingMap } = currentResponse;
-    const planTask = await projectionPlanTask(
+    const resolvedPlanTask = await projectionPlanTask(
       result,
       incomingPlanRunId,
       planRunStore,
     );
+    const planTask = legacyProjection && !authoritativePlanScope
+      ? null
+      : resolvedPlanTask;
     const incomingMap = planTask
       ? { ...observedIncomingMap, task: planTask }
       : observedIncomingMap;
@@ -1284,6 +1295,10 @@ export async function projectExecutionMapForToolResultV1(
       webId: identity.webId,
       queenThreadId: identity.queenThreadId,
     };
+    const planRunIdToPersist = incomingPlanRunId !== null &&
+      (!legacyProjection || authoritativePlanScope)
+      ? incomingPlanRunId
+      : null;
     if (
       !record ||
       record.outboundWebId !== identity.webId ||
@@ -1291,8 +1306,8 @@ export async function projectExecutionMapForToolResultV1(
         JSON.stringify(persistedProjection) ||
       JSON.stringify(record.executionMapProjectionVersions ?? {}) !==
         JSON.stringify(versions) ||
-      (incomingPlanRunId !== null &&
-        record.executionMapProjectionPlanRunId !== incomingPlanRunId)
+      (planRunIdToPersist !== null &&
+        record.executionMapProjectionPlanRunId !== planRunIdToPersist)
     ) {
       await webRegistry.write({
         ...(record ?? {
@@ -1303,10 +1318,10 @@ export async function projectExecutionMapForToolResultV1(
         updatedAt: new Date().toISOString(),
         executionMapProjection: persistedProjection,
         executionMapProjectionVersions: versions,
-        ...((incomingPlanRunId ?? record?.executionMapProjectionPlanRunId)
+        ...((planRunIdToPersist ?? record?.executionMapProjectionPlanRunId)
           ? {
             executionMapProjectionPlanRunId:
-              incomingPlanRunId ?? record.executionMapProjectionPlanRunId,
+              planRunIdToPersist ?? record.executionMapProjectionPlanRunId,
           }
           : {}),
       });

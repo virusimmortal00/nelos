@@ -129,3 +129,13 @@ test("wraps missing visual reports without exposing filesystem details", async (
     return true;
   });
 });
+
+test("rejects a digest-bound visual report whose own validation failed", async () => {
+  const failed = await fixture();
+  const value = { schemaVersion: 1, kind: "nelos-developer-visual-state-validation", capture: { digest: `sha256:${"a".repeat(64)}` }, outcome: "failed", counts: {}, findings: [{ code: "VISUAL_SYSTEM_ERROR" }] };
+  const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+  await writeFile(failed.report.path, bytes);
+  const report = { path: failed.report.path, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
+  for (const checkpoint of failed.input.checkpoints) checkpoint.visualEvidence.report = report;
+  await assert.rejects(validateArchiveProjectionConvergence(failed.input), (error) => error.code === "INVALID_VISUAL_REPORT");
+});

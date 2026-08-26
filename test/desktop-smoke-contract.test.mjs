@@ -9,6 +9,10 @@ test("minimal Desktop smoke scenario contract accepts the reviewed allowlisted s
   const forbidden = desktopGuiScenario();
   forbidden.actions[0].type = "shell";
   assert.throws(() => validateDesktopSmokeScenarioV1(forbidden), /not allowlisted/u);
+
+  const skippedAssertion = desktopGuiScenario();
+  skippedAssertion.checkpoints.find(({ checkpointId }) => checkpointId === "shot").failureOnly = true;
+  assert.throws(() => validateDesktopSmokeScenarioV1(skippedAssertion), /failure-only checkpoint/u);
 });
 
 test("capture geometry requires complete conversation and credential exclusion inventory", () => {

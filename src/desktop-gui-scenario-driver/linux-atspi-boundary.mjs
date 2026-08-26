@@ -63,6 +63,6 @@ export class LinuxAtspiBoundary {
   textPresent({ target, bytes, signal }) { return this.#request("text_present", { target, byteLength: bytes.length }, bytes, signal); }
   windowCount({ target, signal }) { return this.#request("window_count", { target }, null, signal); }
   protectedCaptureRegions({ kinds, signal }) { return this.#request("protected_capture_regions", { kinds }, null, signal); }
-  captureScreenshot({ exclude, signal }) { return this.#request("capture_screenshot", { exclude }, null, signal); }
+  captureScreenshot({ exclude, expectedTask, signal }) { return this.#request("capture_screenshot", { exclude, expectedTask }, null, signal); }
   health({ signal }) { return this.#request("health", {}, null, signal); }
 }

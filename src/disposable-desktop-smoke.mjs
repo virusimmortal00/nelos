@@ -49,7 +49,7 @@ function scanEvidence(value, path = "evidence") {
 function validateEvidenceItem(item, scenarioIds, kind) {
   object(item, `${kind} evidence`);
   identifier(item.scenarioId, "evidence scenarioId");
-  if (!scenarioIds.has(item.scenarioId) || !DIGEST.test(item.digest) || !Number.isSafeInteger(item.byteLength) || item.byteLength < 0 || item.sanitized !== true) fail("INVALID_SMOKE_EVIDENCE", `${kind} evidence is invalid`);
+  if (!scenarioIds.has(item.scenarioId) || !DIGEST.test(item.digest) || !Number.isSafeInteger(item.byteLength) || item.byteLength < (kind === "screenshot" ? 1 : 0) || item.sanitized !== true) fail("INVALID_SMOKE_EVIDENCE", `${kind} evidence is invalid`);
   const allowed = kind === "screenshot" ? new Set(["scenarioId", "digest", "byteLength", "mediaType", "sanitized"]) : new Set(["scenarioId", "digest", "byteLength", "code", "sanitized"]);
   if (Object.keys(item).some((key) => !allowed.has(key))) fail("INVALID_SMOKE_EVIDENCE", `${kind} evidence contains unsupported data`);
   if (kind === "screenshot" && !["image/png", "image/jpeg"].includes(item.mediaType)) fail("INVALID_SMOKE_EVIDENCE", "screenshot media type is invalid");
@@ -120,6 +120,14 @@ export async function runDisposableDesktopSmokeV1({ candidate, scenarioSet, adap
       screenshots: evidence.screenshots.map((item) => validateEvidenceItem(item, scenarioIds, "screenshot")),
       diagnostics: evidence.diagnostics.map((item) => validateEvidenceItem(item, scenarioIds, "diagnostic")),
     };
+    const screenshotScenarioIds = new Set(evidence.screenshots.map(({ scenarioId }) => scenarioId));
+    for (const scenario of scenarios) {
+      const passed = results.find(({ scenarioId }) => scenarioId === scenario.scenarioId)?.outcome === "passed";
+      const requiresScreenshot = scenario.checkpoints.some(({ type, failureOnly }) => type === "screenshot" && !failureOnly);
+      if (passed && requiresScreenshot && !screenshotScenarioIds.has(scenario.scenarioId)) {
+        fail("INVALID_SMOKE_EVIDENCE", "passed scenario is missing mandatory screenshot evidence");
+      }
+    }
   } catch (error) {
     primaryError = error;
   } finally {

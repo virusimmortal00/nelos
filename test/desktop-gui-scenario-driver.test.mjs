@@ -56,7 +56,16 @@ class GraphicalFixture {
       traversal: { complete: !this.missingGeometry, scannedNodes: 42, maximumNodes: 10_000 },
     };
   }
-  async captureScreenshot({ exclude }) { this.calls.push(["screenshot", exclude]); return Buffer.from("masked graphical fixture"); }
+  async captureScreenshot({ exclude, expectedTask }) {
+    this.calls.push(["screenshot", exclude, expectedTask]);
+    return Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      ...Array(17).fill(0),
+      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+      0x00, 0x00, 0x00, 0x00,
+    ]);
+  }
   async health() { return { crashed: this.crash, stalled: this.stalled }; }
 }
 
@@ -253,11 +262,22 @@ test("screenshots accept a complete zero-credential inventory and fail closed wh
   const accepted = await harness();
   assert.equal((await accepted.driver.runScenario(desktopGuiScenario())).outcome, "passed");
   assert.deepEqual(accepted.boundary.calls.find(([name]) => name === "screenshot")[1], [{ kind: "conversation", x: 10, y: 10, width: 500, height: 400 }]);
+  assert.deepEqual(accepted.boundary.calls.find(([name]) => name === "screenshot")[2], { taskId: "desktop-task-driver-1", title: "scenario-driver-1" });
   const { boundary, driver } = await harness({ missingGeometry: true });
   const result = await driver.runScenario(desktopGuiScenario());
   assert.equal(result.outcome, "failed");
   assert.equal(result.failure.code, "PROTECTED_GEOMETRY_UNAVAILABLE");
   assert.equal(boundary.calls.some(([name]) => name === "screenshot"), false);
+});
+
+test("screenshots reject empty and truncated helper payloads", async () => {
+  for (const bytes of [Buffer.alloc(0), Buffer.from([0x89, 0x50, 0x4e, 0x47])]) {
+    const { boundary, driver } = await harness();
+    boundary.captureScreenshot = async () => bytes;
+    const result = await driver.runScenario(desktopGuiScenario());
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.failure.code, "INVALID_GUI_OBSERVATION");
+  }
 });
 
 test("forbidden actions are rejected before touching the graphical boundary", async () => {
@@ -278,8 +298,10 @@ test("forbidden actions later in a scenario are rejected before touching the gra
 
 test("driver imports the minimal smoke contract and executable exposes no command escape hatch", async () => {
   const source = await readFile(new URL("../src/desktop-gui-scenario-driver/index.mjs", import.meta.url), "utf8");
+  const linuxBoundary = await readFile(new URL("../src/desktop-gui-scenario-driver/linux-atspi-boundary.mjs", import.meta.url), "utf8");
   const cli = await readFile(new URL("../bin/nelos-desktop-gui-driver", import.meta.url), "utf8");
   assert.match(source, /from "\.\.\/desktop-smoke-contract\.mjs"/u);
   assert.deepEqual([...source.matchAll(/case "([a-z_]+)"/gu)].map((match) => match[1]).filter((name) => ["click", "keypress", "scroll", "select_menu", "type_text_ref", "wait_for"].includes(name)).sort(), ["click", "keypress", "scroll", "select_menu", "type_text_ref", "wait_for"]);
   assert.doesNotMatch(cli, /--(?:command|shell|script|ipc|dom|eval)/u);
+  assert.match(linuxBoundary, /captureScreenshot\(\{ exclude, expectedTask, signal \}\).*\{ exclude, expectedTask \}/u);
 });
