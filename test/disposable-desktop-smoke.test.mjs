@@ -41,6 +41,10 @@ test("smoke lane verifies exact loaded identity, reports bounded evidence, and p
     controllerCodexHome: "/controller/.codex",
   });
   assert.equal(result.outcome, "passed");
+  assert.deepEqual(Object.keys(result), [
+    "schemaVersion", "candidate", "scenarioSetId", "startedAt", "finishedAt",
+    "outcome", "summary", "results", "evidence", "cleanup",
+  ]);
   assert.deepEqual(result.summary, { total: 1, passed: 1, failed: 0 });
   assert.deepEqual(result.results, [{ scenarioId: "scenario-driver-1", outcome: "passed", failure: null }]);
   assert.deepEqual(result.cleanup, { cloneId: "clone-1", destroyed: true, absent: true });
