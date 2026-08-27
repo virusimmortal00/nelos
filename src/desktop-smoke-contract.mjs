@@ -70,6 +70,53 @@ export function validateDesktopSmokeScenarioV1(value) {
   return structuredClone(value);
 }
 
+export function validateDesktopSmokeScenarioSetV1(value) {
+  exact(value, ["schemaVersion", "scenarioSetId", "scenarios"], "scenario set");
+  if (value.schemaVersion !== 1) fail("scenario set schemaVersion must be 1");
+  identifier(value.scenarioSetId, "scenarioSetId");
+  if (!Array.isArray(value.scenarios) || value.scenarios.length < 1 || value.scenarios.length > 100) fail("scenario set scenarios are invalid");
+  const scenarios = value.scenarios.map((scenario) => validateDesktopSmokeScenarioV1(scenario));
+  unique(scenarios, "scenarioId", "scenario");
+  unique(scenarios.map(({ task }) => task), "taskId", "scenario task");
+  return { schemaVersion: 1, scenarioSetId: value.scenarioSetId, scenarios };
+}
+
+export function validateDesktopSmokeCoverageMatrixV1(value, scenarioSets) {
+  exact(value, ["schemaVersion", "libraryId", "coverage"], "coverage matrix");
+  if (value.schemaVersion !== 1) fail("coverage matrix schemaVersion must be 1");
+  identifier(value.libraryId, "libraryId");
+  exact(scenarioSets, ["release", "routine"], "scenario libraries");
+  const release = validateDesktopSmokeScenarioSetV1(scenarioSets.release);
+  const routine = validateDesktopSmokeScenarioSetV1(scenarioSets.routine);
+  if (release.scenarioSetId !== "release" || routine.scenarioSetId !== "routine") fail("scenario library identifiers are invalid");
+  if (!Array.isArray(value.coverage) || value.coverage.length !== release.scenarios.length) fail("coverage matrix must describe every release scenario exactly once");
+  const releaseById = new Map(release.scenarios.map((scenario) => [scenario.scenarioId, scenario]));
+  const routineIds = new Set(routine.scenarios.map(({ scenarioId }) => scenarioId));
+  const capabilityIds = new Set();
+  const scenarioIds = new Set();
+  for (const row of value.coverage) {
+    exact(row, ["scenarioId", "capabilityId", "expectedCheckpointIds", "release", "routine"], "coverage row");
+    identifier(row.scenarioId, "coverage scenarioId");
+    identifier(row.capabilityId, "capabilityId");
+    if (scenarioIds.has(row.scenarioId) || capabilityIds.has(row.capabilityId)) fail("coverage rows must map distinct scenarios to distinct capabilities");
+    scenarioIds.add(row.scenarioId); capabilityIds.add(row.capabilityId);
+    const scenario = releaseById.get(row.scenarioId);
+    if (!scenario || row.release !== true || row.routine !== routineIds.has(row.scenarioId)) fail("coverage row library membership is inconsistent");
+    if (!Array.isArray(row.expectedCheckpointIds) || row.expectedCheckpointIds.length < 1 || new Set(row.expectedCheckpointIds).size !== row.expectedCheckpointIds.length) fail("coverage checkpoints are invalid");
+    const reviewable = new Set(scenario.checkpoints.filter(({ failureOnly }) => !failureOnly).map(({ checkpointId }) => checkpointId));
+    if (row.expectedCheckpointIds.some((checkpointId) => !reviewable.has(checkpointId))) fail("coverage checkpoint is not a normal state-transition checkpoint");
+    const actionsWithFailureScreenshots = new Set(scenario.checkpoints.filter(({ type, failureOnly }) => type === "screenshot" && failureOnly).map(({ afterActionId }) => afterActionId));
+    if (scenario.actions.some(({ actionId }) => !actionsWithFailureScreenshots.has(actionId))) fail("every scenario action must have a failure-only screenshot checkpoint");
+    if (scenario.failureCaptureTriggers.length !== DESKTOP_SMOKE_FAILURE_TRIGGERS_V1.length || DESKTOP_SMOKE_FAILURE_TRIGGERS_V1.some((trigger) => !scenario.failureCaptureTriggers.includes(trigger))) fail("scenario failure capture triggers are incomplete");
+    if (scenario.assertions.some(({ type }) => type === "text_ref_present")) fail("library assertions must not inspect visible exchange text");
+  }
+  if (scenarioIds.size !== releaseById.size || routine.scenarios.some((scenario) => {
+    const releaseScenario = releaseById.get(scenario.scenarioId);
+    return !releaseScenario || JSON.stringify(scenario) !== JSON.stringify(releaseScenario);
+  })) fail("routine scenarios must be identical release-library members");
+  return { matrix: structuredClone(value), release, routine };
+}
+
 export function validateDesktopSmokeCaptureRegionsV1(value) {
   exact(value, ["schemaVersion", "conversation", "credentialInventory", "traversal"], "capture regions");
   if (value.schemaVersion !== 1 || value.traversal?.complete !== true || !Number.isSafeInteger(value.traversal.scannedNodes) || !Number.isSafeInteger(value.traversal.maximumNodes) || value.traversal.scannedNodes < 0 || value.traversal.scannedNodes > value.traversal.maximumNodes) fail("capture-region traversal is incomplete");

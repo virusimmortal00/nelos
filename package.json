@@ -111,7 +111,7 @@
     "verify:plugin-upgrade": "node scripts/verify-plugin-marketplace-upgrade.mjs",
     "demo:acceptance-gates": "node scripts/verify-golden-loop.mjs --iterations 1",
     "eval:routing": "node scripts/evaluate-routing-scenarios.mjs",
-    "check:desktop-smoke": "node --check src/desktop-smoke-contract.mjs && node --check src/desktop-smoke-evidence-contract.mjs && node --check src/disposable-desktop-smoke.mjs && node --check src/machine-desktop-smoke-adapter.mjs && node --check src/desktop-smoke-cli.mjs && node --check src/desktop-gui-scenario-driver/index.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-smoke-contract.test.mjs test/desktop-smoke-evidence-contract.test.mjs test/disposable-desktop-smoke.test.mjs test/desktop-gui-scenario-driver.test.mjs"
+    "check:desktop-smoke": "node --check src/desktop-smoke-contract.mjs && node --check src/desktop-smoke-evidence-contract.mjs && node --check src/disposable-desktop-smoke.mjs && node --check src/machine-desktop-smoke-adapter.mjs && node --check src/desktop-smoke-cli.mjs && node --check src/desktop-gui-scenario-driver/index.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-smoke-contract.test.mjs test/desktop-smoke-evidence-contract.test.mjs test/disposable-desktop-smoke.test.mjs test/desktop-gui-scenario-driver.test.mjs test/desktop-smoke-scenario-library.test.mjs"
   },
   "engines": {
     "node": ">=20"
