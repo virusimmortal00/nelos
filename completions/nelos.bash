@@ -40,7 +40,7 @@ _nelos_opts_worktree_inspect="--action-id"
 _nelos_opts_worktree_launch="--work-unit-spec --prompt --prompt-file --source --worktree-root --worktree-path --branch --base --model --effort --sandbox --permissions --approval --wait --poll-ms --max-wait-ms"
 _nelos_opts_worktree_integration="--queen-thread-id --thread-id"
 _nelos_opts_doctor="--codex --socket"
-_nelos_opts_desktop_test="--candidate --scenario-set"
+_nelos_opts_desktop_test="--candidate --scenario-set --run-id --bundle-output"
 
 _nelos_completions() {
   local cur prev command subcommand

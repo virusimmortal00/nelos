@@ -58,7 +58,7 @@ _nelos() {
       _values 'option' --codex --socket
       ;;
     desktop-test)
-      _values 'option' --candidate --scenario-set
+      _values 'option' --candidate --scenario-set --run-id --bundle-output
       ;;
     title)
       if (( CURRENT == 3 )); then

@@ -59,6 +59,8 @@ complete -c nelos -n '__fish_seen_subcommand_from archive' -l restore-detached
 complete -c nelos -n '__fish_seen_subcommand_from doctor' -l codex -r
 complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l candidate -r
 complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l scenario-set -r
+complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l run-id -r
+complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l bundle-output -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l id -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l title -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l registry-only

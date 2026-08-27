@@ -5,6 +5,7 @@ import { DesktopSmokeError } from "./disposable-desktop-smoke.mjs";
 
 export const DEFAULT_DESKTOP_SMOKE_DRIVER = "/usr/local/libexec/nelos-desktop-test-driver";
 const OPERATIONS = new Set(["clone-template", "install-candidate", "launch-desktop", "read-loaded-identity", "run-scenario", "collect-evidence", "destroy-clone", "verify-absent"]);
+const FRESH_VM_OPERATIONS = new Set(["clone-template-vm", "install-candidate-vm", "read-loaded-identity-vm", "execute-scenario-vm", "package-evidence-vm", "destroy-clone-vm", "verify-absent-vm"]);
 
 async function verifyDriver(path) {
   const info = await lstat(path).catch(() => null);
@@ -13,8 +14,8 @@ async function verifyDriver(path) {
   }
 }
 
-async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000 } = {}) {
-  if (!OPERATIONS.has(operation)) throw new DesktopSmokeError("INVALID_SMOKE_ADAPTER", "unsupported machine-driver operation");
+async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000, maxOutputBytes = 1024 * 1024 } = {}) {
+  if (!OPERATIONS.has(operation) && !FRESH_VM_OPERATIONS.has(operation)) throw new DesktopSmokeError("INVALID_SMOKE_ADAPTER", "unsupported machine-driver operation");
   await verifyDriver(path);
   return new Promise((resolve, reject) => {
     const child = spawn(path, [operation], {
@@ -39,7 +40,7 @@ async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000 } 
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
-      if (stdout.length > 1024 * 1024) {
+      if (Buffer.byteLength(stdout) > maxOutputBytes) {
         child.kill("SIGKILL");
         finish(new DesktopSmokeError("DESKTOP_DRIVER_FAILED", "machine-local Desktop smoke driver returned an oversized receipt"));
       }
@@ -65,5 +66,28 @@ export function createMachineDesktopSmokeAdapterV1({ executable = DEFAULT_DESKTO
     collectEvidence: (payload) => invoke(executable, "collect-evidence", payload),
     destroyClone: (payload) => invoke(executable, "destroy-clone", payload),
     verifyAbsent: (payload) => invoke(executable, "verify-absent", payload),
+  });
+}
+
+function fresh(path, operation, payload, options = {}) {
+  return invoke(path, operation, payload, options).then((receipt) => {
+    if (operation === "package-evidence-vm") {
+      if (typeof receipt?.bundleBase64 !== "string" || Object.keys(receipt).some((key) => /raw|temporaryFiles|sourcePixels|sensitive/iu.test(key))) throw new DesktopSmokeError("UNSAFE_FRESH_VM_EVIDENCE", "machine driver returned unsafe or malformed package data");
+      const { bundleBase64, ...rest } = receipt;
+      return { ...rest, bundle: Buffer.from(bundleBase64, "base64") };
+    }
+    return receipt;
+  });
+}
+
+export function createMachineFreshVmDesktopAdapterV1({ executable = DEFAULT_DESKTOP_SMOKE_DRIVER } = {}) {
+  return Object.freeze({
+    cloneTemplate: (payload) => fresh(executable, "clone-template-vm", payload),
+    installCandidate: (payload) => fresh(executable, "install-candidate-vm", payload),
+    readLoadedIdentity: (payload) => fresh(executable, "read-loaded-identity-vm", payload),
+    executeScenario: (payload) => fresh(executable, "execute-scenario-vm", payload, { timeoutMs: payload.deadlines.scenarioMs + 5_000 }),
+    packageEvidence: (payload) => fresh(executable, "package-evidence-vm", payload, { maxOutputBytes: 24 * 1024 * 1024 }),
+    destroyClone: (payload) => fresh(executable, "destroy-clone-vm", payload),
+    verifyAbsent: (payload) => fresh(executable, "verify-absent-vm", payload),
   });
 }
