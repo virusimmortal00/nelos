@@ -6,6 +6,7 @@ import { DesktopSmokeError } from "./disposable-desktop-smoke.mjs";
 export const DEFAULT_DESKTOP_SMOKE_DRIVER = "/usr/local/libexec/nelos-desktop-test-driver";
 const OPERATIONS = new Set(["clone-template", "install-candidate", "launch-desktop", "read-loaded-identity", "run-scenario", "collect-evidence", "destroy-clone", "verify-absent"]);
 const FRESH_VM_OPERATIONS = new Set(["clone-template-vm", "install-candidate-vm", "read-loaded-identity-vm", "execute-scenario-vm", "package-evidence-vm", "destroy-clone-vm", "verify-absent-vm"]);
+const REVIEW_OPERATION = "review-sanitized-bundle";
 
 async function verifyDriver(path) {
   const info = await lstat(path).catch(() => null);
@@ -15,7 +16,7 @@ async function verifyDriver(path) {
 }
 
 async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000, maxOutputBytes = 1024 * 1024 } = {}) {
-  if (!OPERATIONS.has(operation) && !FRESH_VM_OPERATIONS.has(operation)) throw new DesktopSmokeError("INVALID_SMOKE_ADAPTER", "unsupported machine-driver operation");
+  if (!OPERATIONS.has(operation) && !FRESH_VM_OPERATIONS.has(operation) && operation !== REVIEW_OPERATION) throw new DesktopSmokeError("INVALID_SMOKE_ADAPTER", "unsupported machine-driver operation");
   await verifyDriver(path);
   return new Promise((resolve, reject) => {
     const child = spawn(path, [operation], {
@@ -89,5 +90,14 @@ export function createMachineFreshVmDesktopAdapterV1({ executable = DEFAULT_DESK
     packageEvidence: (payload) => fresh(executable, "package-evidence-vm", payload, { maxOutputBytes: 24 * 1024 * 1024 }),
     destroyClone: (payload) => fresh(executable, "destroy-clone-vm", payload),
     verifyAbsent: (payload) => fresh(executable, "verify-absent-vm", payload),
+  });
+}
+
+// The trusted driver is the only model-capable boundary.  It receives the
+// already-sanitized review context, never a guest filesystem or controller env.
+export function createMachineDesktopBundleReviewerV1({ executable = DEFAULT_DESKTOP_SMOKE_DRIVER } = {}) {
+  return Object.freeze({
+    reviewerId: "machine-sanitized-desktop-reviewer-v1",
+    review: (context) => invoke(executable, REVIEW_OPERATION, context, { timeoutMs: 5 * 60 * 1_000, maxOutputBytes: 256 * 1024 }),
   });
 }

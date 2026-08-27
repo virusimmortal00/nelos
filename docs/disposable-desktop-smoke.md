@@ -25,6 +25,45 @@ evidence. It always destroys the clone and independently checks absence. The
 bundle is written with create-only semantics and contains stable
 `evidence/desktop-smoke-v1.json` and `receipts/run.json` entries.
 
+## Routine and release-certification operations
+
+Routine smoke is the bounded three-scenario set (plugin availability, planning,
+and recovery). It is deliberately excluded from ordinary unit-test CI and
+contacts disposable VM infrastructure only when an operator or an authorized
+self-hosted runner invokes it. Supply an explicit private output directory:
+
+```sh
+npm run desktop-smoke:routine -- --candidate /private/candidate \
+  --out-dir /private/e2e/routine-2026-08-27 --run-id routine-2026-08-27-1
+```
+
+Release certification uses the full release library on the protected
+`self-hosted, nelos-disposable-desktop` runner. It binds a verified bundle to
+the candidate version, source revision, and package digest, then requires both
+deterministic assertions and an independent review over sanitized screenshots:
+
+```sh
+npm run desktop-smoke:certify -- --candidate /private/candidate \
+  --out-dir /private/e2e/certification-2026-08-27 --run-id release-2026-08-27-1
+```
+
+Routine normally takes minutes; certification can run for up to 90 minutes and
+uses only the runner-approved model configuration for its independent review.
+The output directory contains only `certification-bundle.json` and
+`certification-review.json`; upload those verified sanitized artifacts only.
+Never serialize driver requests, VM logs/disks, raw guest artifacts, or
+infrastructure credentials. Failed execution/assertions, a review finding or
+review failure, identity mismatch, timeout, or missing destroy-and-independent-
+absence proof blocks release creation. Triage findings by stable finding ID and
+sanitized evidence digest, then rerun in a new output directory with a new run
+ID; do not overwrite evidence. After interruption, destroy the recorded clone
+and independently verify absence before retrying. Keep verified outputs for 14
+days under the protected-runner retention policy.
+
+This is repeatable smoke certification rather than high-assurance proof: a
+fixed representative library cannot prove absence of all defects, provider
+failures, model changes, or future host regressions.
+
 ## Machine-local driver boundary
 
 The controller invokes `/usr/local/libexec/nelos-desktop-test-driver`. That executable must be root-owned, executable, and not group- or world-writable. It owns provider-specific clone, network, guest-install, launch, UI, and destruction operations. Each invocation accepts one JSON request on standard input and returns one JSON receipt on standard output.
