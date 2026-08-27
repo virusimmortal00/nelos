@@ -1954,7 +1954,16 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   validateEvidenceDocument(evidence, evidenceSchema, contract, repositoryIdentity);
   assert.equal(evidence.sanitization.status, "passed");
   assert.equal(evidence.sanitization.credentialsCaptured, false);
-  assert.equal(evidence.observations.networkDeniedDuringValidation, true);
+  assert.equal(evidence.schemaVersion, 2);
+  assert.match(evidence.runId, /^run-[a-f0-9]{32}$/u);
+  assert.equal(evidence.lifecycle.pilotNode, "prox2");
+  assert.equal(evidence.lifecycle.sourceTemplateVmid, 9021);
+  assert.equal(evidence.lifecycle.disposableVmid, 9030);
+  assert.equal(evidence.lifecycle.cloneMutationAttempted, true);
+  assert.equal(evidence.lifecycle.cloneMutationSettlement, "settled-present");
+  assert.equal(evidence.lifecycle.guestIdentityVerified, true);
+  assert.equal(evidence.lifecycle.cleanupOutcome, "destroyed");
+  assert.equal(evidence.lifecycle.clusterAbsentAfterCleanup, true);
   assert.equal(evidence.lanes["legacy-01446"].checks.laneParity, true);
   assert.equal(evidence.lanes["agent-plugin-01470"].checks.laneParity, true);
   const agentLane = evidence.lanes["agent-plugin-01470"];
@@ -2025,7 +2034,7 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   );
 
   const wrongRun = structuredClone(evidence);
-  wrongRun.runId = "another-run";
+  wrongRun.runId = `run-${"f".repeat(32)}`;
   assert.throws(
     () => validateEvidenceDocument(wrongRun, evidenceSchema, contract),
     /must be isolated beneath this evidence run ID/u,
@@ -2135,10 +2144,10 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   }
 
   const passedWithoutObservedNetworkDenial = structuredClone(evidence);
-  passedWithoutObservedNetworkDenial.observations.networkDeniedDuringValidation = false;
+  passedWithoutObservedNetworkDenial.lifecycle.networkDeniedDuringValidation = false;
   assert.throws(
     () => validateEvidenceDocument(passedWithoutObservedNetworkDenial, evidenceSchema, contract),
-    /passed evidence requires observed network denial across the validation window/u,
+    /passed evidence requires a safe clone lifecycle and exact cleanup/u,
   );
 
   const failedWithoutObservedNetworkDenial = structuredClone(passedWithoutObservedNetworkDenial);
@@ -2149,7 +2158,7 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   validateEvidenceDocument(failedWithoutObservedNetworkDenial, evidenceSchema, contract);
 
   const invalidNetworkObservation = structuredClone(evidence);
-  invalidNetworkObservation.observations.networkDeniedDuringValidation = "yes";
+  invalidNetworkObservation.lifecycle.networkDeniedDuringValidation = "yes";
   assert.throws(
     () => validateEvidenceDocument(invalidNetworkObservation, evidenceSchema, contract),
     /networkDeniedDuringValidation: must have type boolean/u,
@@ -2274,6 +2283,17 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   assert.throws(
     () => validateEvidenceDocument(pluginInstallWithoutMarketplace, evidenceSchema, contract),
     /cannot pass before marketplace installation succeeds/u,
+  );
+
+  const fullObjectIdRevision = structuredClone(evidence);
+  fullObjectIdRevision.candidate.sourceRevision = "a".repeat(64);
+  validateEvidenceDocument(fullObjectIdRevision, evidenceSchema, contract);
+
+  const invalidRevisionLength = structuredClone(evidence);
+  invalidRevisionLength.candidate.sourceRevision = "a".repeat(41);
+  assert.throws(
+    () => validateEvidenceDocument(invalidRevisionLength, evidenceSchema, contract),
+    /\/candidate\/sourceRevision: must match/u,
   );
 
   const mismatchedTools = structuredClone(evidence);
@@ -2440,12 +2460,173 @@ test("sanitized evidence validates isolated fresh-process lane parity", async ()
   };
   validateEvidenceDocument(failedAfterSuccessfulObservations, evidenceSchema, contract);
 
+  const cleanupQuarantined = structuredClone(evidence);
+  cleanupQuarantined.lifecycle.cleanupOutcome = "quarantined";
+  cleanupQuarantined.lifecycle.clusterAbsentAfterCleanup = false;
+  cleanupQuarantined.result = {
+    status: "failed",
+    failures: ["cleanup.quarantined"],
+  };
+  validateEvidenceDocument(cleanupQuarantined, evidenceSchema, contract);
+
+  const passedWithQuarantinedClone = structuredClone(cleanupQuarantined);
+  passedWithQuarantinedClone.result = { status: "passed", failures: [] };
+  assert.throws(
+    () => validateEvidenceDocument(passedWithQuarantinedClone, evidenceSchema, contract),
+    /passed evidence requires a safe clone lifecycle and exact cleanup/u,
+  );
+
+  const destroyedButPresent = structuredClone(cleanupQuarantined);
+  destroyedButPresent.lifecycle.cleanupOutcome = "destroyed";
+  assert.throws(
+    () => validateEvidenceDocument(destroyedButPresent, evidenceSchema, contract),
+    /destroyed cleanup requires cluster-wide absence/u,
+  );
+
+  const cloneNotCreated = structuredClone(evidence);
+  Object.assign(cloneNotCreated.lifecycle, {
+    clusterWideUnused: false,
+    cloneMutationAttempted: false,
+    cloneMutationSettlement: "not-attempted",
+    cloneCreated: false,
+    linkedClone: false,
+    sameNode: false,
+    ownershipReadback: false,
+    networkDetachedBeforeStart: false,
+    networkDeniedDuringValidation: false,
+    guestAgentReady: false,
+    guestIdentityVerified: false,
+    cloudInitStatus: "not-started",
+    cleanupOutcome: "manual-reconcile",
+    clusterAbsentAfterCleanup: false,
+  });
+  for (const lane of Object.values(cloneNotCreated.lanes)) {
+    lane.freshProcess = false;
+    lane.installedDistributionIntegrity = null;
+    lane.processObservation.observedEnvironmentKeys = [];
+    for (const environmentKey of Object.keys(lane.processObservation.observedEnvironmentPaths)) {
+      lane.processObservation.observedEnvironmentPaths[environmentKey] = null;
+    }
+    lane.toolNames = [];
+    for (const check of Object.keys(lane.checks)) lane.checks[check] = false;
+  }
+  cloneNotCreated.result = {
+    status: "failed",
+    failures: ["clone.slot-in-use"],
+  };
+  validateEvidenceDocument(cloneNotCreated, evidenceSchema, contract);
+
+  const settledAbsent = structuredClone(cloneNotCreated);
+  Object.assign(settledAbsent.lifecycle, {
+    clusterWideUnused: true,
+    cloneMutationAttempted: true,
+    cloneMutationSettlement: "settled-absent",
+    cleanupOutcome: "not-required",
+    clusterAbsentAfterCleanup: true,
+  });
+  settledAbsent.result.failures = ["clone.mutation-settled-absent"];
+  validateEvidenceDocument(settledAbsent, evidenceSchema, contract);
+
+  const unresolvedMutation = structuredClone(cloneNotCreated);
+  Object.assign(unresolvedMutation.lifecycle, {
+    clusterWideUnused: true,
+    cloneMutationAttempted: true,
+    cloneMutationSettlement: "unresolved",
+  });
+  unresolvedMutation.result.failures = ["clone.mutation-settlement-unresolved"];
+  validateEvidenceDocument(unresolvedMutation, evidenceSchema, contract);
+
+  const unresolvedClaimingAbsence = structuredClone(unresolvedMutation);
+  unresolvedClaimingAbsence.lifecycle.clusterAbsentAfterCleanup = true;
+  assert.throws(
+    () => validateEvidenceDocument(unresolvedClaimingAbsence, evidenceSchema, contract),
+    /unresolved settlement requires manual reconciliation without a cluster-absence claim/u,
+  );
+
+  const attemptedButNotAttemptedSettlement = structuredClone(cloneNotCreated);
+  attemptedButNotAttemptedSettlement.lifecycle.clusterWideUnused = true;
+  attemptedButNotAttemptedSettlement.lifecycle.cloneMutationAttempted = true;
+  assert.throws(
+    () => validateEvidenceDocument(attemptedButNotAttemptedSettlement, evidenceSchema, contract),
+    /not-attempted settlement requires an unattempted mutation and no created clone/u,
+  );
+
+  const unattemptedButSettled = structuredClone(settledAbsent);
+  unattemptedButSettled.lifecycle.cloneMutationAttempted = false;
+  assert.throws(
+    () => validateEvidenceDocument(unattemptedButSettled, evidenceSchema, contract),
+    /an unattempted mutation requires not-attempted settlement/u,
+  );
+
+  const attemptedWithoutPreflight = structuredClone(unresolvedMutation);
+  attemptedWithoutPreflight.lifecycle.clusterWideUnused = false;
+  assert.throws(
+    () => validateEvidenceDocument(attemptedWithoutPreflight, evidenceSchema, contract),
+    /clone mutation cannot be attempted before authoritative VMID preflight/u,
+  );
+
+  const disappearedClone = structuredClone(evidence);
+  disappearedClone.lifecycle.cleanupOutcome = "manual-reconcile";
+  disappearedClone.result = {
+    status: "failed",
+    failures: ["cleanup.clone-disappeared"],
+  };
+  validateEvidenceDocument(disappearedClone, evidenceSchema, contract);
+
+  const passedWithDisappearedClone = structuredClone(disappearedClone);
+  passedWithDisappearedClone.result = { status: "passed", failures: [] };
+  assert.throws(
+    () => validateEvidenceDocument(passedWithDisappearedClone, evidenceSchema, contract),
+    /passed evidence requires a safe clone lifecycle and exact cleanup/u,
+  );
+
+  const createdWithoutCleanup = structuredClone(evidence);
+  createdWithoutCleanup.lifecycle.cleanupOutcome = "not-required";
+  createdWithoutCleanup.result = {
+    status: "failed",
+    failures: ["cleanup.not-performed"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(createdWithoutCleanup, evidenceSchema, contract),
+    /a confirmed clone cannot use not-required cleanup/u,
+  );
+
+  const absentWithoutPreviouslySettledClone = structuredClone(cloneNotCreated);
+  absentWithoutPreviouslySettledClone.lifecycle.clusterAbsentAfterCleanup = true;
+  assert.throws(
+    () => validateEvidenceDocument(absentWithoutPreviouslySettledClone, evidenceSchema, contract),
+    /an unattempted clone requires confirmed absence or a preflight collision requiring manual reconciliation/u,
+  );
+
+  const passedWithoutGuestIdentity = structuredClone(evidence);
+  passedWithoutGuestIdentity.lifecycle.guestIdentityVerified = false;
+  assert.throws(
+    () => validateEvidenceDocument(passedWithoutGuestIdentity, evidenceSchema, contract),
+    /passed evidence requires a safe clone lifecycle and exact cleanup/u,
+  );
+
+  const guestObservationBeforeAgent = structuredClone(evidence);
+  guestObservationBeforeAgent.lifecycle.guestAgentReady = false;
+  guestObservationBeforeAgent.lifecycle.cloudInitStatus = "not-started";
+  guestObservationBeforeAgent.result = {
+    status: "failed",
+    failures: ["guest.agent.not-ready"],
+  };
+  assert.throws(
+    () => validateEvidenceDocument(guestObservationBeforeAgent, evidenceSchema, contract),
+    /guest observations cannot pass before the guest agent is ready/u,
+  );
+
+  const uncreatedButLinked = structuredClone(cloneNotCreated);
+  uncreatedButLinked.lifecycle.linkedClone = true;
+  assert.throws(
+    () => validateEvidenceDocument(uncreatedButLinked, evidenceSchema, contract),
+    /cannot be true when no clone was created/u,
+  );
+
   const unsafeEvidence = structuredClone(evidence);
-  unsafeEvidence.runId = "validator-192.0.2.10";
-  unsafeEvidence.lanes["legacy-01446"].home = "/var/lib/nelos-validator/runs/validator-192.0.2.10/legacy-01446/home";
-  unsafeEvidence.lanes["legacy-01446"].codexHome = `${unsafeEvidence.lanes["legacy-01446"].home}/.codex`;
-  unsafeEvidence.lanes["agent-plugin-01470"].home = "/var/lib/nelos-validator/runs/validator-192.0.2.10/agent-plugin-01470/home";
-  unsafeEvidence.lanes["agent-plugin-01470"].codexHome = `${unsafeEvidence.lanes["agent-plugin-01470"].home}/.codex`;
+  unsafeEvidence.lanes["legacy-01446"].pluginVersion = "0.0.0+192.0.2.10";
+  unsafeEvidence.lanes["agent-plugin-01470"].pluginVersion = "0.0.0+192.0.2.10";
   assert.throws(
     () => validateEvidenceDocument(unsafeEvidence, evidenceSchema, contract),
     /must not contain user-specific host, address, identity, or home material/u,

@@ -230,8 +230,8 @@ async function rejectGitControlFile(root, gitPath, label) {
 }
 
 async function rejectUnsafeGitState(root) {
-  // Preserve the archive controls for the future live-runner materialization path,
-  // even though evidence identity uses the canonical recursive tree manifest below.
+  // Preserve archive controls for the live-runner transfer artifact even
+  // though repository identity uses the canonical recursive tree manifest.
   const configParts = (await gitBuffer(root, [
     "config",
     "--includes",
@@ -370,7 +370,7 @@ async function computeCandidateDistributionIntegrity(root, distributionFiles) {
   return `sha256:${hash.digest("hex")}`;
 }
 
-async function inspectEvidenceCandidate(root, expectedSourceRevision = undefined) {
+export async function inspectEvidenceCandidate(root, expectedSourceRevision = undefined) {
   let canonicalRoot;
   try {
     canonicalRoot = await realpath(root);
@@ -432,6 +432,28 @@ async function inspectEvidenceCandidate(root, expectedSourceRevision = undefined
     treeSha256: sha256(Buffer.concat([manifestDomain, treeManifest])),
     distributionIntegrity: await computeCandidateDistributionIntegrity(canonicalRoot, distributionFiles),
     trackedInputs,
+  });
+}
+
+export async function createExactCandidateArchive(root, expectedSourceRevision) {
+  const before = await inspectEvidenceCandidate(root, expectedSourceRevision);
+  const archive = await gitBuffer(
+    root,
+    ["archive", "--format=tar", before.sourceRevision, "--"],
+    256 * 1024 * 1024,
+  );
+  const after = await inspectEvidenceCandidate(root, expectedSourceRevision);
+  if (
+    after.sourceRevision !== before.sourceRevision
+    || after.treeSha256 !== before.treeSha256
+    || after.distributionIntegrity !== before.distributionIntegrity
+  ) {
+    fail("/candidate", "candidate identity changed while the exact archive was created");
+  }
+  return Object.freeze({
+    ...before,
+    archive,
+    archiveSha256: sha256(archive),
   });
 }
 
@@ -1071,9 +1093,10 @@ export async function validateRecipeSources(root, lock, repositoryIdentity = und
 }
 
 export function createEvidenceProbe(contract, repositoryIdentity = {}) {
+  const runId = repositoryIdentity.runId ?? `run-${"0".repeat(32)}`;
   const pluginVersion = repositoryIdentity.pluginVersion ?? "0.0.0";
   const distributionIntegrity = repositoryIdentity.distributionIntegrity ?? `sha256:${"4".repeat(64)}`;
-  const agentCodexHome = "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home/.codex";
+  const agentCodexHome = `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/home/.codex`;
   const agentPluginEnvironmentPaths = deriveAgentPluginEnvironmentPaths(
     { codexHome: agentCodexHome, pluginVersion },
     contract,
@@ -1088,12 +1111,13 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
     laneParity: true,
   };
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     contractVersion: contract.contractVersion,
-    runId: "contract-probe",
+    runId,
     candidate: {
       sourceRevision: repositoryIdentity.sourceRevision ?? "0".repeat(40),
       treeSha256: repositoryIdentity.treeSha256 ?? "1".repeat(64),
+      archiveSha256: repositoryIdentity.archiveSha256 ?? "5".repeat(64),
       distributionIntegrity,
       dirty: false,
     },
@@ -1105,19 +1129,35 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
       contractSha256: repositoryIdentity.contractSha256 ?? "2".repeat(64),
       toolchainLockSha256: repositoryIdentity.toolchainLockSha256 ?? "3".repeat(64),
     },
-    observations: {
+    lifecycle: {
+      pilotNode: "prox2",
+      sourceTemplateVmid: 9021,
+      disposableVmid: 9030,
+      clusterWideUnused: true,
+      cloneMutationAttempted: true,
+      cloneMutationSettlement: "settled-present",
+      cloneCreated: true,
+      linkedClone: true,
+      sameNode: true,
+      ownershipReadback: true,
+      networkDetachedBeforeStart: true,
       networkDeniedDuringValidation: true,
+      guestAgentReady: true,
+      guestIdentityVerified: true,
+      cloudInitStatus: "done",
+      cleanupOutcome: "destroyed",
+      clusterAbsentAfterCleanup: true,
     },
     lanes: {
       "legacy-01446": {
         codexVersion: "0.144.6",
         freshProcess: true,
-        home: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home",
-        codexHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home/.codex",
-        tmpDir: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/tmp",
-        xdgConfigHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/config",
-        xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
-        xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
+        home: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/home`,
+        codexHome: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/home/.codex`,
+        tmpDir: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/tmp`,
+        xdgConfigHome: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/config`,
+        xdgCacheHome: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/cache`,
+        xdgDataHome: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/data`,
         pluginVersion,
         installedDistributionIntegrity: distributionIntegrity,
         pluginManifestPath: ".codex-plugin/plugin.json",
@@ -1135,12 +1175,12 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
             "XDG_DATA_HOME",
           ],
           observedEnvironmentPaths: {
-            HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home",
-            CODEX_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/home/.codex",
-            TMPDIR: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/tmp",
-            XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/config",
-            XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/cache",
-            XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/legacy-01446/xdg/data",
+            HOME: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/home`,
+            CODEX_HOME: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/home/.codex`,
+            TMPDIR: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/tmp`,
+            XDG_CONFIG_HOME: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/config`,
+            XDG_CACHE_HOME: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/cache`,
+            XDG_DATA_HOME: `/var/lib/nelos-validator/runs/${runId}/legacy-01446/xdg/data`,
             PLUGIN_DATA: null,
             PLUGIN_ROOT: null,
           },
@@ -1153,12 +1193,12 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
       "agent-plugin-01470": {
         codexVersion: "0.147.0",
         freshProcess: true,
-        home: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
+        home: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/home`,
         codexHome: agentCodexHome,
-        tmpDir: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
-        xdgConfigHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
-        xdgCacheHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
-        xdgDataHome: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
+        tmpDir: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/tmp`,
+        xdgConfigHome: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/config`,
+        xdgCacheHome: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/cache`,
+        xdgDataHome: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/data`,
         pluginVersion,
         installedDistributionIntegrity: distributionIntegrity,
         pluginManifestPath: "plugin.json",
@@ -1178,12 +1218,12 @@ export function createEvidenceProbe(contract, repositoryIdentity = {}) {
             "XDG_DATA_HOME",
           ],
           observedEnvironmentPaths: {
-            HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/home",
+            HOME: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/home`,
             CODEX_HOME: agentCodexHome,
-            TMPDIR: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/tmp",
-            XDG_CONFIG_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/config",
-            XDG_CACHE_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/cache",
-            XDG_DATA_HOME: "/var/lib/nelos-validator/runs/contract-probe/agent-plugin-01470/xdg/data",
+            TMPDIR: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/tmp`,
+            XDG_CONFIG_HOME: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/config`,
+            XDG_CACHE_HOME: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/cache`,
+            XDG_DATA_HOME: `/var/lib/nelos-validator/runs/${runId}/agent-plugin-01470/xdg/data`,
             ...agentPluginEnvironmentPaths,
           },
           fullCommandCaptured: false,
@@ -1225,7 +1265,7 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
         fail(`/template/${field}`, `must match the SHA-256 digest of the repository ${repositoryFile} bytes`);
       }
     }
-    for (const field of ["sourceRevision", "treeSha256"]) {
+    for (const field of ["sourceRevision", "treeSha256", "archiveSha256"]) {
       if (Object.hasOwn(repositoryIdentity, field) && evidence.candidate[field] !== repositoryIdentity[field]) {
         fail(`/candidate/${field}`, "must match the exact clean repository checkout");
       }
@@ -1240,6 +1280,7 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
   const legacy = evidence.lanes["legacy-01446"];
   const agent = evidence.lanes["agent-plugin-01470"];
   const expectedAgentPluginEnvironmentPaths = deriveAgentPluginEnvironmentPaths(agent, contract);
+  const lifecycle = evidence.lifecycle;
   const expectedRunRoot = `/var/lib/nelos-validator/runs/${evidence.runId}`;
   if (legacy.home !== `${expectedRunRoot}/legacy-01446/home`) {
     fail("/lanes/legacy-01446/home", "must be isolated beneath this evidence run ID");
@@ -1275,6 +1316,115 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
         fail(`/lanes/${laneId}/pluginVersion`, "must match the exact candidate plugin manifest identity");
       }
     }
+  }
+  const settlement = lifecycle.cloneMutationSettlement;
+  if (lifecycle.cloneMutationAttempted && !lifecycle.clusterWideUnused) {
+    fail("/lifecycle/clusterWideUnused", "clone mutation cannot be attempted before authoritative VMID preflight");
+  }
+  if (!lifecycle.cloneMutationAttempted && settlement !== "not-attempted") {
+    fail("/lifecycle/cloneMutationSettlement", "an unattempted mutation requires not-attempted settlement");
+  }
+  if (settlement === "not-attempted" && (lifecycle.cloneMutationAttempted || lifecycle.cloneCreated)) {
+    fail(
+      "/lifecycle/cloneMutationSettlement",
+      "not-attempted settlement requires an unattempted mutation and no created clone",
+    );
+  }
+  if (
+    settlement === "settled-present" &&
+    (!lifecycle.cloneMutationAttempted || !lifecycle.cloneCreated)
+  ) {
+    fail(
+      "/lifecycle/cloneMutationSettlement",
+      "settled-present requires an attempted mutation and a created clone",
+    );
+  }
+  if (settlement === "settled-absent") {
+    if (!lifecycle.cloneMutationAttempted || lifecycle.cloneCreated) {
+      fail(
+        "/lifecycle/cloneMutationSettlement",
+        "settled-absent requires an attempted mutation and no created clone",
+      );
+    }
+    if (lifecycle.cleanupOutcome !== "not-required" || !lifecycle.clusterAbsentAfterCleanup) {
+      fail(
+        "/lifecycle/cleanupOutcome",
+        "settled-absent requires not-required cleanup and cluster-wide absence",
+      );
+    }
+  }
+  if (settlement === "unresolved") {
+    if (!lifecycle.cloneMutationAttempted || lifecycle.cloneCreated) {
+      fail(
+        "/lifecycle/cloneMutationSettlement",
+        "unresolved settlement requires an attempted mutation and no confirmed clone",
+      );
+    }
+    if (lifecycle.cleanupOutcome !== "manual-reconcile" || lifecycle.clusterAbsentAfterCleanup) {
+      fail(
+        "/lifecycle/cleanupOutcome",
+        "unresolved settlement requires manual reconciliation without a cluster-absence claim",
+      );
+    }
+  }
+  if (!lifecycle.cloneCreated) {
+    for (const [field, value] of Object.entries({
+      linkedClone: lifecycle.linkedClone,
+      sameNode: lifecycle.sameNode,
+      ownershipReadback: lifecycle.ownershipReadback,
+      networkDetachedBeforeStart: lifecycle.networkDetachedBeforeStart,
+      networkDeniedDuringValidation: lifecycle.networkDeniedDuringValidation,
+      guestAgentReady: lifecycle.guestAgentReady,
+      guestIdentityVerified: lifecycle.guestIdentityVerified,
+    })) {
+      if (value) fail(`/lifecycle/${field}`, "cannot be true when no clone was created");
+    }
+    if (lifecycle.cloudInitStatus !== "not-started") {
+      fail("/lifecycle/cloudInitStatus", "must be not-started when no clone was created");
+    }
+    if (
+      settlement === "not-attempted" &&
+      !(
+        (lifecycle.cleanupOutcome === "not-required" && lifecycle.clusterAbsentAfterCleanup) ||
+        (lifecycle.cleanupOutcome === "manual-reconcile" && !lifecycle.clusterAbsentAfterCleanup)
+      )
+    ) {
+      fail(
+        "/lifecycle/cleanupOutcome",
+        "an unattempted clone requires confirmed absence or a preflight collision requiring manual reconciliation",
+      );
+    }
+    if (legacy.freshProcess || agent.freshProcess) {
+      fail("/lanes", "lane processes cannot start when no disposable clone was created");
+    }
+  }
+  if (lifecycle.cleanupOutcome === "destroyed" && !lifecycle.clusterAbsentAfterCleanup) {
+    fail("/lifecycle/clusterAbsentAfterCleanup", "destroyed cleanup requires cluster-wide absence");
+  }
+  if (lifecycle.cloneCreated && lifecycle.cleanupOutcome === "not-required") {
+    fail("/lifecycle/cleanupOutcome", "a confirmed clone cannot use not-required cleanup");
+  }
+  if (lifecycle.cleanupOutcome === "quarantined" && lifecycle.clusterAbsentAfterCleanup) {
+    fail("/lifecycle/clusterAbsentAfterCleanup", "a quarantined clone must remain accounted for in the cluster");
+  }
+  if (
+    lifecycle.cleanupOutcome === "manual-reconcile" &&
+    lifecycle.clusterAbsentAfterCleanup &&
+    !(settlement === "settled-present" && lifecycle.cloneCreated)
+  ) {
+    fail(
+      "/lifecycle/clusterAbsentAfterCleanup",
+      "manual reconciliation may claim absence only for a previously settled clone that disappeared",
+    );
+  }
+  if (!lifecycle.guestAgentReady && ["done", "done-with-recoverable-errors"].includes(lifecycle.cloudInitStatus)) {
+    fail("/lifecycle/cloudInitStatus", "cannot complete before the guest agent is ready");
+  }
+  if (
+    !lifecycle.guestAgentReady &&
+    (lifecycle.guestIdentityVerified || lifecycle.networkDeniedDuringValidation)
+  ) {
+    fail("/lifecycle/guestAgentReady", "guest observations cannot pass before the guest agent is ready");
   }
   if (legacy.checks.laneParity !== agent.checks.laneParity) {
     fail("/lanes", "lane parity must report the same result in both lanes");
@@ -1452,12 +1602,28 @@ export function validateEvidenceDocument(evidence, evidenceSchema, contract, rep
     fail("/result/failures", "failed evidence must describe at least one failure");
   }
   const checkValues = [legacy, agent].flatMap((lane) => Object.values(lane.checks));
-  const networkDeniedDuringValidation = evidence.observations.networkDeniedDuringValidation;
+  const lifecycleChecks = [
+    "clusterWideUnused",
+    "cloneCreated",
+    "linkedClone",
+    "sameNode",
+    "ownershipReadback",
+    "networkDetachedBeforeStart",
+    "networkDeniedDuringValidation",
+    "guestAgentReady",
+    "guestIdentityVerified",
+    "clusterAbsentAfterCleanup",
+  ];
+  const lifecyclePassed = lifecycle.cloneMutationAttempted === true &&
+    lifecycle.cloneMutationSettlement === "settled-present" &&
+    lifecycleChecks.every((field) => lifecycle[field] === true) &&
+    ["done", "done-with-recoverable-errors"].includes(lifecycle.cloudInitStatus) &&
+    lifecycle.cleanupOutcome === "destroyed";
   if (evidence.result.status === "passed" && checkValues.some((value) => value !== true)) {
     fail("/lanes", "passed evidence requires every lane check to pass");
   }
-  if (evidence.result.status === "passed" && !networkDeniedDuringValidation) {
-    fail("/observations/networkDeniedDuringValidation", "passed evidence requires observed network denial across the validation window");
+  if (evidence.result.status === "passed" && !lifecyclePassed) {
+    fail("/lifecycle", "passed evidence requires a safe clone lifecycle and exact cleanup");
   }
   return evidence;
 }
@@ -1484,7 +1650,7 @@ async function readJson(path, label) {
   return (await readJsonWithBytes(path, label)).value;
 }
 
-async function readTrackedCandidateBytes(root, repositoryIdentity, repositoryPath, label) {
+export async function readTrackedCandidateBytes(root, repositoryIdentity, repositoryPath, label) {
   const trackedInput = repositoryIdentity?.trackedInputs?.[repositoryPath];
   if (
     !isObject(trackedInput)
