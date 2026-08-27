@@ -1332,7 +1332,7 @@ test("Proxmox preflight closes storage types and base configuration", async () =
   const { stdout: jqVersionOutput } = await execFileAsync("jq", ["--version"], {
     encoding: "utf8",
   });
-  assert.match(jqVersionOutput.trim(), /^jq-[0-9]+[.][0-9]+(?:[.][0-9]+)?$/u);
+  assert.match(jqVersionOutput.trim(), /^jq-[0-9]+[.][0-9]+(?:[.][0-9]+)?(?:-[A-Za-z0-9._-]+)?$/u);
 
   const linkedCloneStorageTypeContract = 'readonly LINKED_CLONE_STORAGE_TYPES_CSV="lvmthin,zfspool"';
   const fullCopyStorageTypeContract = 'readonly FULL_COPY_STORAGE_TYPES_CSV="dir,lvm,lvmthin,zfspool"';

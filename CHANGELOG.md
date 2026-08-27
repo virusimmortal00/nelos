@@ -5,6 +5,51 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+## [0.12.20] - 2026-08-25
+
+### User-facing changes
+
+- `nelos desktop-test --candidate PACKAGE_DIRECTORY --scenario-set release`
+  now drives the release Desktop smoke lane through one fixed machine-local
+  provider adapter.
+- The lane verifies an immutable candidate digest, a clean disposable Desktop
+  clone and account, the loaded plugin version and worker identity, allowlisted
+  UI scenarios, bounded sanitized screenshot and diagnostic metadata, and exact
+  clone destruction with an independent absence check.
+- Reviewed Desktop scenario driving, developer screen capture, visual-state
+  validation, archive-projection convergence, and plan-run-scoped execution-map
+  projection are included in the distribution.
+
+### Compatibility requirements
+
+- The reusable Desktop template is no longer pinned to a Proxmox VMID, exact
+  historical name, or per-release golden-image receipt. Provider-specific
+  cloning and network mechanics live behind the trusted machine-local driver.
+- Candidate packages must remain outside the controller's `CODEX_HOME`, and
+  the installed and loaded version, digest, and source revision must exactly
+  match the staged candidate.
+- The Node.js and Codex compatibility requirements remain unchanged from
+  `0.12.19`.
+
+### Migrations
+
+- Remove any release automation that invokes the retired protected validation,
+  golden-builder, gateway-policy transaction, or one-model-turn contracts.
+  Install a root-owned `/usr/local/libexec/nelos-desktop-test-driver` that
+  implements the documented minimal operation protocol.
+
+### Security fixes
+
+- Desktop smoke results reject raw prompts, responses, transcripts, pixels,
+  credentials, cookies, tokens, sealed values, and environment data. Cleanup
+  ambiguity fails closed even when the primary scenario has already failed.
+
+### Known limitations
+
+- Nelos ships the provider-neutral controller and scenario contract. The
+  machine-local driver remains an operator-maintained component because VM and
+  Desktop automation differs between test farms.
+
 ## [0.12.19] - 2026-08-24
 
 ### User-facing changes

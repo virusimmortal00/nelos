@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scenarioSetId": "release",
+  "scenarios": [
+    {
+      "schemaVersion": 1,
+      "scenarioId": "plugin-load-and-task",
+      "task": {
+        "taskId": "desktop-smoke-release-task",
+        "createdForScenario": "plugin-load-and-task",
+        "fresh": true
+      },
+      "actions": [
+        { "actionId": "type", "type": "type_text_ref", "targetRef": "task-composer", "valueRef": "release-smoke-prompt", "timeoutMs": 30000 },
+        { "actionId": "submit", "type": "keypress", "targetRef": "submit-key", "valueRef": null, "timeoutMs": 30000 },
+        { "actionId": "wait", "type": "wait_for", "targetRef": "task-complete", "valueRef": null, "timeoutMs": 120000 }
+      ],
+      "checkpoints": [
+        { "checkpointId": "loaded", "type": "window_state", "afterActionId": "type", "failureOnly": false },
+        { "checkpointId": "result", "type": "screenshot", "afterActionId": "wait", "failureOnly": false }
+      ],
+      "assertions": [
+        { "assertionId": "task-completed", "type": "task_state", "targetRef": "active-task", "expectedRef": "complete-state", "checkpointId": "result" }
+      ],
+      "deadlineMs": 180000,
+      "failureCaptureTriggers": ["action_error", "assertion_failure", "deadline_exceeded", "desktop_crash", "task_stalled"]
+    }
+  ]
+}
