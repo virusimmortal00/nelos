@@ -222,7 +222,7 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
     /group: release-\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tag \|\| github\.ref_name \}\}/u,
   );
   assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
-  assert.match(workflow, /needs: \[verify, artifacts\]/u);
+  assert.match(workflow, /needs: \[verify, artifacts, desktop-certification\]/u);
   assert.match(workflow, /contents: write/u);
   assert.equal(
     (workflow.match(/Restore annotated release tag/gu) ?? []).length,
@@ -249,7 +249,7 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
   assert.doesNotMatch(workflow, /cache:\s*npm/u);
   assert.equal(
     (workflow.match(/persist-credentials:\s*false/gu) ?? []).length,
-    3,
+    4,
   );
 });
 
