@@ -51,10 +51,18 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function deepFreeze(value) {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export function validateDesktopCertificationScenarioV1(value) {
   closed(value, ["scenarioId", "outcome", "assertionTotals"], "scenario result");
   string(value.scenarioId, "scenarioId", ID);
-  if (!["passed", "failed"].includes(value.outcome)) {
+  if (!["passed", "failed", "skipped"].includes(value.outcome)) {
     fail("INVALID_CERTIFICATION_CONTRACT", "scenario outcome is invalid");
   }
   closed(value.assertionTotals, ["total", "passed", "failed"], "scenario assertion totals");
@@ -62,7 +70,10 @@ export function validateDesktopCertificationScenarioV1(value) {
   if (value.assertionTotals.total !== value.assertionTotals.passed + value.assertionTotals.failed) {
     fail("INCONSISTENT_CERTIFICATION_TOTALS", "scenario assertion totals do not balance");
   }
-  if ((value.outcome === "passed") !== (value.assertionTotals.failed === 0)) {
+  if (value.outcome === "skipped" && value.assertionTotals.total !== 0) {
+    fail("INCONSISTENT_CERTIFICATION_TOTALS", "a skipped scenario cannot contain assertions");
+  }
+  if (value.outcome !== "skipped" && ((value.outcome === "passed") !== (value.assertionTotals.failed === 0))) {
     fail("INCONSISTENT_CERTIFICATION_TOTALS", "scenario outcome conflicts with its assertion totals");
   }
   return clone(value);
@@ -88,6 +99,15 @@ function validateTotals(value, label) {
   return clone(value);
 }
 
+function validateScenarioTotals(value) {
+  closed(value, ["total", "passed", "failed", "skipped"], "scenarioTotals");
+  for (const [field, amount] of Object.entries(value)) count(amount, `scenarioTotals.${field}`);
+  if (value.total !== value.passed + value.failed + value.skipped) {
+    fail("INCONSISTENT_CERTIFICATION_TOTALS", "scenarioTotals do not balance");
+  }
+  return clone(value);
+}
+
 function validateCleanup(value) {
   closed(value, ["state", "destroyed", "absent", "independentlyVerified"], "cleanup");
   if (value.state !== "verified" || value.destroyed !== true || value.absent !== true || value.independentlyVerified !== true) {
@@ -99,7 +119,7 @@ function validateCleanup(value) {
 export function validateDesktopCertificationReceiptV1(value) {
   closed(value, [
     "schemaVersion", "format", "nelosCommitSha", "candidateDigest", "harnessCommitSha",
-    "harnessVersion", "templateIdentity", "scenarioTotals", "assertionTotals", "scenarios",
+    "harnessVersion", "templateIdentity", "evidenceIdentity", "scenarioTotals", "assertionTotals", "scenarios",
     "assertions", "cleanup",
   ], "certification receipt");
   if (value.schemaVersion !== DESKTOP_CERTIFICATION_SCHEMA_VERSION || value.format !== DESKTOP_CERTIFICATION_FORMAT_V1) {
@@ -110,7 +130,8 @@ export function validateDesktopCertificationReceiptV1(value) {
   string(value.harnessCommitSha, "harnessCommitSha", COMMIT_SHA);
   string(value.harnessVersion, "harnessVersion", VERSION);
   string(value.templateIdentity, "templateIdentity", DIGEST);
-  const scenarioTotals = validateTotals(value.scenarioTotals, "scenarioTotals");
+  string(value.evidenceIdentity, "evidenceIdentity", DIGEST);
+  const scenarioTotals = validateScenarioTotals(value.scenarioTotals);
   const assertionTotals = validateTotals(value.assertionTotals, "assertionTotals");
   if (!Array.isArray(value.scenarios) || value.scenarios.length === 0 || !Array.isArray(value.assertions)) {
     fail("INVALID_CERTIFICATION_CONTRACT", "certification scenarios and assertions are invalid");
@@ -131,6 +152,7 @@ export function validateDesktopCertificationReceiptV1(value) {
     total: scenarios.length,
     passed: scenarios.filter(({ outcome }) => outcome === "passed").length,
     failed: scenarios.filter(({ outcome }) => outcome === "failed").length,
+    skipped: scenarios.filter(({ outcome }) => outcome === "skipped").length,
   };
   const actualAssertionTotals = {
     total: assertions.length,
@@ -152,29 +174,68 @@ export function validateDesktopCertificationReceiptV1(value) {
       fail("INCONSISTENT_CERTIFICATION_TOTALS", `scenario ${scenario.scenarioId} totals do not match its assertions`);
     }
   }
-  if (scenarioTotals.failed !== 0 || assertionTotals.failed !== 0) {
-    fail("CERTIFICATION_FAILED", "a certification receipt may contain only passing results");
-  }
   const cleanup = validateCleanup(value.cleanup);
-  return Object.freeze({ ...clone(value), scenarioTotals, assertionTotals, scenarios, assertions, cleanup });
+  return deepFreeze({ ...clone(value), scenarioTotals, assertionTotals, scenarios, assertions, cleanup });
 }
 
 export function verifyDesktopCertificationReceiptV1({ receipt, expected } = {}) {
-  closed(expected, ["nelosCommitSha", "candidateDigest", "harnessCommitSha", "harnessVersion", "templateIdentity"], "verification expectation");
+  closed(expected, ["nelosCommitSha", "candidateDigest", "harnessCommitSha", "harnessVersion", "templateIdentity", "evidenceIdentity"], "verification expectation");
   string(expected.nelosCommitSha, "expected nelosCommitSha", COMMIT_SHA);
   string(expected.candidateDigest, "expected candidateDigest", DIGEST);
   string(expected.harnessCommitSha, "expected harnessCommitSha", COMMIT_SHA);
   string(expected.harnessVersion, "expected harnessVersion", VERSION);
   string(expected.templateIdentity, "expected templateIdentity", DIGEST);
+  string(expected.evidenceIdentity, "expected evidenceIdentity", DIGEST);
   const normalized = validateDesktopCertificationReceiptV1(receipt);
   for (const field of Object.keys(expected)) {
     if (normalized[field] !== expected[field]) {
       fail("CERTIFICATION_IDENTITY_MISMATCH", `${field} does not match the expected certification identity`);
     }
   }
+  if (normalized.scenarioTotals.failed !== 0 || normalized.assertionTotals.failed !== 0) {
+    fail("CERTIFICATION_FAILED", "a verified certification receipt may contain only passing results");
+  }
   return Object.freeze({
     schemaVersion: 1,
     outcome: "verified",
     receiptDigest: `sha256:${createHash("sha256").update(canonicalBytes(normalized)).digest("hex")}`,
+  });
+}
+
+const REPOSITORY_PART = /^[A-Za-z0-9_.-]{1,100}$/u;
+
+export const DESKTOP_CERTIFICATION_CHECK_PERMISSIONS_V1 = Object.freeze({
+  checks: "write",
+  metadata: "read",
+});
+
+export function createDesktopCertificationCheckRequestV1({ repository, receipt, expected } = {}) {
+  closed(repository, ["owner", "name"], "check repository");
+  string(repository.owner, "check repository owner", REPOSITORY_PART);
+  string(repository.name, "check repository name", REPOSITORY_PART);
+  const verification = verifyDesktopCertificationReceiptV1({ receipt, expected });
+  return Object.freeze({
+    method: "POST",
+    endpoint: `/repos/${repository.owner}/${repository.name}/check-runs`,
+    permissions: DESKTOP_CERTIFICATION_CHECK_PERMISSIONS_V1,
+    body: Object.freeze({
+      name: "Private Desktop certification",
+      head_sha: expected.nelosCommitSha,
+      status: "completed",
+      conclusion: "success",
+      external_id: verification.receiptDigest,
+      output: Object.freeze({
+        title: "Sanitized certification receipt verified",
+        summary: [
+          `Receipt: ${verification.receiptDigest}`,
+          `Candidate artifact: ${receipt.candidateDigest}`,
+          `Harness: ${receipt.harnessCommitSha} (${receipt.harnessVersion})`,
+          `Template: ${receipt.templateIdentity}`,
+          `Evidence: ${receipt.evidenceIdentity}`,
+          `Scenarios: ${receipt.scenarioTotals.passed} passed, ${receipt.scenarioTotals.failed} failed, ${receipt.scenarioTotals.skipped} skipped`,
+          "Cleanup: verified",
+        ].join("\n"),
+      }),
+    }),
   });
 }
