@@ -47,7 +47,7 @@ npm run desktop-smoke:certify -- --candidate /private/candidate \
   --out-dir /private/e2e/certification-2026-08-27 --run-id release-2026-08-27-1
 ```
 
-Routine normally takes minutes; certification can run for up to 90 minutes and
+Routine normally takes minutes; certification can run for up to 120 minutes and
 uses only the runner-approved model configuration for its independent review.
 The output directory contains only `certification-bundle.json` and
 `certification-review.json`; upload those verified sanitized artifacts only.

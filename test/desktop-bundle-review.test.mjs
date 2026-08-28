@@ -43,7 +43,7 @@ const defects = Object.freeze([
   ["inconsistent", "VISUAL_INCONSISTENCY", "warning", "Visual treatment is inconsistent with adjacent checkpoints."],
 ]);
 
-function fixture({ invalidPng = false, assertionOutcome = "passed", includeAssertions = true } = {}) {
+function fixture({ invalidPng = false, assertionOutcome = "passed", includeAssertions = true, omitLastAssertion = false } = {}) {
   const runId = "run-review-1";
   const scenarioIds = defects.map(([name]) => `scenario-${name}`);
   const screenshots = new Map(); const artifacts = []; const checkpoints = []; const assertions = [];
@@ -62,12 +62,13 @@ function fixture({ invalidPng = false, assertionOutcome = "passed", includeAsser
   });
   const bundle = createDesktopSmokeEvidenceBundleV1({
     run: { schemaVersion: 1, runId, scenarioSetId: "release", candidate: { version: "0.12.20", digest: `sha256:${"a".repeat(64)}`, sourceRevision: "b".repeat(40) }, startedAt: "2026-08-27T12:00:00.000Z", finishedAt: "2026-08-27T12:00:01.000Z", outcome: "passed", scenarioIds: [...scenarioIds].sort(), diagnosticLimits: { ...DESKTOP_SMOKE_DIAGNOSTIC_LIMITS_V1 } },
-    checkpoints, artifacts, assertionResults: includeAssertions ? assertions : [], diagnostics: [],
+    checkpoints, artifacts, assertionResults: includeAssertions ? (omitLastAssertion ? assertions.slice(0, -1) : assertions) : [], diagnostics: [],
     files: artifacts.map(({ artifactId }) => ({ artifactId, bytes: screenshots.get(artifactId) })),
   });
   const expectations = {
     schemaVersion: 1,
     requiredCheckpoints: checkpoints.map(({ scenarioId, checkpointId, type }) => ({ scenarioId, checkpointId, type, minWidth: 32, minHeight: 24, maxWidth: 32, maxHeight: 24 })),
+    requiredAssertions: assertions.map(({ scenarioId, assertionId, checkpointId }) => ({ scenarioId, assertionId, checkpointId, outcome: "passed" })),
     scenarioOutcomes: scenarioIds.map((scenarioId) => ({ scenarioId, outcome: "passed" })),
     workflowInvariants: ["all_assertions_passed", "all_checkpoints_captured", "all_scenarios_declared", "cleanup_proven", "screenshots_sanitized"],
   };
@@ -143,6 +144,14 @@ test("zero assertion evidence fails the assertion pass and prevents independent 
   assert.ok(result.assertions.checks.some(({ checkId, status }) => checkId === "invariant:all_assertions_passed" && status === "failed"));
   assert.equal(result.review.status, "not_run");
   assert.equal(result.review.errorCode, "ASSERTIONS_NOT_PASSED");
+});
+
+test("partial canonical assertion omission fails review even when every retained assertion passed", async () => {
+  const state = fixture({ omitLastAssertion: true });
+  const result = await runDesktopBundleReviewPipelineV1({ ...state, reviewer: createDeterministicReviewerFixtureV1() });
+  assert.equal(result.assertions.status, "failed");
+  assert.ok(result.assertions.checks.some(({ checkId, code }) => checkId === "assertion-inventory" && code === "ASSERTION_INVENTORY_MISMATCH"));
+  assert.equal(result.review.status, "not_run");
 });
 
 test("reviewer receives only verified sanitized artifacts and bounded manifest context", async () => {

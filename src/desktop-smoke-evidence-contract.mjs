@@ -448,13 +448,73 @@ export function validateDesktopSmokeEvidenceBundleV1(value) {
   return Object.freeze({ manifest: Object.freeze(manifest), bytes: Buffer.from(bytes) });
 }
 
-export function deriveDesktopSmokeReviewResultV1({ manifest, run, checkpoints, artifacts, assertionResults, diagnostics }) {
+export function reconcileDesktopSmokeEvidenceExecutionV1({ bundle, runId, scenarioSetId, candidate, scenarios, scenarioReceipts }) {
+  id(runId, "execution reconciliation.runId"); id(scenarioSetId, "execution reconciliation.scenarioSetId");
+  closed(candidate, ["version", "digest", "sourceRevision"], "execution reconciliation.candidate");
+  if (!Array.isArray(scenarios) || !Array.isArray(scenarioReceipts) || scenarios.length < 1 || scenarios.length !== scenarioReceipts.length) fail("EVIDENCE_EXECUTION_MISMATCH", "canonical scenarios and execution receipts are incomplete");
+  const verified = validateDesktopSmokeEvidenceBundleV1(bundle); const decoded = JSON.parse(verified.bytes.toString("utf8"));
+  const entries = new Map(decoded.entries.map((entry) => [entry.relativePath, Buffer.from(entry.data, "base64")]));
+  const runRecords = verified.manifest.records.filter(({ recordType }) => recordType === "run");
+  if (runRecords.length !== 1) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence must contain exactly one run receipt");
+  const run = validateDesktopSmokeEvidenceRunV1(JSON.parse(entries.get(runRecords[0].relativePath).toString("utf8")));
+  const scenarioMap = new Map(); const expectedAssertions = new Map();
+  for (const scenario of scenarios) {
+    plain(scenario, "canonical scenario"); id(scenario.scenarioId, "canonical scenario.scenarioId");
+    if (scenarioMap.has(scenario.scenarioId) || !Array.isArray(scenario.actions) || !Array.isArray(scenario.assertions) || scenario.assertions.length < 1) fail("EVIDENCE_EXECUTION_MISMATCH", "canonical scenario inventory is invalid");
+    scenarioMap.set(scenario.scenarioId, scenario);
+    for (const assertion of scenario.assertions) {
+      plain(assertion, "canonical assertion"); id(assertion.assertionId, "canonical assertion.assertionId"); id(assertion.checkpointId, "canonical assertion.checkpointId");
+      if (expectedAssertions.has(assertion.assertionId)) fail("EVIDENCE_EXECUTION_MISMATCH", "canonical assertion identities are duplicated");
+      expectedAssertions.set(assertion.assertionId, { scenarioId: scenario.scenarioId, checkpointId: assertion.checkpointId });
+    }
+  }
+  const receiptMap = new Map(); const expectedResults = new Map();
+  for (const receipt of scenarioReceipts) {
+    closed(receipt, ["scenarioId", "operationId", "outcome", "failure", "assertionResults", "actionReceipts"], "execution scenario receipt");
+    const scenario = scenarioMap.get(receipt.scenarioId); id(receipt.operationId, "execution scenario receipt.operationId");
+    if (!scenario || receiptMap.has(receipt.scenarioId) || !["passed", "failed", "timed_out", "crashed"].includes(receipt.outcome) || !Array.isArray(receipt.assertionResults) || !Array.isArray(receipt.actionReceipts)) fail("EVIDENCE_EXECUTION_MISMATCH", "execution scenario receipt inventory is invalid");
+    const canonicalAssertions = new Map(scenario.assertions.map((assertion) => [assertion.assertionId, assertion])); const seenAssertions = new Set();
+    for (const result of receipt.assertionResults) {
+      closed(result, ["assertionId", "outcome", "code"], "execution assertion result");
+      if (!canonicalAssertions.has(result.assertionId) || seenAssertions.has(result.assertionId) || !["passed", "failed"].includes(result.outcome)) fail("EVIDENCE_EXECUTION_MISMATCH", "execution assertion results are partial, extra, or duplicated");
+      id(result.code, "execution assertion result.code"); seenAssertions.add(result.assertionId); expectedResults.set(result.assertionId, result);
+    }
+    const canonicalActions = new Set(scenario.actions.map(({ actionId }) => actionId)); const seenActions = new Set();
+    for (const result of receipt.actionReceipts) {
+      closed(result, ["actionId", "outcome", "attempts", "submissionState"], "execution action receipt");
+      if (!canonicalActions.has(result.actionId) || seenActions.has(result.actionId) || !["completed", "failed", "timed_out", "skipped"].includes(result.outcome) || !Number.isSafeInteger(result.attempts) || result.attempts < 1 || result.attempts > 2 || !["not_applicable", "not_submitted", "submitted"].includes(result.submissionState)) fail("EVIDENCE_EXECUTION_MISMATCH", "execution action receipts are partial, extra, duplicated, or invalid");
+      seenActions.add(result.actionId);
+    }
+    if (seenAssertions.size !== canonicalAssertions.size || seenActions.size !== canonicalActions.size) fail("EVIDENCE_EXECUTION_MISMATCH", "execution receipt omits canonical actions or assertions");
+    receiptMap.set(receipt.scenarioId, receipt);
+  }
+  if (receiptMap.size !== scenarioMap.size) fail("EVIDENCE_EXECUTION_MISMATCH", "execution receipts omit canonical scenarios");
+  const expectedScenarioIds = [...scenarioMap.keys()].sort();
+  if (run.runId !== runId || run.scenarioSetId !== scenarioSetId || run.candidate.version !== candidate.version || run.candidate.digest !== candidate.digest || run.candidate.sourceRevision !== candidate.sourceRevision || run.scenarioIds.length !== expectedScenarioIds.length || run.scenarioIds.some((scenarioId, index) => scenarioId !== expectedScenarioIds[index])) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence run identity diverges from the validated execution");
+  const expectedRunOutcome = [...receiptMap.values()].every(({ outcome }) => outcome === "passed") ? "passed" : "failed";
+  if (run.outcome !== expectedRunOutcome) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence run outcome diverges from scenario execution receipts");
+  const assertionRecords = verified.manifest.records.filter(({ recordType }) => recordType === "assertion-result");
+  if (assertionRecords.length !== expectedAssertions.size) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence assertion inventory is incomplete or contains extras");
+  const seenEvidence = new Set();
+  for (const record of assertionRecords) {
+    const result = validateDesktopSmokeAssertionResultV1(JSON.parse(entries.get(record.relativePath).toString("utf8"))); const expected = expectedAssertions.get(result.assertionId); const executed = expectedResults.get(result.assertionId);
+    if (!expected || !executed || seenEvidence.has(result.assertionId) || result.runId !== runId || result.scenarioId !== expected.scenarioId || result.checkpointId !== expected.checkpointId || result.outcome !== executed.outcome || result.code !== executed.code) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence assertion identity, checkpoint, or result diverges from validated execution");
+    seenEvidence.add(result.assertionId);
+  }
+  if (seenEvidence.size !== expectedAssertions.size) fail("EVIDENCE_EXECUTION_MISMATCH", "evidence omits canonical assertion results");
+  return verified;
+}
+
+export function deriveDesktopSmokeReviewResultV1({ manifest, run, checkpoints, artifacts, assertionResults, diagnostics, expectedAssertions }) {
   const normalizedManifest = validateDesktopSmokeBundleManifestV1(manifest);
   const normalizedRun = validateDesktopSmokeEvidenceRunV1(run);
   const normalizedCheckpoints = checkpoints.map(validateDesktopSmokeCheckpointV1);
   const normalizedArtifacts = artifacts.map(validateDesktopSmokeArtifactV1);
   const normalizedAssertions = assertionResults.map(validateDesktopSmokeAssertionResultV1);
   const normalizedDiagnostics = diagnostics.map(validateDesktopSmokeDiagnosticV1);
+  if (!Array.isArray(expectedAssertions) || expectedAssertions.length < 1) fail("INVALID_EVIDENCE_CONTRACT", "review requires a non-empty canonical assertion inventory");
+  const normalizedExpectedAssertions = expectedAssertions.map((item) => { closed(item, ["scenarioId", "assertionId", "checkpointId", "outcome"], "expected assertion"); for (const field of ["scenarioId", "assertionId", "checkpointId"]) id(item[field], `expected assertion.${field}`); if (!["passed", "failed"].includes(item.outcome)) fail("INVALID_EVIDENCE_CONTRACT", "expected assertion outcome is invalid"); return clone(item); });
+  unique(normalizedExpectedAssertions, "assertionId", "expected assertions");
   enforceDiagnosticCeilings(normalizedDiagnostics);
   if (normalizedManifest.runId !== normalizedRun.runId) fail("INVALID_EVIDENCE_RELATIONSHIP", "review manifest and run do not match");
   const expectedRecords = [
@@ -470,9 +530,11 @@ export function deriveDesktopSmokeReviewResultV1({ manifest, run, checkpoints, a
   if (expectedRecords.length !== manifestRecords.length || expectedRecords.some((item, index) => item !== manifestRecords[index]) || expectedArtifacts.length !== manifestArtifacts.length || expectedArtifacts.some((item, index) => item !== manifestArtifacts[index])) fail("INVALID_EVIDENCE_RELATIONSHIP", "review inputs do not reproduce the bundle manifest inventory");
   const failed = normalizedAssertions.filter(({ outcome }) => outcome === "failed").length;
   const assertionScenarios = new Set(normalizedAssertions.map(({ scenarioId }) => scenarioId));
+  const actualById = new Map(normalizedAssertions.map((item) => [item.assertionId, item]));
+  const assertionInventoryMatches = normalizedAssertions.length === normalizedExpectedAssertions.length && actualById.size === normalizedExpectedAssertions.length && normalizedExpectedAssertions.every((expected) => { const actual = actualById.get(expected.assertionId); return actual?.scenarioId === expected.scenarioId && actual?.checkpointId === expected.checkpointId && actual?.outcome === expected.outcome; });
   const reasons = [];
   if (normalizedRun.outcome !== "passed") reasons.push("RUN_FAILED");
-  if (normalizedAssertions.length === 0 || normalizedRun.scenarioIds.some((scenarioId) => !assertionScenarios.has(scenarioId))) reasons.push("ASSERTION_INCOMPLETE");
+  if (!assertionInventoryMatches || normalizedAssertions.length === 0 || normalizedRun.scenarioIds.some((scenarioId) => !assertionScenarios.has(scenarioId))) reasons.push("ASSERTION_INCOMPLETE");
   if (failed > 0) reasons.push("ASSERTION_FAILED");
   if (normalizedCheckpoints.some(({ outcome }) => outcome !== "captured")) reasons.push("CHECKPOINT_INCOMPLETE");
   const result = {

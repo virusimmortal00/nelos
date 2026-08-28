@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { validateDesktopSmokeScenarioSetV1 } from "./desktop-smoke-contract.mjs";
 import { validateDesktopSmokeCandidateV1, DesktopSmokeError } from "./disposable-desktop-smoke.mjs";
-import { validateDesktopSmokeEvidenceBundleV1 } from "./desktop-smoke-evidence-contract.mjs";
+import { reconcileDesktopSmokeEvidenceExecutionV1, validateDesktopSmokeEvidenceBundleV1 } from "./desktop-smoke-evidence-contract.mjs";
 import { canonicalBytes } from "./experimentation-contract/index.mjs";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -12,7 +12,8 @@ const METHODS = Object.freeze([
 ]);
 
 export const FRESH_VM_DEADLINES_V1 = Object.freeze({
-  runMs: 90 * 60_000,
+  runMs: 120 * 60_000,
+  cloneMs: 100 * 60_000,
   installMs: 10 * 60_000,
   identityMs: 60_000,
   scenarioMs: 30 * 60_000,
@@ -49,7 +50,7 @@ function validateDeadlineOptions(deadlines) {
   for (const [field, value] of Object.entries(deadlines)) {
     if (!Number.isSafeInteger(value) || value < 1 || value > FRESH_VM_DEADLINES_V1.runMs) fail("INVALID_FRESH_VM_REQUEST", `${field} is invalid`);
   }
-  if (deadlines.actionMs > deadlines.scenarioMs || deadlines.scenarioMs > deadlines.runMs) fail("INVALID_FRESH_VM_REQUEST", "action, scenario, and run deadlines are inconsistent");
+  if (deadlines.actionMs > deadlines.scenarioMs || deadlines.scenarioMs > deadlines.runMs || deadlines.cloneMs > deadlines.runMs) fail("INVALID_FRESH_VM_REQUEST", "action, scenario, clone, and run deadlines are inconsistent");
   return Object.freeze({ ...deadlines });
 }
 
@@ -84,9 +85,9 @@ function validateClone(clone, runId) {
   if (!clone.cloneId.includes(runId) || !clone.accountId.includes(runId) || !clone.guestCodexHome.includes(runId)) fail("INVALID_CLONE_ISOLATION", "clone, account, and guest CODEX_HOME must be unique to the run");
 }
 
-function validateScenarioReceipt(receipt, scenario) {
+function validateScenarioReceipt(receipt, scenario, expectedOperationId) {
   exact(receipt, ["scenarioId", "operationId", "outcome", "failure", "assertionResults", "actionReceipts"], "scenario receipt");
-  if (receipt.scenarioId !== scenario.scenarioId || !["passed", "failed", "timed_out", "crashed"].includes(receipt.outcome)) fail("INVALID_FRESH_VM_RECEIPT", "scenario outcome is invalid");
+  if (receipt.scenarioId !== scenario.scenarioId || receipt.operationId !== expectedOperationId || !["passed", "failed", "timed_out", "crashed"].includes(receipt.outcome)) fail("INVALID_FRESH_VM_RECEIPT", "scenario identity or outcome is invalid");
   if (!Array.isArray(receipt.assertionResults) || !Array.isArray(receipt.actionReceipts)) fail("INVALID_FRESH_VM_RECEIPT", "scenario result collections are invalid");
   const expectedAssertions = new Set(scenario.assertions.map(({ assertionId }) => assertionId));
   const assertionIds = new Set();
@@ -111,20 +112,15 @@ function validateScenarioReceipt(receipt, scenario) {
   }
   const passed = receipt.assertionResults.every(({ outcome }) => outcome === "passed") && receipt.actionReceipts.every(({ outcome }) => outcome === "completed");
   if ((receipt.outcome === "passed") !== passed || (receipt.outcome === "passed") !== (receipt.failure === null)) fail("INVALID_FRESH_VM_RECEIPT", "scenario passed outcome is inconsistent with complete action and assertion results");
-  return {
-    scenarioId: receipt.scenarioId,
-    outcome: receipt.outcome,
-    failure: receipt.failure,
-    assertionResults: structuredClone(receipt.assertionResults),
-  };
+  return structuredClone(receipt);
 }
 
-function validatePackage(receipt, runId) {
+function validatePackage(receipt, runId, candidate, library, scenarioReceipts) {
   exact(receipt, ["runId", "bundle", "sanitized", "rawCapturesRemoved", "temporaryMaterialRemoved"], "package receipt");
   if (receipt.runId !== runId || receipt.sanitized !== true || receipt.rawCapturesRemoved !== true || receipt.temporaryMaterialRemoved !== true) fail("UNSAFE_FRESH_VM_EVIDENCE", "guest packaging did not prove sanitization and source removal");
   const bytes = Buffer.isBuffer(receipt.bundle) ? receipt.bundle : receipt.bundle instanceof Uint8Array ? Buffer.from(receipt.bundle) : fail("INVALID_FRESH_VM_RECEIPT", "guest package must be bundle bytes");
   if (bytes.byteLength > MAX_FRESH_VM_BUNDLE_BYTES_V1) fail("OVERSIZED_FRESH_VM_OUTPUT", "guest package exceeds the public adapter ceiling");
-  return validateDesktopSmokeEvidenceBundleV1(bytes);
+  return reconcileDesktopSmokeEvidenceExecutionV1({ bundle: bytes, runId, scenarioSetId: library.scenarioSetId, candidate: { version: candidate.version, digest: candidate.digest, sourceRevision: candidate.sourceRevision }, scenarios: library.scenarios, scenarioReceipts });
 }
 
 function diagnostic(error, stage) {
@@ -141,6 +137,7 @@ export async function runFreshVmDesktopWorkflowsV1({
   if (!Number.isSafeInteger(retries) || retries < 0 || retries > 2) fail("INVALID_FRESH_VM_REQUEST", "retries must be between zero and two");
   const limits = validateDeadlineOptions(deadlines);
   for (const method of METHODS) if (typeof adapter?.[method] !== "function") fail("INVALID_SMOKE_ADAPTER", `adapter is missing ${method}`);
+  if (adapter.cloneControllerMinimumMs !== undefined && (!Number.isSafeInteger(adapter.cloneControllerMinimumMs) || limits.cloneMs < adapter.cloneControllerMinimumMs)) fail("INVALID_FRESH_VM_REQUEST", "clone deadline does not reserve the adapter-owned primary and cleanup process bounds");
 
   const started = Date.now();
   const remaining = (stage, ceiling) => {
@@ -156,7 +153,7 @@ export async function runFreshVmDesktopWorkflowsV1({
   try {
     clone = await invoke(adapter, "cloneTemplate", {
       operationId: operationId(runId, "clone"), runId, candidate: immutableCandidate, scenarioSetId: library.scenarioSetId,
-    }, { deadlineMs: remaining("clone", limits.installMs), retries, stage: "clone" });
+    }, { deadlineMs: remaining("clone", limits.cloneMs), retries, stage: "clone" });
     validateClone(clone, runId);
     primaryStage = "install";
     const installed = await invoke(adapter, "installCandidate", {
@@ -179,14 +176,15 @@ export async function runFreshVmDesktopWorkflowsV1({
         deadlines: { scenarioMs: scenarioDeadline, actionMs: Math.min(limits.actionMs, scenarioDeadline) },
         maxActionAttempts: retries + 1,
       }, { deadlineMs: scenarioDeadline, retries: 0, stage: primaryStage });
-      scenarios.push(validateScenarioReceipt(receipt, scenario));
+      scenarios.push(validateScenarioReceipt(receipt, scenario, operationId(runId, "scenario", scenario.scenarioId)));
     }
     primaryStage = "packaging";
     const packageReceipt = await invoke(adapter, "packageEvidence", {
       operationId: operationId(runId, "package"), clone, runId,
       scenarioIds: library.scenarios.map(({ scenarioId }) => scenarioId),
+      scenarioReceipts: structuredClone(scenarios),
     }, { deadlineMs: remaining("packaging", limits.evidenceMs), retries, stage: "packaging" });
-    packaged = validatePackage(packageReceipt, runId);
+    packaged = validatePackage(packageReceipt, runId, immutableCandidate, library, scenarios);
   } catch (error) { primary = error; }
 
   let destroyed = null; let absent = null; let destroyError = null; let absenceError = null;
@@ -247,6 +245,7 @@ export function validateFreshVmPublicBundleV1(value) {
     exact(bundle.manifest.entries[index], ["relativePath", "digest", "byteLength"], "public bundle manifest entry");
     if (entry.relativePath !== expectedPaths[index] || entry.encoding !== "base64" || typeof entry.data !== "string") fail("INVALID_FRESH_VM_BUNDLE", "public bundle paths or encoding are invalid");
     const payload = Buffer.from(entry.data, "base64");
+    if (payload.toString("base64") !== entry.data) fail("INVALID_FRESH_VM_BUNDLE", "public bundle entry encoding is non-canonical");
     const digest = `sha256:${createHash("sha256").update(payload).digest("hex")}`;
     const inventory = bundle.manifest.entries[index];
     if (payload.byteLength !== entry.byteLength || digest !== entry.digest || inventory.relativePath !== entry.relativePath || inventory.digest !== entry.digest || inventory.byteLength !== entry.byteLength) fail("FRESH_VM_BUNDLE_DIGEST_MISMATCH", "public bundle entry does not match its manifest");

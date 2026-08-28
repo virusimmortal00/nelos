@@ -5,12 +5,12 @@ import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { validateDesktopBundleReviewOutputV1 } from "./proxmox-review-output.mjs";
-import { validateDesktopSmokeEvidenceBundleV1 } from "./desktop-smoke-evidence-contract.mjs";
+import { reconcileDesktopSmokeEvidenceExecutionV1, validateDesktopSmokeEvidenceBundleV1 } from "./desktop-smoke-evidence-contract.mjs";
 import { validateDesktopSmokeScenarioV1 } from "./desktop-smoke-contract.mjs";
 import { canonicalBytes, canonicalDigest } from "./experimentation-contract/index.mjs";
 
 const DRIVER_OPERATIONS = Object.freeze([
-  "clone-template-vm", "install-candidate-vm", "read-loaded-identity-vm",
+  "clone-template-vm", "cleanup-clone-attempt-vm", "install-candidate-vm", "read-loaded-identity-vm",
   "execute-scenario-vm", "package-evidence-vm", "destroy-clone-vm",
   "verify-absent-vm", "review-sanitized-bundle",
 ]);
@@ -25,6 +25,7 @@ const MAX_INPUT_BYTES = 96 * 1024 * 1024;
 const MAX_GUEST_OUTPUT_BYTES = 24 * 1024 * 1024;
 const MAX_EVIDENCE_BUNDLE_BYTES = 16 * 1024 * 1024;
 const MAX_REVIEW_OUTPUT_BYTES = 256 * 1024;
+export const PROXMOX_CLONE_CLEANUP_SETTLEMENT_MS_V1 = 20 * 60_000;
 
 export class ProxmoxDesktopDriverError extends Error {
   constructor(code, message, details = null) { super(message); this.name = "ProxmoxDesktopDriverError"; this.code = code; this.details = details; }
@@ -33,7 +34,7 @@ function fail(code, message, details = null) { throw new ProxmoxDesktopDriverErr
 function retryError(error, retryDisposition) {
   const code = typeof error?.code === "string" && ID.test(error.code) ? error.code : "PROVIDER_DRIVER_FAILED";
   const message = code !== "PROVIDER_DRIVER_FAILED" && typeof error?.message === "string" && error.message.length >= 1 && error.message.length <= 240 ? error.message : "provider operation failed";
-  return new ProxmoxDesktopDriverError(code, message, { retryDisposition });
+  return new ProxmoxDesktopDriverError(code, message, { retryDisposition, ...(error?.details?.cleanupDisposition === "proven_absent" ? { cleanupDisposition: "proven_absent" } : {}) });
 }
 function plain(value, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) fail("INVALID_DRIVER_REQUEST", `${label} must be a plain object`);
@@ -113,6 +114,13 @@ class OperationLedger {
     catch (error) { if (error?.code !== "EEXIST") throw error; const current = await readFile(path); if (!current.equals(bytes)) fail("CANDIDATE_IDENTITY_MISMATCH", "clone is already bound to a different candidate"); }
   }
   async readIdentity(cloneId) { const bytes = await readFile(this.identityPath(cloneId)).catch(() => null); if (!bytes) fail("CANDIDATE_IDENTITY_MISMATCH", "clone has no controller-bound installed candidate identity"); return JSON.parse(bytes); }
+  scenarioPath(cloneId, scenarioId) { return join(this.root, `${createHash("sha256").update(`scenario:${cloneId}:${scenarioId}`).digest("hex")}.scenario.json`); }
+  async bindScenario(cloneId, scenarioId, value) {
+    const path = this.scenarioPath(cloneId, scenarioId); const bytes = canonicalBytes(value);
+    try { await writeFile(path, bytes, { flag: "wx", mode: 0o600 }); }
+    catch (error) { if (error?.code !== "EEXIST") throw error; const current = await readFile(path); if (!current.equals(bytes)) fail("EVIDENCE_EXECUTION_MISMATCH", "scenario execution is already bound to a different receipt"); }
+  }
+  async readScenario(cloneId, scenarioId) { const bytes = await readFile(this.scenarioPath(cloneId, scenarioId)).catch(() => null); if (!bytes) fail("EVIDENCE_EXECUTION_MISMATCH", `clone has no validated receipt for ${scenarioId}`); return JSON.parse(bytes); }
 }
 
 async function trustedFile(path, { executable = false, privateFile = false } = {}) {
@@ -183,6 +191,21 @@ export class ProxmoxCommandRuntimeV1 {
     fail("PROVIDER_DEADLINE_EXCEEDED", "disposable guest agent did not become ready");
   }
   async destroyVm() { const { disposable, api } = this.config; await this.#task("DELETE", `/nodes/${encodeURIComponent(api.node)}/qemu/${disposable.vmid}?destroy-unreferenced-disks=1&purge=1`, null, 5 * 60_000); }
+  async cleanupCloneAttempt(settlementMs) {
+    const deadline = Date.now() + settlementMs; let disposition = "not_present_after_settlement";
+    while (true) {
+      const resources = await this.listResources();
+      if (!Array.isArray(resources)) fail("INVALID_PROXMOX_RECEIPT", "independent cleanup inventory is invalid");
+      const matches = resources.filter((item) => item?.vmid === this.config.disposable.vmid || item?.name === this.config.disposable.name);
+      if (matches.length > 1 || (matches.length === 1 && (matches[0].vmid !== this.config.disposable.vmid || matches[0].name !== this.config.disposable.name || matches[0].node !== this.config.api.node))) fail("CLONE_IDENTITY_AMBIGUOUS", "cleanup inventory does not identify one exact disposable VM");
+      if (matches.length === 1) { await this.destroyVm(); disposition = "destroyed"; }
+      const remaining = deadline - Date.now(); if (remaining <= 0) break;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(1000, remaining)));
+    }
+    const final = await this.listResources();
+    if (!Array.isArray(final) || final.some((item) => item?.vmid === this.config.disposable.vmid || item?.name === this.config.disposable.name)) fail("CLONE_STILL_PRESENT", "independent cleanup inventory still contains the disposable VM");
+    return { destructionDisposition: disposition, absent: true, independent: true };
+  }
   async #sshArgs() {
     await trustedFile("/usr/bin/ssh", { executable: true }); await trustedFile(this.config.ssh.identityFile, { privateFile: true }); await trustedFile(this.config.ssh.knownHostsFile);
     return ["-F", "/dev/null", "-i", this.config.ssh.identityFile, "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=yes", "-o", `UserKnownHostsFile=${this.config.ssh.knownHostsFile}`, "-o", "LogLevel=ERROR", `${this.config.ssh.user}@${this.config.disposable.guestHost}`];
@@ -218,6 +241,11 @@ function validateStorage(value, config) {
   if (!Array.isArray(value)) fail("INVALID_PROXMOX_RECEIPT", "Proxmox storage inventory is invalid");
   const storage = value.filter((item) => item?.storage === config.disposable.storage);
   if (storage.length !== 1 || storage[0].active !== 1 || storage[0].enabled !== 1 || !String(storage[0].content ?? "").split(",").includes("images")) fail("DISPOSABLE_STORAGE_UNAVAILABLE", "configured disposable storage is absent, ambiguous, inactive, or lacks images content");
+}
+function cleanupReceipt(value, runId) {
+  exact(value, ["destructionDisposition", "absent", "independent"], "clone cleanup receipt");
+  if (!["destroyed", "not_present_after_settlement"].includes(value.destructionDisposition) || value.absent !== true || value.independent !== true) fail("CLEANUP_NOT_PROVEN", "clone cleanup did not prove exact destruction or settled independent absence");
+  return { runId, destructionDisposition: value.destructionDisposition, absent: true, independent: true };
 }
 function scenarioReceipt(value, scenario, operationId) {
   exact(value, ["scenarioId", "operationId", "outcome", "failure", "assertionResults", "actionReceipts"], "scenario receipt");
@@ -304,18 +332,17 @@ export function createProxmoxDesktopDriverV1({ config, runtime, scenarioLibrary 
               if (prepared.prepared !== true || prepared.accountId !== accountId || prepared.guestCodexHome !== guestCodexHome) fail("INVALID_CLONE_ISOLATION", "guest did not prove isolated account and CODEX_HOME preparation");
               return provisional;
             } catch (primary) {
-              let destroyError = null; let absenceError = null; let absent = false;
-              try { await runtime.destroyVm(); } catch (error) { destroyError = error; }
               try {
-                const resources = await runtime.listResources();
-                if (!Array.isArray(resources)) fail("INVALID_PROXMOX_RECEIPT", "independent cleanup inventory is invalid");
-                absent = !resources.some((item) => item?.vmid === settings.disposable.vmid || item?.name === settings.disposable.name);
-                if (!absent) fail("CLONE_STILL_PRESENT", "independent cleanup inventory still contains the disposable VM");
-              } catch (error) { absenceError = error; }
-              if (destroyError || absenceError || !absent) fail("CLEANUP_NOT_PROVEN", "post-clone failure cleanup and independent absence were not both proven");
-              throw primary;
+                cleanupReceipt(await boundedRuntime(() => runtime.cleanupCloneAttempt(PROXMOX_CLONE_CLEANUP_SETTLEMENT_MS_V1), 27 * 60_000, "post-clone cleanup"), payload.runId);
+              } catch { fail("CLEANUP_NOT_PROVEN", "post-clone failure cleanup and independent absence were not both proven"); }
+              throw new ProxmoxDesktopDriverError(primary?.code ?? "PROVIDER_DRIVER_FAILED", primary?.message ?? "provider operation failed", { cleanupDisposition: "proven_absent" });
             }
           }, { preflight: async () => { const resources = await runtime.listResources(); validateResources(resources, settings); validateTemplateConfig(await runtime.getVmConfig(settings.template.vmid), settings); validateStorage(await runtime.listStorage(), settings); } });
+        }
+        case "cleanup-clone-attempt-vm": {
+          operationPayload(payload, ["runId", "settlementMs"], "clone cleanup request"); id(payload.runId, "runId");
+          if (payload.settlementMs !== PROXMOX_CLONE_CLEANUP_SETTLEMENT_MS_V1) fail("INVALID_DRIVER_REQUEST", "clone cleanup settlement does not match the maintained provider bound");
+          return idempotent(payload.operationId, payload, async () => cleanupReceipt(await boundedRuntime(() => runtime.cleanupCloneAttempt(payload.settlementMs), 27 * 60_000, "adapter-owned clone cleanup"), payload.runId));
         }
         case "install-candidate-vm": {
           operationPayload(payload, ["clone", "candidate"], "install request"); const expected = candidate(payload.candidate); const machine = clone(payload.clone);
@@ -341,18 +368,30 @@ export function createProxmoxDesktopDriverV1({ config, runtime, scenarioLibrary 
           operationPayload(payload, ["clone", "scenario", "deadlines", "maxActionAttempts"], "scenario request"); const machine = clone(payload.clone); const supplied = validateDesktopSmokeScenarioV1(payload.scenario); const canonical = scenarios.get(supplied.scenarioId);
           if (!canonical || !same(supplied, canonical)) fail("INVALID_DRIVER_REQUEST", "scenario is not an exact canonical release scenario");
           exact(payload.deadlines, ["scenarioMs", "actionMs"], "scenario deadlines"); integer(payload.deadlines.scenarioMs, "scenarioMs", 1, canonical.deadlineMs); integer(payload.deadlines.actionMs, "actionMs", 1, Math.min(payload.deadlines.scenarioMs, 5 * 60_000)); integer(payload.maxActionAttempts, "maxActionAttempts", 1, 2);
-          return idempotent(payload.operationId, payload, async () => scenarioReceipt(await boundedRuntime(() => runtime.guest("execute-canonical-scenario", { schemaVersion: 1, operationId: payload.operationId, cloneId: machine.cloneId, scenario: canonical, deadlines: payload.deadlines, maxActionAttempts: payload.maxActionAttempts, submissionActionIds: [...SUBMISSION_ACTIONS].filter((actionId) => canonical.actions.some((action) => action.actionId === actionId)) }, { timeoutMs: payload.deadlines.scenarioMs, maxOutputBytes: 1024 * 1024 }), payload.deadlines.scenarioMs, "scenario execution"), canonical, payload.operationId));
+          return idempotent(payload.operationId, payload, async () => {
+            const receipt = scenarioReceipt(await boundedRuntime(() => runtime.guest("execute-canonical-scenario", { schemaVersion: 1, operationId: payload.operationId, cloneId: machine.cloneId, scenario: canonical, deadlines: payload.deadlines, maxActionAttempts: payload.maxActionAttempts, submissionActionIds: [...SUBMISSION_ACTIONS].filter((actionId) => canonical.actions.some((action) => action.actionId === actionId)) }, { timeoutMs: payload.deadlines.scenarioMs, maxOutputBytes: 1024 * 1024 }), payload.deadlines.scenarioMs, "scenario execution"), canonical, payload.operationId);
+            await ledger.bindScenario(machine.cloneId, canonical.scenarioId, receipt); return receipt;
+          });
         }
         case "package-evidence-vm": {
-          operationPayload(payload, ["clone", "runId", "scenarioIds"], "package request"); const machine = clone(payload.clone, payload.runId);
-          if (!Array.isArray(payload.scenarioIds) || payload.scenarioIds.length < 1 || payload.scenarioIds.some((scenarioId) => !scenarios.has(scenarioId)) || new Set(payload.scenarioIds).size !== payload.scenarioIds.length) fail("INVALID_DRIVER_REQUEST", "package scenario inventory is invalid");
+          operationPayload(payload, ["clone", "runId", "scenarioIds", "scenarioReceipts"], "package request"); const machine = clone(payload.clone, payload.runId);
+          if (!Array.isArray(payload.scenarioIds) || payload.scenarioIds.length !== scenarios.size || payload.scenarioIds.some((scenarioId) => !scenarios.has(scenarioId)) || new Set(payload.scenarioIds).size !== payload.scenarioIds.length || !Array.isArray(payload.scenarioReceipts) || payload.scenarioReceipts.length !== scenarios.size) fail("INVALID_DRIVER_REQUEST", "package scenario inventory is invalid");
+          const suppliedReceipts = new Map();
+          for (const supplied of payload.scenarioReceipts) {
+            const canonical = scenarios.get(supplied?.scenarioId); if (!canonical || suppliedReceipts.has(supplied.scenarioId)) fail("INVALID_DRIVER_REQUEST", "package scenario receipts are invalid");
+            suppliedReceipts.set(supplied.scenarioId, scenarioReceipt(supplied, canonical, supplied.operationId));
+          }
           return idempotent(payload.operationId, payload, async () => {
-            const result = await boundedRuntime(() => runtime.guest("package-sanitized-evidence", { schemaVersion: 1, operationId: payload.operationId, cloneId: machine.cloneId, runId: payload.runId, scenarioIds: [...payload.scenarioIds].sort(), maximumBundleBytes: MAX_EVIDENCE_BUNDLE_BYTES }, { timeoutMs: 5 * 60_000, maxOutputBytes: MAX_GUEST_OUTPUT_BYTES }), 5 * 60_000, "evidence packaging");
+            const result = await boundedRuntime(() => runtime.guest("package-sanitized-evidence", { schemaVersion: 1, operationId: payload.operationId, cloneId: machine.cloneId, runId: payload.runId, scenarioIds: [...payload.scenarioIds].sort(), executionReceiptDigests: [...suppliedReceipts].sort(([left], [right]) => left.localeCompare(right)).map(([scenarioId, receipt]) => ({ scenarioId, digest: canonicalDigest(receipt) })), maximumBundleBytes: MAX_EVIDENCE_BUNDLE_BYTES }, { timeoutMs: 5 * 60_000, maxOutputBytes: MAX_GUEST_OUTPUT_BYTES }), 5 * 60_000, "evidence packaging");
             exact(result, ["runId", "bundleBase64", "sanitized", "rawCapturesRemoved", "temporaryMaterialRemoved"], "evidence package receipt");
             if (result.runId !== payload.runId || result.sanitized !== true || result.rawCapturesRemoved !== true || result.temporaryMaterialRemoved !== true || typeof result.bundleBase64 !== "string") fail("UNSAFE_FRESH_VM_EVIDENCE", "guest did not prove sanitization and temporary/raw removal");
             const bytes = Buffer.from(result.bundleBase64, "base64"); if (bytes.byteLength > MAX_EVIDENCE_BUNDLE_BYTES || bytes.toString("base64") !== result.bundleBase64) fail("OVERSIZED_FRESH_VM_OUTPUT", "guest evidence encoding or size is invalid");
-            const first = validateDesktopSmokeEvidenceBundleV1(bytes); const second = validateDesktopSmokeEvidenceBundleV1(Buffer.from(first.bytes)); if (!first.bytes.equals(second.bytes)) fail("NONDETERMINISTIC_EVIDENCE", "evidence package is not deterministic"); return structuredClone(result);
-          });
+            const expectedCandidate = await ledger.readIdentity(machine.cloneId);
+            const first = reconcileDesktopSmokeEvidenceExecutionV1({ bundle: bytes, runId: payload.runId, scenarioSetId: "release", candidate: expectedCandidate, scenarios: [...scenarios.values()], scenarioReceipts: [...suppliedReceipts.values()] });
+            const second = validateDesktopSmokeEvidenceBundleV1(Buffer.from(first.bytes)); if (!first.bytes.equals(second.bytes)) fail("NONDETERMINISTIC_EVIDENCE", "evidence package is not deterministic"); return structuredClone(result);
+          }, { preflight: async () => {
+            for (const [scenarioId, supplied] of suppliedReceipts) if (!same(await ledger.readScenario(machine.cloneId, scenarioId), supplied)) fail("EVIDENCE_EXECUTION_MISMATCH", "package request diverges from the controller-bound scenario execution receipt");
+          } });
         }
         case "destroy-clone-vm": {
           operationPayload(payload, ["clone"], "destroy request"); const machine = clone(payload.clone);
@@ -386,7 +425,7 @@ export async function runProxmoxDesktopDriverCliV1({ input = process.stdin, outp
 
 export function writeProxmoxDesktopDriverErrorV1(output, error) {
   const normalized = error instanceof ProxmoxDesktopDriverError ? error : new ProxmoxDesktopDriverError("PROVIDER_DRIVER_FAILED", "provider operation failed");
-  const details = normalized.details?.retryDisposition === "safe_before_dispatch" || normalized.details?.retryDisposition === "ambiguous_after_dispatch" ? { retryDisposition: normalized.details.retryDisposition } : null;
+  const details = normalized.details?.retryDisposition === "safe_before_dispatch" || normalized.details?.retryDisposition === "ambiguous_after_dispatch" ? { retryDisposition: normalized.details.retryDisposition, ...(normalized.details.cleanupDisposition === "proven_absent" ? { cleanupDisposition: "proven_absent" } : {}) } : null;
   const code = typeof normalized.code === "string" && ID.test(normalized.code) ? normalized.code : "PROVIDER_DRIVER_FAILED";
   const message = typeof normalized.message === "string" && normalized.message.length >= 1 && normalized.message.length <= 240 ? normalized.message : "provider operation failed";
   output.write(`${JSON.stringify({ schemaVersion: 1, error: { code, message, details } })}\n`);

@@ -181,8 +181,8 @@ function decodeScreenshot(bytes, mediaType) {
 }
 
 function normalizeExpectations(value) {
-  exact(value, ["schemaVersion", "requiredCheckpoints", "scenarioOutcomes", "workflowInvariants"], "expectations");
-  if (value.schemaVersion !== 1 || !Array.isArray(value.requiredCheckpoints) || !Array.isArray(value.scenarioOutcomes) || !Array.isArray(value.workflowInvariants)) fail("INVALID_REVIEW_INPUT", "expectation collections are invalid");
+  exact(value, ["schemaVersion", "requiredCheckpoints", "requiredAssertions", "scenarioOutcomes", "workflowInvariants"], "expectations");
+  if (value.schemaVersion !== 1 || !Array.isArray(value.requiredCheckpoints) || !Array.isArray(value.requiredAssertions) || !Array.isArray(value.scenarioOutcomes) || !Array.isArray(value.workflowInvariants)) fail("INVALID_REVIEW_INPUT", "expectation collections are invalid");
   const requiredCheckpoints = value.requiredCheckpoints.map((item, index) => {
     exact(item, ["scenarioId", "checkpointId", "type", "minWidth", "minHeight", "maxWidth", "maxHeight"], `requiredCheckpoints[${index}]`);
     id(item.scenarioId, "required checkpoint scenarioId"); id(item.checkpointId, "required checkpoint checkpointId");
@@ -191,15 +191,22 @@ function normalizeExpectations(value) {
     if (item.minWidth > item.maxWidth || item.minHeight > item.maxHeight || (item.type === "screenshot" && (item.minWidth < 1 || item.minHeight < 1))) fail("INVALID_REVIEW_INPUT", "required checkpoint dimensions are invalid");
     return structuredClone(item);
   });
+  const requiredAssertions = value.requiredAssertions.map((item, index) => {
+    exact(item, ["scenarioId", "assertionId", "checkpointId", "outcome"], `requiredAssertions[${index}]`);
+    for (const field of ["scenarioId", "assertionId", "checkpointId"]) id(item[field], `required assertion ${field}`);
+    if (!["passed", "failed"].includes(item.outcome)) fail("INVALID_REVIEW_INPUT", "required assertion outcome is invalid");
+    return structuredClone(item);
+  });
   const scenarioOutcomes = value.scenarioOutcomes.map((item, index) => {
     exact(item, ["scenarioId", "outcome"], `scenarioOutcomes[${index}]`); id(item.scenarioId, "scenario outcome scenarioId");
     if (!["passed", "failed", "crashed"].includes(item.outcome)) fail("INVALID_REVIEW_INPUT", "expected scenario outcome is invalid");
     return structuredClone(item);
   });
+  if (new Set(scenarioOutcomes.map(({ scenarioId }) => scenarioId)).size !== scenarioOutcomes.length) fail("INVALID_REVIEW_INPUT", "execution scenario outcomes must be unique");
   const workflowInvariants = value.workflowInvariants.map((item) => { if (!INVARIANTS.has(item)) fail("INVALID_REVIEW_INPUT", "workflow invariant is invalid"); return item; });
-  for (const [items, key, label] of [[requiredCheckpoints, "checkpointId", "required checkpoints"], [scenarioOutcomes, "scenarioId", "scenario outcomes"]]) if (new Set(items.map((item) => item[key])).size !== items.length) fail("INVALID_REVIEW_INPUT", `${label} must be unique`);
+  for (const [items, key, label] of [[requiredCheckpoints, "checkpointId", "required checkpoints"], [requiredAssertions, "assertionId", "required assertions"], [scenarioOutcomes, "scenarioId", "scenario outcomes"]]) if (new Set(items.map((item) => item[key])).size !== items.length) fail("INVALID_REVIEW_INPUT", `${label} must be unique`);
   if (new Set(workflowInvariants).size !== workflowInvariants.length) fail("INVALID_REVIEW_INPUT", "workflow invariants must be unique");
-  return { requiredCheckpoints, scenarioOutcomes, workflowInvariants: [...workflowInvariants].sort() };
+  return { requiredCheckpoints, requiredAssertions, scenarioOutcomes, workflowInvariants: [...workflowInvariants].sort() };
 }
 
 function normalizeExecution(value) {
@@ -265,12 +272,17 @@ export function runDesktopBundleAssertionsV1({ bundle, expectations, execution }
     const matches = actualScenarioOutcomes.get(expectation.scenarioId) === expectation.outcome;
     checks.push(check(`scenario:${expectation.scenarioId}`, matches, matches ? "SCENARIO_OUTCOME_MATCH" : "SCENARIO_OUTCOME_MISMATCH", { scenarioId: expectation.scenarioId, checkpointId: null }));
   }
+  const assertionById = new Map(records.assertions.map((item) => [item.assertionId, item]));
+  const assertionInventoryMatches = records.assertions.length === expected.requiredAssertions.length && assertionById.size === expected.requiredAssertions.length && expected.requiredAssertions.every((item) => {
+    const actual = assertionById.get(item.assertionId); return actual?.scenarioId === item.scenarioId && actual?.checkpointId === item.checkpointId && actual?.outcome === item.outcome;
+  });
+  checks.push(check("assertion-inventory", assertionInventoryMatches, assertionInventoryMatches ? "ASSERTION_INVENTORY_VERIFIED" : "ASSERTION_INVENTORY_MISMATCH"));
   checks.push(check("evidence-bounds", screenshotInventory.length <= DESKTOP_BUNDLE_REVIEW_LIMITS_V1.maxScreenshots && screenshotBytes <= DESKTOP_BUNDLE_REVIEW_LIMITS_V1.maxTotalScreenshotBytes, "EVIDENCE_WITHIN_BOUNDS"));
   const cleanupProven = executed.cleanup.destroyed === true && executed.cleanup.absent === true && executed.cleanup.independentlyVerified === true;
   const invariantResults = {
     all_scenarios_declared: records.run?.scenarioIds.length === expected.scenarioOutcomes.length && records.run.scenarioIds.every((scenarioId) => actualScenarioOutcomes.has(scenarioId)),
     all_checkpoints_captured: records.checkpoints.every(({ outcome }) => outcome === "captured"),
-    all_assertions_passed: records.assertions.length > 0 && new Set(records.assertions.map(({ scenarioId }) => scenarioId)).size === expected.scenarioOutcomes.length && expected.scenarioOutcomes.every(({ scenarioId }) => records.assertions.some((assertion) => assertion.scenarioId === scenarioId)) && records.assertions.every(({ outcome }) => outcome === "passed"),
+    all_assertions_passed: assertionInventoryMatches && expected.requiredAssertions.length > 0 && records.assertions.every(({ outcome }) => outcome === "passed"),
     screenshots_sanitized: records.artifacts.filter(({ kind }) => kind === "screenshot").every(({ protection }) => protection?.attested === true && protection?.outputSanitized === true && protection?.sourcePixelsRetained === false),
     cleanup_proven: cleanupProven,
   };

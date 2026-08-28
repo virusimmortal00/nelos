@@ -124,6 +124,7 @@ test("V1 run, checkpoint, artifact, assertion, diagnostic, manifest, and review 
     artifacts: [input.artifact],
     assertionResults: [input.assertion],
     diagnostics: [input.diagnostic],
+    expectedAssertions: [{ scenarioId: input.assertion.scenarioId, assertionId: input.assertion.assertionId, checkpointId: input.assertion.checkpointId, outcome: "passed" }],
   });
   assert.equal(validateDesktopSmokeEvidenceRunV1(input.run).runId, "run-1");
   assert.equal(validateDesktopSmokeCheckpointV1(input.checkpoint).checkpointId, "checkpoint-1");
@@ -146,7 +147,7 @@ test("V1 run, checkpoint, artifact, assertion, diagnostic, manifest, and review 
 test("a passed run with no complete per-scenario assertions is never approved vacuously", () => {
   const input = fixture();
   const bundle = createDesktopSmokeEvidenceBundleV1({ run: input.run, checkpoints: [input.checkpoint], artifacts: [input.artifact], assertionResults: [], diagnostics: [input.diagnostic], files: [{ artifactId: input.artifact.artifactId, bytes: input.screenshot }] });
-  const review = deriveDesktopSmokeReviewResultV1({ manifest: bundle.manifest, run: input.run, checkpoints: [input.checkpoint], artifacts: [input.artifact], assertionResults: [], diagnostics: [input.diagnostic] });
+  const review = deriveDesktopSmokeReviewResultV1({ manifest: bundle.manifest, run: input.run, checkpoints: [input.checkpoint], artifacts: [input.artifact], assertionResults: [], diagnostics: [input.diagnostic], expectedAssertions: [{ scenarioId: input.assertion.scenarioId, assertionId: input.assertion.assertionId, checkpointId: input.assertion.checkpointId, outcome: "passed" }] });
   assert.equal(review.outcome, "rejected");
   assert.deepEqual(review.reasonCodes, ["ASSERTION_INCOMPLETE"]);
 });

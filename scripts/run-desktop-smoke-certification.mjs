@@ -19,6 +19,7 @@ function expectations(library) {
   return {
     schemaVersion: 1,
     requiredCheckpoints: library.scenarios.flatMap((scenario) => scenario.checkpoints.filter((checkpoint) => !checkpoint.failureOnly).map((checkpoint) => ({ scenarioId: scenario.scenarioId, checkpointId: checkpoint.checkpointId, type: checkpoint.type, minWidth: checkpoint.type === "screenshot" ? 1 : 0, minHeight: checkpoint.type === "screenshot" ? 1 : 0, maxWidth: 16384, maxHeight: 16384 }))),
+    requiredAssertions: library.scenarios.flatMap((scenario) => scenario.assertions.map(({ assertionId, checkpointId }) => ({ scenarioId: scenario.scenarioId, assertionId, checkpointId, outcome: "passed" }))),
     scenarioOutcomes: library.scenarios.map(({ scenarioId }) => ({ scenarioId, outcome: "passed" })),
     workflowInvariants: ["all_assertions_passed", "all_checkpoints_captured", "all_scenarios_declared", "cleanup_proven", "screenshots_sanitized"],
   };

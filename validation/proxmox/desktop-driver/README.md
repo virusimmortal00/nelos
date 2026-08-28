@@ -37,10 +37,26 @@ must sanitize protected regions before persistence, enforce the evidence
 contract ceilings, and delete source pixels and temporary material before the
 package receipt is returned.
 
+Clone execution reserves 70 minutes for the primary provider process and 28
+minutes for adapter-owned recovery inside a 100-minute controller deadline. A
+primary process exit without `safe_before_dispatch` or `proven_absent` starts a
+new `cleanup-clone-attempt-vm` process. That process watches the exact configured
+VMID/name through the maintained 20-minute clone-task settlement bound, destroys
+it if it appears, and independently proves final absence. Cleanup ambiguity
+dominates the original failure.
+
+Evidence packaging receives only sorted scenario IDs and controller-computed
+digests of the exact persisted scenario receipts. The controller independently
+reconciles the returned canonical bundle with all five receipts and all 12
+canonical assertions (2/2/2/3/3), including assertion IDs, checkpoint IDs,
+outcomes, and result codes. Partial, extra, duplicated, or divergent evidence is
+rejected before review.
+
 The controller ledger uses create-only pending records. A repeated completed
 operation returns the durable receipt only when the request digest matches. A
 pending operation fails as ambiguous and is never dispatched again. Dependency,
 shape, and provider preflight failures occur before a pending record is created,
 so the public runner may safely retry them with its stable operation ID. Every
 invocation verifies `/usr/bin/jq` before any provider path; driver stdout is one
-JSON receipt and all child stdout/stderr is captured and bounded.
+JSON receipt or one closed typed error and all child stdout/stderr is captured
+and bounded.
