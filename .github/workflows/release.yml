@@ -192,48 +192,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  desktop-certification:
-    name: Disposable Desktop release certification
-    needs: [artifacts]
-    # This protected runner alone has the trusted driver and VM authority.
-    runs-on: [self-hosted, nelos-disposable-desktop]
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 20
-      - run: npm ci --ignore-scripts
-      - uses: actions/download-artifact@v8
-        with:
-          name: nelos-release-${{ env.RELEASE_TAG }}
-          path: dist/release
-      - name: Stage and certify exact candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate_root="${RUNNER_TEMP}/nelos-candidate-${RELEASE_TAG}"
-          output_root="${RUNNER_TEMP}/nelos-desktop-certification-${RELEASE_TAG}"
-          mkdir -m 700 "$candidate_root" "$output_root"
-          tar -xzf dist/release/*.tgz -C "$candidate_root" --strip-components=1
-          npm run desktop-smoke:certify -- --candidate "$candidate_root" --out-dir "$output_root" --run-id "release-${RELEASE_TAG}-${GITHUB_RUN_ID}"
-      - name: Upload verified sanitized certification bundle only
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-certification-${{ env.RELEASE_TAG }}
-          path: ${{ runner.temp }}/nelos-desktop-certification-${{ env.RELEASE_TAG }}/*
-          if-no-files-found: error
-          retention-days: 14
-
   release:
     name: Create or refresh draft GitHub Release
-    needs: [verify, artifacts, desktop-certification]
+    needs: [verify, artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write

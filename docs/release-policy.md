@@ -208,15 +208,12 @@ CycloneDX SBOM are attached to a **draft** GitHub Release. A maintainer must
 review and explicitly publish that draft; workflow success alone does not make
 it a public release.
 
-Before draft creation, the workflow also runs protected self-hosted disposable
-Desktop certification. It stages the immutable release package, binds the
-verified sanitized bundle to the candidate version, source revision, and
-package digest, then requires the full scenario library, assertion pass,
-independent review pass, and destroy plus independent-absence proof. The job
-uploads only the verified sanitized bundle and review receipt; credentials and
-raw guest artifacts are never serialized. A certification failure blocks draft
-creation without changing the existing draft, publication, or marketplace
-promotion behavior.
+External certification may attest to an immutable package after the public
+workflow builds it. Certification receipts are not release build inputs and do
+not alter the source commit, distribution integrity digest, package checksum,
+release manifest, or SBOM. Public CI validates the provider-neutral contract
+with fixtures only; provider credentials, private topology, environment
+lifecycle, and external execution remain outside this repository.
 
 ## Stable marketplace promotion
 

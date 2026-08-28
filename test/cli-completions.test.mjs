@@ -48,7 +48,6 @@ const CANONICAL = {
 test("nelos's own command surface has the expected shape", () => {
   assert.deepEqual(CANONICAL.commands, [
     "archive",
-    "desktop-test",
     "doctor",
     "intelligence",
     "list",

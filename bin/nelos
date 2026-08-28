@@ -63,7 +63,6 @@ import {
   inspectWorktreeReceiptV1,
   provisionWorktreeV1,
 } from "../src/worktree-provisioning.mjs";
-import { runDesktopSmokeBundleCommandV1, runDesktopSmokeCommandV1 } from "../src/desktop-smoke-cli.mjs";
 
 const DEFAULT_POLL_MS = 2_000;
 const DEFAULT_MAX_WAIT_MS = 30 * 60 * 1_000;
@@ -158,7 +157,6 @@ function printUsage() {
   nelos worktree integration --queen-thread-id ID [options]
   nelos intelligence route [--task-shape SHAPE] [model/reasoning options]
   nelos intelligence verify --thread-id ID --model MODEL --effort LEVEL [--turn-id ID]
-  nelos desktop-test --candidate PACKAGE_DIRECTORY --scenario-set NAME [--run-id ID --bundle-output PATH]
   nelos doctor [--codex PATH] [--socket PATH]
 
 Start options:
@@ -2670,7 +2668,6 @@ async function main() {
     "plan",
     "worktree",
     "intelligence",
-    "desktop-test",
     "doctor",
   ];
   if (!supported.includes(options.command)) {
@@ -2688,17 +2685,6 @@ async function main() {
 
   if (options.command === "plan") {
     writeOutput(await runPlan(options));
-    return;
-  }
-
-  if (options.command === "desktop-test") {
-    assertNoPositionals(options);
-    assertOnlyOptions(options, new Set(["candidatePath", "scenarioSetName", "runId", "bundleOutput"]), "desktop-test");
-    const bundleMode = options.runId !== undefined || options.bundleOutput !== undefined;
-    writeOutput(await (bundleMode ? runDesktopSmokeBundleCommandV1 : runDesktopSmokeCommandV1)({
-      candidatePath: options.candidatePath, scenarioSetName: options.scenarioSetName,
-      ...(bundleMode ? { runId: options.runId, bundleOutput: options.bundleOutput } : {}),
-    }));
     return;
   }
 

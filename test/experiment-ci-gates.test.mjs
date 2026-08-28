@@ -19,12 +19,12 @@ import {
 const exec = promisify(execFile);
 const D = (character) => `sha256:${character.repeat(64)}`;
 
-test("lane contracts bound PR smoke and reserve dedicated Desktop execution", () => {
+test("lane contracts bound PR smoke without a private execution lane", () => {
   assert.deepEqual({ tasks: EXPERIMENT_CI_LANES.smoke.taskBudget, repetitions: EXPERIMENT_CI_LANES.smoke.repetitions, concurrency: EXPERIMENT_CI_LANES.smoke.maxConcurrency }, { tasks: 1, repetitions: 1, concurrency: 1 });
   assert.equal(EXPERIMENT_CI_LANES.smoke.isolatedHomes, true);
   assert.equal(EXPERIMENT_CI_LANES.offline.credentials, "none");
   assert.equal(EXPERIMENT_CI_LANES.offline.network, "none");
-  assert.equal(EXPERIMENT_CI_LANES.desktop.maxConcurrency, 1);
+  assert.equal(Object.hasOwn(EXPERIMENT_CI_LANES, "desktop"), false);
 });
 
 test("nightly and powered shards are deterministic, disjoint, and identity complete", () => {
@@ -70,9 +70,9 @@ test("end-to-end offline fixtures cover terminal semantics and deterministic reg
   }
 });
 
-test("workflow family retains every terminal class and fences Desktop to labeled macOS workers", async () => {
+test("workflow family retains every terminal class without private worker execution", async () => {
   const workflow = await readFile(new URL("../.github/workflows/experiment-ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /runs-on: \[self-hosted, macOS, nelos-dedicated-desktop\]/u);
+  assert.doesNotMatch(workflow, /self-hosted|dedicated-desktop|desktop_(?:host|lease|request)|golden.image/iu);
   const workflowLines = workflow.split("\n");
   const offlineBlockerIndex = workflowLines.findIndex((line) => line.includes("NODE_OPTIONS: --require=./scripts/offline-network-blocker.cjs"));
   assert.notEqual(offlineBlockerIndex, -1);

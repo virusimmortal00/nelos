@@ -5,6 +5,13 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+- Removed provider, controller, environment lifecycle, capture, raw-evidence,
+  and execution implementation from the public distribution and CI while
+  retaining the provider-neutral certification contract, definitions, schemas,
+  and fixtures.
+- Product candidate identity is derived only from public Nelos product inputs;
+  external certification artifacts and receipts are post-build attestations.
+
 ## [0.12.20] - 2026-08-25
 
 ### User-facing changes

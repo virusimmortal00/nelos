@@ -1,6 +1,6 @@
 # Experiment Runtime Isolation and Version Locking
 
-Status: v1 RuntimeLock, hermetic headless worker lane, and dedicated Desktop worker lane implemented.
+Status: v1 RuntimeLock and hermetic headless worker lane implemented. Interactive runtime execution is external.
 
 This document defines the execution environments for the
 [experimentation framework](experimentation-framework.md). It separates routine
@@ -12,9 +12,8 @@ and lifecycle APIs are part of the implemented
 [contract foundation](experimentation-framework.md#implemented-contract-foundation).
 The headless worker admission and lifecycle API is implemented in
 `src/headless-experiment-runtime.mjs`; deployments supply an engine adapter for
-their OCI or disposable-VM infrastructure. The dedicated Desktop worker
-contract, automation entrypoint, workflow, and disposable tests are implemented
-in the [dedicated worker runbook](dedicated-desktop-worker.md).
+their isolated infrastructure. Interactive execution is an external adapter
+concern; this repository defines only the runtime and evidence contracts.
 
 ## Runtime classes
 
@@ -94,9 +93,8 @@ target escapes the attempt output root.
 
 ## Dedicated Desktop boundary
 
-The executable v1 boundary is defined by the
-[dedicated Desktop worker contract](dedicated-desktop-worker.md). The rules
-below are its normative safety requirements.
+Interactive execution is external to the public repository. The rules below
+are provider-neutral admission requirements for any external adapter.
 
 Desktop testing requires:
 

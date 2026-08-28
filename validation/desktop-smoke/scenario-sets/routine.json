@@ -5,75 +5,211 @@
     {
       "schemaVersion": 1,
       "scenarioId": "plugin-availability",
-      "task": { "taskId": "desktop-release-plugin-availability", "createdForScenario": "plugin-availability", "fresh": true },
+      "task": {
+        "taskId": "desktop-release-plugin-availability",
+        "createdForScenario": "plugin-availability",
+        "fresh": true
+      },
       "actions": [
-        { "actionId": "open-plugins", "type": "click", "targetRef": "plugins-navigation", "valueRef": null, "timeoutMs": 15000 },
-        { "actionId": "wait-plugins", "type": "wait_for", "targetRef": "plugin-inventory-ready", "valueRef": null, "timeoutMs": 30000 }
+        {
+          "actionId": "open-plugins",
+          "type": "click",
+          "targetRef": "plugins-navigation",
+          "valueRef": null,
+          "timeoutMs": 15000
+        },
+        {
+          "actionId": "wait-plugins",
+          "type": "wait_for",
+          "targetRef": "plugin-inventory-ready",
+          "valueRef": null,
+          "timeoutMs": 30000
+        }
       ],
       "checkpoints": [
-        { "checkpointId": "plugins-opened", "type": "screenshot", "afterActionId": "wait-plugins", "failureOnly": false },
-        { "checkpointId": "plugins-window", "type": "window_state", "afterActionId": "wait-plugins", "failureOnly": false },
-        { "checkpointId": "failure-open-plugins", "type": "screenshot", "afterActionId": "open-plugins", "failureOnly": true },
-        { "checkpointId": "failure-wait-plugins", "type": "screenshot", "afterActionId": "wait-plugins", "failureOnly": true }
+        {
+          "checkpointId": "plugins-opened",
+          "type": "accessibility_tree",
+          "afterActionId": "wait-plugins",
+          "failureOnly": false
+        },
+        {
+          "checkpointId": "plugins-window",
+          "type": "window_state",
+          "afterActionId": "wait-plugins",
+          "failureOnly": false
+        }
       ],
       "assertions": [
-        { "assertionId": "plugin-inventory-present", "type": "element_present", "targetRef": "plugin-inventory", "expectedRef": null, "checkpointId": "plugins-opened" },
-        { "assertionId": "plugin-window-count", "type": "window_count", "targetRef": "desktop-windows", "expectedRef": "one-window", "checkpointId": "plugins-window" }
+        {
+          "assertionId": "plugin-inventory-present",
+          "type": "element_present",
+          "targetRef": "plugin-inventory",
+          "expectedRef": null,
+          "checkpointId": "plugins-opened"
+        },
+        {
+          "assertionId": "plugin-window-count",
+          "type": "window_count",
+          "targetRef": "desktop-windows",
+          "expectedRef": "one-window",
+          "checkpointId": "plugins-window"
+        }
       ],
-      "deadlineMs": 60000,
-      "failureCaptureTriggers": ["action_error", "assertion_failure", "deadline_exceeded", "desktop_crash", "task_stalled"]
+      "deadlineMs": 60000
     },
     {
       "schemaVersion": 1,
       "scenarioId": "planning-lifecycle",
-      "task": { "taskId": "desktop-release-planning-lifecycle", "createdForScenario": "planning-lifecycle", "fresh": true },
+      "task": {
+        "taskId": "desktop-release-planning-lifecycle",
+        "createdForScenario": "planning-lifecycle",
+        "fresh": true
+      },
       "actions": [
-        { "actionId": "enter-planning-input", "type": "type_text_ref", "targetRef": "task-composer", "valueRef": "planning-scenario-input", "timeoutMs": 30000 },
-        { "actionId": "submit-planning", "type": "keypress", "targetRef": "submit-key", "valueRef": null, "timeoutMs": 15000 },
-        { "actionId": "wait-plan", "type": "wait_for", "targetRef": "plan-ready", "valueRef": null, "timeoutMs": 120000 }
+        {
+          "actionId": "enter-planning-input",
+          "type": "type_text_ref",
+          "targetRef": "task-composer",
+          "valueRef": "planning-scenario-input",
+          "timeoutMs": 30000
+        },
+        {
+          "actionId": "submit-planning",
+          "type": "keypress",
+          "targetRef": "submit-key",
+          "valueRef": null,
+          "timeoutMs": 15000
+        },
+        {
+          "actionId": "wait-plan",
+          "type": "wait_for",
+          "targetRef": "plan-ready",
+          "valueRef": null,
+          "timeoutMs": 120000
+        }
       ],
       "checkpoints": [
-        { "checkpointId": "plan-ready-state", "type": "screenshot", "afterActionId": "wait-plan", "failureOnly": false },
-        { "checkpointId": "plan-accessibility", "type": "accessibility_tree", "afterActionId": "wait-plan", "failureOnly": false },
-        { "checkpointId": "failure-enter-planning-input", "type": "screenshot", "afterActionId": "enter-planning-input", "failureOnly": true },
-        { "checkpointId": "failure-submit-planning", "type": "screenshot", "afterActionId": "submit-planning", "failureOnly": true },
-        { "checkpointId": "failure-wait-plan", "type": "screenshot", "afterActionId": "wait-plan", "failureOnly": true }
+        {
+          "checkpointId": "plan-ready-state",
+          "type": "accessibility_tree",
+          "afterActionId": "wait-plan",
+          "failureOnly": false
+        },
+        {
+          "checkpointId": "plan-accessibility",
+          "type": "accessibility_tree",
+          "afterActionId": "wait-plan",
+          "failureOnly": false
+        }
       ],
       "assertions": [
-        { "assertionId": "plan-surface-present", "type": "element_present", "targetRef": "plan-surface", "expectedRef": null, "checkpointId": "plan-ready-state" },
-        { "assertionId": "planning-task-ready", "type": "task_state", "targetRef": "active-task", "expectedRef": "ready-state", "checkpointId": "plan-accessibility" }
+        {
+          "assertionId": "plan-surface-present",
+          "type": "element_present",
+          "targetRef": "plan-surface",
+          "expectedRef": null,
+          "checkpointId": "plan-ready-state"
+        },
+        {
+          "assertionId": "planning-task-ready",
+          "type": "task_state",
+          "targetRef": "active-task",
+          "expectedRef": "ready-state",
+          "checkpointId": "plan-accessibility"
+        }
       ],
-      "deadlineMs": 180000,
-      "failureCaptureTriggers": ["action_error", "assertion_failure", "deadline_exceeded", "desktop_crash", "task_stalled"]
+      "deadlineMs": 180000
     },
     {
       "schemaVersion": 1,
       "scenarioId": "attention-recovery",
-      "task": { "taskId": "desktop-release-attention-recovery", "createdForScenario": "attention-recovery", "fresh": true },
+      "task": {
+        "taskId": "desktop-release-attention-recovery",
+        "createdForScenario": "attention-recovery",
+        "fresh": true
+      },
       "actions": [
-        { "actionId": "enter-recovery-input", "type": "type_text_ref", "targetRef": "task-composer", "valueRef": "attention-recovery-scenario-input", "timeoutMs": 30000 },
-        { "actionId": "submit-recovery", "type": "keypress", "targetRef": "submit-key", "valueRef": null, "timeoutMs": 15000 },
-        { "actionId": "wait-attention", "type": "wait_for", "targetRef": "attention-state", "valueRef": null, "timeoutMs": 120000 },
-        { "actionId": "retry-attention", "type": "click", "targetRef": "attention-retry", "valueRef": null, "timeoutMs": 15000 },
-        { "actionId": "wait-recovered", "type": "wait_for", "targetRef": "recovered-state", "valueRef": null, "timeoutMs": 180000 }
+        {
+          "actionId": "enter-recovery-input",
+          "type": "type_text_ref",
+          "targetRef": "task-composer",
+          "valueRef": "attention-recovery-scenario-input",
+          "timeoutMs": 30000
+        },
+        {
+          "actionId": "submit-recovery",
+          "type": "keypress",
+          "targetRef": "submit-key",
+          "valueRef": null,
+          "timeoutMs": 15000
+        },
+        {
+          "actionId": "wait-attention",
+          "type": "wait_for",
+          "targetRef": "attention-state",
+          "valueRef": null,
+          "timeoutMs": 120000
+        },
+        {
+          "actionId": "retry-attention",
+          "type": "click",
+          "targetRef": "attention-retry",
+          "valueRef": null,
+          "timeoutMs": 15000
+        },
+        {
+          "actionId": "wait-recovered",
+          "type": "wait_for",
+          "targetRef": "recovered-state",
+          "valueRef": null,
+          "timeoutMs": 180000
+        }
       ],
       "checkpoints": [
-        { "checkpointId": "attention-visible-state", "type": "screenshot", "afterActionId": "wait-attention", "failureOnly": false },
-        { "checkpointId": "recovered-visible-state", "type": "screenshot", "afterActionId": "wait-recovered", "failureOnly": false },
-        { "checkpointId": "recovered-window-state", "type": "window_state", "afterActionId": "wait-recovered", "failureOnly": false },
-        { "checkpointId": "failure-enter-recovery-input", "type": "screenshot", "afterActionId": "enter-recovery-input", "failureOnly": true },
-        { "checkpointId": "failure-submit-recovery", "type": "screenshot", "afterActionId": "submit-recovery", "failureOnly": true },
-        { "checkpointId": "failure-wait-attention", "type": "screenshot", "afterActionId": "wait-attention", "failureOnly": true },
-        { "checkpointId": "failure-retry-attention", "type": "screenshot", "afterActionId": "retry-attention", "failureOnly": true },
-        { "checkpointId": "failure-wait-recovered", "type": "screenshot", "afterActionId": "wait-recovered", "failureOnly": true }
+        {
+          "checkpointId": "attention-visible-state",
+          "type": "accessibility_tree",
+          "afterActionId": "wait-attention",
+          "failureOnly": false
+        },
+        {
+          "checkpointId": "recovered-visible-state",
+          "type": "accessibility_tree",
+          "afterActionId": "wait-recovered",
+          "failureOnly": false
+        },
+        {
+          "checkpointId": "recovered-window-state",
+          "type": "window_state",
+          "afterActionId": "wait-recovered",
+          "failureOnly": false
+        }
       ],
       "assertions": [
-        { "assertionId": "attention-control-visible", "type": "element_present", "targetRef": "attention-retry", "expectedRef": null, "checkpointId": "attention-visible-state" },
-        { "assertionId": "recovery-complete", "type": "task_state", "targetRef": "active-task", "expectedRef": "complete-state", "checkpointId": "recovered-visible-state" },
-        { "assertionId": "recovery-window-count", "type": "window_count", "targetRef": "desktop-windows", "expectedRef": "one-window", "checkpointId": "recovered-window-state" }
+        {
+          "assertionId": "attention-control-visible",
+          "type": "element_present",
+          "targetRef": "attention-retry",
+          "expectedRef": null,
+          "checkpointId": "attention-visible-state"
+        },
+        {
+          "assertionId": "recovery-complete",
+          "type": "task_state",
+          "targetRef": "active-task",
+          "expectedRef": "complete-state",
+          "checkpointId": "recovered-visible-state"
+        },
+        {
+          "assertionId": "recovery-window-count",
+          "type": "window_count",
+          "targetRef": "desktop-windows",
+          "expectedRef": "one-window",
+          "checkpointId": "recovered-window-state"
+        }
       ],
-      "deadlineMs": 360000,
-      "failureCaptureTriggers": ["action_error", "assertion_failure", "deadline_exceeded", "desktop_crash", "task_stalled"]
+      "deadlineMs": 360000
     }
   ]
 }

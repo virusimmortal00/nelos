@@ -197,6 +197,20 @@ test("the provenance revision stays aligned with package and plugin releases", a
   );
 });
 
+test("external certification receipts cannot alter product candidate integrity", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-product-identity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const entry of DISTRIBUTION_ENTRIES) {
+    await cp(join(packageRoot, entry), join(root, entry), { recursive: true });
+  }
+  const baseline = await computeDistributionIntegrity(root);
+  const receiptPath = join(root, "external-certification-receipt.json");
+  await writeFile(receiptPath, `${JSON.stringify({ harnessCommitSha: "a".repeat(40), receiptDigest: `sha256:${"1".repeat(64)}` })}\n`);
+  assert.equal(await computeDistributionIntegrity(root), baseline);
+  await writeFile(receiptPath, `${JSON.stringify({ harnessCommitSha: "b".repeat(40), receiptDigest: `sha256:${"2".repeat(64)}` })}\n`);
+  assert.equal(await computeDistributionIntegrity(root), baseline);
+});
+
 test("the distributed plugin ships the active MCP tool surface and nothing dormant", async () => {
   const packageMetadata = JSON.parse(await readFile(packagePath, "utf8"));
   // The socket-free tool surface (docs/mcp-tool-surface.md) is an active,

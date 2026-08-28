@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -18,18 +18,6 @@ async function json(path) {
 
 async function fixture(name) {
   return json(resolve(fixtureRoot, name));
-}
-
-async function files(directory) {
-  const output = [];
-  for (const entry of await readdir(directory)) {
-    const path = resolve(directory, entry);
-    if ((await stat(path)).isDirectory()) {
-      if (![".git", "node_modules"].includes(entry)) output.push(...await files(path));
-    }
-    else output.push(relative(root, path));
-  }
-  return output;
 }
 
 test("the positive certification fixture validates and verifies exact external identities", async () => {
@@ -89,25 +77,27 @@ test("external verification fails closed on an identity mismatch and unexpected 
   }), { code: "UNEXPECTED_CERTIFICATION_FIELD" });
 });
 
-test("the migration manifest classifies every current Desktop testing asset exactly once", async () => {
+test("the migration manifest retains only provider-neutral public certification assets", async () => {
   const manifest = await json(resolve(root, "validation/desktop-smoke/asset-migration.v1.json"));
   assert.deepEqual(Object.keys(manifest).sort(), ["candidateBaseCommit", "inventoryDefinition", "manifestVersion", "private", "public", "removed", "schemaVersion"]);
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.candidateBaseCommit, "a767ac133f864e327a067efeebc534a7f850ccd1");
   assert.equal(new Set(manifest.public).size, manifest.public.length);
-  assert.equal(new Set(manifest.private).size, manifest.private.length);
-  assert.equal(manifest.public.some((path) => manifest.private.includes(path)), false);
-  assert.deepEqual(manifest.removed.map(({ assetClass }) => assetClass), ["raw-screenshots", "controller-and-guest-logs", "credential-and-lease-material"]);
-
-  const integration = new Set([
-    ".github/workflows/release.yml", "bin/nelos", "completions/nelos.bash", "completions/nelos.fish",
-    "completions/nelos.zsh", "docs/release-policy.md", "package.json",
+  assert.deepEqual(manifest.private, []);
+  assert.deepEqual(manifest.removed.map(({ assetClass }) => assetClass), [
+    "provider-and-template-implementation", "controller-and-vm-execution",
+    "screenshots-and-raw-evidence", "harness-tests-and-ci",
   ]);
-  const inventory = (await files(root)).filter((path) =>
-    !path.startsWith(".git/") && !path.startsWith("node_modules/") &&
-    (/desktop|proxmox|screen-capture|visual-state/iu.test(path) || integration.has(path))
-  ).sort();
-  assert.deepEqual([...manifest.public, ...manifest.private].sort(), inventory);
+  for (const path of manifest.public) await access(resolve(root, path));
+
+  for (const path of [
+    ".github/workflows/proxmox-template.yml", "validation/proxmox/README.md",
+    "src/desktop-gui-scenario-driver/index.mjs", "src/desktop-smoke-evidence-contract.mjs",
+    "src/disposable-desktop-smoke.mjs", "src/fresh-vm-desktop-runner.mjs",
+    "src/machine-desktop-smoke-adapter.mjs", "scripts/run-desktop-smoke-certification.mjs",
+  ]) {
+    await assert.rejects(access(resolve(root, path)), { code: "ENOENT" });
+  }
 });
 
 test("the public receipt schema and fixtures have no private or raw-evidence fields", async () => {

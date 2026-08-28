@@ -164,6 +164,13 @@ test("npm and provenance payloads contain both plugin layouts", async () => {
   ]) {
     assert.ok(files.has(path), `packed payload missing ${path}`);
   }
+  for (const forbidden of [
+    "bin/nelos-desktop-gui-driver", "scripts/run-desktop-smoke-certification.mjs",
+    "src/desktop-smoke-evidence-contract.mjs", "src/disposable-desktop-smoke.mjs",
+    "src/fresh-vm-desktop-runner.mjs", "validation/proxmox/README.md",
+  ]) {
+    assert.equal(files.has(forbidden), false, `packed payload includes external harness asset ${forbidden}`);
+  }
   await access(join(packageRoot, "bin", "nelos-mcp"), constants.X_OK);
 });
 

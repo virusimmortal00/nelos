@@ -23,7 +23,6 @@ complete -c nelos -n __fish_use_subcommand -a web -d 'Coordinate a task web'
 complete -c nelos -n __fish_use_subcommand -a plan -d 'Validate and route a slice plan'
 complete -c nelos -n __fish_use_subcommand -a worktree -d 'Manage isolated writer worktrees'
 complete -c nelos -n __fish_use_subcommand -a intelligence -d 'Route an intelligence profile'
-complete -c nelos -n __fish_use_subcommand -a desktop-test -d 'Run a disposable Desktop smoke scenario set'
 complete -c nelos -n __fish_use_subcommand -a doctor -d 'Diagnose the local distribution'
 
 complete -c nelos -n '__fish_seen_subcommand_from title; and not __fish_seen_subcommand_from set get' -a 'set get'
@@ -57,10 +56,6 @@ complete -c nelos -n '__fish_seen_subcommand_from list' -l search -r
 complete -c nelos -n '__fish_seen_subcommand_from archive' -l detach
 complete -c nelos -n '__fish_seen_subcommand_from archive' -l restore-detached
 complete -c nelos -n '__fish_seen_subcommand_from doctor' -l codex -r
-complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l candidate -r
-complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l scenario-set -r
-complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l run-id -r
-complete -c nelos -n '__fish_seen_subcommand_from desktop-test' -l bundle-output -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l id -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l title -r
 complete -c nelos -n '__fish_seen_subcommand_from web' -l registry-only

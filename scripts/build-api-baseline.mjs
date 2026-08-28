@@ -22,7 +22,7 @@ const out = resolve(options.out ?? `api-baseline-${options.mode ?? "canary"}.jso
 if ((options.mode ?? "canary") !== "canary") throw new Error("CONFIRMATORY_POWER_AUTHORIZATION_REQUIRED");
 if (!options["runtime-executable"]) throw new Error("runtime-executable is required");
 if (!options["pricing-snapshot"]) throw new Error("pricing-snapshot is required");
-const runtimeProvenance = await measureRuntimeProvenance({ executablePath: resolve(options["runtime-executable"]), backend: options.backend ?? "dedicated-desktop", platform: options.platform ?? "macos-arm64", expectedExecutableDigest: options["expected-runtime-digest"] ?? null });
+const runtimeProvenance = await measureRuntimeProvenance({ executablePath: resolve(options["runtime-executable"]), backend: options.backend ?? "oci-headless", platform: options.platform ?? "linux-amd64", expectedExecutableDigest: options["expected-runtime-digest"] ?? null });
 const bundle = createApiBaselineBundle({
   mode: "canary",
   sourceCommit: options["source-commit"],

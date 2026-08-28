@@ -38,13 +38,9 @@ export const REQUIRED_CLI_COMMANDS = [
   "worktree integration",
   "intelligence route",
   "intelligence verify",
-  "desktop-test",
 ];
 export const MANAGED_CLI_BINS = Object.freeze({
   "nelos": "bin/nelos",
-  "nelos-capture-screen": "bin/nelos-capture-screen",
-  "nelos-desktop-gui-driver": "bin/nelos-desktop-gui-driver",
-  "nelos-validate-visual-state": "bin/nelos-validate-visual-state",
   "nelos-experiment": "bin/nelos-experiment",
   "nelos-title": "bin/nelos-title",
   "nelos-install-skill": "bin/nelos-install-skill",
@@ -68,7 +64,6 @@ export const DISTRIBUTION_ENTRIES = [
   "evals",
   "package.json",
   "scripts/evaluate-routing-scenarios.mjs",
-  "scripts/stage-production-desktop-candidate.mjs",
   "skills",
   "src",
   "validation/desktop-smoke",
@@ -269,7 +264,7 @@ async function selectedDistributionFiles(root, {
   allowLegacyWithoutCorpus = false,
   allowLegacyWithoutAgentPluginLayout = false,
 } = {}) {
-  const requireDesktopSmokeEntries = await requiresDesktopSmokeEntries(root);
+  const requireCertificationEntries = await requiresCertificationEntries(root);
   let omitLegacyAgentPluginLayout = false;
   if (allowLegacyWithoutAgentPluginLayout) {
     const presence = await Promise.all(
@@ -305,11 +300,7 @@ async function selectedDistributionFiles(root, {
     try {
       files.push(...(await listIntegrityFiles(root, entry)));
     } catch (error) {
-      if (
-        error.code === "ENOENT" &&
-        !requireDesktopSmokeEntries &&
-        ["scripts/stage-production-desktop-candidate.mjs", "validation/desktop-smoke"].includes(entry)
-      ) continue;
+      if (error.code === "ENOENT" && !requireCertificationEntries && entry === "validation/desktop-smoke") continue;
       throw error;
     }
   }
@@ -317,7 +308,7 @@ async function selectedDistributionFiles(root, {
     .sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
 }
 
-async function requiresDesktopSmokeEntries(root) {
+async function requiresCertificationEntries(root) {
   try {
     const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(version ?? "");

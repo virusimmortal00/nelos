@@ -301,9 +301,8 @@ same sealed manifest expansion used by `nelos-experiment`; it is also the offlin
 end-to-end fixture driver for success, regression, infrastructure outage,
 interruption, incompatible provenance, and deterministic report regeneration.
 Release jobs add a closed canary binding over exact Codex and plugin versions,
-source commit, runtime lock, generated schema, and compatibility bundle. Desktop
-jobs remain manual and run only on `self-hosted`, `macOS`, and
-`nelos-dedicated-desktop` labeled workers.
+source commit, runtime lock, generated schema, and compatibility bundle.
+Interactive runtime jobs are operated outside public Nelos CI.
 
 Shards contain disjoint deterministic trial identities. A merger verifies the
 same experiment, corpus, runtime policy, collector, and grader provenance and

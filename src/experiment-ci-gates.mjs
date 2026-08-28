@@ -13,7 +13,6 @@ const LANES = {
   regression: { trigger: "nightly", taskBudget: 8, repetitions: 2, shardCount: 4, maxConcurrency: 2, maxStarts: 32, network: "sealed-task-policy", credentials: "runtime-only", isolatedHomes: true },
   powered: { trigger: "weekly-or-manual", taskBudget: 32, repetitions: 10, shardCount: 8, maxConcurrency: 4, maxStarts: 640, network: "sealed-task-policy", credentials: "runtime-only", isolatedHomes: true },
   "release-canary": { trigger: "release", taskBudget: 4, repetitions: 2, shardCount: 1, maxConcurrency: 1, maxStarts: 16, network: "sealed-task-policy", credentials: "runtime-only", isolatedHomes: true },
-  desktop: { trigger: "manual-or-release", taskBudget: 1, repetitions: 1, shardCount: 1, maxConcurrency: 1, maxStarts: 1, network: "dedicated-worker-policy", credentials: "worker-lease", isolatedHomes: true },
 };
 
 export const EXPERIMENT_CI_LANES = Object.freeze(Object.fromEntries(
