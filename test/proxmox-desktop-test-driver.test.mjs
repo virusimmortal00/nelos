@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createDesktopSmokeEvidenceBundleV1, DESKTOP_SMOKE_DIAGNOSTIC_LIMITS_V1 } from "nelos/desktop-smoke-evidence-contract";
-import { createProxmoxDesktopDriverV1, ProxmoxDesktopDriverError, validateProxmoxDesktopDriverConfigV1 } from "nelos/proxmox-desktop-test-driver";
+import { parseMachineDesktopDriverResponseV1 } from "../src/machine-desktop-smoke-adapter.mjs";
+import { createProxmoxDesktopDriverV1, ProxmoxDesktopDriverError, validateProxmoxDesktopDriverConfigV1, writeProxmoxDesktopDriverErrorV1 } from "nelos/proxmox-desktop-test-driver";
 
 const requested = Object.freeze({ version: "0.12.20", digest: `sha256:${"a".repeat(64)}`, sourceRevision: "b".repeat(40) });
 const runId = "release-run-1";
@@ -88,10 +89,28 @@ test("closed request/config shapes, template identity, clone collision, and stor
 });
 
 test("jq absence blocks every provider path before dispatch and preflight failures remain safely retryable", async (t) => {
-  let providerCalls = 0; const missing = await state(t, { async verifyJq() { throw new ProxmoxDesktopDriverError("JQ_UNAVAILABLE", "jq missing", { retryDisposition: "safe_before_dispatch" }); }, async listResources() { providerCalls += 1; return []; } });
-  await assert.rejects(cloneAndInstall(missing), (error) => error.code === "JQ_UNAVAILABLE"); assert.equal(providerCalls, 0);
-  let reads = 0; const safe = await state(t, { async listResources() { reads += 1; if (reads === 1) throw new ProxmoxDesktopDriverError("API_UNAVAILABLE", "safe", { retryDisposition: "safe_before_dispatch" }); return [{ vmid: 9100, name: "nelos-template", node: "pve-desktop", template: 1 }]; } });
-  await assert.rejects(cloneAndInstall(safe), (error) => error.code === "API_UNAVAILABLE"); const clone = await cloneAndInstall(safe); assert.equal(clone.runId, runId); assert.equal(reads, 2); assert.equal(safe.calls.filter(([kind]) => kind === "clone").length, 1);
+  let providerCalls = 0; const missing = await state(t, { async verifyJq() { throw new ProxmoxDesktopDriverError("JQ_UNAVAILABLE", "jq missing"); }, async listResources() { providerCalls += 1; return []; } });
+  await assert.rejects(cloneAndInstall(missing), (error) => error.code === "JQ_UNAVAILABLE" && error.details?.retryDisposition === "safe_before_dispatch"); assert.equal(providerCalls, 0);
+  let reads = 0; const safe = await state(t, { async listResources() { reads += 1; if (reads === 1) throw new ProxmoxDesktopDriverError("API_UNAVAILABLE", "safe"); return [{ vmid: 9100, name: "nelos-template", node: "pve-desktop", template: 1 }]; } });
+  await assert.rejects(cloneAndInstall(safe), (error) => error.code === "API_UNAVAILABLE" && error.details?.retryDisposition === "safe_before_dispatch"); const clone = await cloneAndInstall(safe); assert.equal(clone.runId, runId); assert.equal(reads, 2); assert.equal(safe.calls.filter(([kind]) => kind === "clone").length, 1);
+});
+
+test("every post-dispatch clone failure destroys the exact disposable VM and independently proves absence", async (t) => {
+  const failures = [
+    { name: "clone task polling", overrides: { async cloneVm() { throw new ProxmoxDesktopDriverError("PROXMOX_TASK_FAILED", "clone polling failed"); } } },
+    { name: "start", overrides: { async startVm() { throw new ProxmoxDesktopDriverError("PROXMOX_TASK_FAILED", "start failed"); } } },
+    { name: "guest preparation", overrides: { async guest() { throw new ProxmoxDesktopDriverError("GUEST_PREPARE_FAILED", "prepare failed"); } } },
+  ];
+  for (const injected of failures) {
+    await t.test(injected.name, async (t) => {
+      const value = await state(t, injected.overrides);
+      await assert.rejects(cloneAndInstall(value), (error) => error.details?.retryDisposition === "ambiguous_after_dispatch");
+      assert.equal(value.calls.filter(([kind]) => kind === "destroy").length, 1);
+      assert.equal(value.calls.filter(([kind]) => kind === "resources").length, 2);
+    });
+  }
+  const ambiguous = await state(t, { async cloneVm() { throw new ProxmoxDesktopDriverError("PROXMOX_TASK_FAILED", "clone polling failed"); }, async destroyVm() { throw new ProxmoxDesktopDriverError("DESTROY_FAILED", "destroy failed"); } });
+  await assert.rejects(cloneAndInstall(ambiguous), (error) => error.code === "CLEANUP_NOT_PROVEN" && error.details?.retryDisposition === "ambiguous_after_dispatch");
 });
 
 test("candidate installation and loaded Desktop identity bind version, digest, revision, and exclusivity", async (t) => {
@@ -114,8 +133,34 @@ test("scenario deadline and ambiguous submission dispatch are never retried", as
   // The changed scenario is rejected before dispatch; the canonical scenario with a bounded controller deadline times out after dispatch.
   await assert.rejects(value.driver.dispatch(request("execute-scenario-vm", { operationId: "op:changed", clone, scenario, deadlines: { scenarioMs: 10, actionMs: 10 }, maxActionAttempts: 2 })), /canonical/u);
   const canonical = value.scenarioLibrary.scenarios[1];
-  await assert.rejects(value.driver.dispatch(request("execute-scenario-vm", { operationId: "op:ambiguous", clone, scenario: canonical, deadlines: { scenarioMs: 10, actionMs: 10 }, maxActionAttempts: 2 })), (error) => error.code === "PROVIDER_DEADLINE_EXCEEDED");
+  await assert.rejects(value.driver.dispatch(request("execute-scenario-vm", { operationId: "op:ambiguous", clone, scenario: canonical, deadlines: { scenarioMs: 10, actionMs: 10 }, maxActionAttempts: 2 })), (error) => error.code === "PROVIDER_DEADLINE_EXCEEDED" && error.details?.retryDisposition === "ambiguous_after_dispatch");
   await assert.rejects(value.driver.dispatch(request("execute-scenario-vm", { operationId: "op:ambiguous", clone, scenario: canonical, deadlines: { scenarioMs: 10, actionMs: 10 }, maxActionAttempts: 2 })), (error) => error.code === "AMBIGUOUS_AFTER_DISPATCH"); assert.equal(scenarioCalls, 1);
+});
+
+test("passed scenario receipts require every canonical action and assertion exactly once and passed", async (t) => {
+  const value = await state(t); const clone = await cloneAndInstall(value); const scenario = value.scenarioLibrary.scenarios[0];
+  const complete = () => ({ scenarioId: scenario.scenarioId, operationId: "unused", outcome: "passed", failure: null, assertionResults: scenario.assertions.map(({ assertionId }) => ({ assertionId, outcome: "passed", code: "ASSERTION_PASSED" })), actionReceipts: scenario.actions.map(({ actionId }) => ({ actionId, outcome: "completed", attempts: 1, submissionState: actionId.startsWith("submit-") ? "submitted" : "not_applicable" })) });
+  const variants = [
+    (receipt) => { receipt.assertionResults.pop(); },
+    (receipt) => { receipt.assertionResults[1] = structuredClone(receipt.assertionResults[0]); },
+    (receipt) => { receipt.actionReceipts[0].outcome = "skipped"; },
+    (receipt) => { receipt.assertionResults[0].outcome = "failed"; },
+  ];
+  for (const [index, mutate] of variants.entries()) {
+    const operationId = `op:invalid-scenario:${index}`; const receipt = complete(); receipt.operationId = operationId; mutate(receipt);
+    value.runtime.guest = async () => receipt;
+    await assert.rejects(value.driver.dispatch(request("execute-scenario-vm", { operationId, clone, scenario, deadlines: { scenarioMs: scenario.deadlineMs, actionMs: Math.min(300000, scenario.deadlineMs) }, maxActionAttempts: 2 })), (error) => error.code === "INVALID_GUEST_RECEIPT" && error.details?.retryDisposition === "ambiguous_after_dispatch");
+  }
+});
+
+test("CLI error framing preserves only typed retry disposition through the machine adapter boundary", async (t) => {
+  const missing = await state(t, { async verifyJq() { throw new ProxmoxDesktopDriverError("JQ_UNAVAILABLE", "jq missing"); } });
+  let jqError; try { await cloneAndInstall(missing); } catch (error) { jqError = error; }
+  let wire = ""; writeProxmoxDesktopDriverErrorV1({ write(chunk) { wire += chunk; } }, jqError);
+  assert.throws(() => parseMachineDesktopDriverResponseV1({ status: 1, stdout: wire, operation: "clone-template-vm" }), (error) => error.code === "JQ_UNAVAILABLE" && error.details?.retryDisposition === "safe_before_dispatch");
+  wire = ""; writeProxmoxDesktopDriverErrorV1({ write(chunk) { wire += chunk; } }, new ProxmoxDesktopDriverError("OPERATION_LOST", "lost", { retryDisposition: "ambiguous_after_dispatch", unsafe: "discarded" }));
+  assert.throws(() => parseMachineDesktopDriverResponseV1({ status: 1, stdout: wire, operation: "execute-scenario-vm" }), (error) => error.code === "OPERATION_LOST" && error.details?.retryDisposition === "ambiguous_after_dispatch");
+  assert.throws(() => parseMachineDesktopDriverResponseV1({ status: 1, stdout: '{"schemaVersion":1,"error":{"code":"JQ_UNAVAILABLE","message":"jq missing","details":{"retryDisposition":"safe_before_dispatch","extra":true}}}\n', operation: "clone-template-vm" }), (error) => error.code === "DESKTOP_DRIVER_FAILED");
 });
 
 function stateGuestFallback() { throw new Error("unused"); }
@@ -125,7 +170,7 @@ test("unsafe or altered evidence and review material are rejected while determin
   const packageRequest = request("package-evidence-vm", { operationId: "op:package", clone, runId, scenarioIds: value.scenarioLibrary.scenarios.map(({ scenarioId }) => scenarioId) });
   const first = await value.driver.dispatch(packageRequest); const second = await value.driver.dispatch(packageRequest); assert.deepEqual(first, second); assert.equal(value.calls.filter(([, operation]) => operation === "package-sanitized-evidence").length, 1);
   const unsafe = await state(t, { async guest(operation, payload) { if (operation === "prepare-clone") return { prepared: true, accountId: payload.accountId, guestCodexHome: payload.guestCodexHome }; if (operation === "install-candidate") return { identity: requested, digestVerified: true, exclusive: true }; if (operation === "package-sanitized-evidence") return { runId, bundleBase64: Buffer.from("{}").toString("base64"), sanitized: true, rawCapturesRemoved: true, temporaryMaterialRemoved: true }; throw new Error("unexpected"); } });
-  const unsafeClone = await cloneAndInstall(unsafe); await assert.rejects(unsafe.driver.dispatch(request("package-evidence-vm", { operationId: "op:unsafe", clone: unsafeClone, runId, scenarioIds: unsafe.scenarioLibrary.scenarios.map(({ scenarioId }) => scenarioId) })), /evidence|canonical|contract/iu);
+  const unsafeClone = await cloneAndInstall(unsafe); await assert.rejects(unsafe.driver.dispatch(request("package-evidence-vm", { operationId: "op:unsafe", clone: unsafeClone, runId, scenarioIds: unsafe.scenarioLibrary.scenarios.map(({ scenarioId }) => scenarioId) })), (error) => error.code === "INVALID_EVIDENCE_CONTRACT" && error.details?.retryDisposition === "ambiguous_after_dispatch");
   const bytes = Buffer.from([1, 2, 3]); const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   const context = { schemaVersion: 1, manifestContext: { bundleId: "bundle-1", runId, bundleDigest: `sha256:${"e".repeat(64)}`, format: "nelos-desktop-smoke-evidence-v1", totals: { recordCount: 1, fileCount: 1, fileBytes: 3, diagnosticCount: 0, diagnosticBytes: 0 } }, screenshots: [{ artifactId: "shot-1", scenarioId: "planning-lifecycle", checkpointId: "plan-ready-state", evidenceDigest: digest, mediaType: "image/png", byteLength: 3, width: 1, height: 1, bytes }] };
   assert.deepEqual(await value.driver.dispatch(request("review-sanitized-bundle", context)), { schemaVersion: 1, outcome: "clean", findings: [] });

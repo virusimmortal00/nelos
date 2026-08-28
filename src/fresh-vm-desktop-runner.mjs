@@ -96,6 +96,7 @@ function validateScenarioReceipt(receipt, scenario) {
     identifier(assertion.code, "scenario assertion code");
     assertionIds.add(assertion.assertionId);
   }
+  if (assertionIds.size !== expectedAssertions.size) fail("INVALID_FRESH_VM_RECEIPT", "scenario assertion receipt inventory is incomplete");
   const expectedActions = new Map(scenario.actions.map((action) => [action.actionId, action]));
   const seen = new Set();
   for (const action of receipt.actionReceipts) {
@@ -103,10 +104,13 @@ function validateScenarioReceipt(receipt, scenario) {
     if (!expectedActions.has(action.actionId) || seen.has(action.actionId) || !["completed", "failed", "timed_out", "skipped"].includes(action.outcome) || !Number.isSafeInteger(action.attempts) || action.attempts < 1 || action.attempts > 2 || !["not_applicable", "not_submitted", "submitted"].includes(action.submissionState)) fail("INVALID_FRESH_VM_RECEIPT", "action receipt is invalid or ambiguous");
     seen.add(action.actionId);
   }
+  if (seen.size !== expectedActions.size) fail("INVALID_FRESH_VM_RECEIPT", "scenario action receipt inventory is incomplete");
   if (receipt.failure !== null) {
     exact(receipt.failure, ["code"], "scenario failure");
     identifier(receipt.failure.code, "scenario failure code");
   }
+  const passed = receipt.assertionResults.every(({ outcome }) => outcome === "passed") && receipt.actionReceipts.every(({ outcome }) => outcome === "completed");
+  if ((receipt.outcome === "passed") !== passed || (receipt.outcome === "passed") !== (receipt.failure === null)) fail("INVALID_FRESH_VM_RECEIPT", "scenario passed outcome is inconsistent with complete action and assertion results");
   return {
     scenarioId: receipt.scenarioId,
     outcome: receipt.outcome,

@@ -43,7 +43,7 @@ async function fixture(t, { scenarioCount = 2, overrides = {} } = {}) {
       calls.push(["scenario", payload.operationId]);
       return {
         scenarioId: payload.scenario.scenarioId, operationId: payload.operationId, outcome: "passed", failure: null,
-        assertionResults: [], actionReceipts: payload.scenario.actions.map(({ actionId }) => ({ actionId, outcome: "completed", attempts: 1, submissionState: "not_applicable" })),
+        assertionResults: payload.scenario.assertions.map(({ assertionId }) => ({ assertionId, outcome: "passed", code: "ASSERTION_PASSED" })), actionReceipts: payload.scenario.actions.map(({ actionId }) => ({ actionId, outcome: "completed", attempts: 1, submissionState: "not_applicable" })),
       };
     },
     async packageEvidence(payload) { calls.push(["package", payload.operationId]); return { runId, bundle: evidence(scenarios.map(({ scenarioId }) => scenarioId)), sanitized: true, rawCapturesRemoved: true, temporaryMaterialRemoved: true }; },
@@ -80,7 +80,7 @@ test("partial failure and crash outcomes remain packaged and cleanup-proven", as
   const state = await fixture(t, { overrides: {
     async executeScenario(payload) {
       invocation += 1;
-      return { scenarioId: payload.scenario.scenarioId, operationId: payload.operationId, outcome: invocation === 1 ? "failed" : "crashed", failure: { code: invocation === 1 ? "ASSERTION_FAILURE" : "DESKTOP_CRASH" }, assertionResults: [], actionReceipts: payload.scenario.actions.map(({ actionId }) => ({ actionId, outcome: "failed", attempts: 1, submissionState: "not_applicable" })) };
+      return { scenarioId: payload.scenario.scenarioId, operationId: payload.operationId, outcome: invocation === 1 ? "failed" : "crashed", failure: { code: invocation === 1 ? "ASSERTION_FAILURE" : "DESKTOP_CRASH" }, assertionResults: payload.scenario.assertions.map(({ assertionId }) => ({ assertionId, outcome: "failed", code: "ASSERTION_FAILED" })), actionReceipts: payload.scenario.actions.map(({ actionId }) => ({ actionId, outcome: "failed", attempts: 1, submissionState: "not_applicable" })) };
     },
     async packageEvidence() { return { runId, bundle: evidence(["scenario-1", "scenario-2"], "failed"), sanitized: true, rawCapturesRemoved: true, temporaryMaterialRemoved: true }; },
   } });
@@ -105,6 +105,25 @@ test("malformed driver data and bundle verification failure become diagnostic re
 
   const invalidBundle = await fixture(t, { scenarioCount: 1, overrides: { async packageEvidence() { return { runId, bundle: Buffer.from("{}"), sanitized: true, rawCapturesRemoved: true, temporaryMaterialRemoved: true }; } } });
   assert.equal((await run(invalidBundle)).diagnostic.code, "INVALID_EVIDENCE_CONTRACT");
+});
+
+test("runner rejects vacuous, duplicate, or incomplete passed scenario results", async (t) => {
+  const mutations = [
+    (receipt) => { receipt.assertionResults = []; },
+    (receipt) => { receipt.assertionResults[1] = structuredClone(receipt.assertionResults[0]); },
+    (receipt) => { receipt.actionReceipts[0].outcome = "skipped"; },
+    (receipt) => { receipt.assertionResults[0].outcome = "failed"; },
+  ];
+  for (const mutate of mutations) {
+    const state = await fixture(t, { scenarioCount: 1 });
+    state.adapter.executeScenario = async (payload) => {
+      const receipt = { scenarioId: payload.scenario.scenarioId, operationId: payload.operationId, outcome: "passed", failure: null, assertionResults: payload.scenario.assertions.map(({ assertionId }) => ({ assertionId, outcome: "passed", code: "ASSERTION_PASSED" })), actionReceipts: payload.scenario.actions.map(({ actionId }) => ({ actionId, outcome: "completed", attempts: 1, submissionState: "not_applicable" })) };
+      mutate(receipt); return receipt;
+    };
+    const result = await run(state);
+    assert.equal(result.diagnostic.code, "INVALID_FRESH_VM_RECEIPT");
+    assert.equal(result.cleanup.independentlyVerified, true);
+  }
 });
 
 test("lost scenario operations are never retried ambiguously", async (t) => {

@@ -270,7 +270,7 @@ export function runDesktopBundleAssertionsV1({ bundle, expectations, execution }
   const invariantResults = {
     all_scenarios_declared: records.run?.scenarioIds.length === expected.scenarioOutcomes.length && records.run.scenarioIds.every((scenarioId) => actualScenarioOutcomes.has(scenarioId)),
     all_checkpoints_captured: records.checkpoints.every(({ outcome }) => outcome === "captured"),
-    all_assertions_passed: records.assertions.every(({ outcome }) => outcome === "passed"),
+    all_assertions_passed: records.assertions.length > 0 && new Set(records.assertions.map(({ scenarioId }) => scenarioId)).size === expected.scenarioOutcomes.length && expected.scenarioOutcomes.every(({ scenarioId }) => records.assertions.some((assertion) => assertion.scenarioId === scenarioId)) && records.assertions.every(({ outcome }) => outcome === "passed"),
     screenshots_sanitized: records.artifacts.filter(({ kind }) => kind === "screenshot").every(({ protection }) => protection?.attested === true && protection?.outputSanitized === true && protection?.sourcePixelsRetained === false),
     cleanup_proven: cleanupProven,
   };

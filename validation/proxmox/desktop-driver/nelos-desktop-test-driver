@@ -1,4 +1,4 @@
 #!/usr/bin/node
-import { runProxmoxDesktopDriverCliV1 } from "/usr/local/lib/nelos-provider-driver/src/proxmox-desktop-test-driver.mjs";
+import { runProxmoxDesktopDriverCliV1, writeProxmoxDesktopDriverErrorV1 } from "/usr/local/lib/nelos-provider-driver/src/proxmox-desktop-test-driver.mjs";
 
-runProxmoxDesktopDriverCliV1().catch(() => { process.exitCode = 1; });
+runProxmoxDesktopDriverCliV1().catch((error) => { writeProxmoxDesktopDriverErrorV1(process.stdout, error); process.exitCode = 1; });

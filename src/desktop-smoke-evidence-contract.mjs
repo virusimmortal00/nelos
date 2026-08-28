@@ -469,8 +469,10 @@ export function deriveDesktopSmokeReviewResultV1({ manifest, run, checkpoints, a
   const manifestArtifacts = normalizedManifest.files.map(({ artifactId }) => artifactId).sort();
   if (expectedRecords.length !== manifestRecords.length || expectedRecords.some((item, index) => item !== manifestRecords[index]) || expectedArtifacts.length !== manifestArtifacts.length || expectedArtifacts.some((item, index) => item !== manifestArtifacts[index])) fail("INVALID_EVIDENCE_RELATIONSHIP", "review inputs do not reproduce the bundle manifest inventory");
   const failed = normalizedAssertions.filter(({ outcome }) => outcome === "failed").length;
+  const assertionScenarios = new Set(normalizedAssertions.map(({ scenarioId }) => scenarioId));
   const reasons = [];
   if (normalizedRun.outcome !== "passed") reasons.push("RUN_FAILED");
+  if (normalizedAssertions.length === 0 || normalizedRun.scenarioIds.some((scenarioId) => !assertionScenarios.has(scenarioId))) reasons.push("ASSERTION_INCOMPLETE");
   if (failed > 0) reasons.push("ASSERTION_FAILED");
   if (normalizedCheckpoints.some(({ outcome }) => outcome !== "captured")) reasons.push("CHECKPOINT_INCOMPLETE");
   const result = {

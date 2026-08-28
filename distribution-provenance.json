@@ -4,7 +4,7 @@
   "revision": "0.12.20",
   "sourceRepository": "https://github.com/virusimmortal00/nelos.git",
   "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.12.20",
-  "integrity": "sha256:889014ef20f26ca50a878cf8c4197471032d53e2f79b692665425ef7a0ee8511",
+  "integrity": "sha256:6714bc98887bd296b546b528c8c329c9115200c713eaa28df243c4c865775c7d",
   "skillIntegrity": "sha256:cccfd30052787baa02455ca63132633c2ce9caa19a7ff6969c203aebc32c843d",
   "requiredCliCommands": [
     "doctor",

@@ -7,12 +7,27 @@ export const DEFAULT_DESKTOP_SMOKE_DRIVER = "/usr/local/libexec/nelos-desktop-te
 const OPERATIONS = new Set(["clone-template", "install-candidate", "launch-desktop", "read-loaded-identity", "run-scenario", "collect-evidence", "destroy-clone", "verify-absent"]);
 const FRESH_VM_OPERATIONS = new Set(["clone-template-vm", "install-candidate-vm", "read-loaded-identity-vm", "execute-scenario-vm", "package-evidence-vm", "destroy-clone-vm", "verify-absent-vm"]);
 const REVIEW_OPERATION = "review-sanitized-bundle";
+const ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 async function verifyDriver(path) {
   const info = await lstat(path).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink() || info.uid !== 0 || (info.mode & 0o022) !== 0 || (info.mode & 0o111) === 0) {
     throw new DesktopSmokeError("DESKTOP_DRIVER_UNAVAILABLE", "the fixed machine-local Desktop smoke driver is absent or not trusted");
   }
+}
+
+export function parseMachineDesktopDriverResponseV1({ status, stdout, operation }) {
+  if (!Number.isInteger(status) || typeof stdout !== "string" || typeof operation !== "string") throw new DesktopSmokeError("DESKTOP_DRIVER_FAILED", "machine-local Desktop smoke driver response framing is invalid");
+  let value;
+  try { value = JSON.parse(stdout); }
+  catch { throw new DesktopSmokeError("DESKTOP_DRIVER_FAILED", status === 0 ? "machine-local Desktop smoke driver returned invalid JSON" : `machine-local Desktop smoke driver failed during ${operation}`); }
+  if (status === 0) return value;
+  const rootFields = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).sort() : [];
+  const errorFields = value?.error && typeof value.error === "object" && !Array.isArray(value.error) ? Object.keys(value.error).sort() : [];
+  const details = value?.error?.details;
+  const detailsValid = details === null || (details && typeof details === "object" && !Array.isArray(details) && Object.keys(details).length === 1 && Object.keys(details)[0] === "retryDisposition" && ["safe_before_dispatch", "ambiguous_after_dispatch"].includes(details.retryDisposition));
+  if (rootFields.join(",") !== "error,schemaVersion" || value.schemaVersion !== 1 || errorFields.join(",") !== "code,details,message" || !ERROR_CODE.test(value.error.code) || typeof value.error.message !== "string" || value.error.message.length < 1 || value.error.message.length > 240 || !detailsValid) throw new DesktopSmokeError("DESKTOP_DRIVER_FAILED", `machine-local Desktop smoke driver returned a malformed error during ${operation}`);
+  throw new DesktopSmokeError(value.error.code, value.error.message, details === null ? null : { retryDisposition: details.retryDisposition });
 }
 
 async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000, maxOutputBytes = 1024 * 1024 } = {}) {
@@ -48,9 +63,8 @@ async function invoke(path, operation, payload, { timeoutMs = 15 * 60 * 1_000, m
     });
     child.once("error", () => finish(new DesktopSmokeError("DESKTOP_DRIVER_FAILED", "machine-local Desktop smoke driver could not start")));
     child.once("close", (status) => {
-      if (status !== 0) { finish(new DesktopSmokeError("DESKTOP_DRIVER_FAILED", `machine-local Desktop smoke driver failed during ${operation}`)); return; }
-      try { finish(null, JSON.parse(stdout)); }
-      catch { finish(new DesktopSmokeError("DESKTOP_DRIVER_FAILED", "machine-local Desktop smoke driver returned invalid JSON")); }
+      try { finish(null, parseMachineDesktopDriverResponseV1({ status, stdout, operation })); }
+      catch (error) { finish(error); }
     });
     child.stdin.on("error", () => finish(new DesktopSmokeError("DESKTOP_DRIVER_FAILED", `machine-local Desktop smoke driver closed its input during ${operation}`)));
     child.stdin.end(`${JSON.stringify({ schemaVersion: 1, operation, payload })}\n`);

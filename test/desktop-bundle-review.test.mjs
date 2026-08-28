@@ -43,7 +43,7 @@ const defects = Object.freeze([
   ["inconsistent", "VISUAL_INCONSISTENCY", "warning", "Visual treatment is inconsistent with adjacent checkpoints."],
 ]);
 
-function fixture({ invalidPng = false, assertionOutcome = "passed" } = {}) {
+function fixture({ invalidPng = false, assertionOutcome = "passed", includeAssertions = true } = {}) {
   const runId = "run-review-1";
   const scenarioIds = defects.map(([name]) => `scenario-${name}`);
   const screenshots = new Map(); const artifacts = []; const checkpoints = []; const assertions = [];
@@ -62,7 +62,7 @@ function fixture({ invalidPng = false, assertionOutcome = "passed" } = {}) {
   });
   const bundle = createDesktopSmokeEvidenceBundleV1({
     run: { schemaVersion: 1, runId, scenarioSetId: "release", candidate: { version: "0.12.20", digest: `sha256:${"a".repeat(64)}`, sourceRevision: "b".repeat(40) }, startedAt: "2026-08-27T12:00:00.000Z", finishedAt: "2026-08-27T12:00:01.000Z", outcome: "passed", scenarioIds: [...scenarioIds].sort(), diagnosticLimits: { ...DESKTOP_SMOKE_DIAGNOSTIC_LIMITS_V1 } },
-    checkpoints, artifacts, assertionResults: assertions, diagnostics: [],
+    checkpoints, artifacts, assertionResults: includeAssertions ? assertions : [], diagnostics: [],
     files: artifacts.map(({ artifactId }) => ({ artifactId, bytes: screenshots.get(artifactId) })),
   });
   const expectations = {
@@ -134,6 +134,15 @@ test("assertion pass verifies decoding, dimensions, checkpoints, outcomes, clean
   assert.ok(failed.checks.some(({ checkId, status }) => checkId === "cleanup-proof" && status === "failed"));
   assert.ok(failed.checks.some(({ checkId, status }) => checkId.startsWith("scenario:") && status === "failed"));
   assert.ok(failed.checks.some(({ code }) => code === "CHECKPOINT_MISSING_OR_INCOMPLETE"));
+});
+
+test("zero assertion evidence fails the assertion pass and prevents independent review", async () => {
+  const state = fixture({ includeAssertions: false });
+  const result = await runDesktopBundleReviewPipelineV1({ ...state, reviewer: createDeterministicReviewerFixtureV1() });
+  assert.equal(result.assertions.status, "failed");
+  assert.ok(result.assertions.checks.some(({ checkId, status }) => checkId === "invariant:all_assertions_passed" && status === "failed"));
+  assert.equal(result.review.status, "not_run");
+  assert.equal(result.review.errorCode, "ASSERTIONS_NOT_PASSED");
 });
 
 test("reviewer receives only verified sanitized artifacts and bounded manifest context", async () => {

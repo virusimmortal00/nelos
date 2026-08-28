@@ -143,6 +143,14 @@ test("V1 run, checkpoint, artifact, assertion, diagnostic, manifest, and review 
   ]) assert.throws(() => validator({ ...value, futureField: true }), /closed schema/u);
 });
 
+test("a passed run with no complete per-scenario assertions is never approved vacuously", () => {
+  const input = fixture();
+  const bundle = createDesktopSmokeEvidenceBundleV1({ run: input.run, checkpoints: [input.checkpoint], artifacts: [input.artifact], assertionResults: [], diagnostics: [input.diagnostic], files: [{ artifactId: input.artifact.artifactId, bytes: input.screenshot }] });
+  const review = deriveDesktopSmokeReviewResultV1({ manifest: bundle.manifest, run: input.run, checkpoints: [input.checkpoint], artifacts: [input.artifact], assertionResults: [], diagnostics: [input.diagnostic] });
+  assert.equal(review.outcome, "rejected");
+  assert.deepEqual(review.reasonCodes, ["ASSERTION_INCOMPLETE"]);
+});
+
 test("canonical bundles are byte-identical for identical normalized inputs and self-verify", () => {
   const first = build();
   const second = build();
