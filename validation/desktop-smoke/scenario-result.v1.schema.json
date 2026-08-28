@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nelos.dev/contracts/desktop-certification/scenario-result.v1.schema.json",
+  "title": "Nelos Desktop certification scenario result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenarioId", "outcome", "assertionTotals"],
+  "properties": {
+    "scenarioId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "outcome": { "enum": ["passed", "failed"] },
+    "assertionTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passed", "failed"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
