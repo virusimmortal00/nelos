@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "api": {
+    "url": "https://pve.example.invalid:8006/api2/json",
+    "node": "pve-desktop",
+    "credentialFile": "/etc/nelos/proxmox-api-token",
+    "caFile": "/etc/ssl/certs/internal-proxmox-ca.pem"
+  },
+  "template": {
+    "vmid": 9100,
+    "name": "nelos-codex-desktop-template",
+    "maintainedTag": "nelos-maintained-desktop-v1",
+    "storageIds": ["local-lvm"]
+  },
+  "disposable": {
+    "vmid": 9199,
+    "name": "nelos-desktop-disposable",
+    "storage": "local-lvm",
+    "guestHost": "nelos-desktop-disposable.test.invalid",
+    "accountPrefix": "nelos-smoke",
+    "codexHomeRoot": "/var/lib/nelos-smoke"
+  },
+  "ssh": {
+    "user": "nelos-driver",
+    "identityFile": "/etc/nelos/guest-driver-ed25519",
+    "knownHostsFile": "/etc/nelos/guest-known-hosts",
+    "guestDriver": "/usr/local/libexec/nelos-desktop-guest-driver",
+    "stagingRoot": "/var/lib/nelos-candidate"
+  },
+  "reviewer": {
+    "executable": "/usr/local/libexec/nelos-sanitized-visual-reviewer"
+  },
+  "stateDirectory": "/var/lib/nelos-proxmox-desktop-driver/operations"
+}

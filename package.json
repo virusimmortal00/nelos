@@ -52,6 +52,7 @@
     "./desktop-bundle-review": "./src/desktop-bundle-review.mjs",
     "./disposable-desktop-smoke": "./src/disposable-desktop-smoke.mjs",
     "./fresh-vm-desktop-runner": "./src/fresh-vm-desktop-runner.mjs",
+    "./proxmox-desktop-test-driver": "./src/proxmox-desktop-test-driver.mjs",
     "./dev-screen-capture": "./src/dev-screen-capture.mjs",
     "./dev-visual-state-validation": "./src/dev-visual-state-validation.mjs"
   },
@@ -69,6 +70,7 @@
     "docs/",
     "evals/",
     "validation/desktop-smoke/",
+    "validation/proxmox/desktop-driver/",
     "scripts/stage-production-desktop-candidate.mjs",
     "scripts/run-desktop-smoke-routine.mjs",
     "scripts/run-desktop-smoke-certification.mjs",
@@ -117,7 +119,7 @@
     "eval:routing": "node scripts/evaluate-routing-scenarios.mjs",
     "desktop-smoke:routine": "node scripts/run-desktop-smoke-routine.mjs",
     "desktop-smoke:certify": "node scripts/run-desktop-smoke-certification.mjs",
-    "check:desktop-smoke": "node --check src/desktop-smoke-contract.mjs && node --check src/desktop-smoke-evidence-contract.mjs && node --check src/desktop-bundle-review.mjs && node --check src/disposable-desktop-smoke.mjs && node --check src/fresh-vm-desktop-runner.mjs && node --check src/machine-desktop-smoke-adapter.mjs && node --check src/desktop-smoke-cli.mjs && node --check scripts/run-desktop-smoke-routine.mjs && node --check scripts/run-desktop-smoke-certification.mjs && node --check src/desktop-gui-scenario-driver/index.mjs && node --check bin/nelos-desktop-gui-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-smoke-contract.test.mjs test/desktop-smoke-evidence-contract.test.mjs test/desktop-bundle-review.test.mjs test/disposable-desktop-smoke.test.mjs test/fresh-vm-desktop-runner.test.mjs test/desktop-gui-scenario-driver.test.mjs test/desktop-smoke-scenario-library.test.mjs test/desktop-smoke-entrypoints.test.mjs"
+    "check:desktop-smoke": "node --check src/desktop-smoke-contract.mjs && node --check src/desktop-smoke-evidence-contract.mjs && node --check src/desktop-bundle-review.mjs && node --check src/disposable-desktop-smoke.mjs && node --check src/fresh-vm-desktop-runner.mjs && node --check src/machine-desktop-smoke-adapter.mjs && node --check src/desktop-smoke-cli.mjs && node --check src/proxmox-desktop-test-driver.mjs && node --check src/proxmox-review-output.mjs && node --check scripts/run-desktop-smoke-routine.mjs && node --check scripts/run-desktop-smoke-certification.mjs && node --check src/desktop-gui-scenario-driver/index.mjs && node --check bin/nelos-desktop-gui-driver && node --check bin/nelos-proxmox-desktop-test-driver && node --import ./scripts/test-bootstrap.mjs --test test/desktop-smoke-contract.test.mjs test/desktop-smoke-evidence-contract.test.mjs test/desktop-bundle-review.test.mjs test/disposable-desktop-smoke.test.mjs test/fresh-vm-desktop-runner.test.mjs test/desktop-gui-scenario-driver.test.mjs test/desktop-smoke-scenario-library.test.mjs test/desktop-smoke-entrypoints.test.mjs test/proxmox-desktop-test-driver.test.mjs"
   },
   "engines": {
     "node": ">=20"

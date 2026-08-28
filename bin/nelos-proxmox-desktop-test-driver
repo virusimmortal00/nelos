@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { runProxmoxDesktopDriverCliV1 } from "../src/proxmox-desktop-test-driver.mjs";
+
+runProxmoxDesktopDriverCliV1().catch(() => { process.exitCode = 1; });

@@ -73,3 +73,6 @@ The driver may select any maintained clean Desktop template. It must create a di
 Cleanup ambiguity fails the whole run. Raw pixels, prompts, responses, transcripts, credentials, cookies, tokens, sealed values, and environment data are not accepted in the public result.
 
 This lane is intentionally provider-neutral. A Proxmox installation can use an isolated VNet and stable gateway policy behind the driver without making those implementation details part of the Nelos release contract.
+
+The reviewed-source Proxmox implementation, root installation procedure, and
+closed configuration example are in `validation/proxmox/desktop-driver/`.

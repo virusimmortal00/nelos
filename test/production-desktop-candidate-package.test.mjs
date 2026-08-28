@@ -50,8 +50,8 @@ test("candidate staging produces an immutable external package for the minimal D
   assert.equal(provenance.sourceRevision, revision);
   assert.equal(provenance.integrity, staged.candidateDigest);
   const files = new Set(await listDistributionFiles(staged.packageRoot, { includeProvenance: true }));
-  for (const required of ["bin/nelos", "src/disposable-desktop-smoke.mjs", "src/desktop-smoke-contract.mjs", "validation/desktop-smoke/scenario-sets/release.json"]) assert.equal(files.has(required), true, required);
-  assert.equal([...files].some((path) => path.includes("golden-builder") || path.includes("proxmox-desktop")), false);
+  for (const required of ["bin/nelos", "src/disposable-desktop-smoke.mjs", "src/desktop-smoke-contract.mjs", "src/proxmox-desktop-test-driver.mjs", "validation/desktop-smoke/scenario-sets/release.json", "validation/proxmox/desktop-driver/install.sh", "validation/proxmox/desktop-driver/nelos-desktop-test-driver"]) assert.equal(files.has(required), true, required);
+  assert.equal([...files].some((path) => path.includes("golden-builder")), false);
   assert.equal((await git(source, "status", "--porcelain")).stdout, "");
 });
 

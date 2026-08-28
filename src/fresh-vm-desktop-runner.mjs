@@ -60,7 +60,6 @@ async function bounded(operation, deadlineMs, stage) {
       operation(),
       new Promise((resolve, reject) => {
         timer = setTimeout(() => reject(new DesktopSmokeError("FRESH_VM_DEADLINE_EXCEEDED", `${stage} exceeded its deadline`, { stage })), deadlineMs);
-        timer.unref?.();
       }),
     ]);
   } finally { clearTimeout(timer); }

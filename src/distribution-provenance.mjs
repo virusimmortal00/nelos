@@ -72,6 +72,7 @@ export const DISTRIBUTION_ENTRIES = [
   "skills",
   "src",
   "validation/desktop-smoke",
+  "validation/proxmox/desktop-driver",
 ];
 
 export function materializeGitDistributionProvenance(provenance, { sourceRevision, integrity }) {
@@ -308,7 +309,7 @@ async function selectedDistributionFiles(root, {
       if (
         error.code === "ENOENT" &&
         !requireDesktopSmokeEntries &&
-        ["scripts/stage-production-desktop-candidate.mjs", "validation/desktop-smoke"].includes(entry)
+        ["scripts/stage-production-desktop-candidate.mjs", "validation/desktop-smoke", "validation/proxmox/desktop-driver"].includes(entry)
       ) continue;
       throw error;
     }
