@@ -64,7 +64,8 @@ test("mechanical lint rejects placeholders, missing summary, empty sections and 
 
 test("new release and changed dated notes require review, while Unreleased-only work does not", async (t) => {
   const root = await fixture(t);
-  const same = { root, version, baseVersion: version, baseChangelog: `# Changelog\n\n${notes}` };
+  const same = { root, version, baseVersion: version,
+    baseChangelog: `# Changelog\n\n## Unreleased\n\nPrevious unpublished change.\n\n${notes}` };
   assert.equal((await checkReleaseNotes(same)).editorialReview, "not-required");
   await assert.rejects(checkReleaseNotes({ ...same, requireReview: true }), /Missing or invalid editorial review/);
   await assert.rejects(checkReleaseNotes({ ...same, baseVersion: "0.13.0" }), /Missing or invalid editorial review/);
@@ -77,6 +78,16 @@ test("duplicate sections and unsafe version paths cannot select an unintended ap
   assert.throws(() => extractReleaseNotes(`${notes}\n${notes}`, version), /duplicate/);
   assert.throws(() => extractReleaseNotes(notes, "../../another-file"), /invalid.*version/);
   assert.throws(() => extractReleaseNotes(notes, "0.15.0"), /no dated/);
+});
+
+test("release note versions accept SemVer identifiers and reject malformed segments", () => {
+  for (const candidate of ["1.2.3", "1.2.3-0", "1.2.3-alpha.1", "1.2.3-01a.0-1+build.01", "1.2.3+001"]) {
+    const section = notes.replace(version, candidate);
+    assert.equal(extractReleaseNotes(section, candidate), section);
+  }
+  for (const candidate of ["1.2.3-alpha..1", "1.2.3-alpha.", "1.2.3-.alpha", "1.2.3-01", "1.2.3-alpha.01", "1.2.3+build..1", "1.2.3+build."]) {
+    assert.throws(() => extractReleaseNotes(notes.replace(version, candidate), candidate), /invalid.*version/);
+  }
 });
 
 test("review template is not an approval and engineering jargon is left to editorial judgment", async (t) => {

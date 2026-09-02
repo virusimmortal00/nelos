@@ -5,7 +5,7 @@ import { join } from "node:path";
 export const EDITORIAL_CHECKS = Object.freeze([
   "userValue", "plainLanguage", "publicMigration", "accurateClaims", "scopeSeparation",
 ]);
-const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
+const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const SECTIONS = new Set(["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security", "Upgrade notes", "Known issues"]);
 
 function requireVersion(version) {
