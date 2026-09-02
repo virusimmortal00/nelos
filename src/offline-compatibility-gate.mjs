@@ -349,6 +349,15 @@ function defaultCheckRunners() {
       ]),
     ],
     [
+      "repo.execution-foundation",
+      ({ root }) => runNodeTests(root, [
+        "test/app-server-client.test.mjs",
+        "test/app-server-rpc-dispatcher.test.mjs",
+        "test/app-server-execution-profile.test.mjs",
+        "test/app-server-execution-transport.test.mjs",
+      ]),
+    ],
+    [
       "repo.protocol-contracts",
       ({ root }) => runNodeTests(root, ["test/protocol-contract.test.mjs"]),
     ],

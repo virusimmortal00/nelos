@@ -20,7 +20,7 @@ state reads and exact mutation verification may inform Nelos; an ignored
 notification, idle task, or successful transport write never proves work
 completed or a result was accepted.
 
-Nelos has four distinct App Server profiles:
+Nelos has four existing App Server profiles and a development discovery profile:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
@@ -28,6 +28,7 @@ Nelos has four distinct App Server profiles:
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
+| Execution discovery (development) | One initialized connection, using either transport | Read account configuration, exact model/effort availability, named permission availability, and managed approval-policy constraints | Reduced generated `0.152.0` schema; offline fixtures only. Newer versions are candidates for discovery. Always returns `executionAuthorized:false` and `runtimeCertified:false`; no runtime release is certified for owned execution |
 
 The profiles do not inherit capabilities from one another. In particular, the
 strict bridge fixture does not attest the CLI's `thread/start` or `thread/list`
@@ -139,14 +140,26 @@ only completion evidence for a Nelos web.
 
 ## Notification contract
 
-Nelos sends the required `initialized {}` notification. Both current adapters
-drop all inbound messages without an `id`, so no server notification changes
-application state.
+Nelos sends the required `initialized {}` notification. Both adapters use a
+shared dispatcher that distinguishes replies, notifications, and incoming
+requests before correlating IDs. Incoming requests cannot resolve outgoing
+requests with the same ID. Default clients discard events and reject incoming
+requests with method-not-found; they do not synthesize approval.
+
+Internal integrations can supply `dispatcherOptions.onNotification` and
+`dispatcherOptions.onServerRequest`. Notifications are delivered in order,
+independently of replies and requests. The queue is bounded by count and bytes;
+overflow or handler failure invalidates the connection so the consumer can
+reconcile. Requests have separate capacity and deadlines, carry an AbortSignal,
+and cannot reply after connection close or matching `serverRequest/resolved`.
+Timed-out handlers retain their capacity until they settle. Callbacks must
+cooperate with cancellation. A transport callback is not a verified user
+approval channel or a durable subscription.
 
 Upstream notifications such as `thread/status/changed`, `turn/started`,
 `turn/completed`, `item/started`, `item/completed`, deltas, approvals, and
-`serverRequest/resolved` are therefore available but unsupported by revision 1.
-This is intentional until a durable catch-up contract exists:
+`serverRequest/resolved` do not establish authoritative Nelos lifecycle state.
+That remains outside revision 1 until a durable catch-up contract exists:
 
 - dropped, duplicate, late, or out-of-order notifications cause no Nelos state
   transition;
@@ -184,13 +197,41 @@ This is intentional until a durable catch-up contract exists:
    Never replay blindly. Reconcile by stable task, turn, title, archive state,
    or client message ID where possible; otherwise return attention.
 8. **WebSocket overload.** Upstream documents error `-32001` and retry with
-   backoff for overloaded WebSocket ingress. Nelos does not yet preserve this
-   code. Never infer that a mutation is safe to retry.
+   backoff for overloaded WebSocket ingress. Both transports now preserve
+   numeric RPC codes separately from error text. Never infer that a mutation
+   is safe to retry. MCP and discovery output discard server error bodies;
+   the explicit developer client retains a bounded diagnostic message.
 9. **Installer method failure.** Preserve the coherent disk installation and
    report that a fresh task/restart is required. The under-development live
    refresh is never the installation authority.
 10. **Endpoint absence or invalidity.** Fail closed. Do not launch, replace,
     unlink, or stop an endpoint the client does not own.
+
+## Execution discovery boundary
+
+`CodexAppServerBridgeV1.probeExecution` accepts an explicit local absolute `cwd`,
+model, reasoning effort, named permission profile, scalar approval policy, and
+optional overall timeout (at most 30 seconds). Its four read methods are
+`account/read` with `refreshToken:false`, `model/list`,
+`permissionProfile/list` for that cwd, and `configRequirements/read` with null
+params. The two listings allow at most four pages of 100 entries. Duplicate
+matches, repeated cursors, malformed data, missing routes, disallowed profiles,
+and unsupported methods fail closed. It never substitutes a model or policy.
+
+All reads belong to the same process and connection. Discovery neither retries
+nor reconnects, and initialization is included in its deadline. An account
+record proves only configured authentication, not a successful future API call.
+`discovery-complete` means only that these four checks passed: filesystem target
+ownership, effective sandbox/profile settings, provider readiness, credentials
+at dispatch, required tools, user approval delivery, and runtime certification
+still require executor validation. Managed restrictions remain enforced by
+App Server. This probe is not an MCP launch tool or an authorization receipt.
+
+The [reduced schema inventory](../test/fixtures/app-server-execution-discovery-0.152.0.json)
+records consumed fields and original generated-schema hashes. The
+[owned execution design](mcp-owned-app-server-execution.md) defines the remaining
+service, grant, recovery, and rollout work. No new version is added to the
+existing strict bridge's tested-runtime list by this development profile.
 
 ## Explicit exclusions
 

@@ -802,6 +802,12 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       source: "test/mcp-app-server-bridge.test.mjs",
     }),
     Object.freeze({
+      id: "repo.execution-foundation",
+      evidenceKind: "deterministic-repo",
+      command: "node --test test/app-server-client.test.mjs test/app-server-rpc-dispatcher.test.mjs test/app-server-execution-profile.test.mjs test/app-server-execution-transport.test.mjs",
+      source: "test/app-server-execution-transport.test.mjs",
+    }),
+    Object.freeze({
       id: "repo.protocol-contracts",
       evidenceKind: "deterministic-repo",
       command: "node --test test/protocol-contract.test.mjs",
@@ -960,6 +966,47 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "runtime.stdio-transport",
           "runtime.live-app-server",
         ]),
+      }),
+    }),
+    Object.freeze({
+      id: "app-server.execution-discovery",
+      title: "Development execution discovery and bidirectional transport",
+      dependsOn: Object.freeze(["app-server.strict-bridge"]),
+      globalInvariant: false,
+      // A local generated schema and mock traffic are not runtime certification.
+      supportedCodexReleases: Object.freeze([]),
+      mappings: Object.freeze({
+        owned: Object.freeze([
+          "src/app-server-rpc-dispatcher.mjs",
+          "src/app-server-execution-profile.mjs",
+        ]),
+        shared: Object.freeze([
+          "src/mcp-app-server-bridge.mjs",
+          "src/app-server-client.mjs",
+        ]),
+        test: Object.freeze([
+          "test/app-server-client.test.mjs",
+          "test/app-server-rpc-dispatcher.test.mjs",
+          "test/app-server-execution-profile.test.mjs",
+          "test/app-server-execution-transport.test.mjs",
+          "test/support/mock-app-server.mjs",
+          "test/support/mock-stdio-app-server.mjs",
+          "test/support/execution-probe-fixture.mjs",
+        ]),
+        documentation: Object.freeze([
+          "docs/mcp-owned-app-server-execution.md",
+          "docs/app-server-protocol-research-2026-09-02.json",
+          "docs/app-server-compatibility-contract.md",
+        ]),
+        upstreamDocumentation: Object.freeze([
+          "https://learn.chatgpt.com/docs/app-server",
+        ]),
+        upstreamSource: Object.freeze([]),
+        generatedSchema: Object.freeze([
+          "test/fixtures/app-server-execution-discovery-0.152.0.json",
+        ]),
+        runtime: Object.freeze([]),
+        checks: Object.freeze(["repo.execution-foundation"]),
       }),
     }),
     Object.freeze({

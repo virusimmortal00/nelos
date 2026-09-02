@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "codexVersion": "0.152.0",
+  "capturedAt": "2026-09-02",
+  "runtimeExecutionTested": false,
+  "sourceCommand": "codex app-server generate-json-schema --experimental --out <directory>",
+  "clientRequestSha256": "7443008decd3f978288accbc22da15e18ca20df4aca179c4750f71fdc0d91587",
+  "note": "Reduced field inventory, not a standalone JSON Schema or runtime execution certification. References name definitions in the original generated schemas.",
+  "methods": {
+    "account/read": {
+      "params": {
+        "refreshToken": {
+          "type": "boolean"
+        }
+      },
+      "response": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Account"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requiresOpenaiAuth": {
+          "type": "boolean"
+        }
+      },
+      "consumedDefinitions": {
+        "Account": {
+          "oneOf": [
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "apiKey"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "planType": {
+                  "$ref": "#/definitions/PlanType"
+                },
+                "type": {
+                  "enum": [
+                    "chatgpt"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "email",
+                "planType",
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "amazonBedrock"
+                  ],
+                  "type": "string"
+                },
+                "usesCodexManagedCredentials": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "responseSchemaSha256": "08a7dd8c570c905b0bb6998d43ed133e72e2445f08125f86dfc96887e288701a"
+    },
+    "model/list": {
+      "params": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "includeHidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "response": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/Model"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "consumedDefinitions": {
+        "Model": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "supportedReasoningEfforts": {
+              "items": {
+                "$ref": "#/definitions/ReasoningEffortOption"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "model",
+            "supportedReasoningEfforts"
+          ]
+        },
+        "ReasoningEffortOption": {
+          "type": "object",
+          "properties": {
+            "reasoningEffort": {
+              "$ref": "#/definitions/ReasoningEffort"
+            }
+          },
+          "required": [
+            "reasoningEffort"
+          ]
+        }
+      },
+      "responseSchemaSha256": "c7b58b332f6cf18fd64235409a6daf27bb9e6c09d12dcd0daa2f3dc628b55f6f"
+    },
+    "permissionProfile/list": {
+      "params": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "response": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/PermissionProfileSummary"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "consumedDefinitions": {
+        "PermissionProfileSummary": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "allowed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "id"
+          ]
+        }
+      },
+      "responseSchemaSha256": "4a290b5b9d47c2fc671033e22754671161bc563027ba387e861bd935398f0def"
+    },
+    "configRequirements/read": {
+      "params": {
+        "type": "null"
+      },
+      "response": {
+        "requirements": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ConfigRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "consumedDefinitions": {
+        "ConfigRequirements": {
+          "type": "object",
+          "properties": {
+            "allowedApprovalPolicies": {
+              "items": {
+                "$ref": "#/definitions/AskForApproval"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": []
+        },
+        "AskForApproval": {
+          "oneOf": [
+            {
+              "enum": [
+                "untrusted",
+                "on-request",
+                "never"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "granular": {
+                  "properties": {
+                    "mcp_elicitations": {
+                      "type": "boolean"
+                    },
+                    "request_permissions": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "rules": {
+                      "type": "boolean"
+                    },
+                    "sandbox_approval": {
+                      "type": "boolean"
+                    },
+                    "skill_approval": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "mcp_elicitations",
+                    "rules",
+                    "sandbox_approval"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "granular"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "responseSchemaSha256": "14ae1953f5077a5d37399aa467f6e08c74601af5fa0c4ffc703b8a2858b0cc81"
+    }
+  }
+}

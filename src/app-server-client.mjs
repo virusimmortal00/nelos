@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import net from "node:net";
 import {
+  AppServerRpcDispatcher,
+  appServerResponseError,
+} from "./app-server-rpc-dispatcher.mjs";
+import {
   resolveControlEndpoint,
   validateResolvedControlEndpoint,
 } from "./control-endpoint.mjs";
@@ -75,14 +79,8 @@ function encodeClientFrame(payload, opcode = 0x1) {
   return Buffer.concat([header, mask, masked]);
 }
 
-function formatProtocolError(error) {
-  if (typeof error === "string") return error;
-  if (error && typeof error.message === "string") return error.message;
-  return JSON.stringify(error);
-}
-
 export class AppServerClient {
-  constructor(socketPath, timeoutMs) {
+  constructor(socketPath, timeoutMs, dispatcherOptions = {}) {
     this.socketPath = socketPath;
     this.timeoutMs = timeoutMs;
     this.socket = null;
@@ -93,9 +91,22 @@ export class AppServerClient {
     this.fragmentOpcode = null;
     this.fragments = [];
     this.fragmentBytes = 0;
+    this.dispatcher = new AppServerRpcDispatcher({
+      ...dispatcherOptions,
+      sendResponse: (message) => this.writeMessage(message),
+      onResponse: (message) => this.handleResponse(message),
+      onError: (error) => {
+        this.state = "closed";
+        this.failAll(error);
+        this.socket?.destroy();
+      },
+    });
   }
 
   connect() {
+    if (this.state !== "disconnected") {
+      return Promise.reject(new Error("app-server client can only connect once"));
+    }
     return new Promise((resolve, reject) => {
       const websocketKey = randomBytes(16).toString("base64");
       const expectedAccept = createHash("sha1")
@@ -113,6 +124,11 @@ export class AppServerClient {
       this.socket = net.createConnection(this.socketPath);
       this.socket.setTimeout(this.timeoutMs);
       this.socket.once("error", fail);
+      this.socket.once("close", () => {
+        fail(new Error("app-server closed the connection"));
+        this.state = "closed";
+        this.failAll(new Error("app-server closed the connection"));
+      });
       const handleConnectTimeout = () => {
         fail(new Error(`timed out connecting to ${this.socketPath}`));
         this.socket.destroy();
@@ -136,6 +152,9 @@ export class AppServerClient {
           this.buffer = Buffer.concat([this.buffer, chunk]);
           if (this.state === "handshake") {
             const headerEnd = this.buffer.indexOf("\r\n\r\n");
+            if (headerEnd > 16_384 || (headerEnd === -1 && this.buffer.length > 16_384)) {
+              throw new Error("WebSocket upgrade headers exceed the size limit");
+            }
             if (headerEnd === -1) return;
 
             const headerText = this.buffer.subarray(0, headerEnd).toString("utf8");
@@ -163,12 +182,10 @@ export class AppServerClient {
             this.socket.setTimeout(0);
             this.socket.removeListener("error", fail);
             this.socket.removeListener("timeout", handleConnectTimeout);
-            this.socket.on("error", (error) => this.failAll(error));
-            this.socket.on("close", () => {
-              if (this.state !== "closed") {
-                this.failAll(new Error("app-server closed the connection"));
-              }
+            this.socket.on("error", (error) => {
               this.state = "closed";
+              this.failAll(error);
+              this.socket.destroy();
             });
             settled = true;
             resolve();
@@ -177,6 +194,7 @@ export class AppServerClient {
           if (this.state === "open") this.consumeFrames();
         } catch (error) {
           fail(error);
+          this.state = "closed";
           this.failAll(error);
           this.socket.destroy();
         }
@@ -292,12 +310,15 @@ export class AppServerClient {
       throw new Error(`invalid JSON from app-server: ${error.message}`);
     }
 
-    if (!("id" in message)) return;
+    this.dispatcher.receive(message);
+  }
+
+  handleResponse(message) {
     const pending = this.takePending(message.id);
     if (!pending) return;
 
     if ("error" in message && message.error !== null) {
-      pending.reject(new Error(formatProtocolError(message.error)));
+      pending.reject(appServerResponseError(message.error, { includeMessage: true }));
     } else {
       pending.resolve(message.result);
     }
@@ -316,6 +337,9 @@ export class AppServerClient {
     if (this.state !== "open") {
       return Promise.reject(new Error("app-server connection is not open"));
     }
+    if (this.pending.size >= 256) {
+      return Promise.reject(new Error("app-server request capacity exceeded"));
+    }
     const requestTimeoutMs = parsePositiveInteger(timeoutMs, "request timeout");
     if (
       signal !== null &&
@@ -330,7 +354,6 @@ export class AppServerClient {
 
     const id = this.nextRequestId;
     this.nextRequestId += 1;
-    const payload = JSON.stringify({ method, id, params });
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -347,7 +370,11 @@ export class AppServerClient {
         abort();
         return;
       }
-      this.socket.write(encodeClientFrame(payload));
+      try {
+        this.writeMessage({ method, id, params });
+      } catch (error) {
+        this.takePending(id)?.reject(error);
+      }
     });
   }
 
@@ -356,10 +383,22 @@ export class AppServerClient {
       throw new Error("app-server connection is not open");
     }
     const message = params === undefined ? { method } : { method, params };
-    this.socket.write(encodeClientFrame(JSON.stringify(message)));
+    this.writeMessage(message);
+  }
+
+  writeMessage(message) {
+    if (this.state !== "open" || !this.socket?.writable) {
+      throw new Error("app-server connection is not open");
+    }
+    const payload = JSON.stringify(message);
+    if (Buffer.byteLength(payload) + this.socket.writableLength > MAX_MESSAGE_BYTES) {
+      throw new Error("app-server output capacity exceeded");
+    }
+    this.socket.write(encodeClientFrame(payload));
   }
 
   failAll(error) {
+    this.dispatcher.close();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.signal?.removeEventListener("abort", pending.abort);
@@ -369,10 +408,9 @@ export class AppServerClient {
   }
 
   close() {
-    if (!this.socket) return;
     this.state = "closed";
     this.failAll(new Error("app-server connection closed"));
-    if (!this.socket.destroyed) this.socket.end();
+    if (this.socket && !this.socket.destroyed) this.socket.end();
   }
 }
 
@@ -383,6 +421,7 @@ export async function openAppServerClient({
   resolvedControlEndpoint,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   version = "1.0.0",
+  dispatcherOptions = {},
 }) {
   const parsedTimeout = parsePositiveInteger(timeoutMs, "--timeout-ms");
   if (socketPath != null && resolvedControlEndpoint != null) {
@@ -397,7 +436,7 @@ export async function openAppServerClient({
         "or pass --socket for explicit standalone development",
     );
   }
-  const client = new AppServerClient(resolved.endpoint.path, parsedTimeout);
+  const client = new AppServerClient(resolved.endpoint.path, parsedTimeout, dispatcherOptions);
   client.controlEndpoint = resolved;
   await client.connect();
   try {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  AppServerClient,
   codexTaskUrl,
   openAppServerClient,
   parsePositiveInteger,
@@ -12,6 +13,22 @@ import {
   resolveThreadId,
 } from "../src/app-server-client.mjs";
 import { startMockAppServer } from "./support/mock-app-server.mjs";
+
+test("a saturated socket rejects new writes without leaking pending request slots", async () => {
+  const client = new AppServerClient("/unused-test-socket", 100);
+  const writes = [];
+  client.state = "open";
+  client.socket = { writable: true, writableLength: 4 * 1024 * 1024,
+    write: (payload) => writes.push(payload), end() {} };
+  await assert.rejects(client.request("probe", {}), /output capacity/);
+  assert.equal(client.pending.size, 0);
+  assert.deepEqual(writes, []);
+  client.socket.writableLength = 0;
+  const request = client.request("probe", {});
+  client.handleMessage(1, Buffer.from(JSON.stringify({ id: 2, result: { alive: true } })));
+  assert.deepEqual(await request, { alive: true });
+  client.close();
+});
 
 test("parsePositiveInteger accepts positive integers", () => {
   assert.equal(parsePositiveInteger("42", "--value"), 42);

@@ -119,6 +119,7 @@ test("changed paths select direct contracts and transitive dependents", () => {
   assert.deepEqual(selection.selectedCapabilityIds, [
     "app-server.protocol-shapes",
     "app-server.strict-bridge",
+    "app-server.execution-discovery",
     "nelos.lifecycle-invariants",
   ]);
   assert.deepEqual(selection.pathSelections[0].capabilityIds, [
@@ -247,6 +248,7 @@ test("renames inspect old and new paths and deletions retain their old mapping",
   assert.deepEqual(rename.directCapabilityIds, [
     "app-server.protocol-shapes",
     "app-server.strict-bridge",
+    "app-server.execution-discovery",
     "nelos.lifecycle-invariants",
   ]);
 

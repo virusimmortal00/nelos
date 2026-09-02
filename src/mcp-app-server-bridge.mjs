@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+  AppServerRpcDispatcher,
+  validateAppServerDispatcherOptions,
+} from "./app-server-rpc-dispatcher.mjs";
+import {
+  normalizeExecutionProbeOptionsV1,
+  probeAppServerExecutionV1,
+} from "./app-server-execution-profile.mjs";
 
 import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
@@ -389,6 +397,8 @@ export class CodexAppServerBridgeV1 {
     platformOs: null,
   };
   #connectionAttempts = 0;
+  #dispatcher = null;
+  #dispatcherOptions;
   #failureSequence = 0;
   #incompatibilityError = null;
   #lastFailure = null;
@@ -420,6 +430,7 @@ export class CodexAppServerBridgeV1 {
     supportedVersions,
     testedVersions = supportedVersions ?? TESTED_CODEX_APP_SERVER_VERSIONS,
     waitInitialInspectionAllowanceMs = WAIT_INITIAL_INSPECTION_ALLOWANCE_MS,
+    dispatcherOptions = {},
   } = {}) {
     if (typeof command !== "string" || !command.trim()) {
       throw new Error("app-server command must be a non-empty string");
@@ -467,6 +478,7 @@ export class CodexAppServerBridgeV1 {
     this.#testedVersions = Object.freeze([...new Set(testedVersions)]);
     this.#waitInitialInspectionAllowanceMs =
       waitInitialInspectionAllowanceMs;
+    this.#dispatcherOptions = validateAppServerDispatcherOptions(dispatcherOptions);
   }
 
   async #connect({ deadlineAt = null } = {}) {
@@ -491,6 +503,17 @@ export class CodexAppServerBridgeV1 {
         stdio: ["pipe", "pipe", "pipe"],
       });
       this.#child = child;
+      this.#dispatcher = new AppServerRpcDispatcher({
+        ...this.#dispatcherOptions,
+        sendResponse: (message) => {
+          if (child !== this.#child) return;
+          this.#write(message);
+        },
+        onResponse: (message) => this.#response(message),
+        onError: (error) => this.#fail(
+          bridgeError("Codex app-server dispatch failed", error.code), child,
+        ),
+      });
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk) => this.#consume(chunk, child));
       child.once("error", (error) => this.#fail(error, child));
@@ -573,21 +596,15 @@ export class CodexAppServerBridgeV1 {
   #consume(chunk, sourceChild) {
     if (sourceChild !== this.#child) return;
     this.#stdoutBuffer += chunk;
-    if (Buffer.byteLength(this.#stdoutBuffer, "utf8") > MAX_MESSAGE_BYTES) {
-      this.#fail(
-        bridgeError(
-          "Codex app-server response exceeded the size limit",
-          "response-too-large",
-          { retriable: true },
-        ),
-        sourceChild,
-      );
-      return;
-    }
     let newline;
     while ((newline = this.#stdoutBuffer.indexOf("\n")) !== -1) {
-      const line = this.#stdoutBuffer.slice(0, newline).trim();
+      const rawLine = this.#stdoutBuffer.slice(0, newline);
       this.#stdoutBuffer = this.#stdoutBuffer.slice(newline + 1);
+      if (Buffer.byteLength(rawLine, "utf8") > MAX_MESSAGE_BYTES) {
+        this.#fail(bridgeError("Codex app-server message exceeded the size limit", "response-too-large"), sourceChild);
+        return;
+      }
+      const line = rawLine.trim();
       if (!line) continue;
       let message;
       try {
@@ -603,24 +620,28 @@ export class CodexAppServerBridgeV1 {
         );
         return;
       }
-      if (message.id === undefined || message.id === null) continue;
-      const pending = this.#pending.get(message.id);
-      if (!pending) continue;
-      this.#pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) {
-        this.#requestsFailed += 1;
-        this.#recordFailure("request-rejected", pending.method);
-        pending.reject(
-          bridgeError(
-            "Codex app-server request failed",
-            "request-rejected",
-          ),
-        );
-      } else {
-        this.#requestsSucceeded += 1;
-        pending.resolve(message.result);
-      }
+      this.#dispatcher.receive(message);
+      if (sourceChild !== this.#child) return;
+    }
+    if (Buffer.byteLength(this.#stdoutBuffer, "utf8") > MAX_MESSAGE_BYTES) {
+      this.#fail(bridgeError("Codex app-server message exceeded the size limit", "response-too-large"), sourceChild);
+    }
+  }
+
+  #response(message) {
+    const pending = this.#pending.get(message.id);
+    if (!pending) return;
+    this.#pending.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.error) {
+      this.#requestsFailed += 1;
+      this.#recordFailure("request-rejected", pending.method);
+      const error = bridgeError("Codex app-server request failed", "request-rejected");
+      error.rpcCode = Number.isSafeInteger(message.error.code) ? message.error.code : null;
+      pending.reject(error);
+    } else {
+      this.#requestsSucceeded += 1;
+      pending.resolve(message.result);
     }
   }
 
@@ -633,6 +654,8 @@ export class CodexAppServerBridgeV1 {
             retriable: fallbackCode !== "incompatible-version",
           });
     const child = this.#child;
+    this.#dispatcher?.close();
+    this.#dispatcher = null;
     this.#child = null;
     this.#ready = null;
     this.#stdoutBuffer = "";
@@ -669,7 +692,11 @@ export class CodexAppServerBridgeV1 {
         { retriable: true },
       );
     }
-    this.#child.stdin.write(`${JSON.stringify(message)}\n`);
+    const payload = `${JSON.stringify(message)}\n`;
+    if (Buffer.byteLength(payload) + (this.#child.stdin.writableLength ?? 0) > MAX_MESSAGE_BYTES) {
+      throw bridgeError("Codex app-server output capacity exceeded", "output-overflow");
+    }
+    this.#child.stdin.write(payload);
   }
 
   #notify(method, params) {
@@ -686,6 +713,9 @@ export class CodexAppServerBridgeV1 {
     } = {},
   ) {
     if (!skipConnect) await this.#connect({ deadlineAt });
+    if (this.#pending.size >= 256) {
+      throw bridgeError("Codex app-server request capacity exceeded", "request-overflow");
+    }
     if (mutation) this.#mutationAttempts += 1;
     let timeoutMs = this.#requestTimeoutMs;
     if (deadlineAt !== null) {
@@ -738,6 +768,35 @@ export class CodexAppServerBridgeV1 {
       this.#readRetries += 1;
       return this.#request(method, params, { deadlineAt });
     }
+  }
+
+  async probeExecution(options) {
+    const selected = normalizeExecutionProbeOptionsV1(options);
+    const deadlineAt = Date.now() + selected.timeoutMs;
+    await this.#connect({ deadlineAt });
+    const child = this.#child;
+    const epoch = this.#connectionAttempts;
+    const requireSameConnection = () => {
+      if (!child || child !== this.#child || epoch !== this.#connectionAttempts || this.#closed) {
+        throw bridgeError("Codex app-server probe connection changed", "probe-connection-changed");
+      }
+    };
+    const result = await probeAppServerExecutionV1({
+      observedVersion: this.#compatibility.version,
+      options: { ...selected, timeoutMs: Math.max(1, deadlineAt - Date.now()) },
+      request: async (method, params) => {
+        requireSameConnection();
+        // Discovery never retries or reconnects: all observations belong to one process.
+        const response = await this.#request(method, params, { deadlineAt, skipConnect: true });
+        requireSameConnection();
+        return response;
+      },
+    });
+    if (child !== this.#child || epoch !== this.#connectionAttempts || this.#closed) {
+      result.state = "unavailable";
+      result.blockers.push({ code: "probe-connection-changed", method: null, rpcCode: null });
+    }
+    return result;
   }
 
   async health({ probe = false } = {}) {
@@ -1425,6 +1484,8 @@ export class CodexAppServerBridgeV1 {
 
   async close() {
     const child = this.#child;
+    this.#dispatcher?.close();
+    this.#dispatcher = null;
     this.#child = null;
     this.#ready = null;
     this.#closed = true;
