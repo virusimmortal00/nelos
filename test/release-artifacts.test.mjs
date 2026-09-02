@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cp,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -24,6 +25,7 @@ import {
 import {
   computeDistributionIntegrity,
 } from "../src/distribution-provenance.mjs";
+import { EDITORIAL_CHECKS, releaseNotesDigest } from "../scripts/release-notes.mjs";
 import {
   buildAgentPluginMcpConfig,
   renderAgentPluginManifest,
@@ -273,35 +275,36 @@ test("release artifact build is reproducible and checksum-complete", async () =>
     const changelogPath = join(fixtureRoot, "CHANGELOG.md");
     await writeFile(
       changelogPath,
-      `${await readFile(changelogPath, "utf8")}
+      `# Changelog
 
 ## [${packageMetadata.version}] - 2026-07-28
 
-### User-facing changes
+This fixture exercises a reader-facing release description.
 
-- Release artifact integration fixture.
+### Changed
 
-### Compatibility requirements
+- Task progress is visible without opening each task.
 
-- Node.js 20.
-
-### Migrations
-
-- None.
-
-### Security fixes
-
-- None.
-
-### Known limitations
-
-- None.
 `,
     );
     const provenancePath = join(fixtureRoot, "distribution-provenance.json");
     const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
     provenance.integrity = await computeDistributionIntegrity(fixtureRoot);
     await writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`);
+
+    const outputDirectory = join(fixtureRoot, "dist", "release");
+    await assert.rejects(buildReleaseArtifacts({ tag, outputDirectory, root: fixtureRoot, environment: {} }), /Missing or invalid editorial review/);
+    await assert.rejects(execFileAsync(process.execPath,
+      [join(fixtureRoot, "scripts/build-release-artifacts.mjs"), "--validate-only", "--tag", tag],
+      { cwd: fixtureRoot }), /Missing or invalid editorial review/);
+    const notes = extractReleaseNotes(await readFile(changelogPath, "utf8"), packageMetadata.version);
+    await mkdir(join(fixtureRoot, ".github", "release-notes"), { recursive: true });
+    await writeFile(join(fixtureRoot, ".github", "release-notes", `${packageMetadata.version}.json`), JSON.stringify({
+      schemaVersion: 1, version: packageMetadata.version, notesDigest: releaseNotesDigest(notes),
+      author: "test-author", reviewer: "test-editor", decision: "approved",
+      assessment: Object.fromEntries(EDITORIAL_CHECKS.map(name => [name,
+        { status: "pass", rationale: "Synthetic integration fixture, not a production approval." }])),
+    }));
 
     for (const argumentsList of [
       ["init", "-b", "main"],
@@ -314,7 +317,6 @@ test("release artifact build is reproducible and checksum-complete", async () =>
       await execFileAsync("git", argumentsList, { cwd: fixtureRoot });
     }
 
-    const outputDirectory = join(fixtureRoot, "dist", "release");
     const result = await buildReleaseArtifacts({
       tag,
       outputDirectory,
