@@ -88,6 +88,7 @@ test("release note versions accept SemVer identifiers and reject malformed segme
   for (const candidate of ["1.2.3-alpha..1", "1.2.3-alpha.", "1.2.3-.alpha", "1.2.3-01", "1.2.3-alpha.01", "1.2.3+build..1", "1.2.3+build."]) {
     assert.throws(() => extractReleaseNotes(notes.replace(version, candidate), candidate), /invalid.*version/);
   }
+  assert.throws(() => extractReleaseNotes(notes, `0.0.0-0.${"--.".repeat(1000)}!`), /invalid.*version/);
 });
 
 test("review template is not an approval and engineering jargon is left to editorial judgment", async (t) => {

@@ -5,11 +5,17 @@ import { join } from "node:path";
 export const EDITORIAL_CHECKS = Object.freeze([
   "userValue", "plainLanguage", "publicMigration", "accurateClaims", "scopeSeparation",
 ]);
-const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const SECTIONS = new Set(["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security", "Upgrade notes", "Known issues"]);
 
 function requireVersion(version) {
   if (typeof version !== "string" || !VERSION.test(version)) throw new Error("invalid release notes version");
+  const coreAndPrerelease = version.split("+", 1)[0];
+  const separator = coreAndPrerelease.indexOf("-");
+  if (separator !== -1 && coreAndPrerelease.slice(separator + 1).split(".")
+    .some(identifier => /^0\d+$/u.test(identifier))) {
+    throw new Error("invalid release notes version");
+  }
 }
 
 export function extractReleaseNotes(changelog, version) {
