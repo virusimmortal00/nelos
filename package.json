@@ -114,7 +114,7 @@
   "devDependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "cors": "2.8.5",
+    "cors": "2.8.6",
     "express": "5.1.0",
     "zod": "4.1.13"
   }
