@@ -115,7 +115,7 @@ call. Created-but-not-started tasks, running tasks, and uncertain outcomes still
 require upstream observation and an explicitly authorized continuation path.
 The current effect tests are isolated fixtures, not remote runtime certification.
 
-Production wiring still requires an elected service owner, actual target and
+Production wiring still requires a service entrypoint/channel, actual target and
 worktree verification, the trusted policy/certification providers, the approval
 relay, and durable observation/result collection. The legacy
 native launch gate remains available under its existing contract; this new path
@@ -148,3 +148,25 @@ its acknowledgment is not completion evidence. These operations are private
 service APIs, not model-callable tools. The integrated launch test uses fake
 App Server traffic and fake admission providers, not a live worker or runtime
 certification.
+
+## Owner lifecycle
+
+`ExecutorServiceSupervisorV1` elects one owner using the existing process-start
+identity lock, scoped to the host, Codex home, and authentication domain in a
+private canonical service directory. It opens the owned session only after
+election. The lock remains held until the actual child exits, including the
+shutdown grace period. Startup failure and connection loss invalidate clients;
+neither silently starts another session. Runtime generation and owner epoch are
+available to the service's trusted admission provider.
+
+Frontend attachments and activity holds are opaque in-process values. Detach
+does not terminate the service. A worker or uncertain launch must retain its
+hold through durable completion or reconciliation. Draining rejects new work
+but lets clients reconnect and existing workers obtain approvals. The session
+stops after all work and approval holds are released. A live but unresponsive
+owner is never displaced merely because a heartbeat or request timed out.
+
+This supplies the election/lifetime core, not a daemon entrypoint or IPC
+transport. The eventual private channel must authenticate connections, expose
+typed operations, and bind its attachments and holds to these service-owned
+values. Frontends must not deserialize activity tokens or release worker holds.

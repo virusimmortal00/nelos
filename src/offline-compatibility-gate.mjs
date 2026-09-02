@@ -360,7 +360,7 @@ function defaultCheckRunners() {
     ],
     [
       "repo.executor-admission",
-      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs"]),
+      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs"]),
     ],
     [
       "repo.protocol-contracts",

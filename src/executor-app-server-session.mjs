@@ -26,6 +26,8 @@ export class ExecutorAppServerSessionV1 {
   #sequence = 0;
   #stopTimer = null;
   #lifetime = new AbortController();
+  #resolveStopped;
+  #stopped = new Promise((resolve) => { this.#resolveStopped = resolve; });
 
   constructor({ command, cwd, codexHome, spawnProcess = spawn, timeoutMs = 10_000,
     stopGraceMs = 1000, dispatcherOptions = {} }) {
@@ -40,6 +42,7 @@ export class ExecutorAppServerSessionV1 {
   }
 
   get signal() { return this.#lifetime.signal; }
+  get stopped() { return this.#stopped; }
 
   status() {
     return { state: this.#state, connectionId: this.#connectionId, observedVersion: this.#version,
@@ -75,11 +78,14 @@ export class ExecutorAppServerSessionV1 {
         onError: () => this.#fail("session-protocol-failed"),
       });
       child.once("error", () => this.#fail("session-process-failed"));
-      child.once("exit", () => {
+      const terminated = () => {
         clearTimeout(this.#stopTimer);
         if (this.#child === child) this.#child = null;
+        this.#resolveStopped();
         this.#fail("session-process-exited");
-      });
+      };
+      child.once("exit", terminated);
+      child.once("close", terminated); // Spawn failure may emit close without exit.
       child.stdin.on("error", () => this.#fail("session-write-failed"));
       child.stdout.on("error", () => this.#fail("session-read-failed"));
       child.stdout.on("end", () => this.#fail("session-stream-ended"));
@@ -171,7 +177,7 @@ export class ExecutorAppServerSessionV1 {
     this.#buffer = "";
     for (const pending of this.#pending.values()) pending.finish(error("session-unavailable"));
     const child = this.#child;
-    if (!child) return;
+    if (!child) { this.#resolveStopped(); return; }
     child.stdin.destroy();
     // Keep the actual ChildProcess handle, never signal a PID from a state file.
     child.kill("SIGTERM");
