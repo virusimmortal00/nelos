@@ -245,16 +245,18 @@ stable channel.
 ## Release notes
 
 [`CHANGELOG.md`](../CHANGELOG.md) is the canonical user-facing release history.
-Every release moves applicable entries from **Unreleased** into a versioned
-section with the release date and retains these headings:
+Future releases move applicable entries from **Unreleased** into a dated
+version section with a short reader-facing summary. Follow the
+[release-note template and editorial gate](release-notes.md), adapted from
+Keep a Changelog and GitLab's user-facing inclusion guidance. Use relevant
+Added, Changed, Deprecated, Removed, Fixed, or Security sections, plus Upgrade
+notes or Known issues when needed. Omit empty sections rather than publishing
+`None` boilerplate. Existing published sections keep their historical format.
 
-- **User-facing changes**
-- **Compatibility requirements**
-- **Migrations**
-- **Security fixes**
-- **Known limitations**
-
-Use `None` when a section has no entry so absence is explicit. Security entries
-must avoid exploit details before coordinated disclosure. Known limitations
-must distinguish a Nelos limitation from unverified or absent Codex host
-behavior.
+Before tagging, a reviewer other than the notes author must approve user value,
+plain language, publicly usable migration guidance, accurate claims, and
+separation from internal engineering evidence. Run `npm run release:notes` on
+the final text; CI and artifact creation enforce a current editorial review.
+Tests cannot substitute for that audience judgment. Internal implementation
+details and verification reports belong outside the public summary unless
+users need them to operate or upgrade Nelos.

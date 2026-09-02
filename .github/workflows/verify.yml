@@ -52,6 +52,16 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Check release notes before merge and tagging
+        env:
+          RELEASE_NOTES_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_NOTES_BASE" || "$RELEASE_NOTES_BASE" =~ ^0+$ ]]; then
+            RELEASE_NOTES_BASE=origin/main
+          fi
+          npm run release:notes -- --base-ref "$RELEASE_NOTES_BASE"
       - run: npm run check
       - run: npm run corpus:validate
       - run: npm test
