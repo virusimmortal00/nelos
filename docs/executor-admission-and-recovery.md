@@ -116,7 +116,35 @@ require upstream observation and an explicitly authorized continuation path.
 The current effect tests are isolated fixtures, not remote runtime certification.
 
 Production wiring still requires an elected service owner, actual target and
-worktree verification, the trusted policy/certification providers, the App Server
-effect adapter and approval relay, and observation/result collection. The legacy
+worktree verification, the trusted policy/certification providers, the approval
+relay, and durable observation/result collection. The legacy
 native launch gate remains available under its existing contract; this new path
 is not enabled in the MCP tool surface yet.
+
+## Typed App Server effects
+
+`ExecutorAppServerEffectsV1` implements the coordinator's effects over the owned
+stdio session. The generated 0.152.0 schema supplies the exact request fields:
+`thread/start`, `thread/name/set`, `thread/read`, `turn/start`, and
+`turn/interrupt`. Creation and turn start select the approved model, named
+permission profile, cwd and approval policy explicitly. Turns also select the
+approved effort and prompt. Inherited environments and provider model fallback
+are disabled to preserve execution on the verified work host and exact route.
+The adapter does not override the configured approval reviewer; the trusted
+policy provider must verify that review configuration as part of admission.
+
+The adapter requires a service-installed target verifier before creation and
+again before turn start. It records ownership only from creation responses,
+checks both returned cwd fields, preserves the creation identity on effective
+policy mismatch, verifies titles by readback, and rejects foreign IDs and
+duplicate starts. Events and approval requests arriving before a turn-start
+response wait for its returned identity rather than asserting ownership.
+
+`readResult` reads the exact owned turn, bounds history and assistant text,
+rejects partial history, and passes only the projected assistant messages to
+the existing work-result classifier. A completed turn is not automatically a
+successful or accepted deliverable. Interruption requires the same owned turn;
+its acknowledgment is not completion evidence. These operations are private
+service APIs, not model-callable tools. The integrated launch test uses fake
+App Server traffic and fake admission providers, not a live worker or runtime
+certification.

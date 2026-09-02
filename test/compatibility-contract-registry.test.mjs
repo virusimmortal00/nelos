@@ -120,6 +120,7 @@ test("changed paths select direct contracts and transitive dependents", () => {
     "app-server.protocol-shapes",
     "app-server.strict-bridge",
     "app-server.execution-discovery",
+    "nelos.executor-admission",
     "nelos.lifecycle-invariants",
   ]);
   assert.deepEqual(selection.pathSelections[0].capabilityIds, [
