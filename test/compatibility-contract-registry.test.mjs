@@ -86,6 +86,10 @@ test("registry rejects malformed scopes and broad upstream source declarations",
   broadSource.capabilities[0].mappings.upstreamSource[0].paths = ["codex-rs/**"];
   assert.throws(() => validateCompatibilityRegistryV1(broadSource), /too broad for upstream-source/u);
 
+  const wildcardPrefix = clone();
+  wildcardPrefix.capabilities[0].mappings.upstreamSource[0].paths = ["*/**"];
+  assert.throws(() => validateCompatibilityRegistryV1(wildcardPrefix), /normalized repository-relative/u);
+
   const movingReleaseBranch = clone();
   movingReleaseBranch.supportedCodexReleases[0].upstreamSourceRefs[0].requestedRef =
     "refs/heads/release";
@@ -122,14 +126,27 @@ test("changed paths select direct contracts and transitive dependents", () => {
   ]);
 });
 
+test("Desktop extraction retains deleted-path ownership and checks the public boundary", () => {
+  const paths = ["src/desktop-certification-contract.mjs", "src/disposable-desktop-smoke.mjs",
+    "bin/nelos-capture-screen", "docs/dedicated-desktop-worker.md",
+    "test/fixtures/desktop-certification/valid-receipt.v1.json"];
+  const selected = selectImpactedCompatibilityContractsV1(COMPATIBILITY_CONTRACT_REGISTRY_V1, paths);
+  assert.equal(selected.ok, true);
+  for (const path of selected.pathSelections) {
+    assert.ok(path.capabilityIds.includes("nelos.desktop-certification"));
+  }
+  const contract = COMPATIBILITY_CONTRACT_REGISTRY_V1.capabilities.find(({ id }) => id === "nelos.desktop-certification");
+  assert.deepEqual(contract.mappings.checks, ["repo.desktop-certification"]);
+  assert.equal(selectImpactedCompatibilityContractsV1(COMPATIBILITY_CONTRACT_REGISTRY_V1,
+    ["src/unknown-desktop-driver.mjs"]).ok, false);
+});
+
 test("installed lifecycle surfaces belong to lifecycle invariants", () => {
   const paths = [
     ".codex-plugin/plugin.json",
     "bin/nelos-mcp",
-    "bin/nelos-desktop-gui-driver",
     "docs/backlog.md",
     "docs/configuration.md",
-    "docs/disposable-desktop-smoke.md",
     "docs/mcp-visual-evidence.md",
     "docs/observation-join.md",
     "docs/routing-evaluation.md",
@@ -138,7 +155,6 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "mcp.json",
     "plugin.json",
     "src/mcp-server.mjs",
-    "src/disposable-desktop-smoke.mjs",
     "src/nelos-configuration.mjs",
     "src/planning-bootstrap.mjs",
     "src/planning-lifecycle.mjs",
@@ -152,7 +168,6 @@ test("installed lifecycle surfaces belong to lifecycle invariants", () => {
     "test/manage-nelos-tasks-skill.test.mjs",
     "test/mcp-config.test.mjs",
     "test/mcp-server.test.mjs",
-    "test/disposable-desktop-smoke.test.mjs",
     "test/nelos-configuration.test.mjs",
     "test/exception-replanning.test.mjs",
     "test/plugin-marketplace.test.mjs",

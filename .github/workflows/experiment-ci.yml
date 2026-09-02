@@ -13,32 +13,7 @@ on:
         description: Explicit non-PR lane
         required: true
         type: choice
-        options: [regression, powered, release-canary, desktop]
-      desktop_action:
-        description: Exact leased Desktop lifecycle action
-        required: false
-        type: choice
-        options: [install, restart, upgrade, crash-recovery, cleanup, rollback, reimage]
-      desktop_host_id:
-        description: Dedicated worker identity
-        required: false
-        type: string
-      desktop_lease_id:
-        description: Current exclusive lease identity
-        required: false
-        type: string
-      desktop_request_id:
-        description: Sealed request identity
-        required: false
-        type: string
-      desktop_request_digest:
-        description: SHA-256 of sealed request
-        required: false
-        type: string
-      desktop_golden_image_digest:
-        description: Signed golden-image digest
-        required: false
-        type: string
+        options: [regression, powered, release-canary]
 
 permissions:
   contents: read
@@ -199,42 +174,4 @@ jobs:
           name: experiment-release-canary-${{ matrix.codex }}-${{ github.run_id }}
           path: experiment-ci-evidence/
           if-no-files-found: error
-          retention-days: 30
-
-  dedicated-desktop:
-    if: github.event_name == 'workflow_dispatch' && inputs.lane == 'desktop'
-    runs-on: [self-hosted, macOS, nelos-dedicated-desktop]
-    environment: dedicated-desktop-experiment
-    timeout-minutes: 45
-    concurrency:
-      group: dedicated-desktop-${{ inputs.desktop_host_id }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: automation
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with: { node-version: 20 }
-      - name: Execute exact fenced lifecycle scenario
-        shell: bash
-        env:
-          DESKTOP_ACTION: ${{ inputs.desktop_action }}
-          DESKTOP_HOST_ID: ${{ inputs.desktop_host_id }}
-          DESKTOP_LEASE_ID: ${{ inputs.desktop_lease_id }}
-          DESKTOP_REQUEST_ID: ${{ inputs.desktop_request_id }}
-          DESKTOP_REQUEST_DIGEST: ${{ inputs.desktop_request_digest }}
-          DESKTOP_GOLDEN_IMAGE_DIGEST: ${{ inputs.desktop_golden_image_digest }}
-        run: |
-          set -euo pipefail
-          umask 077
-          mkdir -p experiment-ci-evidence
-          node automation/scripts/run-dedicated-desktop-lifecycle.mjs --action "$DESKTOP_ACTION" --host-id "$DESKTOP_HOST_ID" --lease-id "$DESKTOP_LEASE_ID" --request-id "$DESKTOP_REQUEST_ID" --request-digest "$DESKTOP_REQUEST_DIGEST" --golden-image-digest "$DESKTOP_GOLDEN_IMAGE_DIGEST" > experiment-ci-evidence/desktop-receipt.json
-      - if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: experiment-desktop-${{ inputs.desktop_host_id }}-${{ inputs.desktop_lease_id }}
-          path: experiment-ci-evidence/
-          if-no-files-found: warn
           retention-days: 30

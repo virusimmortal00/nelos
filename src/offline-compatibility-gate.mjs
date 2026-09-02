@@ -368,6 +368,15 @@ function defaultCheckRunners() {
       "repo.routing-evaluation",
       ({ root }) => runNodeTests(root, ["test/routing-evaluation.test.mjs"]),
     ],
+    [
+      "repo.desktop-certification",
+      ({ root }) => runNodeTests(root, [
+        "test/desktop-certification-contract.test.mjs",
+        "test/desktop-certification-cross-repository.test.mjs",
+        "test/desktop-smoke-contract.test.mjs",
+        "test/desktop-smoke-scenario-library.test.mjs",
+      ]),
+    ],
     ["schema.app-server-v0144x", validateGeneratedSchema],
   ]);
 }

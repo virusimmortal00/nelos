@@ -22,8 +22,8 @@ node scripts/build-api-baseline.mjs \
   --reasoning-effort medium \
   --runtime-executable /immutable/runtime/bin/codex \
   --expected-runtime-digest sha256:0123456789012345678901234567890123456789012345678901234567890123 \
-  --backend dedicated-desktop \
-  --platform macos-arm64 \
+  --backend oci-headless \
+  --platform linux-amd64 \
   --pricing-snapshot /secure/operator/openai-pricing-2026-08-04.json
 ```
 

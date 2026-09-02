@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,14 +13,15 @@ const codexAvailable = spawnSync("codex", ["--version"], {
   stdio: "ignore",
 }).status === 0;
 
-test("real Codex marketplace refresh loads 0.12.20 skills and MCP in a fresh process", {
+test("real Codex marketplace refresh loads candidate skills and MCP in a fresh process", {
   skip: codexAvailable ? false : "requires the Codex CLI",
   timeout: 600_000,
 }, async () => {
   const result = await verifyPluginMarketplaceUpgrade();
   assert.equal(result.verified, true);
   assert.equal(result.legacyVersion, "0.4.0");
-  assert.equal(result.candidateVersion, "0.12.20");
+  const candidate = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(result.candidateVersion, candidate.version);
   assert.equal(result.processRestarted, true);
   assert.equal(result.freshTaskVerified, true);
   assert.match(result.freshTaskId, /^[0-9a-f-]+$/u);

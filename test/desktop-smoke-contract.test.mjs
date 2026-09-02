@@ -1,28 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateDesktopSmokeCaptureRegionsV1, validateDesktopSmokeScenarioV1 } from "nelos/desktop-smoke-contract";
-import { desktopGuiScenario } from "./fixtures/desktop-gui-driver-scenarios.mjs";
+import { validateDesktopSmokeScenarioV1 } from "nelos/desktop-smoke-contract";
 
-test("minimal Desktop smoke scenario contract accepts the reviewed allowlisted shape", () => {
-  assert.deepEqual(validateDesktopSmokeScenarioV1(desktopGuiScenario()), desktopGuiScenario());
-  const forbidden = desktopGuiScenario();
-  forbidden.actions[0].type = "shell";
-  assert.throws(() => validateDesktopSmokeScenarioV1(forbidden), /not allowlisted/u);
+function scenario() {
+  return {
+    schemaVersion: 1,
+    scenarioId: "provider-neutral-scenario",
+    task: { taskId: "scenario-task", createdForScenario: "provider-neutral-scenario", fresh: true },
+    actions: [{ actionId: "wait-ready", type: "wait_for", targetRef: "ready", valueRef: null, timeoutMs: 1000 }],
+    checkpoints: [{ checkpointId: "ready-state", type: "accessibility_tree", afterActionId: "wait-ready", failureOnly: false }],
+    assertions: [{ assertionId: "ready-present", type: "element_present", targetRef: "ready", expectedRef: null, checkpointId: "ready-state" }],
+    deadlineMs: 2000,
+  };
+}
 
-  const skippedAssertion = desktopGuiScenario();
-  skippedAssertion.checkpoints.find(({ checkpointId }) => checkpointId === "shot").failureOnly = true;
-  assert.throws(() => validateDesktopSmokeScenarioV1(skippedAssertion), /failure-only checkpoint/u);
+test("the public scenario contract accepts only provider-neutral definitions", () => {
+  assert.deepEqual(validateDesktopSmokeScenarioV1(scenario()), scenario());
+  for (const mutation of [
+    (value) => { value.actions[0].type = "shell"; },
+    (value) => { value.checkpoints[0].type = "screenshot"; },
+    (value) => { value.provider = "private-provider"; },
+  ]) {
+    const value = scenario();
+    mutation(value);
+    assert.throws(() => validateDesktopSmokeScenarioV1(value));
+  }
 });
 
-test("capture geometry requires complete conversation and credential exclusion inventory", () => {
-  const proof = {
-    schemaVersion: 1,
-    conversation: { kind: "conversation", x: 1, y: 2, width: 3, height: 4 },
-    credentialInventory: { complete: true, count: 1, regions: [{ kind: "credential", x: 5, y: 6, width: 7, height: 8 }] },
-    traversal: { complete: true, scannedNodes: 4, maximumNodes: 100 },
-  };
-  assert.equal(validateDesktopSmokeCaptureRegionsV1(proof).length, 2);
-  proof.traversal.complete = false;
-  assert.throws(() => validateDesktopSmokeCaptureRegionsV1(proof), /incomplete/u);
+test("assertions cannot attach to failure-only checkpoints", () => {
+  const value = scenario();
+  value.checkpoints[0].failureOnly = true;
+  assert.throws(() => validateDesktopSmokeScenarioV1(value), /failure-only checkpoint/u);
 });

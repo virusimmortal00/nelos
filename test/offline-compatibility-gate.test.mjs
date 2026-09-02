@@ -277,6 +277,21 @@ test("the default offline gate executes the experimentation contract evidence", 
   );
 });
 
+test("retired Desktop code selects executable provider-neutral certification evidence", async () => {
+  const result = await runOfflineCompatibilityGate({
+    root: repositoryRoot,
+    changes: [{ status: "deleted", path: "src/disposable-desktop-smoke.mjs" }],
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.selection.ok, true);
+  const certification = result.report.capabilities.find(
+    ({ capabilityId }) => capabilityId === "nelos.desktop-certification",
+  );
+  assert.equal(certification.status, "compatible");
+  assert.deepEqual(certification.evidence.map(({ checkId, outcome }) => ({ checkId, outcome })),
+    [{ checkId: "repo.desktop-certification", outcome: "passed" }]);
+});
+
 test("CLI uses temporary registry fixtures and emits stable JSON", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "nelos-offline-gate-"));
   t.after(() => rm(root, { recursive: true, force: true }));

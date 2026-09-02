@@ -1,12 +1,35 @@
 ---
 name: manage-nelos-tasks
-description: Plan multi-stream feature or fix work into dependency-safe waves with subagents or durable Codex tasks and machine-generated next actions.
+description: Coordinate parallel agents and resume multi-step coding work with tracked dependencies and verified results. Use for multi-stream features or fixes, Nelos task-web status or recovery, and explicit Nelos orchestration; not single-file edits or standalone reviews.
 ---
 
-# Manage Nelos Tasks
+# Coordinate Work with Nelos
 
+Use Nelos when coding work needs independent workers, ordered dependencies,
+and a reliable join of their results. It tracks what can run together, what
+must wait, and which results have actually been accepted across restarts.
+The coordinating agent (the queen) remains responsible for the outcome.
+
+## Choose the Scope
+
+- For a multi-stream feature or fix, plan bounded work, execute dependency-safe
+  waves, and verify results before dependent work starts.
+- For an existing Nelos task web, inspect its current persisted state and resume
+  its returned action; do not recreate completed work or start a duplicate plan.
+- For status-only requests, use read-only Nelos inspection tools. Do not launch,
+  replan, archive, or otherwise mutate tasks merely to report their state.
+- Handle isolated edits, explanations, single-task renaming, and standalone
+  reviews directly with the appropriate tools; they do not need a task web.
+
+Automatic discovery does not expand the user's task or grant permission for
+external changes. Respect explicit limits on delegation and side effects.
+
+## Execute Safely
+
+Before coordinated execution or recovery, read the protocol below in full.
+Follow its machine-generated next actions, including evidence and stop gates.
 Planning quality must not depend on the queen's model. One bounded Sol planner
-decomposes; the queen judges. Use bundled MCP tools; never use the CLI as fallback. Native kinds:
+decomposes; the queen judges. Use bundled MCP tools; never use the CLI as fallback.
 
 Before mutations call `nelos_runtime_health`; require `mutationAllowed`, else use `recovery`.
 Never live-upgrade Nelos. Quit, install externally, relaunch and open fresh task; task alone leaves workers live.
@@ -20,7 +43,7 @@ Never live-upgrade Nelos. Quit, install externally, relaunch and open fresh task
 Only if the user explicitly supplied a complete plan with `schemaVersion`,
 `objective`, and bounded `slices`, call `nelos_plan_slices` directly. A queen-authored plan is not user-supplied.
 
-Otherwise call `nelos_plan_lifecycle` with schema version 1, queen task ID,
+For new work otherwise call `nelos_plan_lifecycle` with schema version 1, queen task ID,
 caller-stable idempotency key, objective, optional bounded context/parallelism,
 `receipt: null`, and `launchAuthorization: null`. Spinoffs are cleanup-capable;
 use `cleanupIntended: false` only when explicitly requested. Do not first author slices or

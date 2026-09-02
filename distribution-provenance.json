@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "distribution": "nelos",
-  "revision": "0.12.20",
+  "revision": "0.13.0",
   "sourceRepository": "https://github.com/virusimmortal00/nelos.git",
-  "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.12.20",
-  "integrity": "sha256:08192b09d418c2ad0cbc263884062d3093966607a5f75ed1f2fd49d498f3e850",
-  "skillIntegrity": "sha256:cccfd30052787baa02455ca63132633c2ce9caa19a7ff6969c203aebc32c843d",
+  "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.13.0",
+  "integrity": "sha256:da535eccbc9505d38803573753f2004592a1fe908d41385b98af602ad7a865a0",
+  "skillIntegrity": "sha256:61d0f1a00702fbdaec75629aa22a5c6dc99503d5fd9e6261577f7044157322a3",
   "requiredCliCommands": [
     "doctor",
     "spinoff",
@@ -21,7 +21,6 @@
     "worktree launch",
     "worktree integration",
     "intelligence route",
-    "intelligence verify",
-    "desktop-test"
+    "intelligence verify"
   ]
 }

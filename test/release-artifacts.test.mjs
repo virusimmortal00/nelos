@@ -223,6 +223,7 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
   );
   assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
   assert.match(workflow, /needs: \[verify, artifacts\]/u);
+  assert.doesNotMatch(workflow, /self-hosted|desktop-certification|proxmox|private.repository/iu);
   assert.match(workflow, /contents: write/u);
   assert.equal(
     (workflow.match(/Restore annotated release tag/gu) ?? []).length,

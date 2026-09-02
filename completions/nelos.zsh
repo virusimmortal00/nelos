@@ -11,7 +11,7 @@
 # canonical list; test/cli-completions.test.mjs cross-checks them against
 # bin/nelos's own `supported` command array and fails on drift in
 # either direction.
-_nelos_commands=(start spinoff send status read watch list archive title web plan worktree intelligence desktop-test doctor)
+_nelos_commands=(start spinoff send status read watch list archive title web plan worktree intelligence doctor)
 _nelos_subcommands_title=(set get)
 _nelos_subcommands_web=(begin join collect readiness accept)
 _nelos_subcommands_plan=(slices)
@@ -56,9 +56,6 @@ _nelos() {
       ;;
     doctor)
       _values 'option' --codex --socket
-      ;;
-    desktop-test)
-      _values 'option' --candidate --scenario-set
       ;;
     title)
       if (( CURRENT == 3 )); then

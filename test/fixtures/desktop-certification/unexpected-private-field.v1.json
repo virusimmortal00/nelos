@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "format": "nelos-desktop-certification-v1",
+  "nelosCommitSha": "a767ac133f864e327a067efeebc534a7f850ccd1",
+  "candidateDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "harnessCommitSha": "0aa30e343177d2bef8abc9b0041c79125a492c9e",
+  "harnessVersion": "0.1.0",
+  "templateIdentity": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "evidenceIdentity": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "controllerAddress": "https://private.invalid",
+  "scenarioTotals": { "total": 1, "passed": 1, "failed": 0, "skipped": 0 },
+  "assertionTotals": { "total": 1, "passed": 1, "failed": 0 },
+  "scenarios": [{ "scenarioId": "launch", "outcome": "passed", "assertionTotals": { "total": 1, "passed": 1, "failed": 0 } }],
+  "assertions": [{ "assertionId": "visible", "scenarioId": "launch", "outcome": "passed", "code": "observed" }],
+  "cleanup": { "state": "verified", "destroyed": true, "absent": true, "independentlyVerified": true }
+}

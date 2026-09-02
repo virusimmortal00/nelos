@@ -208,6 +208,13 @@ CycloneDX SBOM are attached to a **draft** GitHub Release. A maintainer must
 review and explicitly publish that draft; workflow success alone does not make
 it a public release.
 
+External certification may attest to an immutable package after the public
+workflow builds it. Certification receipts are not release build inputs and do
+not alter the source commit, distribution integrity digest, package checksum,
+release manifest, or SBOM. Public CI validates the provider-neutral contract
+with fixtures only; provider credentials, private topology, environment
+lifecycle, and external execution remain outside this repository.
+
 ## Stable marketplace promotion
 
 Publishing a stable GitHub Release triggers

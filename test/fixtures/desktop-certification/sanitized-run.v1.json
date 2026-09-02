@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "commitSha": "a767ac133f864e327a067efeebc534a7f850ccd1",
+    "artifactDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "harness": {
+    "commitSha": "0aa30e343177d2bef8abc9b0041c79125a492c9e",
+    "version": "0.1.0"
+  },
+  "template": {
+    "identity": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "evidence": {
+    "identity": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "launch-and-plan",
+      "outcome": "passed",
+      "assertions": [
+        { "assertionId": "plan-visible", "outcome": "passed", "code": "observed" },
+        { "assertionId": "task-terminal", "outcome": "passed", "code": "observed" }
+      ]
+    },
+    {
+      "scenarioId": "cleanup",
+      "outcome": "passed",
+      "assertions": [
+        { "assertionId": "environment-absent", "outcome": "passed", "code": "independently-verified" }
+      ]
+    }
+  ],
+  "cleanup": {
+    "status": "success",
+    "destroyed": true,
+    "absent": true,
+    "independentlyVerified": true
+  }
+}

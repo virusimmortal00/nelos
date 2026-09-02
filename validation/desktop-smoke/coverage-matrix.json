@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "libraryId": "nelos-desktop-workflows",
+  "coverage": [
+    { "scenarioId": "plugin-availability", "capabilityId": "plugin-availability", "expectedCheckpointIds": ["plugins-opened", "plugins-window"], "release": true, "routine": true },
+    { "scenarioId": "planning-lifecycle", "capabilityId": "plan-creation", "expectedCheckpointIds": ["plan-ready-state", "plan-accessibility"], "release": true, "routine": true },
+    { "scenarioId": "joined-agent-execution", "capabilityId": "joined-agent-execution", "expectedCheckpointIds": ["joined-running-state", "joined-complete-state"], "release": true, "routine": false },
+    { "scenarioId": "durable-task-lifecycle", "capabilityId": "durable-task-lifecycle", "expectedCheckpointIds": ["durable-running-state", "durable-details-state", "durable-complete-state"], "release": true, "routine": false },
+    { "scenarioId": "attention-recovery", "capabilityId": "attention-recovery", "expectedCheckpointIds": ["attention-visible-state", "recovered-visible-state", "recovered-window-state"], "release": true, "routine": true }
+  ]
+}

@@ -30,6 +30,9 @@ test("openai.yaml declares discovery metadata without changing implicit invocati
   assert.match(openaiYaml, /display_name:\s*.+/);
   assert.match(openaiYaml, /short_description:\s*.+/);
   assert.match(openaiYaml, /default_prompt:\s*.+/);
+  const shortDescription = openaiYaml.match(/short_description: "([^"]+)"/)[1];
+  assert.ok(shortDescription.length >= 25 && shortDescription.length <= 64);
+  assert.match(openaiYaml, /default_prompt: "[^"\n]*\$manage-nelos-tasks\b/);
   assert.doesNotMatch(openaiYaml, /allow_implicit_invocation/);
 });
 
