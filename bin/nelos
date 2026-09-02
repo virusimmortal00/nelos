@@ -126,10 +126,6 @@ const VALUE_OPTIONS = new Map([
   ["--source-turn-id", "sourceTurnId"],
   ["--decision", "decision"],
   ["--summary", "decisionSummary"],
-  ["--candidate", "candidatePath"],
-  ["--scenario-set", "scenarioSetName"],
-  ["--run-id", "runId"],
-  ["--bundle-output", "bundleOutput"],
 ]);
 
 function printUsage() {

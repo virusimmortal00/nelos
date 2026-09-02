@@ -240,7 +240,8 @@ Nelos is one Codex plugin with two cooperating parts:
   verifies every launch, persists replay-safe receipts, advances accepted work,
   coordinates completion and per-web cleanup, composes bounded web inspection,
   and exposes conversational machine-local configuration.
-- **A task-management skill** — `manage-nelos-tasks`, the playbook that follows
+- **Coordinate Work with Nelos** — `manage-nelos-tasks`, the skill for parallel
+  coding work, dependency coordination, and task-web status/recovery. It follows
   the MCP server's machine-generated next actions independently of whichever
   model starts as queen.
 
@@ -250,6 +251,7 @@ own Git branches, merges, and final review.
 
 ## Learn more
 
+- [Skill discovery](docs/skill-discovery.md) — scope, stable invocation, and bounded selection evidence
 - [Configuration](docs/configuration.md) — conversational settings, TOML schema, and precedence
 - [Experimentation framework](docs/experimentation-framework.md) — contracts,
   isolation, measurement, and reproducibility for validating Nelos, Codex,

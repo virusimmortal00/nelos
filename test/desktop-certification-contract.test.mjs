@@ -100,10 +100,31 @@ test("scenario totals include skipped outcomes and fail closed when inconsistent
   });
   skipped.scenarioTotals = { total: 3, passed: 2, failed: 0, skipped: 1 };
   assert.deepEqual(validateDesktopCertificationReceiptV1(skipped), skipped);
+  assert.throws(() => verifyDesktopCertificationReceiptV1({
+    receipt: skipped, expected: expectation(skipped),
+  }), { code: "CERTIFICATION_FAILED" });
+  assert.throws(() => createDesktopCertificationCheckRequestV1({
+    repository: { owner: "virusimmortal00", name: "nelos" },
+    receipt: skipped, expected: expectation(skipped),
+  }), { code: "CERTIFICATION_FAILED" });
   skipped.scenarioTotals.skipped = 0;
   assert.throws(() => validateDesktopCertificationReceiptV1(skipped), {
     code: "INCONSISTENT_CERTIFICATION_TOTALS",
   });
+});
+
+test("an entirely skipped run cannot publish a successful certification check", async () => {
+  const receipt = await fixture("valid-receipt.v1.json");
+  receipt.scenarios = [{ scenarioId: "unavailable", outcome: "skipped",
+    assertionTotals: { total: 0, passed: 0, failed: 0 } }];
+  receipt.assertions = [];
+  receipt.scenarioTotals = { total: 1, passed: 0, failed: 0, skipped: 1 };
+  receipt.assertionTotals = { total: 0, passed: 0, failed: 0 };
+  assert.deepEqual(validateDesktopCertificationReceiptV1(receipt), receipt);
+  assert.throws(() => createDesktopCertificationCheckRequestV1({
+    repository: { owner: "virusimmortal00", name: "nelos" },
+    receipt, expected: expectation(receipt),
+  }), { code: "CERTIFICATION_FAILED" });
 });
 
 test("the check request targets only the exact candidate SHA with narrow permissions", async () => {

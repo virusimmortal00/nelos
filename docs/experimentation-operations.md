@@ -289,10 +289,13 @@ Every report bundle contains:
 | Nightly | Schedule | Targeted task/model/plugin regression matrix |
 | Full | Weekly/manual | Statistically powered confirmatory studies |
 | Release | Candidate release | Exact plugin/Codex compatibility and headless canary |
-| Desktop | Manual/release | Dedicated macOS install, restart, upgrade, recovery, and UI lifecycle |
+| Desktop (external) | Private lab dispatch | Install, restart, upgrade, recovery, and UI lifecycle outside public Nelos CI |
 
-All lanes use the same runner and contracts. They differ only in the sealed
-manifest, task selection, repetitions, and runtime eligibility.
+The public lanes use the same runner and contracts. They differ in the sealed
+manifest, task selection, repetitions, and runtime eligibility. The external
+Desktop lane owns its runner and lifecycle; it exchanges only the
+[provider-neutral certification receipt](desktop-certification-contract.md)
+with Nelos.
 
 The executable workflow family is `.github/workflows/experiment-ci.yml` and its
 shared admission, sharding, provenance, budget, and terminal-evidence contract is

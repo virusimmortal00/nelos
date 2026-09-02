@@ -5,12 +5,60 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+None.
+
+## [0.13.0] - 2026-09-02
+
+### User-facing changes
+
 - Removed provider, controller, environment lifecycle, capture, raw-evidence,
   and execution implementation from the public distribution and CI while
   retaining the provider-neutral certification contract, definitions, schemas,
   and fixtures.
 - Product candidate identity is derived only from public Nelos product inputs;
   external certification artifacts and receipts are post-build attestations.
+- The skill is displayed as **Coordinate Work with Nelos**, with clearer
+  selection metadata for parallel coding, dependency coordination, and existing
+  task-web status/recovery. The `$manage-nelos-tasks` invocation is unchanged.
+
+### Compatibility requirements
+
+- Node.js 20 or newer. The existing exact Codex protocol targets remain
+  `0.144.5` and `0.144.6`; newer semantic versions remain provisionally
+  compatible, not verified Desktop host claims.
+- Desktop Lab versions, templates, drivers, and VM infrastructure now evolve
+  independently of the public Nelos product. Public CI validates the neutral
+  certification contract without operating the private lab.
+
+### Migrations
+
+- This is a breaking pre-1.0 minor release: `nelos desktop-test`,
+  `nelos-capture-screen`, `nelos-desktop-gui-driver`, and
+  `nelos-validate-visual-state` are no longer product commands. Move testing
+  automation to the separately maintained Desktop Lab before upgrading.
+- Removed harness-specific package exports include `dedicated-desktop-runtime`,
+  `archive-projection-convergence`, `archive-projection-lane`,
+  `desktop-gui-scenario-driver`, `disposable-desktop-smoke`,
+  `dev-screen-capture`, and `dev-visual-state-validation`. Public consumers
+  should use `desktop-certification-contract` for sanitized external results;
+  it is not a replacement execution engine.
+- No task-state or skill-name migration is required. Quit Codex completely,
+  upgrade externally, relaunch, and start a fresh task to load the new skill
+  and worker together.
+
+### Security fixes
+
+- External certification verification rejects unexpected fields, failed or
+  ambiguous cleanup, inconsistent totals, and mismatched artifact identities.
+  Public output contains sanitized receipts, never raw lab evidence.
+
+### Known limitations
+
+- This release does not certify a live Desktop VM run. Fixtures and offline
+  contract checks are not evidence of observed GUI behavior.
+- The skill selection exercise is a bounded metadata proxy, not a measured
+  invocation-rate guarantee across models or host applications. See
+  [skill discovery](docs/skill-discovery.md).
 
 ## [0.12.20] - 2026-08-25
 

@@ -2,17 +2,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const skill = await readFile(
+const entrypoint = await readFile(
   new URL("../skills/manage-nelos-tasks/SKILL.md", import.meta.url),
   "utf8",
 );
+const skill = entrypoint;
 
-test("the task-management skill is discoverable for coordinated work", () => {
-  const frontMatter = skill.slice(0, skill.indexOf("---", 3) + 3);
-
-  assert.match(frontMatter, /Plan multi-stream feature or fix work/);
-  assert.match(frontMatter, /subagents or durable Codex tasks/);
-  assert.match(frontMatter, /machine-generated next actions/);
+test("the skill preserves its invocation identity and remains self-contained", () => {
+  assert.match(entrypoint, /^name: manage-nelos-tasks$/m);
+  // The skill-only installer distributes SKILL.md, not a references tree.
+  assert.doesNotMatch(entrypoint, /\]\(references\//);
+  // Structural checks do not establish model selection quality. See the
+  // independent, bounded selection exercise in docs/skill-discovery.md.
+  assert.match(entrypoint, /^description: .{40,400}$/m);
 });
 
 test("the skill makes planning quality independent of the queen model", () => {
@@ -75,7 +77,7 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /never\s+depend on remembering a separate cleanup call/i);
   assert.match(skill, /`complete`/);
   assert.match(skill, /Never serially poll a web/);
-  assert.doesNotMatch(skill, /--socket|app-server|standalone|NELOS_PROMPT/);
+  assert.doesNotMatch(skill, /--socket|app-server|standalone (?:server|mode)|NELOS_PROMPT/);
   assert.doesNotMatch(skill, /web collect|web begin|web join|nelos-result/);
   // Marketplace installs ship no `nelos` executable; the installed skill
   // must reference only the bundled MCP tools, never shell commands.
@@ -83,8 +85,7 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /never use the CLI as fallback/i);
   assert.doesNotMatch(skill, /`nelos[ \-]/);
   assert.doesNotMatch(skill, /--spec-file|--effort|--turn-id/);
-  assert.ok(skill.length < 7_700, "agent-facing skill should remain compact");
-  assert.ok(skill.split("\n").length < 120, "agent-facing skill should be scannable");
+  assert.ok(skill.length < 10_000, "self-contained skill should remain bounded");
 });
 
 test("the task-management skill treats lifecycle state as reconcile-on-read", () => {

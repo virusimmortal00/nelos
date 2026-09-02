@@ -43,6 +43,7 @@ const BROAD_PATH_SCOPES = new Set([
   "./",
   "*",
   "**",
+  "*/**",
   "**/*",
   "src",
   "src/**",

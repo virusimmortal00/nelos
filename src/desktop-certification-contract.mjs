@@ -192,7 +192,8 @@ export function verifyDesktopCertificationReceiptV1({ receipt, expected } = {}) 
       fail("CERTIFICATION_IDENTITY_MISMATCH", `${field} does not match the expected certification identity`);
     }
   }
-  if (normalized.scenarioTotals.failed !== 0 || normalized.assertionTotals.failed !== 0) {
+  if (normalized.scenarioTotals.failed !== 0 || normalized.scenarioTotals.skipped !== 0 ||
+      normalized.assertionTotals.failed !== 0) {
     fail("CERTIFICATION_FAILED", "a verified certification receipt may contain only passing results");
   }
   return Object.freeze({

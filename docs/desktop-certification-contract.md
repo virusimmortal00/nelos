@@ -12,7 +12,7 @@ The receipt binds the exact committed inputs that were certified:
 - balanced passed, failed, skipped, and total scenario counts plus assertion totals with bounded per-result records; and
 - cleanup state proving destruction, independent absence verification, and no surviving test environment.
 
-External verification supplies those six expected identities separately. Receipt validation accepts accurately reported failed or skipped runs, while verification fails closed unless every identity matches, no scenario or assertion failed, all totals agree at receipt, scenario, and assertion levels, cleanup is verified, and every object has exactly the documented fields. A successful verification returns only `schemaVersion`, `outcome`, and a canonical receipt digest.
+External verification supplies those six expected identities separately. Receipt validation accepts accurately reported failed or skipped runs, while verification fails closed unless every identity matches, every scenario and assertion passed (no skips), all totals agree at receipt, scenario, and assertion levels, cleanup is verified, and every object has exactly the documented fields. A successful verification returns only `schemaVersion`, `outcome`, and a canonical receipt digest.
 
 The receipt is an attestation about an already-built product candidate. It is never an input to the Git commit SHA, distribution integrity digest, package tarball, release manifest, or package checksum. Changing an external service revision, template identity, receipt, or receipt digest therefore cannot change Nelos candidate identity. A changed Nelos product input creates a new candidate first and must then be certified separately.
 
