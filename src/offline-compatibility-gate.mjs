@@ -358,6 +358,10 @@ function defaultCheckRunners() {
       ]),
     ],
     [
+      "repo.executor-admission",
+      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs"]),
+    ],
+    [
       "repo.protocol-contracts",
       ({ root }) => runNodeTests(root, ["test/protocol-contract.test.mjs"]),
     ],

@@ -808,6 +808,12 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       source: "test/app-server-execution-transport.test.mjs",
     }),
     Object.freeze({
+      id: "repo.executor-admission",
+      evidenceKind: "deterministic-repo",
+      command: "node --test test/executor-grants.test.mjs",
+      source: "test/executor-grants.test.mjs",
+    }),
+    Object.freeze({
       id: "repo.protocol-contracts",
       evidenceKind: "deterministic-repo",
       command: "node --test test/protocol-contract.test.mjs",
@@ -1007,6 +1013,24 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         ]),
         runtime: Object.freeze([]),
         checks: Object.freeze(["repo.execution-foundation"]),
+      }),
+    }),
+    Object.freeze({
+      id: "nelos.executor-admission",
+      title: "Service-owned execution grants and launch recovery",
+      dependsOn: Object.freeze([]),
+      globalInvariant: false,
+      supportedCodexReleases: Object.freeze([]),
+      mappings: Object.freeze({
+        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs"]),
+        shared: Object.freeze([]),
+        test: Object.freeze(["test/executor-grants.test.mjs", "test/support/executor-fixture.mjs"]),
+        documentation: Object.freeze(["docs/executor-admission-and-recovery.md"]),
+        upstreamDocumentation: Object.freeze([]),
+        upstreamSource: Object.freeze([]),
+        generatedSchema: Object.freeze([]),
+        runtime: Object.freeze([]),
+        checks: Object.freeze(["repo.executor-admission"]),
       }),
     }),
     Object.freeze({
