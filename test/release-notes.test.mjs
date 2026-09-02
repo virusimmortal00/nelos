@@ -80,6 +80,17 @@ test("duplicate sections and unsafe version paths cannot select an unintended ap
   assert.throws(() => extractReleaseNotes(notes, "0.15.0"), /no dated/);
 });
 
+test("historical notes cannot be edited, removed, or added outside the current release", async (t) => {
+  const historical = notes.replace(version, "0.13.0");
+  const root = await fixture(t, `${notes}\n${historical}`);
+  const baseline = { root, version, baseVersion: version, baseChangelog: `${notes}\n${historical}` };
+  assert.equal((await checkReleaseNotes(baseline)).editorialReview, "not-required");
+  for (const changed of [historical.replace("progress", "details"), "", historical.replace("0.13.0", "0.12.0"), `${historical}\n${historical}`]) {
+    await writeFile(join(root, "CHANGELOG.md"), `${notes}\n${changed}`);
+    await assert.rejects(checkReleaseNotes(baseline), /historical release notes|duplicate/);
+  }
+});
+
 test("release note versions accept SemVer identifiers and reject malformed segments", () => {
   for (const candidate of ["1.2.3", "1.2.3-0", "1.2.3-alpha.1", "1.2.3-01a.0-1+build.01", "1.2.3+001"]) {
     const section = notes.replace(version, candidate);

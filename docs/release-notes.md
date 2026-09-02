@@ -89,7 +89,10 @@ commands in a public upgrade guide; do not send readers to the private lab.
 3. Run `npm run release:notes` again before creating a tag. Commit the reviewed
    notes and review together. Any text change invalidates the prior approval.
 
-CI checks changed version sections in the existing required macOS/Ubuntu jobs.
+CI checks the current version section in the existing required macOS/Ubuntu jobs
+and rejects edits, additions, or removals of other dated release sections.
+Put corrections to historical notes in the current release notes instead of
+rewriting public history.
 Unrelated development and Unreleased-only edits do not require approval. The
 artifact builder and its `--validate-only` mode always require current approval,
 even if the version already equals main; a skipped development check is not

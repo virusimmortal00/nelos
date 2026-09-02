@@ -93,6 +93,14 @@ export async function checkReleaseNotes({ root, version, baseVersion, baseChange
   requireVersion(version);
   const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
   const notes = extractReleaseNotes(changelog, version);
+  if (typeof baseChangelog === "string") {
+    const historicalSections = source => [...source.matchAll(/^## \[([^\]\n]+)\] - \d{4}-\d{2}-\d{2}\s*$/gmu)]
+      .filter(match => match[1] !== version)
+      .map(match => extractReleaseNotes(source, match[1]));
+    if (JSON.stringify(historicalSections(changelog)) !== JSON.stringify(historicalSections(baseChangelog))) {
+      throw new Error("historical release notes must remain unchanged; put corrections in the current release notes");
+    }
+  }
   // Development work and Unreleased entries are not an intentional release.
   // An explicit pre-tag/build check NEVER takes this branch.
   if (!requireReview && baseVersion === version && extractReleaseNotes(baseChangelog, version) === notes) {
