@@ -127,6 +127,15 @@ test("an absent interaction handler never accepts a server approval", async (t) 
   assert.equal(server.requests.find((message) => !message.method).error.code, -32601);
 });
 
+test("spawn failure acknowledges shutdown even when the child emits close without exit", async (t) => {
+  const session = new ExecutorAppServerSessionV1({ command: "/nelos-missing-executable-for-test",
+    cwd: process.cwd(), codexHome: "/codex-home" });
+  t.after(() => session.close());
+  await assert.rejects(session.open(), { code: "session-process-failed" });
+  await session.stopped;
+  assert.equal(session.status().state, "failed");
+});
+
 test("shutdown escalates only its own child handle and stops after exit", async (t) => {
   const { session, server } = fixture(t, undefined, { stopGraceMs: 10 });
   await session.open();

@@ -206,4 +206,37 @@ export class ExecutorLaunchCoordinatorV1 {
       return summary(op, op.phase === "not-executed" ? "fresh-grant-and-sequence-required" : "upstream-observation-required");
     });
   }
+
+  async collectResult(workUnitId) {
+    if (typeof this.#effects.readResult !== "function") fail("result-reader-unavailable");
+    return this.#withLock(workUnitId, async () => {
+      let record = await this.#journal.read(workUnitId);
+      const op = record?.operations.at(-1);
+      if (!op || !["running", "terminal"].includes(op.phase)) fail("result-reconciliation-required");
+      const matchingBinding = async () => {
+        const unit = await this.#store.read(workUnitId);
+        if (!unit || unit.specRevision !== op.member.specRevision || unit.attempt !== op.member.attempt ||
+            unit.binding.state !== "bound" || unit.binding.memberThreadId !== op.threadId ||
+            unit.binding.launchActionId !== op.operationId) fail("result-binding-mismatch");
+      };
+      await matchingBinding();
+      const observed = await this.#effect("readResult", { threadId: op.threadId, turnId: op.turnId });
+      executorExact(observed, ["threadId", "turnId", "status", "terminal", "result"]);
+      if (observed.threadId !== op.threadId || observed.turnId !== op.turnId ||
+          !["inProgress", "completed", "interrupted", "failed"].includes(observed.status) ||
+          observed.terminal !== (observed.status !== "inProgress") || !observed.result) fail("invalid-owned-result");
+      const envelope = observed.result.result;
+      if (envelope && (envelope.workUnitId !== workUnitId || envelope.specRevision !== op.member.specRevision ||
+          envelope.attempt !== op.member.attempt)) fail("result-scope-mismatch");
+      await matchingBinding();
+      if (op.phase === "terminal" && observed.status !== op.terminalStatus) fail("terminal-result-conflict");
+      if (observed.terminal && op.phase !== "terminal") {
+        record = await this.#transition(record, { type: "terminal", status: observed.status });
+      }
+      // The durable terminal transition is transport evidence only. Queen
+      // acceptance still evaluates the validated result and its artifacts.
+      return { ...summary(record.operations.at(-1)), source: "owned-app-server",
+        status: observed.status, result: observed.result };
+    });
+  }
 }

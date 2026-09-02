@@ -73,6 +73,7 @@ test("connection failure invalidates clients and preserves activity counts for r
   f.supervisor.hold({ kind: "work", operationId: "uncertain-launch" });
   f.server.children[0].emit("exit", 1);
   assert.equal(f.supervisor.isAttached(client), false);
+  assert.equal(f.supervisor.status().state, "failed");
   assert.equal((await f.supervisor.stopped).state, "failed");
   assert.equal(f.supervisor.status().activities, 1);
   assert.throws(() => f.supervisor.attach());

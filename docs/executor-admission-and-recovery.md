@@ -116,8 +116,8 @@ require upstream observation and an explicitly authorized continuation path.
 The current effect tests are isolated fixtures, not remote runtime certification.
 
 Production wiring still requires a service entrypoint/channel, actual target and
-worktree verification, the trusted policy/certification providers, the approval
-relay, and durable observation/result collection. The legacy
+worktree verification, the trusted policy/certification providers, a real UI
+adapter for the approval relay, and persisted result evidence for parent join. The legacy
 native launch gate remains available under its existing contract; this new path
 is not enabled in the MCP tool surface yet.
 
@@ -170,3 +170,37 @@ This supplies the election/lifetime core, not a daemon entrypoint or IPC
 transport. The eventual private channel must authenticate connections, expose
 typed operations, and bind its attachments and holds to these service-owned
 values. Frontends must not deserialize activity tokens or release worker holds.
+
+## Interaction and completion
+
+`ExecutorApprovalRelayV1` accepts a channel installed by the service's trusted
+UI adapter. Each user answer carries a fresh opaque callback token and must
+still match a live owned turn when the decision arrives. Upstream request
+resolution, disconnect, channel replacement, shutdown, and timeout cancel the
+answer. Callbacks that ignore cancellation retain their bounded capacity until
+they settle. Missing channels cancel requests; caller-supplied booleans cannot
+approve them. The relay retains no request transcript in its status output.
+
+The first reviewed response subset covers per-request command/file decisions,
+question-ID-bound user input, and standard form/URL MCP elicitations correlated
+to an owned turn. Session/persistent approvals, policy amendments, permission
+expansion requests, uncorrelated MCP elicitations, OpenAI form extensions,
+dynamic tools, and token refresh need separate adapters/contracts. They are not
+silently accepted. No production UI channel is installed by this change.
+
+The service must route notifications to the effects adapter's
+`observeNotification`. An owned `turn/completed` event immediately revokes
+approval eligibility and requests a result read. It never asserts deliverable
+acceptance. `collectResult(workUnitId)` on the coordinator checks the current
+binding, reads the recorded turn through the typed effects adapter, validates
+the result's work-unit/revision/attempt scope, and durably records terminal
+transport status. Repeated reads do not start more work, and a contradictory
+terminal status requires attention. The existing result classifier distinguishes
+valid structured results from plain text, failures, and missing results.
+
+The journal currently persists completion status, not the full result payload.
+Persisted join evidence, service restart recovery/reattachment, parent wake,
+and releasing activity holds after durable collection still need integration.
+The fixture now exercises create → bind → title → start → read → terminal
+recording, alongside early approvals and late-answer cancellation. This remains
+fixture coverage rather than a remote execution canary.

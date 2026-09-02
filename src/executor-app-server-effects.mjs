@@ -163,6 +163,20 @@ export class ExecutorAppServerEffectsV1 {
     return { ...input, interruptRequested: true };
   }
 
+  async observeNotification({ method, params }, { signal } = {}) {
+    if (method !== "turn/completed") return null;
+    const turnId = params?.turn?.id;
+    const scope = { threadId: params?.threadId, turnId };
+    if (!await this.ownsTurn(scope, { signal })) return null;
+    if (!TERMINAL.has(params.turn.status)) fail("invalid-terminal-notification");
+    const entry = this.#owned(scope.threadId);
+    entry.phase = "terminal";
+    // Completion events revoke approval eligibility. They are a hint to read
+    // the exact turn, not authoritative result or deliverable acceptance.
+    return { ...scope, operationId: entry.operationId, workUnitId: entry.member.workUnitId,
+      status: params.turn.status, readResultRequired: true };
+  }
+
   async readResult(input, { signal } = {}) {
     executorExact(input, ["threadId", "turnId"]);
     const entry = this.#owned(input.threadId);
@@ -174,6 +188,7 @@ export class ExecutorAppServerEffectsV1 {
     const matches = thread.turns.filter((turn) => turn?.id === input.turnId);
     if (matches.length !== 1) fail("result-turn-unavailable");
     const turn = matches[0];
+    if (TERMINAL.has(turn.status)) entry.phase = "terminal";
     if ((!TERMINAL.has(turn.status) && turn.status !== "inProgress") ||
         (turn.itemsView !== undefined && turn.itemsView !== "full") ||
         !Array.isArray(turn.items) || turn.items.length > 1024) fail("incomplete-result-turn");
@@ -186,6 +201,8 @@ export class ExecutorAppServerEffectsV1 {
     }
     const result = classifyWorkResult({ latestTurn: { id: turn.id, status: turn.status,
       items: items.map(({ type, text, phase }) => ({ type, text, phase })) } });
+    if (result.result && (result.result.workUnitId !== entry.member.workUnitId ||
+        result.result.specRevision !== entry.member.specRevision || result.result.attempt !== entry.member.attempt)) fail("result-scope-mismatch");
     // Transport completion and semantic acceptance remain separate.
     return { ...input, terminal: TERMINAL.has(turn.status), status: turn.status, result };
   }

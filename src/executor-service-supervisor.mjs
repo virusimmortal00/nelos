@@ -35,6 +35,13 @@ export class ExecutorServiceSupervisorV1 {
     this.#session = session; this.#directory = directory;
     this.#scopeDigest = executorDigest({ hostId: scope.hostId, codexHomeId: scope.codexHomeId, authDomainId: scope.authDomainId });
     this.#runtimeGeneration = runtimeGeneration;
+    session.signal.addEventListener("abort", () => {
+      this.#clients.clear();
+      if (!["draining", "stopped", "failed"].includes(this.#state)) {
+        this.#state = "failed";
+        this.#reason = "owned-session-lost";
+      }
+    }, { once: true });
   }
 
   status() {

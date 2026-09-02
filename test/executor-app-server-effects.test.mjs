@@ -10,6 +10,7 @@ import { ExecutorGrantAuthorityV1 } from "../src/executor-grants.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
 import { withExecutorJournalLock } from "../src/task-state.mjs";
 import { executorProviders } from "./support/executor-fixture.mjs";
+import { formatResultEnvelope } from "../src/work-result.mjs";
 import { executorAppServerFixture } from "./support/executor-app-server-fixture.mjs";
 
 const turnIdentity = { threadId: "owned-task", turnId: "owned-turn" };
@@ -98,6 +99,8 @@ test("approval ownership waits for the returned turn identity and cancels on dis
 test("collection reads the exact owned turn and keeps transport completion separate from success", async (t) => {
   const f = await executorAppServerFixture(t);
   await f.create(); await f.title(); await f.start();
+  await f.effects.interrupt(turnIdentity);
+  assert.deepEqual(f.server.requests.at(-1).params, turnIdentity);
   f.state.turns = [{ id: "owned-turn", status: "completed", items: [
     { id: "final", type: "agentMessage", phase: "final_answer", text: "Finished the patch." },
   ] }, { id: "unrelated-later-turn", status: "failed", items: [] }];
@@ -107,8 +110,7 @@ test("collection reads the exact owned turn and keeps transport completion separ
   assert.equal(result.result.workOutcome, "unknown");
   assert.equal(result.result.attentionRequired, true);
   assert.doesNotMatch(JSON.stringify(result), /unrelated-later-turn/);
-  await f.effects.interrupt(turnIdentity);
-  assert.deepEqual(f.server.requests.at(-1).params, turnIdentity);
+  await assert.rejects(f.effects.interrupt(turnIdentity), { code: "foreign-or-inactive-executor-turn" });
 });
 
 test("collection rejects missing, duplicate, partial and oversized results without latest-turn fallback", async (t) => {
@@ -146,4 +148,23 @@ test("coordinator, journal, store and typed stdio effects complete one launch wi
   assert.equal((await store.read(f.member.workUnitId)).binding.memberThreadId, "owned-task");
   assert.equal((await coordinator.launchWave(input)).kind, "wave-started");
   assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 1);
+  f.state.turns = [{ id: "owned-turn", status: "completed", items: [{ type: "agentMessage", phase: "final_answer",
+    text: formatResultEnvelope({ schemaVersion: 1, workUnitId: f.member.workUnitId, specRevision: 1, attempt: 1,
+      outcome: "succeeded", summary: "Implemented the change", artifacts: [], verification: ["Fixture assertion"], blockers: [], recoveryHint: null }),
+  }] }];
+  const collected = await coordinator.collectResult(f.member.workUnitId);
+  assert.equal(collected.phase, "terminal");
+  assert.equal(collected.result.workOutcome, "succeeded");
+  assert.equal((await journal.read(f.member.workUnitId)).operations.at(-1).terminalStatus, "completed");
+  assert.equal((await coordinator.collectResult(f.member.workUnitId)).phase, "terminal");
+});
+
+test("an envelope for another work-unit revision is never accepted as this worker's result", async (t) => {
+  const f = await executorAppServerFixture(t);
+  await f.create(); await f.title(); await f.start();
+  f.state.turns = [{ id: "owned-turn", status: "completed", items: [{ type: "agentMessage", phase: "final_answer",
+    text: formatResultEnvelope({ schemaVersion: 1, workUnitId: f.member.workUnitId, specRevision: 2, attempt: 1,
+      outcome: "succeeded", summary: "Wrong revision", artifacts: [], verification: [], blockers: [], recoveryHint: null }),
+  }] }];
+  await assert.rejects(f.effects.readResult(turnIdentity), { code: "result-scope-mismatch" });
 });

@@ -69,6 +69,26 @@ test("a two-member wave persists intent, binds before starting, and never duplic
   assert.doesNotMatch(JSON.stringify(result), /Implement the requested|accountFingerprint|configFingerprint/);
 });
 
+test("result collection rechecks the binding after a read and cannot complete a superseded attempt", async (t) => {
+  const f = await fixture(t);
+  await f.coordinator.launchWave(f.input);
+  f.effects.readResult = async ({ threadId, turnId }) => {
+    await f.store.advanceAttempt({ workUnitId: "unit-1", specRevision: 1, attempt: 1 });
+    return { threadId, turnId, status: "completed", terminal: true, result: { result: null } };
+  };
+  await assert.rejects(f.coordinator.collectResult("unit-1"), { code: "result-binding-mismatch" });
+  assert.equal((await f.journal.read("unit-1")).operations.at(-1).phase, "running");
+});
+
+test("a result read cannot turn an uncertain launch into a completed worker", async (t) => {
+  let reads = 0;
+  const f = await fixture(t, { effects: { createThread: async () => { throw new Error("lost"); },
+    readResult: async () => { reads += 1; } } });
+  await f.coordinator.launchWave(f.input);
+  await assert.rejects(f.coordinator.collectResult("unit-1"), { code: "result-reconciliation-required" });
+  assert.equal(reads, 0);
+});
+
 test("invalid grants, mismatched inputs, and foreign pending bindings stop before creation", async (t) => {
   const f = await fixture(t);
   assert.equal((await f.coordinator.launchWave({ ...f.input, executionGrantId: "forged" })).kind, "authorization-required");
