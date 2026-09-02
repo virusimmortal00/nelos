@@ -355,6 +355,7 @@ function defaultCheckRunners() {
         "test/app-server-rpc-dispatcher.test.mjs",
         "test/app-server-execution-profile.test.mjs",
         "test/app-server-execution-transport.test.mjs",
+        "test/executor-app-server-session.test.mjs",
       ]),
     ],
     [

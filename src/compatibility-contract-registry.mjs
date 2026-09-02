@@ -804,7 +804,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.execution-foundation",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/app-server-client.test.mjs test/app-server-rpc-dispatcher.test.mjs test/app-server-execution-profile.test.mjs test/app-server-execution-transport.test.mjs",
+      command: "node --test test/app-server-client.test.mjs test/app-server-rpc-dispatcher.test.mjs test/app-server-execution-profile.test.mjs test/app-server-execution-transport.test.mjs test/executor-app-server-session.test.mjs",
       source: "test/app-server-execution-transport.test.mjs",
     }),
     Object.freeze({
@@ -985,6 +985,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         owned: Object.freeze([
           "src/app-server-rpc-dispatcher.mjs",
           "src/app-server-execution-profile.mjs",
+          "src/executor-app-server-session.mjs",
         ]),
         shared: Object.freeze([
           "src/mcp-app-server-bridge.mjs",
@@ -995,6 +996,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/app-server-rpc-dispatcher.test.mjs",
           "test/app-server-execution-profile.test.mjs",
           "test/app-server-execution-transport.test.mjs",
+          "test/executor-app-server-session.test.mjs",
           "test/support/mock-app-server.mjs",
           "test/support/mock-stdio-app-server.mjs",
           "test/support/execution-probe-fixture.mjs",

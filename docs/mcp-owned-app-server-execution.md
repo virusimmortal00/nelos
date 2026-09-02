@@ -367,3 +367,21 @@ Do not commit real turns or create live spinoffs during architecture research.
 The first implementation milestone should produce the smallest complete
 remote create/run/observe/collect flow, including approvals and recovery,
 before enabling optional queue, environment, or dynamic-tool functionality.
+
+### Owned connection implementation
+
+`ExecutorAppServerSessionV1` now supplies a separate service-owned stdio
+connection. It uses explicit executable, work-host cwd, and Codex home, requires
+the reviewed 0.152.0 initialization shape/version, and assigns a unique
+connection ID. It never reconnects or retries requests. Cancellation or a lost
+response does not assert that an upstream mutation was canceled; the launch
+journal retains that uncertainty. The session drains stderr without retaining
+it and bounds requests, framing, output, events, and server-request handlers.
+
+Only the owner may close the session. Shutdown aborts pending handlers and
+signals the actual child handle, escalating after a bounded grace period.
+Frontend attachment, owner election, and service-channel authorization are not
+provided by this transport. A read-only handshake with the installed 0.152.0
+binary verified its `Codex Desktop/0.152.0` identity on 2026-09-02; it did not
+create a task or certify execution. Mock coverage also checks CLI identities,
+wrong-home/version rejection, failure, response loss, and late approvals.
