@@ -810,7 +810,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.executor-admission",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/executor-grants.test.mjs test/executor-launch-journal.test.mjs",
+      command: "node --test test/executor-grants.test.mjs test/executor-launch-journal.test.mjs test/executor-launch-coordinator.test.mjs",
       source: "test/executor-grants.test.mjs",
     }),
     Object.freeze({
@@ -1022,9 +1022,9 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       globalInvariant: false,
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
-        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs"]),
+        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs", "src/executor-launch-coordinator.mjs"]),
         shared: Object.freeze(["src/execution-store.mjs", "src/task-state.mjs"]),
-        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/support/executor-fixture.mjs"]),
+        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/support/executor-fixture.mjs"]),
         documentation: Object.freeze(["docs/executor-admission-and-recovery.md"]),
         upstreamDocumentation: Object.freeze([]),
         upstreamSource: Object.freeze([]),

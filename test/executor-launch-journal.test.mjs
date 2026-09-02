@@ -118,6 +118,7 @@ test("proven non-dispatch recovers a pending work unit; stale receipts cannot bi
   next.executionGrantId = grant.executionGrantId;
   next.context = (await f.authority.validate({ wave: next.wave, executionGrantId: grant.executionGrantId })).context;
   record = await reopened.prepare(next);
+  await assert.rejects(reopened.prepare(f.input), /stale-launch-operation/);
   const newId = record.operations.at(-1).operationId;
   assert.notEqual(newId, oldId);
   await f.store.markLaunchPending({ workUnitId: "unit-1", specRevision: 1, launchActionId: newId });

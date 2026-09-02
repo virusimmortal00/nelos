@@ -165,6 +165,7 @@ export class ExecutorLaunchJournalV1 {
     return this.#mutate(member.workUnitId, async (current) => {
       const prior = current?.operations.find((op) => op.member.launchSequence === member.launchSequence);
       if (prior) {
+        if (prior !== current.operations.at(-1)) fail("stale-launch-operation");
         if (prior.scopeDigest === proposed.scopeDigest && executorDigest(prior.member) === executorDigest(member) &&
             prior.prompt === prompt && prior.executionGrantId === executionGrantId) return current;
         fail("launch-sequence-conflict");

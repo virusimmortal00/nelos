@@ -87,3 +87,36 @@ The proof is about the owned executor's recorded dispatch protocol. Legacy
 native `launch-pending` records have no such evidence and remain reconciliation
 cases. This module does not retrospectively assert that their native tool was
 never called. It also does not install a supervisor or start an App Server.
+
+## Launch coordinator
+
+`ExecutorLaunchCoordinatorV1` joins grants, the journal, and the work-unit store.
+It validates the entire wave's definitions and prompt digests before creating
+anything, then acquires the existing per-work-unit orchestration lock. The
+service supplies bounded `createThread`, `setTitle`, and `startTurn` effects.
+These providers must project actual App Server responses, not echo their inputs.
+
+For each member, the coordinator revalidates admission before intent and again
+before the effect. It persists the returned creation identity immediately, binds
+the work unit, verifies effective model/cwd/permission-profile/approval-policy
+metadata, verifies the title, and only then starts and records the turn. A
+deterministic client message ID correlates that turn; it does not claim upstream
+idempotency. Runtime mutation fencing covers durable commits and effect entry.
+
+Repeated calls report an existing operation without invoking creation or turn
+start again. An unresolved earlier operation blocks wave dispatch. Partial
+waves retain every already-started member and stop at the first member requiring
+reconciliation. Effect deadlines do not make an unknown outcome safe to retry.
+
+`recover(workUnitId)` reconciles local journal/store state only. It closes a
+prepared operation as unexecuted, turns stranded dispatch intent into an unknown
+outcome, and repairs a binding from a journaled task ID. It makes no App Server
+call. Created-but-not-started tasks, running tasks, and uncertain outcomes still
+require upstream observation and an explicitly authorized continuation path.
+The current effect tests are isolated fixtures, not remote runtime certification.
+
+Production wiring still requires an elected service owner, actual target and
+worktree verification, the trusted policy/certification providers, the App Server
+effect adapter and approval relay, and observation/result collection. The legacy
+native launch gate remains available under its existing contract; this new path
+is not enabled in the MCP tool surface yet.
