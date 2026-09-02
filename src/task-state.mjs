@@ -200,9 +200,9 @@ async function moveStaleLock(lockPath) {
   }
 }
 
-async function withOwnedStateLock(lockName, callback, timeoutMs) {
-  await mkdir(taskStateDirectory(), { recursive: true, mode: 0o700 });
-  const lockPath = join(taskStateDirectory(), `${lockName}.lock`);
+async function withOwnedStateLock(lockName, callback, timeoutMs, directory = taskStateDirectory()) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const lockPath = join(directory, `${lockName}.lock`);
   const ownerPath = join(lockPath, "owner.json");
   const token = randomUUID();
   const deadline = Date.now() + timeoutMs;
@@ -346,6 +346,16 @@ export function withExecutionOrchestrationLock(
   }
   const lockId = createHash("sha256").update(workUnitId, "utf8").digest("hex");
   return withOwnedStateLock(`execution-${lockId}`, callback, timeoutMs);
+}
+
+// Executor state uses a private service directory, including in isolated tests.
+// Reuse process-start-aware stale-lock recovery without touching global state.
+export function withExecutorJournalLock(directory, workUnitId, callback) {
+  if (!isAbsolute(directory) || typeof workUnitId !== "string" || !workUnitId || workUnitId.length > 128) {
+    throw new Error("executor journal lock requires an absolute directory and work-unit ID");
+  }
+  const lockId = createHash("sha256").update(workUnitId).digest("hex");
+  return withOwnedStateLock(`executor-${lockId}`, callback, 10_000, directory);
 }
 
 /**

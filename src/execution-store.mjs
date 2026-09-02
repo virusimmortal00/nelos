@@ -6,6 +6,7 @@ import { taskStateDirectory } from "./task-state.mjs";
 import { assertWebId } from "./task-web.mjs";
 import { normalizeNativeLaunchV1 } from "./launch-contract.mjs";
 import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
+import { readExecutorNonDispatchProofV1 } from "./executor-launch-journal.mjs";
 
 export const EXECUTION_STORE_SCHEMA_VERSION = 1;
 export const WORK_UNIT_SPEC_SCHEMA_VERSION = 1;
@@ -858,6 +859,27 @@ export class ExecutionStoreV1 {
           memberThreadId,
         },
       });
+    });
+  }
+
+  /** Only the executor's closed journal can prove that dispatch never began.
+   * JSON receipts (including legacy caller capability claims) cannot reset a
+   * binding. A new operation must use a fresh launch sequence and action ID.
+   */
+  async releaseUndispatchedLaunch(proof) {
+    const evidence = readExecutorNonDispatchProofV1(proof);
+    return this.#mutate(evidence.workUnitId, async () => {
+      const current = await this.#required(evidence.workUnitId);
+      assertMatchingRevision(current, evidence.specRevision);
+      assertMatchingAttempt(current, evidence.attempt);
+      if (current.binding.state === "unbound") return current;
+      if (current.binding.state !== "launch-pending" ||
+          current.binding.launchActionId !== evidence.launchActionId ||
+          current.binding.generation !== 1 || current.replacementHistory.length !== 0) {
+        throw new ExecutionStoreRecordError("transition_conflict", "non-dispatch recovery requires the exact initial pending executor operation");
+      }
+      return this.#write({ ...current,
+        binding: { state: "unbound", memberThreadId: null, launchActionId: null, generation: 1 } });
     });
   }
 

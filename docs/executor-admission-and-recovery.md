@@ -54,8 +54,36 @@ required before rollout.
 
 ## Launch recovery
 
-The next component is a durable journal that records intent before dispatch,
-creation and turn identities separately, and conclusive non-dispatch separately
-from an unknown outcome. Grants authorize an attempt; they do not themselves
-deduplicate effects. The journal will own that responsibility. Existing native
-receipts and legacy `launch-pending` records are unchanged by the grant module.
+`ExecutorLaunchJournalV1` stores one bounded private record per work unit, with
+separate creation and turn identities. It uses the existing process-start-aware
+lock protocol in the service's own directory, compare-and-set revisions,
+exclusive temporary files, file sync, atomic rename, and directory sync.
+The caller must wait for the dispatch transition to finish before calling
+App Server. A failed durable write never permits dispatch.
+
+The initial sequence is `prepared → create-dispatched → thread-bound →
+turn-dispatched → running → terminal`. Failure after a dispatch transition is
+`outcome-unknown`, with its create/turn stage preserved. Reconciliation may bind
+an independently verified identity; an empty listing or timeout cannot permit
+creation again. This version conservatively treats even post-dispatch RPC
+errors as requiring reconciliation rather than assuming they prove non-execution.
+
+Only `prepared` may become `not-executed`. A fresh launch must advance the
+sequence by exactly one, use a fresh grant and operation ID, and retain the
+closed operation. At most 32 operations and 512 KiB are retained per work unit;
+exhaustion requires attention. Prompts are private, bounded to 32 KiB each, and
+must match their approved digests. Journal records are service state, never a
+tool response or diagnostic transcript.
+
+`proveNotExecuted` produces an in-process opaque proof backed by the persisted
+closed operation. `ExecutionStoreV1.releaseUndispatchedLaunch` accepts this
+proof, checks the exact pending action, revision, and attempt, and restores the
+initial unbound state. A serialized or fabricated proof is rejected. Journal
+closure precedes store recovery, so a restart between the two steps can safely
+repeat recovery. A late receipt from the old operation cannot bind the new one.
+Bound tasks and replacement bindings cannot be reset through this path.
+
+The proof is about the owned executor's recorded dispatch protocol. Legacy
+native `launch-pending` records have no such evidence and remain reconciliation
+cases. This module does not retrospectively assert that their native tool was
+never called. It also does not install a supervisor or start an App Server.
