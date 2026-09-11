@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { ensureCanonicalDirectory } from "./path-safety.mjs";
 import { withExecutorJournalLock } from "./task-state.mjs";
 import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
+import { normalizeExecutorResultEvidenceV1 } from "./executor-result-evidence.mjs";
 import {
   ExecutorContractError, executorExact, executorText, executorInteger, executorHash, executorDigest,
   normalizeExecutorMemberV1, normalizeExecutorWaveV1, normalizeExecutorContextV1,
@@ -31,8 +32,11 @@ export function readExecutorNonDispatchProofV1(proof) {
 }
 
 function operation(value) {
+  // Existing V1 journals predate persisted result evidence. A missing value
+  // means collection is still required; terminal status alone is insufficient.
+  value = { completion: null, ...value };
   executorExact(value, ["operationId", "scopeDigest", "planRunId", "waveIndex", "waveDigest", "member",
-    "executionGrantId", "context", "prompt", "phase", "uncertainStage", "threadId", "turnId", "terminalStatus"]);
+    "executionGrantId", "context", "prompt", "phase", "uncertainStage", "threadId", "turnId", "terminalStatus", "completion"]);
   operationId(value.operationId);
   const member = normalizeExecutorMemberV1(value.member);
   const context = normalizeExecutorContextV1(value.context);
@@ -53,7 +57,13 @@ function operation(value) {
       (value.phase === "terminal" ? !["completed", "interrupted", "failed"].includes(value.terminalStatus) : value.terminalStatus !== null)) {
     fail("invalid-journal-record");
   }
-  return { ...value, member, context };
+  let completion = null;
+  if (value.completion !== null) {
+    if (value.phase !== "terminal" || value.completion.status !== value.terminalStatus) fail("invalid-journal-record");
+    completion = normalizeExecutorResultEvidenceV1(value.completion, { member,
+      threadId: value.threadId, turnId: value.turnId });
+  }
+  return { ...value, member, context, completion };
 }
 
 export function validateExecutorJournalV1(value) {
@@ -206,6 +216,18 @@ export class ExecutorLaunchJournalV1 {
           executorExact(event, ["type", "status"]);
           if (op.phase !== "running" || !["completed", "interrupted", "failed"].includes(event.status)) fail("invalid-launch-transition");
           next.phase = "terminal"; next.terminalStatus = event.status; break;
+        case "result-collected": {
+          executorExact(event, ["type", "evidence"]);
+          if (!["running", "terminal"].includes(op.phase)) fail("invalid-launch-transition");
+          const evidence = normalizeExecutorResultEvidenceV1(event.evidence, { member: op.member,
+            threadId: op.threadId, turnId: op.turnId });
+          if (!evidence.terminal) fail("nonterminal-result-evidence");
+          if ((op.terminalStatus !== null && op.terminalStatus !== evidence.status) ||
+              (op.completion !== null && executorDigest(op.completion) !== executorDigest(evidence))) fail("terminal-result-conflict");
+          if (op.completion !== null) return current;
+          next.phase = "terminal"; next.terminalStatus = evidence.status; next.completion = evidence;
+          break;
+        }
         case "not-executed":
           executorExact(event, ["type"]);
           if (op.phase !== "prepared") fail("non-dispatch-not-proven");

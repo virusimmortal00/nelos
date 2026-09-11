@@ -4,6 +4,7 @@ import { ExecutionStoreV1, createWorkUnitSpecV1, workUnitDefinitionV1 } from "./
 import { ExecutorContractError, executorDigest, executorExact, executorInteger, executorText, normalizeExecutorWaveV1 } from "./executor-contract.mjs";
 import { withExecutionOrchestrationLock } from "./task-state.mjs";
 import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
+import { normalizeExecutorResultEvidenceV1 } from "./executor-result-evidence.mjs";
 
 const fail = (code) => { throw new ExecutorContractError(code); };
 const summary = (op, reason = null) => ({ workUnitId: op.member.workUnitId, operationId: op.operationId,
@@ -207,8 +208,8 @@ export class ExecutorLaunchCoordinatorV1 {
     });
   }
 
-  async collectResult(workUnitId) {
-    if (typeof this.#effects.readResult !== "function") fail("result-reader-unavailable");
+  async collectResult(workUnitId, { refresh = false } = {}) {
+    if (typeof refresh !== "boolean") fail("invalid-result-refresh");
     return this.#withLock(workUnitId, async () => {
       let record = await this.#journal.read(workUnitId);
       const op = record?.operations.at(-1);
@@ -220,18 +221,16 @@ export class ExecutorLaunchCoordinatorV1 {
             unit.binding.launchActionId !== op.operationId) fail("result-binding-mismatch");
       };
       await matchingBinding();
-      const observed = await this.#effect("readResult", { threadId: op.threadId, turnId: op.turnId });
-      executorExact(observed, ["threadId", "turnId", "status", "terminal", "result"]);
-      if (observed.threadId !== op.threadId || observed.turnId !== op.turnId ||
-          !["inProgress", "completed", "interrupted", "failed"].includes(observed.status) ||
-          observed.terminal !== (observed.status !== "inProgress") || !observed.result) fail("invalid-owned-result");
-      const envelope = observed.result.result;
-      if (envelope && (envelope.workUnitId !== workUnitId || envelope.specRevision !== op.member.specRevision ||
-          envelope.attempt !== op.member.attempt)) fail("result-scope-mismatch");
+      if (op.completion && !refresh) return { ...summary(op), source: "owned-app-server",
+        status: op.completion.status, result: op.completion.result };
+      if (typeof this.#effects.readResult !== "function") fail("result-reader-unavailable");
+      const response = await this.#effect("readResult", { threadId: op.threadId, turnId: op.turnId });
       await matchingBinding();
+      const observed = normalizeExecutorResultEvidenceV1(response,
+        { member: op.member, threadId: op.threadId, turnId: op.turnId });
       if (op.phase === "terminal" && observed.status !== op.terminalStatus) fail("terminal-result-conflict");
-      if (observed.terminal && op.phase !== "terminal") {
-        record = await this.#transition(record, { type: "terminal", status: observed.status });
+      if (observed.terminal) {
+        record = await this.#transition(record, { type: "result-collected", evidence: observed });
       }
       // The durable terminal transition is transport evidence only. Queen
       // acceptance still evaluates the validated result and its artifacts.

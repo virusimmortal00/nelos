@@ -10,6 +10,7 @@ import { ExecutorGrantAuthorityV1 } from "../src/executor-grants.mjs";
 import { ExecutionStoreV1, createWorkUnitSpecV1 } from "../src/execution-store.mjs";
 import { withExecutorJournalLock } from "../src/task-state.mjs";
 import { executorProviders, executorWave } from "./support/executor-fixture.mjs";
+import { classifyWorkResult, formatResultEnvelope } from "../src/work-result.mjs";
 
 function workUnit(member) {
   return { webId: "A1", queenThreadId: "queen", workUnitId: member.workUnitId, specRevision: 1,
@@ -87,6 +88,68 @@ test("a result read cannot turn an uncertain launch into a completed worker", as
   await f.coordinator.launchWave(f.input);
   await assert.rejects(f.coordinator.collectResult("unit-1"), { code: "result-reconciliation-required" });
   assert.equal(reads, 0);
+});
+
+function observedResult(status = "completed", text = "Finished the patch.") {
+  return { threadId: "task-unit-1", turnId: "turn-unit-1", status, terminal: status !== "inProgress",
+    result: classifyWorkResult({ latestTurn: { status,
+      items: [{ type: "agentMessage", phase: "final_answer", text }] } }) };
+}
+
+test("durable collection survives a coordinator restart and rejects changed completion evidence", async (t) => {
+  const f = await fixture(t);
+  await f.coordinator.launchWave(f.input);
+  const observed = observedResult("completed", formatResultEnvelope({ schemaVersion: 1,
+    workUnitId: "unit-1", specRevision: 1, attempt: 1, outcome: "succeeded", summary: "Done",
+    artifacts: ["patch.diff"], verification: ["Test passed"], blockers: [], recoveryHint: null }));
+  f.effects.readResult = async () => observed;
+  const collected = await f.coordinator.collectResult("unit-1");
+  const record = await f.journal.read("unit-1");
+  assert.deepEqual(record.operations.at(-1).completion, observed);
+  const restarted = new ExecutorLaunchCoordinatorV1({ authority: f.authority, journal: f.journal,
+    store: f.store, effects: { ...f.effects, readResult: undefined }, withLock: f.withLock });
+  assert.deepEqual(await restarted.collectResult("unit-1"), collected);
+  await f.coordinator.collectResult("unit-1", { refresh: true });
+  assert.deepEqual(await f.journal.read("unit-1"), record);
+  for (const changed of [observedResult("failed"), observedResult("completed", "Different result")]) {
+    f.effects.readResult = async () => changed;
+    await assert.rejects(f.coordinator.collectResult("unit-1", { refresh: true }), { code: "terminal-result-conflict" });
+    assert.deepEqual(await f.journal.read("unit-1"), record);
+  }
+  await f.store.advanceAttempt({ workUnitId: "unit-1", specRevision: 1, attempt: 1 });
+  await assert.rejects(restarted.collectResult("unit-1"), { code: "result-binding-mismatch" });
+});
+
+test("running, malformed and failed results retain their distinct semantics", async (t) => {
+  for (const [status, text] of [["inProgress", "Working"], ["completed", "```nelos-result\nno json\n```"],
+    ["completed", ""], ["failed", ""], ["interrupted", ""]]) {
+    const f = await fixture(t);
+    await f.coordinator.launchWave(f.input);
+    const observed = observedResult(status, text);
+    f.effects.readResult = async () => observed;
+    const collected = await f.coordinator.collectResult("unit-1");
+    assert.deepEqual(collected.result, observed.result);
+    assert.deepEqual((await f.journal.read("unit-1")).operations.at(-1).completion,
+      status === "inProgress" ? null : observed);
+  }
+});
+
+test("forged provider classifications and failed durable writes cannot release completion", async (t) => {
+  const f = await fixture(t);
+  await f.coordinator.launchWave(f.input);
+  const record = await f.journal.read("unit-1");
+  for (const result of [{}, { ...observedResult().result, workOutcome: "succeeded", attentionRequired: false }]) {
+    f.effects.readResult = async () => ({ ...observedResult(), result });
+    await assert.rejects(f.coordinator.collectResult("unit-1"));
+    assert.deepEqual(await f.journal.read("unit-1"), record);
+  }
+  f.effects.readResult = async () => observedResult();
+  const transition = f.journal.transition.bind(f.journal);
+  f.journal.transition = async () => { throw new Error("disk unavailable"); };
+  await assert.rejects(f.coordinator.collectResult("unit-1"), /disk unavailable/);
+  assert.deepEqual(await f.journal.read("unit-1"), record);
+  f.journal.transition = transition;
+  assert.equal((await f.coordinator.collectResult("unit-1")).phase, "terminal");
 });
 
 test("invalid grants, mismatched inputs, and foreign pending bindings stop before creation", async (t) => {

@@ -198,8 +198,16 @@ transport status. Repeated reads do not start more work, and a contradictory
 terminal status requires attention. The existing result classifier distinguishes
 valid structured results from plain text, failures, and missing results.
 
-The journal currently persists completion status, not the full result payload.
-Persisted join evidence, service restart recovery/reattachment, parent wake,
+The journal now atomically persists terminal status and the bounded validated
+result classification, including an exact work-unit/revision/attempt envelope
+when present. `collectResult` can replay that evidence after an owner restart
+without contacting or claiming ownership of an upstream task. It rechecks the
+current binding before returning cached evidence. An explicit `refresh: true`
+reads upstream again and rejects contradictory status or payload. Existing V1
+journals with terminal status alone still require a result read. No transcript
+is persisted, and transport completion never implies queen acceptance.
+
+Active-turn restart recovery/reattachment, parent join and wake,
 and releasing activity holds after durable collection still need integration.
 The fixture now exercises create → bind → title → start → read → terminal
 recording, alongside early approvals and late-answer cancellation. This remains

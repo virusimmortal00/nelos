@@ -53,6 +53,9 @@ test("the journal persists creation and turn identities separately across reopen
   assert.equal(record.operations[0].operationId, operationId);
   assert.equal((await stat(f.directory)).mode & 0o777, 0o700);
   assert.equal((await stat(join(f.directory, `${executorDigest("unit-1")}.json`))).mode & 0o777, 0o600);
+  const legacy = structuredClone(record);
+  delete legacy.operations[0].completion;
+  assert.equal(validateExecutorJournalV1(legacy).operations[0].completion, null);
 });
 
 test("concurrent journal instances prepare exactly one operation and revision checks fence stale updates", async (t) => {
