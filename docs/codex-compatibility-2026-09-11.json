@@ -158,5 +158,39 @@
     "host": "m3",
     "outcome": "unavailable",
     "reason": "SSH connection to m3.sayers.io port 22 timed out (10-second connection bound)"
+  },
+  "installedDaemon": {
+    "command": "codex app-server daemon version",
+    "status": "unavailable",
+    "reason": "No managed app-server control socket at the default Codex home"
+  },
+  "validation": {
+    "codeCommits": [
+      "d8784ab",
+      "6b0e722",
+      "bf3aaea"
+    ],
+    "fullSuite": {
+      "passed": 1148,
+      "failed": 0
+    },
+    "syntaxChecks": "passed",
+    "requiredOfflineGate": {
+      "exitCode": 0,
+      "overallStatus": "unverified",
+      "deterministicChecks": "passed",
+      "runtimeCertification": false
+    },
+    "codeRabbit": {
+      "base": "a564c04",
+      "issues": 1,
+      "severity": "minor",
+      "resolution": "Preserve startup-journal-entry-missing and retain its work hold; regression passes",
+      "followUp": {
+        "status": "blocked",
+        "error": "Rate limit exceeded",
+        "retryAfter": "31 minutes as reported by CodeRabbit"
+      }
+    }
   }
 }

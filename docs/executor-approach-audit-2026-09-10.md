@@ -3,11 +3,15 @@
 The [2026-09-11 compatibility report](codex-compatibility-2026-09-11.md) supersedes
 the installed-version observations below. Commit `d8784ab` adds explicit Astra
 routing, generated-schema checks and signed-in read-only probes for installed
-CLI 0.153.4, public CLI 0.154.0, and latest Desktop's 0.154.0-alpha.6.1. The
-following continuation adds a bounded journal inventory and startup admission
+CLI 0.153.4, public CLI 0.154.0, and latest Desktop's 0.154.0-alpha.6.1. Commit
+`6b0e722` adds a bounded journal inventory and startup admission
 barrier, with cached-result replay and conservative handling of unfinished
 operations. Active ownership reattachment, private service wiring, parent join,
 and real remote execution certification remain unfinished.
+
+The final code (`bf3aaea`) passed 1,148 tests and the required offline gate.
+CodeRabbit's one minor issue was fixed; its follow-up was rate-limited. See the
+2026-09-11 report for the complete evidence boundary and remaining rollout work.
 
 Reviewed task: **Fix launch authorization validation**
 (`01a062bd-d80c-78f3-b89c-a279c9b33163`). Baseline: `fda8773`, comprising eight

@@ -81,3 +81,40 @@ node scripts/probe-owned-execution.mjs <absolute-codex> <absolute-cwd> <absolute
 The probe reuses the executor's session and requests only account, model,
 permission-profile, and managed-policy discovery. It never creates a thread,
 starts a turn, changes the selected model, or issues an execution grant.
+
+## Continuation and validation
+
+- `d8784ab`: explicit Astra support, exact reviewed CLI identities, reproducible
+  schema snapshots, and live read-only session probes.
+- `6b0e722`: bounded journal inventory and a startup admission barrier. Proven
+  non-dispatch can be released; saved terminal results are checked against their
+  bindings; unfinished operations retain holds and block new waves.
+- `bf3aaea`: preserve the specific missing-startup-record error; repair registry
+  mappings and the required offline harness. It now uses the normal canonical
+  temp setup and permits only Unix sockets listened to by the same test process.
+  TCP, foreign Unix sockets, DNS, HTTP, TLS, HTTP/2 and datagrams remain blocked.
+
+The final code passed **1,148 tests, 0 failures**, syntax checks, and
+`git diff --check`, using Node 26.7.0, npm 10.9.4 and lockfile dependencies.
+`COMPATIBILITY_BASE_REF=a564c04 npm run compatibility:required` exited 0 for the
+committed code. All selected deterministic checks passed; the report's overall
+status remains **unverified** because runtime certification is a separate lane.
+
+CodeRabbit reviewed the compatibility/startup change and raised **1 minor
+issue**, now fixed with a regression test: a missing startup record must retain
+its specific error and cannot release its work hold. A follow-up review was
+blocked by **“Rate limit exceeded”**. CodeRabbit reported a 31-minute retry wait;
+alternatively its provider account needs an assigned review seat. No successful
+follow-up review is claimed for the final harness changes.
+
+The installed CLI also exposes managed daemon bootstrap/start and a stdio proxy
+to its control socket. The read-only `app-server daemon version` check found no
+managed daemon socket in the default Codex home. Before implementing service
+deployment, evaluate that upstream facility against Nelos's ownership and
+approval-lifetime requirements; it does not itself establish scoped grants or
+safe adoption of an old turn. No daemon was bootstrapped or restarted here.
+
+This continuation does not close #125 or enable the owned backend in production.
+Private service wiring, active ownership reattachment, parent acceptance/join,
+and real remote canaries remain required. The `m3` connection timeout prevents
+claiming even a current remote version inventory.
