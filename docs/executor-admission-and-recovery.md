@@ -237,6 +237,35 @@ control channel. Its attachment tokens remain opaque in-process objects.
 Policy/certification evaluation, authorization, worktree target verification and
 the user-interaction adapter are constructor-installed dependencies. Missing
 providers deny execution. The constructor does not provide a production policy
-or treat caller JSON as authorization. Discovery/provisioning, active-operation
-reconciliation at startup, the private channel/daemon, and product integration
-remain rollout requirements. The new tests use a simulated stdio server.
+or treat caller JSON as authorization. Production discovery/provisioning,
+active-operation ownership reattachment, the private channel/daemon, and product
+integration remain rollout requirements. Tests use a simulated stdio server.
+
+## Restart admission barrier
+
+Before exposing attachments, `start()` inventories the private journal while
+holding the supervisor's owner election. It validates every record and hashed
+filename, rejects symlinks and unexpected entries, and bounds the inventory to
+256 records and 1,024 directory entries. Known atomic-write and lock remnants
+are not committed dispatch evidence. A missing, malformed, foreign-host or
+wrong-Codex-home record fails startup and closes the replacement session.
+
+The runtime reserves work holds for every inventoried unit. It then uses the
+coordinator to reconcile local bindings: `prepared` can become `not-executed`
+and release the exact pending binding; dispatch records become uncertain;
+recorded thread identities can repair the private unit binding. Saved terminal
+results are checked against that binding before releasing their holds. No old
+thread is adopted by the replacement session and no upstream mutation is
+replayed. Terminal status without saved result evidence remains unresolved.
+
+`status().acceptingLaunches` is false throughout scanning and while any startup
+record needs reconciliation. After inventory, attachments can inspect/recover
+records and replay valid saved results, but grant issuance and all new waves
+remain blocked until every startup record is settled. Frontend detach or drain
+does not discard those holds. Empty App Server listings play no role in this
+decision. Inventory failure is not a clean start.
+
+This supplies the conservative startup barrier. A reviewed protocol to
+reattach active/unknown upstream ownership is still required before such a
+replacement owner can resume work automatically. The current implementation
+reports attention instead of claiming a recovery it cannot prove.

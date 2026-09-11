@@ -361,7 +361,7 @@ function defaultCheckRunners() {
     ],
     [
       "repo.executor-admission",
-      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs"]),
+      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs", "test/executor-startup-recovery.test.mjs"]),
     ],
     [
       "repo.protocol-contracts",

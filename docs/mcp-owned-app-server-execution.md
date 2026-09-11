@@ -354,8 +354,9 @@ certified by these implementation steps.
 | 4. Join and wake | Event projection, result validation, wake outbox, backend-owned cleanup | Two workers join correctly; queue and cross-owner tests establish detached-wake support or keep it unavailable |
 | 5. Product rollout | Versioned MCP schema, backend configuration, migration, docs/skill, compatibility and Desktop certification | Remote and local canaries, upgrade/restart recovery, and negative cases below |
 
-Certify against the exact `0.152.1` distribution and the actual remote runtime,
-not only this machine's `0.152.0` schema. Add independent records for tested
+Certify against the exact distribution and actual work-host runtime; the current
+[version inventory](codex-compatibility-2026-09-11.md) distinguishes installed
+CLI 0.153.4, public CLI 0.154.0, and latest Desktop's 0.154.0-alpha.6.1. Add independent records for tested
 platforms and artifacts. Keep the existing read bridge's compatibility policy
 separate from execution admission.
 
@@ -377,7 +378,8 @@ before enabling optional queue, environment, or dynamic-tool functionality.
 
 `ExecutorAppServerSessionV1` now supplies a separate service-owned stdio
 connection. It uses explicit executable, work-host cwd, and Codex home, requires
-the reviewed 0.152.0 initialization shape/version, and assigns a unique
+an exact reviewed initialization identity (0.152.0, 0.153.4, 0.154.0, or
+0.154.0-alpha.6.1), and assigns a unique
 connection ID. It never reconnects or retries requests. Cancellation or a lost
 response does not assert that an upstream mutation was canceled; the launch
 journal retains that uncertainty. The session drains stderr without retaining
@@ -390,3 +392,9 @@ provided by this transport. A read-only handshake with the installed 0.152.0
 binary verified its `Codex Desktop/0.152.0` identity on 2026-09-02; it did not
 create a task or certify execution. Mock coverage also checks CLI identities,
 wrong-home/version rejection, failure, response loss, and late approvals.
+
+The 2026-09-11 continuation validates the newer generated schemas and signed-in
+read-only discovery, including Astra's exact effort strings. It also adds an
+owner startup barrier: journal inventory and local binding/result reconciliation
+must complete before new launch admission. Unfinished upstream ownership remains
+attention and retains service holds; see [restart admission](executor-admission-and-recovery.md#restart-admission-barrier).

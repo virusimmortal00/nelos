@@ -27,6 +27,11 @@ export class ExecutorServiceRuntimeV1 {
   #work = new Map();
   #collections = new Map();
   #attention = new Map();
+  #scope;
+  #starting = null;
+  #recoveryState = "not-started";
+  #recoveryReason = null;
+  #startupPending = new Set();
 
   constructor({ directory, scope, runtimeGeneration, sessionOptions, validateTarget,
     evaluate = null, authorize = null, grantOptions = {} }) {
@@ -37,6 +42,7 @@ export class ExecutorServiceRuntimeV1 {
       onServerRequest: (request) => this.#interact(request),
     } });
     this.#supervisor = new ExecutorServiceSupervisorV1({ session: this.#session, directory, scope, runtimeGeneration });
+    this.#scope = structuredClone(scope);
     this.#effects = new ExecutorAppServerEffectsV1({ session: this.#session, validateTarget });
     this.#relay = new ExecutorApprovalRelayV1({ ownsTurn: (input, options) => this.#effects.ownsTurn(input, options) });
     this.#authority = new ExecutorGrantAuthorityV1({ ...grantOptions, authorize, evaluate: evaluate && (async (wave, options) => {
@@ -60,12 +66,68 @@ export class ExecutorServiceRuntimeV1 {
     }, { once: true });
   }
 
-  start() { return this.#supervisor.start(); }
-  attach() { return this.#supervisor.attach(); }
+  start() {
+    if (this.#starting) {
+      if (this.#recoveryState === "scanning") return this.#starting;
+      if (this.#supervisor.status().state !== "ready") return Promise.reject(new ExecutorContractError("supervisor-unavailable"));
+      return Promise.resolve(this.status());
+    }
+    this.#recoveryState = "scanning";
+    this.#starting = this.#startAndReconcile();
+    return this.#starting;
+  }
+
+  async #startAndReconcile() {
+    try {
+      // The supervisor holds the owner election throughout inventory and all
+      // reconciliation. Public attachments/admission remain closed meanwhile.
+      await this.#supervisor.start();
+      const ids = await this.#journal.listWorkUnitIds();
+      for (const id of ids) {
+        const record = await this.#journal.read(id);
+        if (!record || record.operations.some(({ member }) =>
+          member.target.hostId !== this.#scope.hostId || member.target.codexHomeId !== this.#scope.codexHomeId)) {
+          fail("startup-journal-scope-mismatch");
+        }
+        const hold = this.#supervisor.hold({ kind: "work", operationId: `unit:${id}` });
+        this.#work.set(id, { hold, users: 0, generation: 0 });
+        this.#startupPending.add(id);
+      }
+      for (const id of ids) {
+        try {
+          await this.#coordinator.recover(id);
+          const record = await this.#journal.read(id);
+          // Cached terminal evidence is revalidated against its durable unit
+          // binding. No old thread is adopted into the new connection.
+          if (record?.operations.at(-1).completion) await this.#coordinator.collectResult(id);
+          await this.#settle(id);
+          if (this.#startupPending.has(id)) this.#attention.set(id, "startup-upstream-reconciliation-required");
+        } catch (error) {
+          this.#attention.set(id, error instanceof ExecutorContractError ? error.code : "startup-reconciliation-unavailable");
+        }
+      }
+      if (this.#session.signal.aborted) fail("startup-session-lost");
+      this.#recoveryState = this.#startupPending.size ? "attention" : "complete";
+      return this.status();
+    } catch (error) {
+      this.#recoveryState = "failed";
+      this.#recoveryReason = error instanceof ExecutorContractError ? error.code : "startup-inventory-unavailable";
+      this.#session.close();
+      await this.#session.stopped;
+      throw new ExecutorContractError(this.#recoveryReason);
+    }
+  }
+
+  attach() {
+    if (!["attention", "complete"].includes(this.#recoveryState)) fail("startup-reconciliation-required");
+    return this.#supervisor.attach();
+  }
   detach(client) { this.#supervisor.detach(client); }
   get stopped() { return this.#supervisor.stopped; }
   status() {
     return { ...this.#supervisor.status(), approval: this.#relay.status(),
+      acceptingLaunches: this.#supervisor.status().state === "ready" && this.#recoveryState === "complete",
+      recovery: { state: this.#recoveryState, pending: this.#startupPending.size, reason: this.#recoveryReason },
       pendingCollections: this.#collections.size,
       attention: [...this.#attention].map(([workUnitId, reason]) => ({ workUnitId, reason })) };
   }
@@ -73,6 +135,7 @@ export class ExecutorServiceRuntimeV1 {
   #client(client, { launch = false } = {}) {
     if (!this.#supervisor.isAttached(client)) fail("unknown-service-client");
     if (launch && this.#supervisor.status().state !== "ready") fail("supervisor-not-accepting");
+    if (launch && this.#recoveryState !== "complete") fail("startup-reconciliation-required");
   }
 
   // The eventual authenticated UI adapter owns this channel. An attachment
@@ -115,6 +178,7 @@ export class ExecutorServiceRuntimeV1 {
     const generation = entry.generation;
     try {
       const op = (await this.#journal.read(workUnitId))?.operations.at(-1);
+      if (!op && this.#startupPending.has(workUnitId)) fail("startup-journal-entry-missing");
       // A lost response, an unreadable record, or terminal status without saved
       // evidence cannot release the owner's work hold.
       if (op && op.phase !== "not-executed" && !op.completion) return;
@@ -122,6 +186,8 @@ export class ExecutorServiceRuntimeV1 {
       this.#work.delete(workUnitId);
       this.#supervisor.release(entry.hold);
       this.#attention.delete(workUnitId);
+      this.#startupPending.delete(workUnitId);
+      if (this.#recoveryState === "attention" && !this.#startupPending.size) this.#recoveryState = "complete";
     } catch { this.#attention.set(workUnitId, "durable-state-unavailable"); }
   }
 
@@ -173,5 +239,8 @@ export class ExecutorServiceRuntimeV1 {
     return result;
   }
 
-  drain() { return this.#supervisor.drain(); }
+  drain() {
+    if (this.#recoveryState === "scanning") fail("startup-reconciliation-required");
+    return this.#supervisor.drain();
+  }
 }

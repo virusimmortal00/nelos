@@ -1,5 +1,14 @@
 # Owned executor approach audit and continuation
 
+The [2026-09-11 compatibility report](codex-compatibility-2026-09-11.md) supersedes
+the installed-version observations below. Commit `d8784ab` adds explicit Astra
+routing, generated-schema checks and signed-in read-only probes for installed
+CLI 0.153.4, public CLI 0.154.0, and latest Desktop's 0.154.0-alpha.6.1. The
+following continuation adds a bounded journal inventory and startup admission
+barrier, with cached-result replay and conservative handling of unfinished
+operations. Active ownership reattachment, private service wiring, parent join,
+and real remote execution certification remain unfinished.
+
 Reviewed task: **Fix launch authorization validation**
 (`01a062bd-d80c-78f3-b89c-a279c9b33163`). Baseline: `fda8773`, comprising eight
 commits after `0d266b7`. Continuation branch:

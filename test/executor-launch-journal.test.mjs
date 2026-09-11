@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -56,6 +56,40 @@ test("the journal persists creation and turn identities separately across reopen
   const legacy = structuredClone(record);
   delete legacy.operations[0].completion;
   assert.equal(validateExecutorJournalV1(legacy).operations[0].completion, null);
+});
+
+test("startup inventory validates names and records, ignores only known transaction remnants, and returns IDs", async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual(await f.journal.listWorkUnitIds(), []);
+  await f.journal.prepare(f.input);
+  const hash = executorDigest("unit-1");
+  await writeFile(join(f.directory, `${hash}.json.aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.tmp`), "incomplete transaction", { mode: 0o600 });
+  assert.deepEqual(await f.journal.listWorkUnitIds(), ["unit-1"]);
+  await rename(join(f.directory, `${hash}.json`), join(f.directory, `${executorDigest("another-unit")}.json`));
+  await assert.rejects(f.journal.listWorkUnitIds(), { code: "journal-identity-mismatch" });
+});
+
+test("startup inventory rejects symlinked and unexpected entries rather than dropping evidence", async (t) => {
+  const f = await fixture(t);
+  await f.journal.prepare(f.input);
+  const link = join(f.directory, `${executorDigest("another-unit")}.json`);
+  await symlink(join(f.directory, `${executorDigest("unit-1")}.json`), link);
+  await assert.rejects(f.journal.listWorkUnitIds(), { code: "invalid-journal-entry" });
+  await rm(link);
+  await writeFile(join(f.directory, "broken-record.json"), "{}", { mode: 0o600 });
+  await assert.rejects(f.journal.listWorkUnitIds(), { code: "invalid-journal-entry" });
+});
+
+test("startup inventory has a hard record limit", async (t) => {
+  const f = await fixture(t);
+  const record = await f.journal.prepare(f.input);
+  for (let index = 2; index <= 257; index += 1) {
+    const copy = structuredClone(record);
+    copy.workUnitId = `unit-${index}`;
+    copy.operations[0].member.workUnitId = copy.workUnitId;
+    await writeFile(join(f.directory, `${executorDigest(copy.workUnitId)}.json`), JSON.stringify(copy), { mode: 0o600 });
+  }
+  await assert.rejects(f.journal.listWorkUnitIds(), { code: "journal-inventory-limit" });
 });
 
 test("concurrent journal instances prepare exactly one operation and revision checks fence stale updates", async (t) => {

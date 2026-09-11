@@ -100,9 +100,13 @@ export class ExecutorLaunchJournalV1 {
   #path(workUnitId) { return join(this.#directory, `${executorDigest(unitId(workUnitId))}.json`); }
 
   async #load(workUnitId) {
+    return this.#loadFile(`${executorDigest(unitId(workUnitId))}.json`, workUnitId);
+  }
+
+  async #loadFile(filename, workUnitId = null) {
     let handle;
     try {
-      handle = await fs.open(this.#path(workUnitId), constants.O_RDONLY | constants.O_NOFOLLOW);
+      handle = await fs.open(join(this.#directory, filename), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const info = await handle.stat();
       if (!info.isFile() || info.size > MAX_BYTES || (info.mode & 0o077) !== 0 ||
           (process.getuid && info.uid !== process.getuid())) fail("invalid-journal-file");
@@ -115,7 +119,8 @@ export class ExecutorLaunchJournalV1 {
       }
       if (length > MAX_BYTES) fail("journal-size-limit");
       const record = validateExecutorJournalV1(JSON.parse(buffer.subarray(0, length).toString("utf8")));
-      if (record.workUnitId !== workUnitId) fail("journal-identity-mismatch");
+      if ((workUnitId !== null && record.workUnitId !== workUnitId) ||
+          filename !== `${executorDigest(record.workUnitId)}.json`) fail("journal-identity-mismatch");
       return record;
     } catch (error) {
       if (error?.code === "ENOENT") return null;
@@ -160,6 +165,28 @@ export class ExecutorLaunchJournalV1 {
     unitId(workUnitId);
     await this.#directoryReady();
     return this.#load(workUnitId);
+  }
+
+  /** Owner-only startup inventory. Every record is validated before returning
+   * any IDs. Missing/corrupt/unexpected entries are never treated as an empty
+   * journal. Stream the directory and cap records as well as total entries.
+   */
+  async listWorkUnitIds() {
+    await this.#directoryReady();
+    const ids = [];
+    let entries = 0;
+    const directory = await fs.opendir(this.#directory);
+    for await (const entry of directory) {
+      if (++entries > 1024) fail("journal-inventory-limit");
+      if (/^[a-f0-9]{64}\.json\.[a-f0-9-]{36}\.tmp$/u.test(entry.name) ||
+          /^executor-[a-f0-9]{64}\.lock(?:\.(?:release|stale)\.[a-f0-9-]{36})?$/u.test(entry.name)) continue;
+      if (!/^[a-f0-9]{64}\.json$/u.test(entry.name) || !entry.isFile()) fail("invalid-journal-entry");
+      if (ids.length >= 256) fail("journal-inventory-limit");
+      const record = await this.#loadFile(entry.name);
+      if (!record) fail("journal-inventory-changed");
+      ids.push(record.workUnitId);
+    }
+    return ids.sort();
   }
 
   async prepare({ wave, sliceId, executionGrantId, context, prompt }) {
