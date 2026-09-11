@@ -185,3 +185,27 @@ test("missing providers, foreign hosts and disconnected approval channels cannot
   assert.equal((await f.runtime.launchWave(f.client, f.input)).reason, "approval-channel-unavailable");
   assert.equal(f.runtime.status().activities, 0);
 });
+
+test("partial waves keep the uncertain member held after the completed member is collected", async (t) => {
+  const wave = executorWave();
+  wave.members.push({ ...structuredClone(wave.members[0]), sliceId: "z-second", workUnitId: "unit-2",
+    target: { ...wave.members[0].target, cwd: "/workspace/second" } });
+  let first = true;
+  const f = await fixture(t, { wave, overrides: { "thread/start": ({ params }) => {
+    if (!first) throw new Error("second creation outcome lost");
+    first = false;
+    return { thread: { id: "task-1", cwd: params.cwd }, cwd: params.cwd, model: params.model,
+      activePermissionProfile: { id: params.permissions }, approvalPolicy: params.approvalPolicy };
+  } } });
+  f.states.set("task-1", { name: null, turns: [] });
+  const result = await f.runtime.launchWave(f.client, f.input);
+  assert.deepEqual(result.members.map(({ phase }) => phase), ["running", "outcome-unknown"]);
+  assert.equal(f.runtime.status().activities, 2);
+  f.runtime.drain();
+  f.finish();
+  await until(() => f.runtime.status().activities === 1);
+  assert.equal((await f.journal.read("unit-1")).operations.at(-1).completion.result.workOutcome, "succeeded");
+  assert.equal((await f.journal.read("unit-2")).operations.at(-1).phase, "outcome-unknown");
+  assert.equal(f.runtime.status().state, "draining");
+  assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 2);
+});

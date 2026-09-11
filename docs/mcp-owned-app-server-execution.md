@@ -309,7 +309,7 @@ explicit additional route, not a silent substitution for joined subagents.
 
 ## Implementation progress
 
-The initial source implementation covers step 1 below:
+The initial source implementation covered transport and discovery:
 
 - `src/app-server-rpc-dispatcher.mjs` now serves both transports. It separates
   incoming and outgoing request IDs, routes ordered bounded notifications,
@@ -331,13 +331,18 @@ coordinator. Fixture tests exercise a two-member launch, duplicate calls, route
 and title failures, partial waves, stale grants, lost responses, and recovery
 without repeating upstream effects.
 
-These remain library foundations. No owned-execution MCP tool is enabled yet;
-the native receipt gate and legacy launch-pending recovery are not replaced.
-A successful discovery result explicitly grants no execution authority. Next
-are the supervised process, real target and worktree validation, production
-policy providers, App Server effects and approval relay, then observation and
-result collection. No remote runtime or live worker turn has been exercised by
-these implementation steps.
+The subsequent commits added the owned session, typed App Server effects,
+supervisor, approval relay and exact-turn collection. The continuation now
+composes them in `ExecutorServiceRuntimeV1`, persists validated completion
+evidence, and releases service activity only after durable collection. See the
+[audit and continuation record](executor-approach-audit-2026-09-10.md).
+
+No owned-execution MCP tool is enabled yet; the native receipt gate and legacy
+launch-pending recovery are not replaced. Discovery grants no execution
+authority. Remaining integration includes the private service channel,
+production target/worktree and policy providers, active-operation recovery at
+startup, and parent join. No remote runtime or live worker turn has been
+certified by these implementation steps.
 
 ## Implementation sequence and release proof
 
