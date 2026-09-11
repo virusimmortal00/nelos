@@ -25,6 +25,7 @@ function fakeCodexAppServer({
   initialTitle = "Release coordination",
   persistRename = true,
   rejectedMethods = [],
+  unsupportedMethods = [],
   readDelays = {},
   readErrors = {},
   readSequences = {},
@@ -89,11 +90,12 @@ function fakeCodexAppServer({
           continue;
         }
         if (ignoredMethods.includes(message.method)) continue;
-        if (rejectedMethods.includes(message.method)) {
+        if (rejectedMethods.includes(message.method) || unsupportedMethods.includes(message.method)) {
           child.stdout.write(
             `${JSON.stringify({
               id: message.id,
-              error: { message: `${message.method} rejected` },
+              error: { message: `${message.method} rejected`,
+                ...(unsupportedMethods.includes(message.method) ? { code: -32601 } : {}) },
             })}\n`,
           );
           continue;
@@ -372,7 +374,7 @@ test("inspection lazily starts one app server and returns bounded metadata", asy
     versionTested: true,
     platformFamily: "unix",
     platformOs: "macos",
-    minimumVersion: "0.144.5",
+    minimumVersion: null,
     testedVersions: ["0.144.5", "0.144.6"],
     supportedVersions: ["0.144.5", "0.144.6"],
     requiredMethods: [
@@ -517,11 +519,14 @@ test("the clean MCP environment identity passes the reviewed schema gate", async
   await bridge.close();
 });
 
-test("version and initialize gates accept newer semantic prerelease identities", async () => {
+test("version metadata accepts older, newer, and prerelease identities", async () => {
   for (const codexVersion of [
     "0.145.0-rc.1",
     "0.148.0-alpha.9",
     "0.144.6+nightly",
+    "0.144.5-rc.1",
+    "0.100.0",
+    "6.0.0",
   ]) {
     const fake = fakeCodexAppServer({ codexVersion });
     const bridge = new CodexAppServerBridgeV1({
@@ -539,18 +544,14 @@ test("version and initialize gates accept newer semantic prerelease identities",
     await bridge.close();
   }
 
-  for (const codexVersion of ["0.144.5-rc.1", "0.144.6.1"]) {
-    const fake = fakeCodexAppServer({ codexVersion });
-    const bridge = new CodexAppServerBridgeV1({
-      spawnProcess: fake.spawnProcess,
-    });
-    await assert.rejects(
-      bridge.inspect({ threadId: "thread-1" }),
-      codexVersion === "0.144.6.1"
-        ? /did not identify a versioned Codex runtime/
-        : /predates the minimum compatible version/,
-    );
-    assert.equal((await bridge.health()).state, "incompatible");
+  for (const userAgent of ["Codex Desktop/0.144.6.1 (test)", "Codex/dev-build", "Future Desktop build 42"]) {
+    const fake = fakeCodexAppServer({ initializeOverrides: { userAgent } });
+    const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess });
+    assert.equal((await bridge.inspect({ threadId: "thread-1" })).threadId, "thread-1");
+    const health = await bridge.health();
+    assert.equal(health.state, "ready");
+    assert.equal(health.version, null);
+    assert.equal(health.versionTested, null);
     await bridge.close();
   }
 
@@ -767,7 +768,7 @@ test("newer untested app-server versions proceed with advisory health", async ()
       compatible: true,
       version: "0.145.0",
       versionTested: false,
-      minimumVersion: "0.144.5",
+      minimumVersion: null,
       testedVersions: ["0.144.5", "0.144.6"],
       lastFailure: null,
     },
@@ -776,60 +777,57 @@ test("newer untested app-server versions proceed with advisory health", async ()
   await bridge.close();
 });
 
-test("app-server versions older than the compatibility floor fail closed", async () => {
-  const fake = fakeCodexAppServer({ codexVersion: "0.144.4" });
+test("legacy minimumVersion options cannot disable working operations", async () => {
+  const fake = fakeCodexAppServer({ codexVersion: "0.100.0" });
   const bridge = new CodexAppServerBridgeV1({
-    spawnProcess: fake.spawnProcess,
-    requestTimeoutMs: 1_000,
+    spawnProcess: fake.spawnProcess, minimumVersion: "99.0.0",
   });
-
-  await assert.rejects(
-    bridge.inspect({ threadId: "thread-1" }),
-    /version 0\.144\.4 predates the minimum compatible version 0\.144\.5/,
-  );
-  assert.deepEqual(await bridge.health({ probe: true }), {
-    schemaVersion: 1,
-    state: "incompatible",
-    compatible: false,
-    version: "0.144.4",
-    versionTested: false,
-    platformFamily: null,
-    platformOs: null,
-    minimumVersion: "0.144.5",
-    testedVersions: ["0.144.5", "0.144.6"],
-    supportedVersions: ["0.144.5", "0.144.6"],
-    requiredMethods: [
-      "thread/read",
-      "thread/name/set",
-      "thread/resume",
-      "thread/turns/list",
-      "turn/start",
-      "turn/steer",
-      "thread/archive",
-    ],
-    connectionAttempts: 1,
-    reconnects: 0,
-    requestsSucceeded: 1,
-    requestsFailed: 0,
-    readRetries: 0,
-    mutationAttempts: 0,
-    batchRequests: 0,
-    batchItemsRequested: 0,
-    batchItemsSucceeded: 0,
-    batchItemsFailed: 0,
-    partialBatches: 0,
-    topologyProjections: 0,
-    waitRequests: 0,
-    waitPolls: 0,
-    waitEvents: 0,
-    waitTimeouts: 0,
-    lastFailure: {
-      sequence: 1,
-      code: "incompatible-version",
-      method: null,
-    },
-  });
+  assert.equal((await bridge.inspect({ threadId: "thread-1" })).threadId, "thread-1");
+  const health = await bridge.health();
+  assert.equal(health.state, "ready");
+  assert.equal(health.version, "0.100.0");
+  assert.equal(health.versionTested, false);
+  assert.equal(health.minimumVersion, null);
   assert.equal(fake.spawnCount(), 1);
+  await bridge.close();
+});
+
+test("tested-version diagnostics allow an empty history and reviewed prereleases", async () => {
+  for (const testedVersions of [[], ["0.154.0-alpha.6.2"]]) {
+    const fake = fakeCodexAppServer({ codexVersion: "0.154.0-alpha.6.2" });
+    const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess, testedVersions });
+    assert.equal((await bridge.inspect({ threadId: "thread-1" })).threadId, "thread-1");
+    assert.equal((await bridge.health()).versionTested, testedVersions.length > 0);
+    await bridge.close();
+  }
+});
+
+test("an unsupported mutation fails once while inspection remains available", async () => {
+  const fake = fakeCodexAppServer({ codexVersion: "0.100.0", unsupportedMethods: ["thread/name/set", "thread/archive"] });
+  const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess });
+  await assert.rejects(bridge.synchronizeQueenTitle({ threadId: "thread-1" }),
+    { bridgeCode: "method-unsupported", rpcCode: -32601 });
+  await assert.rejects(bridge.archiveThread({ threadId: "thread-1" }),
+    { bridgeCode: "method-unsupported", mutationUncertain: false });
+  assert.equal((await bridge.inspect({ threadId: "thread-1" })).threadId, "thread-1");
+  assert.equal(fake.requests.filter(({ method }) => method === "thread/name/set").length, 1);
+  assert.equal(fake.requests.filter(({ method }) => method === "thread/archive").length, 1);
+  assert.equal(fake.spawnCount(), 1);
+  assert.equal((await bridge.health()).state, "ready");
+  await bridge.close();
+});
+
+test("a repaired initialization can recover without restarting the plugin", async () => {
+  const invalid = fakeCodexAppServer({ initializeOverrides: { codexHome: undefined } });
+  const repaired = fakeCodexAppServer({ codexVersion: "0.154.0-alpha.99" });
+  let attempts = 0;
+  const bridge = new CodexAppServerBridgeV1({ spawnProcess: (...args) =>
+    (++attempts === 1 ? invalid : repaired).spawnProcess(...args) });
+  await assert.rejects(bridge.inspect({ threadId: "thread-1" }), { bridgeCode: "incompatible-initialize" });
+  assert.equal(attempts, 1);
+  assert.equal((await bridge.health({ probe: true })).state, "ready");
+  assert.equal((await bridge.inspect({ threadId: "thread-1" })).threadId, "thread-1");
+  assert.equal(attempts, 2);
   await bridge.close();
 });
 

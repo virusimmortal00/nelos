@@ -52,9 +52,10 @@ the transport for tasks expected to appear live in the desktop sidebar. The
 app-server interface is experimental, so keep its protocol behind the shared
 client and re-run the standalone verifier after Codex CLI upgrades.
 
-The MCP bridge has a reviewed minimum version because it performs title, wake,
-and archive mutations. Newer stable Codex versions are allowed provisionally
-and reported as untested until their protocol shapes have been reviewed. After
+The MCP bridge has no CLI version floor or allowlist. Version metadata is
+diagnostic; title, wake, and archive mutations retain their operation-specific
+response checks and never replay an uncertain mutation. Maintainers can expand
+tested-version evidence independently of runtime availability. After
 a Codex upgrade, generate the experimental schema into a temporary directory
 and compare the initialization response plus `thread/read`, `thread/name/set`,
 `thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`, and

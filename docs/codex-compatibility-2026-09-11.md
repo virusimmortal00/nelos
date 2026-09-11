@@ -63,8 +63,9 @@ read-only permission-profile, and approval-policy discovery. These probes
 exposed a real identity bug: without Desktop's origin environment, initialization
 returns `nelos_executor/<version>`. The session now recognizes that exact client
 name alongside the previously observed names, while preserving exact reviewed
-version and Codex-home checks. Regression coverage rejects foreign client names,
-unreviewed releases, and malformed identity suffixes. No model turns were started.
+version and Codex-home checks. Subsequent durability work removed client-name and version gates entirely;
+required identity fields and the selected Codex home still validate. No model
+turns were started.
 
 ## Astra and protocol evidence
 
@@ -81,12 +82,11 @@ joined repeatable work). The current host also exposes Luna for joined work;
 Nelos's narrower joined policy remains deliberate pending routing evaluation.
 Codex effort observations must not be substituted for the API's effort schema.
 
-The owned session now accepts the exact reviewed CLI identities 0.152.0,
-0.153.4, 0.154.0, 0.154.0-alpha.6.1, and 0.154.0-alpha.6.2. Unlisted versions, suffixes, malformed
-identities, and wrong Codex homes still fail closed. These identities permit
-internal transport use; they do not confer an execution grant or runtime
-certification. Read-only discovery retains provisional checks for newer
-versions and reports the exact reviewed schema when one exists.
+Generated schemas were reviewed for 0.152.0, 0.153.4, 0.154.0,
+0.154.0-alpha.6.1, and 0.154.0-alpha.6.2. This list is evidence, not an execution
+allowlist. The MCP bridge, discovery profile, and owned session now accept
+working capabilities independently of CLI version or release-string format.
+Version strings never confer an execution grant or runtime certification.
 
 The generated request shapes used by initialization, discovery, thread creation,
 title, reads, turn start, and interrupt are semantically identical across the
@@ -120,6 +120,39 @@ node scripts/probe-owned-execution.mjs <absolute-codex> <absolute-cwd> <absolute
 The probe reuses the executor's session and requests only account, model,
 permission-profile, and managed-policy discovery. It never creates a thread,
 starts a turn, changes the selected model, or issues an execution grant.
+
+## Version-independent runtime availability
+
+Following the user's durability feedback, the MCP bridge minimum, execution
+probe floor, and owned-session version allowlist were removed. Version and
+client-brand parsing are diagnostic only; unknown version formats are reported
+as null. The bridge retains no permanent initialization failure, so a later
+operation or health probe can reconnect after Codex is repaired. Unsupported
+methods fail the affected operation without disabling unrelated MCP tools.
+Mutation uncertainty, authority, home identity, model, and permission checks
+remain enforced.
+
+A live read-only comparison on m3 at 16:58 UTC used the preserved older
+installations and both current executables:
+
+| CLI | Task inspection | Owned session | Astra/medium discovery |
+| --- | --- | --- | --- |
+| 0.145.0-alpha.30 | Passed | Ready | Model/effort not advertised |
+| 0.146.0 | Passed | Ready | Model/effort not advertised |
+| 0.154.0-alpha.6.2 | Passed | Ready | Passed |
+| 0.154.0 | Passed | Ready | Passed |
+
+All four could use their available capabilities. The older binaries were
+blocked only for the unavailable selected model, not their CLI version. No
+model turns or thread mutations were started. Offline cases additionally cover
+versions below the former floor, future releases, prereleases, unrecognized
+version strings, missing methods, and initialization recovery without a plugin
+restart. The MCP wire test verifies tool listing and task inspection remain
+available after an execution-discovery capability fails.
+
+The final durability change passed **1,155 tests, 0 failures**, and `npm run
+check`. Unsupported mutation methods are classified as certainly unapplied;
+uncertain mutations retain the existing no-replay behavior.
 
 ## Continuation and validation
 

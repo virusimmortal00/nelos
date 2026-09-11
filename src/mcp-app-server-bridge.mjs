@@ -9,7 +9,8 @@ import {
   probeAppServerExecutionV1,
 } from "./app-server-execution-profile.mjs";
 
-import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
+import { appServerVersionFromUserAgent } from "./app-server-version.mjs";
+import { isSemanticVersion } from "./experimentation-contract/semantic-version.mjs";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
 
 export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
@@ -17,7 +18,8 @@ export const TESTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
   "0.144.5",
   "0.144.6",
 ]);
-export const MINIMUM_CODEX_APP_SERVER_VERSION = "0.144.5";
+// Deprecated schema-v1 export: CLI versions no longer impose a runtime floor.
+export const MINIMUM_CODEX_APP_SERVER_VERSION = null;
 // Backward-compatible package export. These are the versions Nelos has tested,
 // not an exhaustive allowlist of versions that may use the bridge.
 export const SUPPORTED_CODEX_APP_SERVER_VERSIONS =
@@ -184,7 +186,7 @@ function publicThread(thread, expectedThreadId) {
   };
 }
 
-function initializeCompatibility(result, testedVersions, minimumVersion) {
+function initializeCompatibility(result, testedVersions) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw bridgeError(
       "Codex app-server initialize response is incompatible",
@@ -214,24 +216,7 @@ function initializeCompatibility(result, testedVersions, minimumVersion) {
       "incompatible-initialize",
     );
   }
-  const versionMatch = userAgent.match(
-    /\b(?:Codex Desktop|codex-cli|nelos_mcp)\/((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9a-z-]+(?:\.[0-9a-z-]+)*)?(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?)(?![\w.+-])/iu,
-  );
-  if (!versionMatch) {
-    throw bridgeError(
-      "Codex app-server did not identify a versioned Codex runtime",
-      "incompatible-identity",
-    );
-  }
-  const version = versionMatch[1];
-  if (compareSemanticVersions(version, minimumVersion) < 0) {
-    const error = bridgeError(
-      `Codex app-server version ${version} predates the minimum compatible version ${minimumVersion}`,
-      "incompatible-version",
-    );
-    error.observedVersion = version;
-    throw error;
-  }
+  const version = appServerVersionFromUserAgent(userAgent);
   return {
     version,
     versionTested: testedVersions.includes(version),
@@ -295,6 +280,7 @@ function publicFailure(error) {
 
 const CERTAINLY_UNAPPLIED_MUTATION_CODES = new Set([
   "request-rejected",
+  "method-unsupported",
   "bridge-closed",
   "input-unavailable",
 ]);
@@ -400,7 +386,6 @@ export class CodexAppServerBridgeV1 {
   #dispatcher = null;
   #dispatcherOptions;
   #failureSequence = 0;
-  #incompatibilityError = null;
   #lastFailure = null;
   #mutationAttempts = 0;
   #nextId = 1;
@@ -413,7 +398,6 @@ export class CodexAppServerBridgeV1 {
   #requestTimeoutMs;
   #spawnProcess;
   #stdoutBuffer = "";
-  #minimumVersion;
   #testedVersions;
   #topologyProjections = 0;
   #waitEvents = 0;
@@ -424,7 +408,6 @@ export class CodexAppServerBridgeV1 {
 
   constructor({
     command = "codex",
-    minimumVersion = MINIMUM_CODEX_APP_SERVER_VERSION,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     spawnProcess = spawn,
     supportedVersions,
@@ -450,29 +433,17 @@ export class CodexAppServerBridgeV1 {
     }
     if (
       !Array.isArray(testedVersions) ||
-      testedVersions.length === 0 ||
       testedVersions.some(
         (version) =>
           typeof version !== "string" ||
-          !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version),
+          !isSemanticVersion(version),
       )
     ) {
       throw new Error(
-        "app-server testedVersions must contain stable semantic versions",
-      );
-    }
-    if (
-      typeof minimumVersion !== "string" ||
-      !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
-        minimumVersion,
-      )
-    ) {
-      throw new Error(
-        "app-server minimumVersion must be a stable semantic version",
+        "app-server testedVersions must contain semantic versions",
       );
     }
     this.#command = command;
-    this.#minimumVersion = minimumVersion;
     this.#requestTimeoutMs = requestTimeoutMs;
     this.#spawnProcess = spawnProcess;
     this.#testedVersions = Object.freeze([...new Set(testedVersions)]);
@@ -488,7 +459,6 @@ export class CodexAppServerBridgeV1 {
     if (this.#ready) {
       return beforeDeadline(this.#ready, deadlineAt, "initialize");
     }
-    if (this.#incompatibilityError) throw this.#incompatibilityError;
     this.#connectionAttempts += 1;
     this.#stdoutBuffer = "";
     this.#compatibility = {
@@ -545,7 +515,6 @@ export class CodexAppServerBridgeV1 {
       const compatibility = initializeCompatibility(
         initialized,
         this.#testedVersions,
-        this.#minimumVersion,
       );
       this.#compatibility = {
         state: "ready",
@@ -565,15 +534,6 @@ export class CodexAppServerBridgeV1 {
               { retriable: true },
             );
       if (!child || child === this.#child) {
-        if (normalized.observedVersion) {
-          this.#compatibility = {
-            ...this.#compatibility,
-            version: normalized.observedVersion,
-          };
-        }
-        if (normalized.bridgeCode?.startsWith("incompatible-")) {
-          this.#incompatibilityError = normalized;
-        }
         this.#fail(
           normalized,
           child ?? this.#child,
@@ -635,8 +595,12 @@ export class CodexAppServerBridgeV1 {
     clearTimeout(pending.timer);
     if (message.error) {
       this.#requestsFailed += 1;
-      this.#recordFailure("request-rejected", pending.method);
-      const error = bridgeError("Codex app-server request failed", "request-rejected");
+      const unsupported = message.error.code === -32601;
+      const code = unsupported ? "method-unsupported" : "request-rejected";
+      this.#recordFailure(code, pending.method);
+      const error = bridgeError(unsupported
+        ? `Codex app-server does not support ${pending.method}`
+        : "Codex app-server request failed", code);
       error.rpcCode = Number.isSafeInteger(message.error.code) ? message.error.code : null;
       pending.reject(error);
     } else {
@@ -651,7 +615,7 @@ export class CodexAppServerBridgeV1 {
       error instanceof AppServerBridgeError
         ? error
         : bridgeError("Codex app-server transport failed", fallbackCode, {
-            retriable: fallbackCode !== "incompatible-version",
+            retriable: true,
           });
     const child = this.#child;
     this.#dispatcher?.close();
@@ -802,7 +766,7 @@ export class CodexAppServerBridgeV1 {
   async health({ probe = false } = {}) {
     if (
       probe &&
-      ["idle", "unavailable"].includes(this.#compatibility.state)
+      ["idle", "unavailable", "incompatible"].includes(this.#compatibility.state)
     ) {
       try {
         await this.#connect();
@@ -822,10 +786,10 @@ export class CodexAppServerBridgeV1 {
           : this.#testedVersions.includes(this.#compatibility.version),
       platformFamily: this.#compatibility.platformFamily,
       platformOs: this.#compatibility.platformOs,
-      minimumVersion: this.#minimumVersion,
+      minimumVersion: null,
       testedVersions: [...this.#testedVersions],
       // Retained for schema-v1 consumers. New integrations should use
-      // testedVersions; newer semantic versions are not blocked.
+      // testedVersions; no CLI version is blocked.
       supportedVersions: [...this.#testedVersions],
       requiredMethods: [...REQUIRED_CODEX_APP_SERVER_METHODS],
       connectionAttempts: this.#connectionAttempts,

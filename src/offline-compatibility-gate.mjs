@@ -46,17 +46,6 @@ function stableUnique(values) {
   return [...new Set(values)].sort();
 }
 
-function compareVersions(left, right) {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
-    }
-  }
-  return 0;
-}
-
 async function readJson(path, label) {
   let text;
   try {
@@ -203,10 +192,9 @@ async function validateSupportedVersionConsistency({ registry, root }) {
     JSON.stringify(registryVersions) === JSON.stringify(bridgeVersions),
     `registry versions ${registryVersions.join(", ")} do not match bridge versions ${bridgeVersions.join(", ")}`,
   );
-  const minimum = [...registryVersions].sort(compareVersions)[0];
   check(
-    bridge.MINIMUM_CODEX_APP_SERVER_VERSION === minimum,
-    `bridge minimum ${bridge.MINIMUM_CODEX_APP_SERVER_VERSION} does not match ${minimum}`,
+    bridge.MINIMUM_CODEX_APP_SERVER_VERSION === null,
+    "tested CLI versions must not impose a runtime minimum",
   );
   for (const release of registry.supportedCodexReleases) {
     check(

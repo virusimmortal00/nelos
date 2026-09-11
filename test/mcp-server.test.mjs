@@ -20,6 +20,8 @@ import {
   startNelosMcpServer,
 } from "../src/mcp-server.mjs";
 import { ExecutionStoreV1 } from "../src/execution-store.mjs";
+import { CodexAppServerBridgeV1 } from "../src/mcp-app-server-bridge.mjs";
+import { mockStdioAppServer } from "./support/mock-stdio-app-server.mjs";
 import {
   ACTION_RECEIPT_RESOURCE_URI,
   EXECUTION_MAP_RESOURCE_MIME_TYPE,
@@ -3808,6 +3810,32 @@ test("a failed non-wait response does not poison later requests or waits", async
   assert.deepEqual(responses[2].result, {});
   assert.equal(toolBody(responses[3]).body.wait.status, "timeout");
   assert.equal(waitCalls, 1);
+});
+
+test("plugin tools stay usable across CLI versions and an unsupported method", async () => {
+  for (const userAgent of ["codex-cli/0.100.0", "Future Desktop/6.0.0", "Codex nightly build"]) {
+    const server = mockStdioAppServer(({ method, params }) => {
+      if (method === "initialize") return { userAgent, codexHome: "/codex-home", platformFamily: "unix", platformOs: "macos" };
+      if (method === "thread/read") return { thread: { id: params.threadId, name: "Task", status: { type: "idle" } } };
+      throw Object.assign(new Error("private upstream detail"), { rpcCode: -32601 });
+    });
+    const appServerBridge = new CodexAppServerBridgeV1({ spawnProcess: server.spawnProcess });
+    // An unavailable execution-discovery method must not disable basic MCP tools.
+    const discovery = await appServerBridge.probeExecution({ cwd: "/workspace", model: "gpt-6-astra",
+      reasoningEffort: "medium", permissionProfile: ":read-only", approvalPolicy: "never" });
+    assert.equal(discovery.state, "unavailable");
+    assert.ok(discovery.blockers.every(({ code }) => code === "probe-method-unsupported"));
+    const responses = await roundTrip([INITIALIZE,
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nelos_thread_inspect", arguments: { threadId: "task" } } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "nelos_app_server_health", arguments: {} } },
+    ], { appServerBridge });
+    assert.ok(responses[1].result.tools.some(({ name }) => name === "nelos_thread_inspect"));
+    assert.equal(toolBody(responses[2]).isError, false);
+    assert.equal(toolBody(responses[3]).body.health.state, "ready");
+    assert.equal(server.children.length, 1);
+    assert.doesNotMatch(JSON.stringify(responses), /private upstream detail/);
+  }
 });
 
 test("nelos_app_server_health forwards the probe and bounded telemetry", async () => {

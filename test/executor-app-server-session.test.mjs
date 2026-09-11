@@ -78,20 +78,9 @@ test("server requests remain independent and close cancels late approval replies
   assert.ok(server.requests.every((message) => Object.hasOwn(message, "method")));
 });
 
-test("wrong home, unreviewed version and malformed streams fail closed", async (t) => {
-  const desktop = fixture(t, undefined, {}, { ...identity,
-    userAgent: "Codex Desktop/0.152.0 (Mac OS 26.6.1; arm64) dumb (nelos_executor; 1.0.0)" });
-  assert.equal((await desktop.session.open()).state, "ready");
-  for (const initialize of [{ ...identity, codexHome: "/other" }, { ...identity, userAgent: "codex-cli/0.153.0" },
-    { ...identity, userAgent: "codex-cli/0.152.0-alpha" },
-    { ...identity, userAgent: "codex-cli/0.155.0" },
-    { ...identity, userAgent: "codex-cli/0.154.0-alpha.6.3" },
-    { ...identity, userAgent: "foreign_executor/0.154.0" },
-    { ...identity, userAgent: "nelos_executor/0.155.0" },
-    { ...identity, userAgent: "nelos_executor/0.154.0/other" },
-    { ...identity, userAgent: "codex-cli/0.154.0+unreviewed" },
-    { ...identity, userAgent: "foreign codex-cli/0.154.0" },
-    { ...identity, userAgent: "codex-cli/0.154.0/other" }]) {
+test("wrong home, missing identity fields, and malformed streams fail closed", async (t) => {
+  for (const initialize of [{ ...identity, codexHome: "/other" },
+    { ...identity, platformFamily: "" }, { ...identity, platformOs: null }]) {
     const { session } = fixture(t, undefined, {}, initialize);
     await assert.rejects(session.open(), { code: "session-identity-mismatch" });
   }
@@ -99,6 +88,23 @@ test("wrong home, unreviewed version and malformed streams fail closed", async (
   await session.open();
   server.children[0].stdout.write("{bad-json}\n");
   assert.equal(session.status().state, "failed");
+});
+
+test("owned sessions accept working older, future, prerelease and unversioned runtimes", async (t) => {
+  for (const [userAgent, expected] of [
+    ["codex-cli/0.100.0", "0.100.0"],
+    ["Codex Desktop/0.154.0-alpha.6.3 (test)", "0.154.0-alpha.6.3"],
+    ["nelos_executor/6.0.0", "6.0.0"],
+    ["Future Desktop/6.0.0+unreviewed", "6.0.0+unreviewed"],
+    ["nelos_executor/dev-build", null],
+    ["Codex Desktop/0.154.0/other", null],
+    ["Codex preview build", null],
+  ]) {
+    const { session } = fixture(t, () => ({ ok: true }), {}, { ...identity, userAgent });
+    assert.equal((await session.open()).observedVersion, expected);
+    assert.deepEqual(await session.request("thread/read", { threadId: "task" }), { ok: true });
+    assert.equal(session.status().runtimeCertified, false);
+  }
 });
 
 test("standalone SSH identity uses the explicit initialization client name", async (t) => {

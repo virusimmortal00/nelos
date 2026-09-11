@@ -30,6 +30,10 @@ Nelos is a plugin for [Codex](https://developers.openai.com/codex) that combines
 a task-management skill, an MCP orchestration server, and a dedicated official
 Codex app-server child process for native task control.
 
+Nelos does not require a particular Codex CLI version. It checks the operations
+it uses, so an older, newer, or preview build can keep working. If a capability
+is unavailable, only the operation that needs it fails; other tools remain usable.
+
 **A little Nelos vocabulary:**
 
 | Marker | Term | What it means |
@@ -266,7 +270,7 @@ own Git branches, merges, and final review.
 - [Isolated-queen routing evaluation](docs/routing-evaluation.md) — fresh-task scenario prompts and exact-route grading
 - [Native task orchestration](docs/task-orchestration.md) — durable create, title sync, crash-resume
 - [App Server compatibility contract](docs/app-server-compatibility-contract.md) —
-  minimum and tested-version policy, fallbacks, and hardening gates
+  capability checks, tested-version evidence, fallbacks, and hardening gates
 - [Webs and terminology](docs/webs.md) — the queen / spinoff / web model
 - [Slice planning](docs/slice-planning.md) — a full worked example
 - [Worktree coordination](docs/worktree-coordination.md) — one writer per branch

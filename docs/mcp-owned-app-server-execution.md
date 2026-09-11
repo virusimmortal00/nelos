@@ -48,7 +48,7 @@ The `0.152.1` runtime and the reported remote host were not exercised here.
 The existing [compatibility contract](app-server-compatibility-contract.md)
 separates the strict MCP bridge from conditional CLI creation. This proposal
 adds an execution profile; it does not silently widen the old read profile or
-declare every runtime above its minimum version safe for mutations.
+declare a runtime safe for mutations from its version number.
 
 ## What the repository already provides
 
@@ -377,10 +377,11 @@ before enabling optional queue, environment, or dynamic-tool functionality.
 ### Owned connection implementation
 
 `ExecutorAppServerSessionV1` now supplies a separate service-owned stdio
-connection. It uses explicit executable, work-host cwd, and Codex home, requires
-an exact reviewed initialization identity (0.152.0, 0.153.4, 0.154.0, or
-0.154.0-alpha.6.1), and assigns a unique
-connection ID. It never reconnects or retries requests. Cancellation or a lost
+connection. It uses explicit executable, work-host cwd, and Codex home, validates
+the returned home and required identity fields, and assigns a unique connection
+ID. CLI version and client branding are diagnostic metadata and never reject a
+connection. Live discovery determines whether the selected model and permission
+policy are available. It never reconnects or retries requests. Cancellation or a lost
 response does not assert that an upstream mutation was canceled; the launch
 journal retains that uncertainty. The session drains stderr without retaining
 it and bounds requests, framing, output, events, and server-request handlers.
@@ -391,7 +392,8 @@ Frontend attachment, owner election, and service-channel authorization are not
 provided by this transport. A read-only handshake with the installed 0.152.0
 binary verified its `Codex Desktop/0.152.0` identity on 2026-09-02; it did not
 create a task or certify execution. Mock coverage also checks CLI identities,
-wrong-home/version rejection, failure, response loss, and late approvals.
+wrong-home rejection, version-independent startup, failure, response loss, and
+late approvals.
 
 The 2026-09-11 continuation validates the newer generated schemas and signed-in
 read-only discovery, including Astra's exact effort strings. It also adds an

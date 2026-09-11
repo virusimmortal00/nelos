@@ -24,11 +24,11 @@ Nelos has four existing App Server profiles and a development discovery profile:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
-| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | Minimum Codex `0.144.5`; compatibility metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; newer semantic versions proceed provisionally behind the same response validators |
+| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | No CLI version gate; tested-version metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; all builds are evaluated by the same per-operation response validators |
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
-| Execution discovery (development) | One initialized connection, using either transport | Read account configuration, exact model/effort availability, named permission availability, and managed approval-policy constraints | Reduced generated `0.152.0` schema; offline fixtures only. Newer versions are candidates for discovery. Always returns `executionAuthorized:false` and `runtimeCertified:false`; no runtime release is certified for owned execution |
+| Execution discovery (development) | One initialized connection, using either transport | Read account configuration, exact model/effort availability, named permission availability, and managed approval-policy constraints | Generated fixtures and signed-in read-only discovery evidence are recorded separately. Every version is eligible for live capability discovery. Always returns `executionAuthorized:false` and `runtimeCertified:false`; no runtime release is certified for owned execution |
 
 The profiles do not inherit capabilities from one another. In particular, the
 strict bridge fixture does not attest the CLI's `thread/start` or `thread/list`
@@ -38,12 +38,12 @@ payloads, and installer-only plugin methods do not widen task-control support.
 
 The supported revision-1 baseline is:
 
-- a semantic server identity at or above minimum version `0.144.5`;
+- a bounded initialization response; version metadata is optional and never an admission gate;
 - combined reduced-fixture evidence whose recorded source covers `0.144.5` and
   Desktop `0.144.6`, plus `0.4.0` release revalidation of the exact
   `codex-cli 0.144.5` and `0.144.6` npm distributions; the raw generated
   schemas remain temporary rather than separately checked-in captures, and
-  newer semantic versions are reported as compatible but untested;
+  other versions can operate without being labeled tested;
 - `initialize`, followed by the outbound `initialized` notification;
 - `capabilities.experimentalApi: true`;
 - stdio JSONL for the strict bridge;
@@ -62,18 +62,18 @@ classified below.
 | Dependency | Evidence and maturity | Nelos rule |
 | --- | --- | --- |
 | JSON-RPC shape | Official: `method`, `params`, and optional `id`, with the JSON-RPC header omitted | Accept only bounded object messages; response `id` must match a pending request |
-| stdio | Official JSONL transport; the combined fixture records the reviewed `0.144.x` shapes and `--stdio` was locally re-verified on `0.144.6` for this revision | Supported by the strict bridge at or above the minimum version, subject to strict per-operation response validation |
+| stdio | Official JSONL transport; the combined fixture records the reviewed `0.144.x` shapes and `--stdio` was locally re-verified on `0.144.6` for this revision | Available subject to per-operation response validation, without a CLI version floor |
 | Unix-WebSocket | Official WebSocket-over-Unix transport using HTTP Upgrade | Accept an explicit development `--socket` or validated descriptor only |
 | TCP `ws://` / `wss://` | Official, but WebSocket transport is experimental and unsupported | Outside the revision-1 endpoint descriptor and Nelos product support |
 | Host descriptor | Nelos proposal: `{schemaVersion:1, transport:"unix-websocket", path, protocolVersion}` | Receiver seam only. Codex does not inject, lease, or attest this descriptor today |
 | Implicit `CODEX_HOME` socket | Historical diagnostic discovery | Never implicit authorization for task control |
 | Initialization request | `clientInfo{name,title,version}` and `capabilities{experimentalApi:true,requestAttestation:false}` | Send once per connection, before all other requests |
 | Initialization response | Strict bridge consumes `codexHome`, `platformFamily`, `platformOs`, and `userAgent`; shared client records the last three | Missing or malformed strict-bridge fields fail closed |
-| Server identity | `userAgent` forms reviewed: `Codex Desktop/V`, `codex-cli/V`, and `nelos_mcp/V` | Strict bridge parses semantic `V`, rejects malformed versions and versions below `0.144.5`, and reports whether `V` was tested |
-| Method negotiation | No method or capability list is advertised by `initialize` on the tested versions | Generated fixture, minimum-version policy, tested-version list, and strict response validators form the temporary compatibility boundary |
+| Server identity | `userAgent` forms reviewed: `Codex Desktop/V`, `codex-cli/V`, and `nelos_mcp/V` | Version and branding are diagnostic only; parseable `V` is reported with tested status, otherwise version is null |
+| Method negotiation | No method or capability list is advertised by `initialize` on the tested versions | Method errors and per-operation response validators determine availability; fixtures and tested-version lists are maintainer evidence |
 | Peer identity | `requestAttestation:false`; no authenticated host/plugin identity contract | Privileged host-owned control remains proposed, not release-supported |
 
-The shared Unix-WebSocket client does not yet enforce the strict version and
+The shared Unix-WebSocket client does not yet enforce the strict field and
 response validators. Its operations therefore remain conditional even when
 they happen to connect to a pinned runtime.
 
@@ -180,14 +180,14 @@ That remains outside revision 1 until a durable catch-up contract exists:
 2. **Permission profile unavailable.** Stop before task creation or mutation.
    The caller must explicitly select a sandbox mode; Nelos never silently
    broadens or substitutes permissions.
-3. **Version classification.** Semantic versions below `0.144.5` and malformed
-   identities fail during initialization. A newer stable, prerelease, or build
-   version proceeds as compatible but untested; every consumed response still
-   validates, and any actual schema change fails at the affected operation.
-   Only reviewed generated-schema evidence may add a version to the tested list.
+3. **Version reporting.** No version, prerelease, client name, or unrecognized
+   release string disables an otherwise working connection. Versions are
+   diagnostic evidence only. Unsupported methods fail the affected operation.
+   Only reviewed evidence may label a release tested.
 4. **Schema mismatch.** Missing initialize fields, mismatched task IDs, unknown
    status types or flags, malformed pages, malformed JSON, and oversized
-   messages fail closed.
+   messages fail closed. A later operation or health probe can retry a failed
+   initialization after repair; the plugin does not retain a permanent failure.
 5. **Read transport failure.** The strict bridge starts one fresh child,
    reinitializes, and replays the read once. A second failure is returned. The
    shared WebSocket client currently requires explicit reopen.
@@ -247,9 +247,8 @@ Revision 1 does not support or claim:
   task lifecycle;
 - Goals, fork, unarchive, rollback, review, approvals, hooks, or other
   documented methods merely because they exist; or
-- compatibility below Codex `0.144.5`, with malformed identities, or a claim
-  that a provisionally allowed newer semantic version has
-  passed the complete Nelos verification matrix.
+- a claim that an untested version has passed the complete Nelos verification
+  matrix merely because its requested operations work.
 
 Resumable subscriptions and title compare-and-set remain backlog monitor items,
 not actionable implementation work, until upstream schema and behavior provide
@@ -370,7 +369,7 @@ without widening product behavior.
 1. Introduce one versioned compatibility descriptor consumed by both clients,
    with separate supported, conditional, installer-only, and verifier-only
    method sets.
-2. Apply stable-identity, minimum-version, tested-version reporting, and
+2. Apply bounded identity validation, diagnostic version reporting, and
    allowlisted per-method request and response validators to the shared client
    before product mutations.
 3. Preserve bounded error codes and uncertainty classifications without
@@ -395,7 +394,7 @@ without widening product behavior.
 4. Prove id-less notifications never establish completion and current polling
    plus durable observation/join remains authoritative.
 5. Cover exact CLI and installer request/response fields, including restart
-   fallback, and reject `0.144.5` named permissions until evidence changes.
+   fallback, and reject unavailable named permissions based on live responses.
 6. Assert that no native catch-up/subscription request or title revision field
    is emitted.
 

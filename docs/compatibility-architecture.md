@@ -173,6 +173,9 @@ unmapped sensitive path blocks the change.
 
 ### Change supported Codex versions or claims
 
+These are evidence claims for maintainers, not a runtime admission list.
+Plugin and MCP operations are never blocked solely by a CLI version.
+
 Never update a supported version because a floating branch or semantic finding
 looks compatible. For each exact version:
 
@@ -182,7 +185,7 @@ looks compatible. For each exact version:
    matches the claim;
 4. run exact transport probes and any explicitly claimed trusted-live smoke;
 5. update the registry release entry, reduced fixture identity, bridge
-   `TESTED_CODEX_APP_SERVER_VERSIONS`/minimum where applicable, README,
+   `TESTED_CODEX_APP_SERVER_VERSIONS` where applicable, README,
    compatibility contract, and release notes together;
 6. run the offline gate and release evidence verifier; and
 7. review the report identities, digests, failure fields, and limitations

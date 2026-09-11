@@ -936,7 +936,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         "codex@0.144.6",
       ]),
       mappings: Object.freeze({
-        owned: Object.freeze(["src/mcp-app-server-bridge.mjs"]),
+        owned: Object.freeze(["src/mcp-app-server-bridge.mjs", "src/app-server-version.mjs"]),
         shared: Object.freeze([
           "scripts/collect-runtime-transport.mjs",
           "src/app-server-client.mjs",

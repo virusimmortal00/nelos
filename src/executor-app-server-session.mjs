@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { AppServerRpcDispatcher, appServerResponseError, validateAppServerDispatcherOptions } from "./app-server-rpc-dispatcher.mjs";
 import { ExecutorContractError, executorInteger, executorText } from "./executor-contract.mjs";
-import { REVIEWED_EXECUTION_SCHEMA_VERSIONS } from "./app-server-execution-profile.mjs";
+import { appServerVersionFromUserAgent } from "./app-server-version.mjs";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const error = (code) => new ExecutorContractError(code);
@@ -97,9 +97,9 @@ export class ExecutorAppServerSessionV1 {
         clientInfo: { name: "nelos_executor", title: "Nelos executor", version: "1.0.0" },
         capabilities: { experimentalApi: true, requestAttestation: false },
       });
-      const version = typeof identity?.userAgent === "string"
-        ? identity.userAgent.match(/^(?:codex-cli|Codex Desktop|nelos_executor)\/([^\s()]+)(?=\s|$)/u)?.[1] : null;
-      if (!REVIEWED_EXECUTION_SCHEMA_VERSIONS.includes(version) || identity.codexHome !== codexHome ||
+      executorText(identity?.userAgent, 512);
+      const version = appServerVersionFromUserAgent(identity.userAgent);
+      if (identity.codexHome !== codexHome ||
           typeof identity.platformFamily !== "string" || !identity.platformFamily ||
           typeof identity.platformOs !== "string" || !identity.platformOs) throw error("session-identity-mismatch");
       if (this.#state !== "opening") throw error("session-unavailable");

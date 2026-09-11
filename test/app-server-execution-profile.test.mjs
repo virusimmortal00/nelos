@@ -129,15 +129,14 @@ test("a hung read ends at the overall deadline even if its transport ignores can
   assert.ok(result.blockers.every(({ code }) => code === "probe-timeout"));
 });
 
-test("older and invalid versions do not probe, and newer versions remain uncertified", async () => {
-  for (const observedVersion of ["0.144.6", "0.152.0-beta.1", "invalid", null]) {
+test("version metadata never replaces live capability discovery", async () => {
+  for (const observedVersion of ["0.100.0", "0.144.6", "0.152.0-beta.1", "0.999.0", "6.0.0", "dev-build", null]) {
     const { result, calls } = await probe({ observedVersion });
-    assert.deepEqual(calls, []);
-    assert.equal(result.state, "unavailable");
+    assert.deepEqual(calls.map(({ method }) => method), EXECUTION_DISCOVERY_METHODS);
+    assert.equal(result.state, "discovery-complete");
+    assert.equal(result.runtimeCertified, false);
+    assert.equal(result.executionAuthorized, false);
   }
-  const { result } = await probe({ observedVersion: "0.152.1" });
-  assert.equal(result.state, "discovery-complete");
-  assert.equal(result.runtimeCertified, false);
 });
 
 test("invalid or caller-authored authority inputs are rejected before any request", async () => {

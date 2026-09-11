@@ -314,5 +314,96 @@
       },
       "blockers": []
     }
+  },
+  "versionDurabilityCheck": {
+    "observedAt": "2026-09-11T16:58:56.435Z",
+    "host": "m3",
+    "modelTurnsStarted": 0,
+    "rows": [
+      {
+        "label": "previous-desktop",
+        "version": "0.145.0-alpha.30",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "unavailable",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "unsatisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": [
+          {
+            "code": "modelAndEffortAdvertised",
+            "method": "model/list",
+            "rpcCode": null
+          }
+        ]
+      },
+      {
+        "label": "previous-standalone",
+        "version": "0.146.0",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "unavailable",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "unsatisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": [
+          {
+            "code": "modelAndEffortAdvertised",
+            "method": "model/list",
+            "rpcCode": null
+          }
+        ]
+      },
+      {
+        "label": "current-desktop",
+        "version": "0.154.0-alpha.6.2",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "discovery-complete",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "satisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": []
+      },
+      {
+        "label": "current-standalone",
+        "version": "0.154.0",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "discovery-complete",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "satisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": []
+      }
+    ]
+  },
+  "runtimeVersionPolicy": {
+    "admission": "live-capabilities",
+    "cliVersionGate": false,
+    "unrecognizedVersion": "diagnostic-null",
+    "unsupportedMethod": "operation-local-error",
+    "initializationFailure": "later-operation-or-health-probe-can-reconnect",
+    "uncertainMutationReplay": false
   }
 }

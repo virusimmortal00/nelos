@@ -1,8 +1,7 @@
 import { isAbsolute } from "node:path";
-import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
 
 export const EXECUTION_DISCOVERY_SCHEMA_VERSION = "0.152.0";
-// Exact generated-schema reviews, not runtime execution certification. Desktop
+// Exact generated-schema reviews for diagnostics, never runtime admission. Desktop
 // can bundle a prerelease CLI even when the Desktop release channel is stable.
 export const REVIEWED_EXECUTION_SCHEMA_VERSIONS = Object.freeze([
   "0.152.0", "0.153.4", "0.154.0", "0.154.0-alpha.6.1", "0.154.0-alpha.6.2",
@@ -70,15 +69,6 @@ export async function probeAppServerExecutionV1({ request, observedVersion, opti
     checks: {},
     blockers: [],
   };
-  try {
-    if (compareSemanticVersions(observedVersion, EXECUTION_DISCOVERY_SCHEMA_VERSION) < 0) {
-      throw new Error("older schema");
-    }
-  } catch {
-    result.blockers.push({ code: "execution-schema-unreviewed", method: null, rpcCode: null });
-    return result;
-  }
-
   const controller = new AbortController();
   const deadlineAt = Date.now() + selected.timeoutMs;
   const timer = setTimeout(() => controller.abort(), selected.timeoutMs);

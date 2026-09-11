@@ -104,7 +104,7 @@ A Codex version is marked as tested only after maintainers:
 
 1. generate and review the experimental app-server schema;
 2. compare every method and field Nelos uses with the checked-in fixture;
-3. run the bridge compatibility and MCP tests, including the minimum-version
+3. run the bridge compatibility and MCP tests, including version-independent startup
    and response-schema guards; and
 4. perform the applicable fresh-task plugin/MCP smoke check on that exact host.
 
@@ -116,14 +116,15 @@ and public source cannot establish Desktop, cloud, entitlement, rollout, or
 closed-host behavior. Collectors produce review artifacts; they never update
 claims, fixtures, or supported-version lists.
 
-The bridge enforces the oldest protocol version it can safely use, currently
-Codex `0.144.5`, rather than treating the tested-version list as an exhaustive
-allowlist. A semantic Codex version at or above that minimum may proceed when it
-has not yet been tested; health output identifies it as compatible but
-untested. Versions below the minimum and malformed runtime identities fail
-during startup. Strict validation remains in place for
-every app-server response Nelos consumes, so an actual protocol incompatibility
-fails at the affected operation instead of being silently accepted.
+Runtime availability is capability-based. Neither the MCP bridge nor the owned
+executor enforces a CLI version minimum or an exhaustive tested-version list.
+Version parsing and tested-version reporting are diagnostics; an unrecognized
+release string does not disable the plugin. Each operation validates the fields
+and capabilities it actually needs. Unsupported methods fail that operation,
+while unrelated tools remain available. Authorization, permission checks,
+identity binding to the selected Codex home, and no-replay rules still apply.
+Exact version pinning in certification and experiment artifacts ensures those
+results are reproducible; those artifacts are not a user-facing CLI allowlist.
 
 The compatibility result is communicated in the release's **Compatibility
 requirements** notes, including exact tested Codex versions, operating systems,
@@ -131,8 +132,8 @@ Node.js requirements, and which surfaces were exercised. A passing schema gate
 supports only the reviewed protocol operations. It does not claim that Codex
 provides native event replay, atomic title compare-and-set, result provenance,
 model availability, plugin-root substitution, or any other behavior that was
-not observed. Untested newer semantic versions are provisional compatibility
-claims, not evidence that their complete host surface has been verified. See
+not observed. Successful operations on untested builds are not evidence that their complete
+host surface has been verified. See
 [MCP tool surface](mcp-tool-surface.md#experimental-protocol-compatibility) for
 the current evidence and limitations.
 
