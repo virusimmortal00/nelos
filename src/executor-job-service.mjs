@@ -11,6 +11,7 @@ import { ExecutorContractError, executorExact, executorDigest, executorContextFi
 import { ensureCanonicalDirectory } from "./path-safety.mjs";
 import { readPrivateExecutorJsonV1 } from "./executor-service-channel.mjs";
 import { probeAppServerExecutionV1 } from "./app-server-execution-profile.mjs";
+import { ExecutorCompletionOutboxV1 } from "./executor-completion-outbox.mjs";
 
 const run = promisify(execFile);
 // App Server config maps do not promise JSON property order. Identity follows
@@ -60,11 +61,12 @@ export function normalizeExecutorJobV1(value) {
 }
 
 export class ExecutorJobServiceV1 {
-  #config; #runtime; #units; #journal; #decisions; #launching = null; #joining = null; #directory; #starting = null;
+  #config; #runtime; #units; #journal; #decisions; #outbox; #launching = null; #joining = null; #directory; #starting = null;
 
   constructor({ config, directory, runtimeGeneration, sessionOptions = {} }) {
     this.#config = normalizeExecutorJobV1(config);
     this.#directory = directory;
+    this.#outbox = new ExecutorCompletionOutboxV1({ config: this.#config, directory });
     const selected = this.#config;
     const scopeDigest = executorDigest(selected.job.wave);
     const policyId = `operator-read-only:${executorDigest(selected)}`;
@@ -72,6 +74,7 @@ export class ExecutorJobServiceV1 {
       await executorRepositoryIdentityV1(member.target.cwd) &&
       await realpath(selected.codexHome) === selected.codexHome;
     this.#runtime = new ExecutorServiceRuntimeV1({ directory,
+      onTerminal: async () => { await this.#outbox.project(); },
       scope: { hostId: selected.hostId, codexHomeId: executorDigest(selected.codexHome),
         authDomainId: executorDigest({ home: selected.codexHome, auth: "codex-managed" }) },
       runtimeGeneration,
@@ -152,9 +155,15 @@ export class ExecutorJobServiceV1 {
   drain() { return this.#runtime.drain(); }
   status() { return { ...this.#runtime.status(), workUnitId: this.#config.job.wave.members[0].workUnitId,
     queenThreadId: this.#config.job.workUnits[0].queenThreadId, attempt: this.#config.job.workUnits[0].attempt,
-    retryConfigured: false, runtimeCertified: false }; }
+    retryConfigured: false, runtimeCertified: false,
+    completionDelivery: { mode: "durable-inbox", detachedWakeAvailable: false } }; }
 
   async request(client, method, params) {
+    if (["notifications", "acknowledge"].includes(method)) {
+      this.#runtime.assertClient(client);
+      if (method === "acknowledge") return this.#outbox.acknowledge(params);
+      executorExact(params, []); return { notifications: await this.#outbox.list(), detachedWakeAvailable: false };
+    }
     if (method === "status") { executorExact(params, []); return this.status(); }
     if (method === "launch") {
       executorExact(params, []);

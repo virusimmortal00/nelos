@@ -109,7 +109,7 @@ async function mcpProcess() {
   assert.ok(init.result);
   child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
   const list = await request("tools/list", {});
-  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 5);
+  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 7);
   return { async call(method, args = {}) {
     const reply = await request("tools/call", { name: `nelos_owned_${method}`, arguments: args });
     const body = JSON.parse(reply.result?.content?.[0]?.text ?? "null");
@@ -157,6 +157,19 @@ try {
       assert.notEqual(second.threadId, first.threadId);
       proof.checks.automaticRetryCompletedWithoutFrontend = true;
       proof.checks.ownerCrashPreservedExactPredecessor = true;
+      for (const attempt of [1, 2]) {
+        const path = join(directory, `attempt-${attempt}`, "notifications", "completion.json");
+        let record;
+        for (let i = 0; i < 100; i++) {
+          record = await readFile(path, "utf8").then(JSON.parse, () => null);
+          if (record) break;
+          await delay(100);
+        }
+        assert.equal(record?.notification.attempt, attempt);
+        assert.equal(record.notification.parentThreadId, queenThreadId);
+        assert.equal(record.acknowledged, false);
+      }
+      proof.checks.completionNoticesPersistedWithoutFrontend = true;
       client = await mcpProcess();
     } else {
       client = await mcpProcess();
@@ -191,6 +204,21 @@ try {
   assert.equal(await readFile(join(cwd, "marker.txt"), "utf8"), `${marker}\n`);
   proof.threadId = collected.threadId; proof.turnId = collected.turnId; proof.workUnitId = unitId;
   proof.recoveredStatus = collected.status; proof.recoveredWorkOutcome = collected.result.workOutcome;
+  const notices = await client.call("notifications");
+  assert.equal(notices.detachedWakeAvailable, false);
+  assert.equal(notices.notifications.length, retryFamily ? 2 : 1);
+  const currentNotice = notices.notifications.at(-1);
+  assert.equal(currentNotice.threadId, collected.threadId); assert.equal(currentNotice.turnId, collected.turnId);
+  assert.equal(currentNotice.acknowledged, false);
+  const acknowledgments = [];
+  for (const notice of notices.notifications) {
+    const args = { notificationId: notice.notificationId, expectedAttempt: notice.attempt };
+    const acknowledged = await client.call("acknowledge", args);
+    assert.equal(acknowledged.acknowledged, true);
+    assert.deepEqual(await client.call("acknowledge", args), acknowledged);
+    acknowledgments.push(acknowledged);
+  }
+  proof.checks.exactCompletionAcknowledgments = true;
   const decision = { ...(retryFamily ? { expectedAttempt: 2 } : {}), decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
   let joined = null;
   if (["normal", "retry", "automatic-retry"].includes(mode) || collected.result?.result?.outcome === "succeeded") {
@@ -211,6 +239,11 @@ try {
   owner = await serviceProcess();
   client = await mcpProcess();
   assert.deepEqual(await client.call("collect"), collected);
+  assert.deepEqual((await client.call("notifications")).notifications, acknowledgments);
+  for (const notice of acknowledgments) {
+    assert.deepEqual(await client.call("acknowledge", { notificationId: notice.notificationId, expectedAttempt: notice.attempt }), notice);
+  }
+  proof.checks.acknowledgmentsSurvivedOwnerRestart = true;
   if (joined) assert.deepEqual(await client.call("join", decision), joined);
   proof.checks.terminalRestartPreservedCollection = true;
   if (joined) proof.checks.completedRestartPreservedCollectionAndJoin = true;

@@ -4580,7 +4580,7 @@ test("owned tools are opt-in and closing MCP only detaches its service client", 
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nelos_owned_status", arguments: {} } },
     { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "nelos_owned_launch", arguments: { wave: {} } } },
   ], { ownedExecutorClient });
-  assert.equal(listing.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 5);
+  assert.equal(listing.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 7);
   assert.equal(JSON.parse(status.result.content[0].text).result.state, "ready");
   assert.equal(invalid.result.isError, true);
   assert.deepEqual(calls, [{ method: "status", params: {} }]); assert.equal(closed, 1);
@@ -4594,4 +4594,16 @@ test("unavailable optional service leaves MCP and ordinary tools usable", async 
   ], { ownedExecutorClient: executorMcpClientV1("/nonexistent/nelos/endpoint.json") });
   assert.equal(unavailable.result.isError, true);
   assert.ok(ordinary.result.tools.some(({ name }) => name === "nelos_plan_slices"));
+});
+
+test("completion inbox tools accept exact notice acknowledgments without caller-authored result receipts", async () => {
+  const calls = [], args = { notificationId: `completion:${"a".repeat(64)}`, expectedAttempt: 2 };
+  const ownedExecutorClient = { request: async (method, params) => { calls.push({ method, params }); return { acknowledged: true }; } };
+  const responses = await roundTrip([INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "nelos_owned_notifications", arguments: {} } },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nelos_owned_acknowledge", arguments: args } },
+    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "nelos_owned_acknowledge", arguments: { ...args, receipt: { threadId: "parent" } } } },
+  ], { ownedExecutorClient });
+  assert.deepEqual(calls, [{ method: "notifications", params: {} }, { method: "acknowledge", params: args }]);
+  assert.equal(responses.at(-1).result.isError, true);
 });

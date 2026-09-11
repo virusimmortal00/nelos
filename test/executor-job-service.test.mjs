@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, realpath, rm, readFile, chmod, writeFile, unlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, readFile, chmod, writeFile, unlink, readdir, stat } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
@@ -11,6 +12,7 @@ import { serveExecutorJobV1, ExecutorServiceClientV1 } from "../src/executor-ser
 import { executorDigest } from "../src/executor-contract.mjs";
 import { mockStdioAppServer } from "./support/mock-stdio-app-server.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
+import { ExecutorCompletionOutboxV1 } from "../src/executor-completion-outbox.mjs";
 
 async function fixture(t, { missingModel = false, expired = false, reorderConfig = false } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "nj-")));
@@ -99,6 +101,77 @@ test("private client reconnect collects one worker and persists a separate paren
   assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 1);
   assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
   assert.doesNotMatch(JSON.stringify([result, accepted, await third.request("status")]), /secret@example/);
+});
+
+test("terminal notifications persist a bounded parent notice without a frontend and rebuild it after restart", async (t) => {
+  const f = await fixture(t), client = await f.connect();
+  assert.deepEqual((await client.request("notifications")).notifications, []);
+  await client.request("launch"); client.close(); f.finish();
+  f.server.children.at(-1).stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: "child", turn: { id: "turn", status: "completed" } } }) + "\n");
+  for (let i = 0; i < 100 && f.status().activities; i++) await delay(20);
+  assert.equal(f.status().activities, 0);
+  const path = join(f.directory, "notifications", "completion.json");
+  const stored = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(stored.notification.parentThreadId, "parent");
+  assert.equal(stored.notification.threadId, "child"); assert.equal(stored.notification.turnId, "turn");
+  assert.equal(stored.acknowledged, false); assert.equal((await stat(path)).mode & 0o777, 0o600);
+  assert.doesNotMatch(JSON.stringify(stored), /Expected summary|secret@example|Return the requested/);
+  await unlink(path); // Crash window between terminal journal and notice projection.
+  await f.restart();
+  const fresh = await f.connect();
+  assert.deepEqual((await fresh.request("notifications")).notifications, [{ ...stored.notification, acknowledged: false }]);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+});
+
+test("a lost acknowledgment response is replay-safe and never accepts the worker result", async (t) => {
+  const f = await fixture(t), client = await f.connect(); await client.request("launch"); f.finish(); await client.request("collect");
+  const [notice] = (await client.request("notifications")).notifications;
+  const args = { notificationId: notice.notificationId, expectedAttempt: 1 };
+  const original = ExecutorCompletionOutboxV1.prototype.acknowledge; let lose = true;
+  t.mock.method(ExecutorCompletionOutboxV1.prototype, "acknowledge", async function (params) {
+    const result = await original.call(this, params);
+    if (lose) { lose = false; client.close(); }
+    return result;
+  });
+  await assert.rejects(client.request("acknowledge", args), { code: "service-disconnected-outcome-unknown" });
+  await f.restart(); const fresh = await f.connect();
+  const receipt = await fresh.request("acknowledge", args);
+  assert.equal(receipt.acknowledged, true);
+  assert.deepEqual(await fresh.request("acknowledge", args), receipt);
+  assert.deepEqual((await fresh.request("notifications")).notifications, [receipt]);
+  assert.deepEqual(await readdir(join(f.directory, "acceptances")).catch((e) => { if (e.code === "ENOENT") return []; throw e; }), []);
+  assert.equal(f.status().completionDelivery.detachedWakeAvailable, false);
+});
+
+test("acknowledgment rejects nonexistent, forged and wrong-attempt receipts and detects outbox corruption", async (t) => {
+  const f = await fixture(t), client = await f.connect();
+  await assert.rejects(client.request("acknowledge", { notificationId: `completion:${"0".repeat(64)}`, expectedAttempt: 1 }), { code: "notification-acknowledgment-mismatch" });
+  await client.request("launch"); f.finish(); await client.request("collect");
+  const [notice] = (await client.request("notifications")).notifications;
+  await assert.rejects(client.request("acknowledge", { notificationId: notice.notificationId, expectedAttempt: 2 }), { code: "notification-acknowledgment-mismatch" });
+  await assert.rejects(client.request("acknowledge", { notificationId: notice.notificationId, expectedAttempt: 1, receipt: { threadId: "parent" } }), { code: "invalid-contract" });
+  const path = join(f.directory, "notifications", "completion.json"), original = await readFile(path, "utf8");
+  await chmod(path, 0o644);
+  await assert.rejects(client.request("notifications"), { code: "insecure-service-file" }); await chmod(path, 0o600);
+  const changed = JSON.parse(original); changed.notification.parentThreadId = "another-parent";
+  await writeFile(path, JSON.stringify(changed));
+  await assert.rejects(client.request("notifications"), { code: "notification-evidence-mismatch" });
+  assert.equal((await client.request("status")).state, "ready");
+  await writeFile(path, original);
+});
+
+test("projection failure retains recoverable completion until the next owner repairs the notice", async (t) => {
+  const f = await fixture(t), client = await f.connect(); await client.request("launch");
+  const original = ExecutorCompletionOutboxV1.prototype.project; let unavailable = true;
+  t.mock.method(ExecutorCompletionOutboxV1.prototype, "project", async function () {
+    if (unavailable) throw new Error("fixture outbox unavailable"); return original.call(this);
+  });
+  f.finish(); assert.equal((await client.request("collect")).phase, "terminal");
+  assert.equal(f.status().activities, 1); assert.equal(f.status().attention[0].reason, "durable-state-unavailable");
+  unavailable = false; await f.restart({ crash: true });
+  assert.equal(f.status().activities, 0);
+  assert.equal((await (await f.connect()).request("notifications")).notifications.length, 1);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
 });
 
 test("frontend JSON cannot replace the approved job, fabricate results, or grant permissions", async (t) => {

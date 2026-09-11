@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "runtimeCertified": false,
+  "scope": "Durable terminal notices without a frontend, followed by exact parent MCP receipt acknowledgment and owner restart",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T21:59:01.753Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-PMuICE",
+      "hostId": "m3",
+      "mode": "automatic-retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "automaticRetryCompletedWithoutFrontend": true,
+        "ownerCrashPreservedExactPredecessor": true,
+        "completionNoticesPersistedWithoutFrontend": true,
+        "exactCompletionAcknowledgments": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "acknowledgmentsSurvivedOwnerRestart": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 62824,
+      "threadId": "01a0927b-3c8e-7860-a502-a3103b8e1582",
+      "turnId": "01a0927b-40b6-7a50-af82-a495bba1bf09",
+      "previousAttempt": {
+        "threadId": "01a0927b-3188-78d2-a706-ca807da1fef3",
+        "turnId": "01a0927b-35da-74e0-ad1b-c2933f34daa0",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-6413b3d2776b",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T21:59:25.806Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T21:59:01.753Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-FaopJK",
+      "hostId": "m3",
+      "mode": "automatic-retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0-alpha.6.2",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "automaticRetryCompletedWithoutFrontend": true,
+        "ownerCrashPreservedExactPredecessor": true,
+        "completionNoticesPersistedWithoutFrontend": true,
+        "exactCompletionAcknowledgments": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "acknowledgmentsSurvivedOwnerRestart": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 62825,
+      "threadId": "01a0927b-3c8e-72f2-8a92-590289ce216f",
+      "turnId": "01a0927b-40b6-7570-a85a-b557820975b7",
+      "previousAttempt": {
+        "threadId": "01a0927b-3188-7471-afbe-303468067547",
+        "turnId": "01a0927b-35da-7fa2-8ecd-15e05c583e84",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-6aededdf6369",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T21:59:27.331Z"
+    }
+  ],
+  "limitations": [
+    "Receipt acknowledgment is separate from result acceptance.",
+    "No unattended native parent wake or cross-owner queue delivery is claimed; the parent reconnects and polls.",
+    "Lost acknowledgment response and outbox write failure are covered by offline regression tests.",
+    "Logical configured parent identity does not prove Desktop-native lineage or authenticate the native calling thread.",
+    "Read-only two-attempt Astra canaries; no generic runtime certification."
+  ]
+}

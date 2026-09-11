@@ -498,3 +498,55 @@ reconcile uncertain sends. The worker's separate App Server must not resume or
 steer the live parent as a substitute. Non-interruption retry policies,
 write-capable workers, unknown-ID recovery, and general scheduling also remain
 separate rollout work.
+
+
+### Durable completion inbox
+
+Every owned V1 job and V2 attempt now projects validated terminal evidence into
+its private `notifications/completion.json` outbox. Projection finishes before
+the runtime releases the work hold. If projection fails, the journal still
+contains the result and the service reports attention. A later collection or
+owner restart repairs the notice from that evidence. Retry selection waits for
+the predecessor's hold to settle, avoiding a drain that would strand the parent
+request queue when the outbox is unavailable.
+
+Two optional parent MCP tools expose this handoff:
+
+- `nelos_owned_notifications({})` returns all terminal notices for the attached
+  job's selected attempts, including which receipts were acknowledged.
+- `nelos_owned_acknowledge({ notificationId, expectedAttempt })` durably records
+  receipt of that exact notice. It can acknowledge an earlier retry attempt.
+  It never creates a parent acceptance decision or claims a native message was
+  sent. Replaying an acknowledgment after a lost response returns the same state.
+
+Each notice binds the normalized policy digest, configured parent, work-unit
+identity and attempt, native operation/thread/turn, terminal status and result
+digest. It contains no prompt, credentials, transcript or model-authored summary.
+There is at most one notice per attempt and at most three in the current retry
+family. Reads revalidate its identity against the private journal and work-unit
+binding. A receipt from a different attempt, job or parent cannot acknowledge it.
+The private endpoint grants access to the configured job; it is not a claim that
+Codex authenticated the caller as the configured native parent thread.
+
+Records use a serialized private write, file sync, atomic rename and directory
+sync. Projection preserves acknowledgment state. Startup reconstructs a missing
+notice after a crash between terminal persistence and projection. MCP responses
+can be lost or repeated, so the parent deduplicates by `notificationId`; this is
+an at-least-once inbox, not an exactly-once native messaging guarantee. The parent
+must still collect the bounded result and explicitly join the current attempt.
+
+The `automatic-retry` canary now checks that both attempts' notices exist before
+reconnecting any parent frontend. It then acknowledges each exact notice, repeats
+the calls, restarts the service and checks that acknowledgment state survives.
+[Live completion-inbox evidence](owned-completion-inbox-canary-2026-09-11.json)
+covers both installed m3 Codex builds. Offline tests additionally discard an
+acknowledgment response after persistence and replay it through a fresh owner.
+
+`completionDelivery.detachedWakeAvailable` and notification responses explicitly
+remain false. The parent must poll or stay in its join loop. The installed schema
+contains experimental queue methods, but the current
+[official App Server documentation](https://learn.chatgpt.com/docs/app-server)
+does not establish cross-owner wake delivery or deduplication. Connecting this
+outbox to a verified host sender, including reconciliation of uncertain sends,
+remains the next integration step. The owned worker service does not resume,
+steer, or fabricate a native send receipt for the parent.

@@ -8,6 +8,7 @@ import { ExecutorContractError, executorDigest, executorExact } from "./executor
 import { ensureCanonicalDirectory } from "./path-safety.mjs";
 import { readPrivateExecutorJsonV1 } from "./executor-service-channel.mjs";
 import { withExecutorJournalLock } from "./task-state.mjs";
+import { ExecutorCompletionOutboxV1 } from "./executor-completion-outbox.mjs";
 
 const fail = (code) => { throw new ExecutorContractError(code); };
 const equal = (a, b) => executorDigest(a) === executorDigest(b);
@@ -204,6 +205,19 @@ export class ExecutorRetryServiceV1 {
     const next = this.#queue.catch(() => {}).then(async () => {
       this.#client(client);
       if (method === "status") { executorExact(params, []); return this.status(); }
+      if (method === "notifications") {
+        executorExact(params, []);
+        const notifications = [];
+        for (let index = 0; index <= this.#index; index++) {
+          notifications.push(...await new ExecutorCompletionOutboxV1({ config: this.#policy.attempts[index], directory: this.#attemptDirectory(index) }).list());
+        }
+        return { notifications, detachedWakeAvailable: false };
+      }
+      if (method === "acknowledge") {
+        executorExact(params, ["notificationId", "expectedAttempt"]);
+        if (!Number.isSafeInteger(params.expectedAttempt) || params.expectedAttempt < 1 || params.expectedAttempt > this.#index + 1) fail("invalid-notification-attempt");
+        return new ExecutorCompletionOutboxV1({ config: this.#policy.attempts[params.expectedAttempt - 1], directory: this.#attemptDirectory(params.expectedAttempt - 1) }).acknowledge(params);
+      }
       if (this.#draining && ["launch", "retry"].includes(method)) fail("supervisor-not-accepting");
       if (method === "retry") return this.#retry(client, params);
       if (method === "join") {
@@ -227,6 +241,9 @@ export class ExecutorRetryServiceV1 {
     if (this.#now() >= this.#policy.attempts[this.#index + 1].expiresAt) fail("retry-authorization-expired");
     await this.#job.request(this.#client(client), "collect", {});
     const marker = await this.#prior(this.#index);
+    // A completed result can still retain a hold when durable handoff failed.
+    // Do not enter an unbounded drain or select a retry before that is repaired.
+    if (this.#job.status().activities !== 0) fail("retry-predecessor-not-settled");
     await this.#writeMarker(this.#index + 1, marker);
     // No turn is sent before the transition is durable. A process crash here
     // selects the same next job on restart; it cannot repeat the prior attempt.

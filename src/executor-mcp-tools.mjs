@@ -31,6 +31,8 @@ export function executorMcpToolsV1(client) {
     ["status", "Inspect the explicitly attached worker service and its recovery state."],
     ["launch", "Start the one worker job already authorized by the service operator. No target, prompt, model, or permission changes are accepted."],
     ["collect", "Collect the attached worker's validated result. Reconnects do not recreate a worker or repeat its turn."],
+    ["notifications", "Read durable completion notices for the attached job's attempts, including receipt acknowledgment state. These notices do not wake a detached parent or accept a result."],
+    ["acknowledge", "Acknowledge receipt of one exact completion notice after reading it. Repeating the same notificationId and expectedAttempt is safe. This does not accept the worker result or claim a native parent wake."],
     ["retry", "Request the separately preauthorized next attempt after a confirmed interruption. expectedAttempt names the attempt being replaced; replaying it never advances again."],
     ["join", "Record the parent's explicit acceptance or rejection after reviewing the collected evidence. Completion alone is not acceptance."],
   ].map(([method, description]) => ({
@@ -41,7 +43,10 @@ export function executorMcpToolsV1(client) {
       expectedAttempt: { type: "integer", minimum: 1, maximum: 3 },
       decision: { type: "string", enum: ["accepted", "rejected"] },
       decisionSummary: { type: "string", minLength: 1, maxLength: 1000 },
-    } : method === "retry" ? { expectedAttempt: { type: "integer", minimum: 1, maximum: 3 } } : {},
+    } : method === "acknowledge" ? { notificationId: { type: "string", pattern: "^completion:[a-f0-9]{64}$" },
+      expectedAttempt: { type: "integer", minimum: 1, maximum: 3 } }
+      : method === "retry" ? { expectedAttempt: { type: "integer", minimum: 1, maximum: 3 } } : {},
+    ...(method === "acknowledge" ? { required: ["notificationId", "expectedAttempt"] } : {}),
     ...(method === "retry" ? { required: ["expectedAttempt"] } : {}), ...(method === "join" ? { required: ["decision", "decisionSummary"] } : {}), additionalProperties: false },
     async run(args) { return { command: `owned ${method}`, result: await client.request(method, args) }; },
   }));

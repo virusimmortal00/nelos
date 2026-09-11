@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExecutorRetryServiceV1, normalizeExecutorRetryPolicyV1 } from "../src/executor-retry-service.mjs";
 import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
+import { ExecutorCompletionOutboxV1 } from "../src/executor-completion-outbox.mjs";
 import { executorRepositoryIdentityV1 } from "../src/executor-job-service.mjs";
 import { executorDigest } from "../src/executor-contract.mjs";
 import { serveExecutorJobV1, ExecutorServiceClientV1 } from "../src/executor-service-channel.mjs";
@@ -99,6 +100,39 @@ test("preauthorized retry is bounded, replay-safe and preserves attempt-specific
   await assert.rejects(second.request("retry", { expectedAttempt: 2 }), { code: "retry-attempt-limit" });
   assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 2);
   assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 2);
+});
+
+test("retry-family notices preserve previous attempts and acknowledge each receipt independently", async (t) => {
+  const f = await fixture(t), client = await f.connect(); await client.request("launch"); f.finish(1, "interrupted");
+  await client.request("retry", { expectedAttempt: 1 }); f.finish(2); await client.request("collect");
+  const listing = await client.request("notifications");
+  assert.equal(listing.detachedWakeAvailable, false);
+  assert.deepEqual(listing.notifications.map(({ attempt, status, acknowledged }) => ({ attempt, status, acknowledged })), [
+    { attempt: 1, status: "interrupted", acknowledged: false }, { attempt: 2, status: "completed", acknowledged: false },
+  ]);
+  const first = listing.notifications[0];
+  await client.request("acknowledge", { notificationId: first.notificationId, expectedAttempt: 1 });
+  await assert.rejects(client.request("acknowledge", { notificationId: first.notificationId, expectedAttempt: 2 }), { code: "notification-acknowledgment-mismatch" });
+  await f.restart(); const fresh = await f.connect();
+  assert.deepEqual((await fresh.request("notifications")).notifications.map(({ acknowledged }) => acknowledged), [true, false]);
+  await assert.rejects(fresh.request("join", { expectedAttempt: 1, decision: "accepted", decisionSummary: "stale notice" }), { code: "stale-attempt-decision" });
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 2);
+});
+
+test("outbox failure defers automatic retry without trapping the parent queue in drain", async (t) => {
+  const f = await fixture(t, { automatic: true }), client = await f.connect(); await client.request("launch");
+  const original = ExecutorCompletionOutboxV1.prototype.project; let unavailable = true;
+  t.mock.method(ExecutorCompletionOutboxV1.prototype, "project", async function () {
+    if (unavailable) throw new Error("outbox unavailable"); return original.call(this);
+  });
+  f.finish(1, "interrupted");
+  await eventually(() => f.status().automaticRetry.lastError === "retry-predecessor-not-settled");
+  assert.equal((await client.request("status")).attempt, 1);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  unavailable = false;
+  await eventually(() => f.server.requests.filter(({ method }) => method === "turn/start").length === 2);
+  f.finish(2); await client.request("collect");
+  assert.equal((await client.request("notifications")).notifications.length, 2);
 });
 
 async function eventually(check) {

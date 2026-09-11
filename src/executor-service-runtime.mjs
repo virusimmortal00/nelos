@@ -33,10 +33,13 @@ export class ExecutorServiceRuntimeV1 {
   #recoveryReason = null;
   #startupPending = new Set();
   #recoveryReadsEnabled;
+  #onTerminal;
 
   constructor({ directory, scope, runtimeGeneration, sessionOptions, validateTarget,
-    evaluate = null, authorize = null, grantOptions = {}, validateRecovery = null }) {
+    evaluate = null, authorize = null, grantOptions = {}, validateRecovery = null, onTerminal = null }) {
     if (evaluate !== null && typeof evaluate !== "function") fail("invalid-provider");
+    if (onTerminal !== null && typeof onTerminal !== "function") fail("invalid-provider");
+    this.#onTerminal = onTerminal;
     this.#session = new ExecutorAppServerSessionV1({ ...sessionOptions, dispatcherOptions: {
       ...sessionOptions?.dispatcherOptions,
       onNotification: (event) => this.#observe(event),
@@ -130,6 +133,7 @@ export class ExecutorServiceRuntimeV1 {
     return this.#supervisor.attach();
   }
   detach(client) { this.#supervisor.detach(client); }
+  assertClient(client) { this.#client(client); }
   get stopped() { return this.#supervisor.stopped; }
   status() {
     return { ...this.#supervisor.status(), approval: this.#relay.status(),
@@ -189,6 +193,9 @@ export class ExecutorServiceRuntimeV1 {
       // A lost response, an unreadable record, or terminal status without saved
       // evidence cannot release the owner's work hold.
       if (op && op.phase !== "not-executed" && !op.completion) return;
+      // Finish the service-installed durable handoff before releasing the work
+      // hold. Projection failure remains recoverable from the terminal journal.
+      if (op?.completion) await this.#onTerminal?.(workUnitId);
       if (this.#work.get(workUnitId) !== entry || entry.users || entry.generation !== generation) return;
       this.#work.delete(workUnitId);
       this.#supervisor.release(entry.hold);

@@ -163,3 +163,12 @@ CodeRabbit identified one drain race in automatic scheduling: drain could begin
 while reading the journal for a selected but unstarted retry. The scheduler now
 rechecks drain immediately after that read. A regression test pauses the read,
 drains the service, and verifies that no replacement turn is sent.
+
+
+The completion-inbox slice persists bounded notices for each terminal attempt,
+repairs missing projections from the validated journal on restart, and adds
+separate, replay-safe receipt acknowledgment through the parent MCP. It retains
+previous-attempt notices and prevents outbox failures from trapping retry drain.
+See [completion-inbox evidence](owned-completion-inbox-canary-2026-09-11.json).
+This completes durable storage and explicit parent consumption of notices;
+unattended native parent wake still requires a verified host delivery adapter.
