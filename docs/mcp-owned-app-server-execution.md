@@ -400,3 +400,13 @@ read-only discovery, including Astra's exact effort strings. It also adds an
 owner startup barrier: journal inventory and local binding/result reconciliation
 must complete before new launch admission. Unfinished upstream ownership remains
 attention and retains service holds; see [restart admission](executor-admission-and-recovery.md#restart-admission-barrier).
+
+### Implemented first service/MCP job (September 11)
+
+The first parent-facing adapter is now available through an explicitly attached,
+separately started `nelos-executor-service`. It permits one immutable operator-
+authorized read-only job; the optional MCP tools launch, collect and record a
+separate parent decision. Normal plugin initialization does not depend on that
+service or a CLI version allowlist. See the [service runbook](executor-admission-and-recovery.md#first-parent-facing-service-job)
+and [live canary evidence](owned-service-canary-2026-09-11.json). This milestone
+does not enable general dynamic scheduling or replace legacy pending receipts.

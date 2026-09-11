@@ -82,12 +82,13 @@ state; they do not start model turns.
 
 ## Compatibility and remaining work
 
-On this work host, `codex --version` reports **0.153.4**. The baseline owned
-session accepts only **0.152.0**. Retain the version rejection until schema and
-runtime validation establish a supported profile. The [official App Server
-documentation](https://learn.chatgpt.com/docs/app-server#message-schema) says
-generated schemas are specific to the CLI version used; documentation presence
-alone does not certify runtime behavior.
+The original audit found a narrow version admission policy. The continuation
+removed CLI version floors and allowlists from plugin/MCP and owned execution:
+versions are diagnostic evidence, while each operation checks the capabilities
+it needs. Current version and host observations are recorded in
+[codex-compatibility-2026-09-11.md](codex-compatibility-2026-09-11.md).
+The first fixed, read-only service job now has an explicit MCP attachment and
+separate parent acceptance; see the current milestone below.
 
 Remaining release requirements, in dependency order:
 
@@ -124,3 +125,13 @@ Remaining release requirements, in dependency order:
 - The distribution integrity record was recomputed for the final candidate
   bytes. No plugin was published, installed into the user's Codex configuration,
   or enabled for owned remote execution by this continuation.
+
+## September 11 service milestone
+
+The continuation adds the first optional parent-facing service/MCP job: private
+local IPC, immutable operator authorization, capability-based admission, and
+separate persisted parent acceptance. The [service usage and limitations](executor-admission-and-recovery.md#first-parent-facing-service-job)
+and [live evidence](owned-service-canary-2026-09-11.json) supersede the original
+remaining-work list for this bounded read-only flow. General scheduling,
+interactive approvals, active-operation reattachment, automatic wake-up,
+multiworktree coverage and legacy receipt migration remain open.

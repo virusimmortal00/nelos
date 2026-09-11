@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 
 import { startNelosMcpServer } from "../src/mcp-server.mjs";
+import { executorMcpClientV1 } from "../src/executor-mcp-tools.mjs";
 
 // Development and test entry for the bundled MCP server. Legacy installs
 // reach the same module through the generated .mcp.json bootstrap; Agent
@@ -19,4 +20,9 @@ try {
   // A missing package manifest only affects the reported version.
 }
 
-startNelosMcpServer({ serverVersion });
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== "--executor-endpoint")) {
+  throw new Error("usage: nelos-mcp [--executor-endpoint <private-endpoint.json>]");
+}
+startNelosMcpServer({ serverVersion,
+  ownedExecutorClient: args.length ? executorMcpClientV1(args[1]) : null });

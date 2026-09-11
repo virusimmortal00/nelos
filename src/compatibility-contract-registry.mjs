@@ -810,7 +810,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
     Object.freeze({
       id: "repo.executor-admission",
       evidenceKind: "deterministic-repo",
-      command: "node --test test/executor-grants.test.mjs test/executor-launch-journal.test.mjs test/executor-launch-coordinator.test.mjs test/executor-app-server-effects.test.mjs test/executor-service-supervisor.test.mjs test/executor-approval-relay.test.mjs",
+      command: "node --test test/executor-grants.test.mjs test/executor-launch-journal.test.mjs test/executor-launch-coordinator.test.mjs test/executor-app-server-effects.test.mjs test/executor-service-supervisor.test.mjs test/executor-approval-relay.test.mjs test/executor-service-runtime.test.mjs test/executor-startup-recovery.test.mjs test/executor-job-service.test.mjs",
       source: "test/executor-grants.test.mjs",
     }),
     Object.freeze({
@@ -1033,10 +1033,10 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       globalInvariant: false,
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
-        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs", "src/executor-launch-coordinator.mjs", "src/executor-app-server-effects.mjs", "src/executor-service-supervisor.mjs", "src/executor-approval-relay.mjs", "src/executor-service-runtime.mjs", "src/executor-result-evidence.mjs"]),
+        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs", "src/executor-launch-coordinator.mjs", "src/executor-app-server-effects.mjs", "src/executor-service-supervisor.mjs", "src/executor-approval-relay.mjs", "src/executor-service-runtime.mjs", "src/executor-result-evidence.mjs", "src/executor-job-service.mjs", "src/executor-service-channel.mjs", "src/executor-mcp-tools.mjs", "bin/nelos-executor-service", "bin/nelos-verify-owned-executor"]),
         shared: Object.freeze(["src/execution-store.mjs", "src/task-state.mjs", "src/work-result.mjs"]),
-        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs", "test/executor-startup-recovery.test.mjs", "test/support/executor-fixture.mjs", "test/support/executor-app-server-fixture.mjs"]),
-        documentation: Object.freeze(["docs/executor-admission-and-recovery.md", "docs/executor-approach-audit-2026-09-10.md"]),
+        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs", "test/executor-startup-recovery.test.mjs", "test/executor-job-service.test.mjs", "test/support/executor-fixture.mjs", "test/support/executor-app-server-fixture.mjs"]),
+        documentation: Object.freeze(["docs/executor-admission-and-recovery.md", "docs/executor-approach-audit-2026-09-10.md", "docs/owned-service-canary-2026-09-11.json"]),
         upstreamDocumentation: Object.freeze([]),
         upstreamSource: Object.freeze([]),
         generatedSchema: Object.freeze([]),

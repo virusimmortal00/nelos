@@ -4569,3 +4569,29 @@ test("a failed identity derivation does not affect other tools", async () => {
   );
   assert.equal(responses.at(-1).result.isError, false);
 });
+
+test("owned tools are opt-in and closing MCP only detaches its service client", async () => {
+  assert.equal(listNelosMcpTools().some(({ name }) => name.startsWith("nelos_owned_")), false);
+  const calls = []; let closed = 0;
+  const ownedExecutorClient = { request: async (method, params) => { calls.push({ method, params }); return { state: "ready" }; },
+    close: async () => { closed += 1; } };
+  const [, listing, status, invalid] = await roundTrip([INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nelos_owned_status", arguments: {} } },
+    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "nelos_owned_launch", arguments: { wave: {} } } },
+  ], { ownedExecutorClient });
+  assert.equal(listing.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 4);
+  assert.equal(JSON.parse(status.result.content[0].text).result.state, "ready");
+  assert.equal(invalid.result.isError, true);
+  assert.deepEqual(calls, [{ method: "status", params: {} }]); assert.equal(closed, 1);
+});
+
+test("unavailable optional service leaves MCP and ordinary tools usable", async () => {
+  const { executorMcpClientV1 } = await import("../src/executor-mcp-tools.mjs");
+  const [, unavailable, ordinary] = await roundTrip([INITIALIZE,
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "nelos_owned_status", arguments: {} } },
+    { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} },
+  ], { ownedExecutorClient: executorMcpClientV1("/nonexistent/nelos/endpoint.json") });
+  assert.equal(unavailable.result.isError, true);
+  assert.ok(ordinary.result.tools.some(({ name }) => name === "nelos_plan_slices"));
+});

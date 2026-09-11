@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
+import { executorMcpToolsV1 } from "./executor-mcp-tools.mjs";
 
 import {
   planWorkSlices,
@@ -1307,8 +1308,8 @@ const TOOLS = [
   },
 ];
 
-export function listNelosMcpTools() {
-  return TOOLS.map(({
+export function listNelosMcpTools({ ownedExecutorClient = null } = {}) {
+  return [...TOOLS, ...executorMcpToolsV1(ownedExecutorClient)].map(({
     name,
     description,
     inputSchema,
@@ -1380,6 +1381,7 @@ export function startNelosMcpServer({
   configuration = new NelosConfigurationV1(),
   lifecycleAdapter = new SpinoffLifecycleAdapterV1({ configuration }),
   appServerBridge = new CodexAppServerBridgeV1(),
+  ownedExecutorClient = null,
   planRunStore = new PlanRunStoreV1(),
   webRegistry = DEFAULT_WEB_REGISTRY,
   planningLifecycle = new PlanningLifecycleCoordinatorV1(),
@@ -1399,6 +1401,7 @@ export function startNelosMcpServer({
   if (typeof onLeaseRemove !== "function") throw new Error("onLeaseRemove must be a function");
   if (typeof onExit !== "function") throw new Error("onExit must be a function");
   let initialized = false;
+  const instanceTools = [...TOOLS, ...executorMcpToolsV1(ownedExecutorClient)];
   let negotiatedVersion = null;
 
   // Derivation starts now, at bootstrap, rather than on first use: it must
@@ -1486,7 +1489,7 @@ export function startNelosMcpServer({
   }
 
   async function callTool(params) {
-    const tool = TOOLS.find((candidate) => candidate.name === params?.name);
+    const tool = instanceTools.find((candidate) => candidate.name === params?.name);
     if (!tool) {
       const error = new Error(`unknown tool: ${params?.name}`);
       error.jsonRpcCode = -32602;
@@ -1623,7 +1626,7 @@ export function startNelosMcpServer({
       return;
     }
     if (method === "tools/list") {
-      send({ jsonrpc: "2.0", id, result: { tools: listNelosMcpTools() } });
+      send({ jsonrpc: "2.0", id, result: { tools: listNelosMcpTools({ ownedExecutorClient }) } });
       return;
     }
     if (method === "tools/call") {
@@ -1818,6 +1821,7 @@ export function startNelosMcpServer({
       // checked. Close the bridge only after that serialized request chain has
       // drained; closing beside it can tear down an admitted in-flight call.
       processing.then(() => appServerBridge.close?.()),
+      processing.then(() => ownedExecutorClient?.close?.()),
       Promise.allSettled([
         Promise.all([processing, drainLease])
           .then(() => workerLeaseResult)

@@ -207,8 +207,9 @@ reads upstream again and rejects contradictory status or payload. Existing V1
 journals with terminal status alone still require a result read. No transcript
 is persisted, and transport completion never implies queen acceptance.
 
-Active-turn restart recovery/reattachment, parent join and wake,
-and production service wiring still need integration.
+Active-turn restart recovery/reattachment, automatic parent wake and general
+production scheduling still need integration. The bounded parent join and
+service attachment are described in the September 11 milestone below.
 The fixture now exercises create → bind → title → start → read → terminal
 recording, alongside early approvals and late-answer cancellation. This remains
 fixture coverage rather than a remote execution canary.
@@ -238,8 +239,9 @@ Policy/certification evaluation, authorization, worktree target verification and
 the user-interaction adapter are constructor-installed dependencies. Missing
 providers deny execution. The constructor does not provide a production policy
 or treat caller JSON as authorization. Production discovery/provisioning,
-active-operation ownership reattachment, the private channel/daemon, and product
-integration remain rollout requirements. Tests use a simulated stdio server.
+active-operation ownership reattachment and general product integration remain
+rollout requirements. Runtime unit tests use a simulated stdio server; the
+service milestone below also includes live canaries.
 
 ## Restart admission barrier
 
@@ -269,3 +271,72 @@ This supplies the conservative startup barrier. A reviewed protocol to
 reattach active/unknown upstream ownership is still required before such a
 replacement owner can resume work automatically. The current implementation
 reports attention instead of claiming a recovery it cannot prove.
+
+## First parent-facing service job
+
+`ExecutorJobServiceV1` adds a deliberately narrow operator policy over the
+runtime: one immutable, preauthorized, shared read-only worker in a canonical
+Git repository, using Codex-managed authentication. Model and effort are
+explicit. The service checks the live account, model, permissions, requirements
+and effective configuration before issuing and consuming a grant. Configuration
+fingerprints ignore JSON map key order but retain values and array order.
+CLI versions remain informational. A missing capability affects that operation.
+
+Start the owner separately from the MCP frontend:
+
+```sh
+node bin/nelos-executor-service /absolute/private/job-policy.json /absolute/private/service
+node bin/nelos-mcp --executor-endpoint /absolute/private/service/endpoint.json
+```
+
+The policy schema is implemented by `normalizeExecutorJobV1`; the runnable
+canary below constructs a complete example. The JSON policy must be a private
+0600 regular file inside a canonical 0700 directory owned by the current user.
+The service directory is bound to the normalized policy digest, including its
+expiry. Restart uses that same policy; a different job needs a new directory.
+The short Unix socket path must fit within 100 bytes. Descriptor, socket and
+bearer credential are private to the OS user. This protects against other users,
+not another process already able to read and write as the same user.
+
+The explicit endpoint option adds `nelos_owned_status`, `nelos_owned_launch`,
+`nelos_owned_collect`, and `nelos_owned_join`. A normal plugin instance retains
+its ordinary tool surface. Endpoint connection is lazy; an unavailable service
+does not prevent MCP initialization or use of ordinary tools. Never add this
+parent-only endpoint to the global configuration inherited by workers.
+Frontend JSON cannot replace the job, grant permissions, install providers or
+supply result evidence. The parent explicitly accepts or rejects independently
+reviewed evidence; the service records that decision against the saved native
+thread/turn binding and derives readiness. Conflicting decisions are rejected.
+
+Disconnecting a frontend does not terminate service-owned work. An explicit
+repeat launch returns the recorded operation instead of creating another thread
+or turn, including when the outcome is uncertain. The client never automatically
+replays a failed request. Service restart rotates its endpoint credential after
+proving any old listener is stopped; live or indeterminate listeners are retained.
+Saved terminal evidence and parent decisions remain available after restart.
+Active or unknown operations still require reconciliation and cannot be adopted
+automatically. SIGTERM/SIGINT drain the owner; unresolved work keeps its hold.
+
+Run a real signed-in canary explicitly, outside the offline test suite:
+
+```sh
+npm run verify:owned-executor -- /absolute/codex /absolute/codex-home host-id parent-task-id
+```
+
+It uses separate service and MCP processes, a temporary Git repository, Astra
+at medium effort, read-only permissions, and no approval prompts. The parent
+client has isolated state and an empty client home; the service uses the specified
+real Codex home and sign-in. This avoids mixing the test frontend with installed
+plugin generations while preserving normal runtime integrity checks. The parent
+compares a random file marker with the worker's result, accepts it, restarts the
+completed service, and verifies the persisted result and decision. Private
+artifacts are retained for inspection. On failure, uncertain work is retained
+for recovery rather than killed or replayed.
+
+[Live evidence](owned-service-canary-2026-09-11.json) records successful runs on
+m3's standalone and updated Desktop-bundled CLIs. This verifies the bounded
+service/MCP path. It is not general runtime certification, Desktop UI lineage
+verification, dynamic plan scheduling, multiple-worktree coverage, an interactive
+approval adapter, or automatic parent wake-up. Those remain later milestones,
+along with migration of legacy pending launch receipts. The explicit parent ID
+is operator-configured; no Desktop-native parent relationship is inferred.

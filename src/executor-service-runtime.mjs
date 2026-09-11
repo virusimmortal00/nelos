@@ -50,7 +50,9 @@ export class ExecutorServiceRuntimeV1 {
       if (!["ready", "draining"].includes(owner.state)) fail("executor-owner-unavailable");
       if (wave.members.some((member) => member.target.hostId !== scope.hostId ||
           member.target.codexHomeId !== scope.codexHomeId)) fail("execution-host-mismatch");
-      const evaluated = await evaluate(wave, { ...options, owner });
+      const evaluated = await evaluate(wave, { ...options, owner,
+        observedVersion: this.#session.status().observedVersion,
+        request: (...args) => this.#session.request(...args) });
       if (evaluated?.context?.ownerEpoch !== owner.ownerEpoch ||
           evaluated?.context?.runtimeGeneration !== owner.runtimeGeneration ||
           this.#session.signal.aborted) fail("stale-execution-context");

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "scope": "Operator-authorized single read-only worker through separate service and MCP processes",
+  "runtimeCertified": false,
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T18:36:48.585Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-lcllnm",
+      "hostId": "m3",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperation": true
+      },
+      "servicePid": 44117,
+      "threadId": "01a091c2-0e47-7ab1-bd6f-047f2a4664d8",
+      "turnId": "01a091c2-130e-7ef0-b0af-afd31e8853d2",
+      "workUnitId": "canary-1d7d47140fb8",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T18:37:09.614Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T18:37:45.300Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-awyilZ",
+      "hostId": "m3",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0-alpha.6.2",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperation": true
+      },
+      "servicePid": 44397,
+      "threadId": "01a091c2-ebc0-7922-ba57-03c89cd40311",
+      "turnId": "01a091c2-efd1-7460-91fc-c1eaba64a28f",
+      "workUnitId": "canary-6b5985f4a666",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T18:38:07.697Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T18:41:02.666Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-FbRWyd",
+      "hostId": "m3",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperation": true
+      },
+      "servicePid": 44851,
+      "threadId": "01a091c5-eebb-7223-bb9f-5ad2deb04157",
+      "turnId": "01a091c5-f2f5-7200-8cc2-5de433891788",
+      "workUnitId": "canary-1ef6fc163b33",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T18:41:25.210Z"
+    }
+  ],
+  "limitations": [
+    "Explicit operator-installed, fixed read-only job; no general runtime certification.",
+    "The MCP parent uses isolated state and an empty client home; workers use the real signed-in Codex home.",
+    "No Desktop UI lineage, active-turn restart adoption, automatic parent wake, multiple-worktree or legacy migration claim."
+  ]
+}
