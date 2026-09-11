@@ -142,3 +142,10 @@ owner loss, with account/target verification and no live ownership adoption.
 recovered an interrupted turn without creating another turn or accepting failed
 work. This reduces the active-operation recovery gap; resuming execution and
 handling lost replies with unknown turn IDs remain open.
+
+The following retry slice adds a V2 family of explicitly preauthorized read-only
+attempts. A confirmed interruption can select the next attempt without deleting
+prior evidence; repeated requests cannot consume another attempt. Live canaries
+on both m3 CLIs completed and accepted attempt two after crashing attempt one.
+See [retry evidence](owned-retry-canary-2026-09-11.json). Automatic scheduling of
+retry requests and parent wake-up remain open.

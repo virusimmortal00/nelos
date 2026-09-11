@@ -15,8 +15,8 @@ import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 
 const [command, codexHomeInput, hostId, queenThreadId, mode = "normal"] = process.argv.slice(2);
-if (![6, 7].includes(process.argv.length) || !["normal", "crash"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
-  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash]");
+if (![6, 7].includes(process.argv.length) || !["normal", "crash", "retry"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
+  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash|retry]");
 }
 const source = dirname(dirname(fileURLToPath(import.meta.url)));
 const codexHome = await realpath(codexHomeInput);
@@ -48,7 +48,17 @@ const config = { schemaVersion: 1, command, codexHome, hostId, expiresAt: Date.n
     policy: { maxAttempts: 1, onBlocked: "queen-review", onFailure: "queen-review" } }],
   prompts: [{ sliceId: "read-marker", text: prompt }],
 } };
-await writeFile(policyPath, JSON.stringify(config), { mode: 0o600 });
+let selectedPolicy = config;
+if (mode === "retry") {
+  config.job.workUnits[0].policy.maxAttempts = 2;
+  const second = structuredClone(config);
+  second.job.workUnits[0].attempt = 2; second.job.wave.members[0].attempt = 2;
+  second.job.prompts[0].text = prompt.replace(formatResultEnvelope(resultTemplate), formatResultEnvelope({ ...resultTemplate, attempt: 2 }));
+  second.job.wave.members[0].promptDigest = executorDigest(second.job.prompts[0].text);
+  second.job.wave.waveDigest = executorDigest(second.job.prompts[0].text);
+  selectedPolicy = { schemaVersion: 2, attempts: [config, second] };
+}
+await writeFile(policyPath, JSON.stringify(selectedPolicy), { mode: 0o600 });
 const endpoint = join(directory, "endpoint.json");
 const deadline = (promise, ms, label) => {
   let timer; return Promise.race([promise, new Promise((_, reject) => {
@@ -97,7 +107,7 @@ async function mcpProcess() {
   assert.ok(init.result);
   child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
   const list = await request("tools/list", {});
-  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 4);
+  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 5);
   return { async call(method, args = {}) {
     const reply = await request("tools/call", { name: `nelos_owned_${method}`, arguments: args });
     const body = JSON.parse(reply.result?.content?.[0]?.text ?? "null");
@@ -119,7 +129,7 @@ try {
   client = await mcpProcess();
   const retry = await client.call("launch"); assert.equal(retry.kind, "existing-operation");
   proof.checks.explicitRetryReusedOperation = true;
-  if (mode === "crash") {
+  if (["crash", "retry"].includes(mode)) {
     const active = await client.call("collect");
     assert.equal(active.status, "inProgress", "crash test must observe a live turn");
     proof.threadId = active.threadId; proof.turnId = active.turnId;
@@ -139,12 +149,27 @@ try {
     await delay(1500);
   }
   assert.equal(collected.phase, "terminal", JSON.stringify(collected));
+  if (mode === "retry") {
+    assert.equal(collected.status, "interrupted");
+    proof.previousAttempt = { threadId: collected.threadId, turnId: collected.turnId, status: collected.status };
+    const retried = await client.call("retry", { expectedAttempt: 1 });
+    assert.equal(retried.kind, "wave-started", JSON.stringify(retried));
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    await client.close(); client = await mcpProcess();
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    for (let i = 0; i < 120; i++) {
+      collected = await client.call("collect"); if (collected.phase === "terminal") break; await delay(1500);
+    }
+    assert.equal(collected.phase, "terminal"); assert.equal(collected.result?.result?.attempt, 2);
+    assert.notEqual(collected.threadId, proof.previousAttempt.threadId);
+    proof.checks.preapprovedRetryCompleted = true;
+  }
   assert.equal(await readFile(join(cwd, "marker.txt"), "utf8"), `${marker}\n`);
   proof.threadId = collected.threadId; proof.turnId = collected.turnId; proof.workUnitId = unitId;
   proof.recoveredStatus = collected.status; proof.recoveredWorkOutcome = collected.result.workOutcome;
-  const decision = { decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
+  const decision = { ...(mode === "retry" ? { expectedAttempt: 2 } : {}), decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
   let joined = null;
-  if (mode === "normal" || collected.result?.result?.outcome === "succeeded") {
+  if (["normal", "retry"].includes(mode) || collected.result?.result?.outcome === "succeeded") {
     assert.equal(collected.result?.result?.outcome, "succeeded");
     assert.equal(collected.result.result.summary, marker);
     proof.checks.independentMarkerVerification = true;
@@ -165,10 +190,17 @@ try {
   if (joined) assert.deepEqual(await client.call("join", decision), joined);
   proof.checks.terminalRestartPreservedCollection = true;
   if (joined) proof.checks.completedRestartPreservedCollectionAndJoin = true;
-  const record = await new ExecutorLaunchJournalV1({ directory: join(directory, "journal") }).read(unitId);
+  const record = await new ExecutorLaunchJournalV1({ directory: join(directory, ...(mode === "retry" ? ["attempt-2"] : []), "journal") }).read(unitId);
   assert.equal(record.operations.length, 1);
   assert.equal(record.operations[0].threadId, proof.threadId); assert.equal(record.operations[0].turnId, proof.turnId);
-  proof.checks.singleDurableOperation = true;
+  proof.checks.singleDurableOperationPerAttempt = true;
+  if (mode === "retry") {
+    const first = await new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-1", "journal") }).read(unitId);
+    assert.equal(first.operations.length, 1); assert.equal(first.operations[0].threadId, proof.previousAttempt.threadId);
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    await assert.rejects(client.call("retry", { expectedAttempt: 2 }), /retry-attempt-limit/);
+    proof.checks.retryReplayAndLimitVerified = true;
+  }
   await client.close(); client = null;
   owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "final-drain")).code, 0);
   proof.outcome = "passed";

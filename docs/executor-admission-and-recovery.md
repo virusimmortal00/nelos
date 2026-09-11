@@ -391,3 +391,70 @@ This milestone reconciles recorded execution history. It does not revive model
 execution killed with the old App Server. A new attempt needs a separate policy
 and authorization flow; automatic retry, unknown-ID reconciliation, parent wake,
 interactive approvals and broader scheduling remain later work.
+
+## Bounded preauthorized retries
+
+An optional V2 operator policy adds a family of two or three explicitly approved
+attempts. The existing V1 single-job policy and ordinary plugin tools continue
+to work. The same service entry point selects the implementation from the policy:
+
+```json
+{
+  "schemaVersion": 2,
+  "attempts": ["complete V1 policy for attempt 1", "complete V1 policy for attempt 2"]
+}
+```
+
+The strings above stand for full policy objects, not file paths. The runnable
+`retry` canary below constructs a complete example. Each policy has the same
+host, canonical repository, Codex home, model, reasoning effort, permissions,
+expiry, work-unit identity and definition. Attempts are consecutively numbered
+from one; `policy.maxAttempts` equals the configured family size. Only the
+approved prompt bytes and their digests can differ to express the correct
+result-envelope attempt. The current policy remains shared read-only with
+approval `never`. This is not an editable frontend authorization proposal.
+
+`nelos_owned_retry` takes only `expectedAttempt`, the attempt being replaced.
+The service first collects that attempt's result and requires a persisted
+`interrupted` status, matching private work-unit binding, and no successful work
+outcome. Running, successful, failed, missing-ID and unresolved operations cannot
+advance. An expired policy or exhausted family cannot advance either. These
+choices are explicit policy limits, not CLI version gates.
+
+The service records a durable retry marker that binds the predecessor's exact
+operation/thread/turn, result digest and next policy digest. It drains the old
+job's owner and opens the next job in a separate private attempt directory. Each
+attempt retains its original binding, journal, grant and result. A family-wide
+owner lock prevents concurrent service instances from independently advancing.
+No new model turn is sent before the retry selection is persisted, and the new
+attempt gets a fresh account/config/capability check and execution grant.
+
+A repeated `expectedAttempt: 1` can finish or report attempt two; it never
+advances to attempt three. Disconnects and lost responses do not change that.
+Restart verifies each retry marker against the previous attempt's preserved
+evidence. A selected attempt that has not launched remains selected; an explicit
+retry or launch request can obtain a fresh grant later. Unknown dispatch outcomes
+remain owned operations requiring reconciliation rather than permission to replay.
+
+`nelos_owned_status` reports the current attempt, maximum attempts and prior
+transition identities. A V2 `nelos_owned_join` requires `expectedAttempt` matching
+the current attempt, so a delayed acceptance cannot apply to a different worker.
+V1 joins also accept this field when supplied, while preserving their older
+argument shape. V1 retry requests return `retry-not-configured` and do not affect
+other tools.
+
+```sh
+npm run verify:owned-executor -- /absolute/codex /absolute/codex-home host-id parent-task-id retry
+```
+
+This canary approves two read-only attempts, kills only its own first service
+while Astra is running, verifies the interruption, requests the next attempt,
+and independently checks its random file marker. It tests repeated retry calls,
+a fresh MCP frontend, parent acceptance of attempt two, completed-service restart
+and the attempt limit. [Live results](owned-retry-canary-2026-09-11.json) cover
+m3's standalone CLI 0.154.0 and Desktop-bundled 0.154.0-alpha.6.2.
+
+Retries currently require an explicit parent call within that installed policy.
+There is no background retry loop or parent wake adapter yet. Policies for
+non-interruption failures, retries of write-capable workers, unknown-ID recovery,
+and general scheduling remain separate rollout work.

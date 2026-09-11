@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "runtimeCertified": false,
+  "scope": "Parent-requested, separately preauthorized read-only retry after owner-crash interruption",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T19:27:22.839Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-KIKiPM",
+      "hostId": "m3",
+      "mode": "retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "ownerCrashReusedExactOperation": true,
+        "preapprovedRetryCompleted": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 49182,
+      "threadId": "01a091f0-61e3-7612-930d-bfbff5ac0f64",
+      "turnId": "01a091f0-65e7-7a20-9d44-eae019da3157",
+      "previousAttempt": {
+        "threadId": "01a091f0-5ad3-7a53-8d92-be46dab26eff",
+        "turnId": "01a091f0-5f0d-7033-a109-d5b3b78100e7",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-4c59b26503a7",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T19:27:48.632Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T19:29:05.019Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-SOkph8",
+      "hostId": "m3",
+      "mode": "retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0-alpha.6.2",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "ownerCrashReusedExactOperation": true,
+        "preapprovedRetryCompleted": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 49659,
+      "threadId": "01a091f1-f0e9-76b3-ae2f-4d4c5ea9474e",
+      "turnId": "01a091f1-f4f0-7bf2-8150-18f66b29b2fc",
+      "previousAttempt": {
+        "threadId": "01a091f1-e9f0-7ae0-9610-2d4f71a90451",
+        "turnId": "01a091f1-ee14-7a32-ab5f-daa7bca9763e",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-4985f6dfbef0",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T19:29:29.262Z"
+    }
+  ],
+  "limitations": [
+    "Two explicitly approved attempts; no background retry scheduling or parent wake.",
+    "Only confirmed interruption permits a retry; unresolved outcomes and unknown IDs do not.",
+    "No write-capable worker retry, generic runtime certification or Desktop UI lineage claim."
+  ]
+}

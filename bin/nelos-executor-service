@@ -2,6 +2,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { computeDistributionIntegrity } from "../src/distribution-provenance.mjs";
+import { ExecutorRetryServiceV1 } from "../src/executor-retry-service.mjs";
 import { ExecutorJobServiceV1 } from "../src/executor-job-service.mjs";
 import { readPrivateExecutorJsonV1, serveExecutorJobV1 } from "../src/executor-service-channel.mjs";
 
@@ -11,7 +12,8 @@ if (!policyPath || !directory || process.argv.length !== 4) {
 }
 const config = await readPrivateExecutorJsonV1(policyPath);
 const integrity = await computeDistributionIntegrity(dirname(dirname(fileURLToPath(import.meta.url))));
-const service = new ExecutorJobServiceV1({ config, directory, runtimeGeneration: integrity.replace(/^sha256:/u, "") });
+const Service = config.schemaVersion === 2 ? ExecutorRetryServiceV1 : ExecutorJobServiceV1;
+const service = new Service({ config, directory, runtimeGeneration: integrity.replace(/^sha256:/u, "") });
 await service.start();
 let endpoint;
 try { endpoint = await serveExecutorJobV1({ service, directory }); }

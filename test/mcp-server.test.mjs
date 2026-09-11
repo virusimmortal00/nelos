@@ -4580,7 +4580,7 @@ test("owned tools are opt-in and closing MCP only detaches its service client", 
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nelos_owned_status", arguments: {} } },
     { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "nelos_owned_launch", arguments: { wave: {} } } },
   ], { ownedExecutorClient });
-  assert.equal(listing.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 4);
+  assert.equal(listing.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 5);
   assert.equal(JSON.parse(status.result.content[0].text).result.state, "ready");
   assert.equal(invalid.result.isError, true);
   assert.deepEqual(calls, [{ method: "status", params: {} }]); assert.equal(closed, 1);

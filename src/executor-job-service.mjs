@@ -151,7 +151,8 @@ export class ExecutorJobServiceV1 {
   get stopped() { return this.#runtime.stopped; }
   drain() { return this.#runtime.drain(); }
   status() { return { ...this.#runtime.status(), workUnitId: this.#config.job.wave.members[0].workUnitId,
-    queenThreadId: this.#config.job.workUnits[0].queenThreadId, runtimeCertified: false }; }
+    queenThreadId: this.#config.job.workUnits[0].queenThreadId, attempt: this.#config.job.workUnits[0].attempt,
+    retryConfigured: false, runtimeCertified: false }; }
 
   async request(client, method, params) {
     if (method === "status") { executorExact(params, []); return this.status(); }
@@ -164,12 +165,14 @@ export class ExecutorJobServiceV1 {
       executorExact(params, []);
       return this.#runtime.collectResult(client, this.status().workUnitId);
     }
+    if (method === "retry") { executorExact(params, ["expectedAttempt"]); fail("retry-not-configured"); }
     if (method === "join") {
-      executorExact(params, ["decision", "decisionSummary"]);
+      executorExact(params, ["decision", "decisionSummary", ...(Object.hasOwn(params ?? {}, "expectedAttempt") ? ["expectedAttempt"] : [])]);
+      if (Object.hasOwn(params, "expectedAttempt") && params.expectedAttempt !== this.status().attempt) fail("stale-attempt-decision");
       if (!["accepted", "rejected"].includes(params.decision)) fail("invalid-parent-decision");
       executorText(params.decisionSummary, 1000);
       // Serialize decisions but do not coalesce different parent decisions.
-      const next = (this.#joining ?? Promise.resolve()).catch(() => {}).then(() => this.#join(client, params));
+      const next = (this.#joining ?? Promise.resolve()).catch(() => {}).then(() => this.#join(client, { decision: params.decision, decisionSummary: params.decisionSummary }));
       this.#joining = next;
       return next;
     }

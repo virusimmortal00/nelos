@@ -231,3 +231,10 @@ for (const mode of ["account", "mid-read-account", "target", "missing-turn", "st
     assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
   });
 }
+
+test("single-job clients can bind a join to its attempt and see retries are unconfigured", async (t) => {
+  const f = await fixture(t), client = await f.connect(); await client.request("launch"); f.finish();
+  await assert.rejects(client.request("retry", { expectedAttempt: 1 }), { code: "retry-not-configured" });
+  await assert.rejects(client.request("join", { expectedAttempt: 2, decision: "accepted", decisionSummary: "Wrong attempt" }), { code: "stale-attempt-decision" });
+  assert.equal((await client.request("join", { expectedAttempt: 1, decision: "accepted", decisionSummary: "Correct attempt" })).readiness.entries[0].accepted, true);
+});
