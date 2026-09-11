@@ -99,6 +99,10 @@ test("elicitation requires a correlated owned turn and explicit user-provided co
   f.attach(async ({ requestToken }) => ({ requestToken, response: { action: "accept", content: { choice: "selected" } } }));
   assert.deepEqual(await f.handle(request), { action: "accept", content: { choice: "selected" } });
   assert.deepEqual(await f.handle({ ...request, params: { ...request.params, turnId: null } }), { action: "cancel", content: null });
+  // 0.154.0 introduces challenge elicitation. A form adapter's answer must not
+  // become acceptance of this unreviewed mode merely because it has a token.
+  assert.deepEqual(await f.handle({ ...request, params: { ...request.params,
+    mode: "challenge", challenge: {} } }), { action: "cancel", content: null });
   await assert.rejects(f.handle({ method: "account/chatgptAuthTokens/refresh" }), { code: "unsupported-server-request" });
 });
 

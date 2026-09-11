@@ -2,6 +2,11 @@ import { isAbsolute } from "node:path";
 import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
 
 export const EXECUTION_DISCOVERY_SCHEMA_VERSION = "0.152.0";
+// Exact generated-schema reviews, not runtime execution certification. Desktop
+// can bundle a prerelease CLI even when the Desktop release channel is stable.
+export const REVIEWED_EXECUTION_SCHEMA_VERSIONS = Object.freeze([
+  "0.152.0", "0.153.4", "0.154.0", "0.154.0-alpha.6.1",
+]);
 export const EXECUTION_DISCOVERY_METHODS = Object.freeze([
   "account/read", "model/list", "permissionProfile/list", "configRequirements/read",
 ]);
@@ -49,7 +54,8 @@ export async function probeAppServerExecutionV1({ request, observedVersion, opti
   const result = {
     schemaVersion: 1,
     source: "app-server-read-probe",
-    reviewedSchemaVersion: EXECUTION_DISCOVERY_SCHEMA_VERSION,
+    reviewedSchemaVersion: REVIEWED_EXECUTION_SCHEMA_VERSIONS.includes(observedVersion)
+      ? observedVersion : EXECUTION_DISCOVERY_SCHEMA_VERSION,
     observedVersion: text(observedVersion) ? observedVersion : null,
     state: "unavailable",
     executionAuthorized: false,

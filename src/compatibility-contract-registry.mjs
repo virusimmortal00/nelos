@@ -986,6 +986,8 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "src/app-server-rpc-dispatcher.mjs",
           "src/app-server-execution-profile.mjs",
           "src/executor-app-server-session.mjs",
+          "scripts/capture-owned-execution-schema.mjs",
+          "scripts/probe-owned-execution.mjs",
         ]),
         shared: Object.freeze([
           "src/mcp-app-server-bridge.mjs",
@@ -997,6 +999,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/app-server-execution-profile.test.mjs",
           "test/app-server-execution-transport.test.mjs",
           "test/executor-app-server-session.test.mjs",
+          "test/executor-schema-compatibility.test.mjs",
           "test/support/mock-app-server.mjs",
           "test/support/mock-stdio-app-server.mjs",
           "test/support/execution-probe-fixture.mjs",
@@ -1004,6 +1007,8 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         documentation: Object.freeze([
           "docs/mcp-owned-app-server-execution.md",
           "docs/app-server-protocol-research-2026-09-02.json",
+          "docs/codex-compatibility-2026-09-11.json",
+          "docs/codex-compatibility-2026-09-11.md",
           "docs/app-server-compatibility-contract.md",
         ]),
         upstreamDocumentation: Object.freeze([
@@ -1012,6 +1017,9 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         upstreamSource: Object.freeze([]),
         generatedSchema: Object.freeze([
           "test/fixtures/app-server-execution-discovery-0.152.0.json",
+          "test/fixtures/app-server-owned-execution-0.153.4.json",
+          "test/fixtures/app-server-owned-execution-0.154.0.json",
+          "test/fixtures/app-server-owned-execution-0.154.0-alpha.6.1.json",
         ]),
         runtime: Object.freeze([]),
         checks: Object.freeze(["repo.execution-foundation"]),
@@ -1024,9 +1032,9 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       globalInvariant: false,
       supportedCodexReleases: Object.freeze([]),
       mappings: Object.freeze({
-        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs", "src/executor-launch-coordinator.mjs", "src/executor-app-server-effects.mjs", "src/executor-service-supervisor.mjs", "src/executor-approval-relay.mjs"]),
+        owned: Object.freeze(["src/executor-contract.mjs", "src/executor-grants.mjs", "src/executor-launch-journal.mjs", "src/executor-launch-coordinator.mjs", "src/executor-app-server-effects.mjs", "src/executor-service-supervisor.mjs", "src/executor-approval-relay.mjs", "src/executor-service-runtime.mjs", "src/executor-result-evidence.mjs"]),
         shared: Object.freeze(["src/execution-store.mjs", "src/task-state.mjs", "src/work-result.mjs"]),
-        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/support/executor-fixture.mjs", "test/support/executor-app-server-fixture.mjs"]),
+        test: Object.freeze(["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs", "test/support/executor-fixture.mjs", "test/support/executor-app-server-fixture.mjs"]),
         documentation: Object.freeze(["docs/executor-admission-and-recovery.md"]),
         upstreamDocumentation: Object.freeze([]),
         upstreamSource: Object.freeze([]),

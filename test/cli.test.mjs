@@ -529,8 +529,8 @@ test("packaged launcher routes intelligence from an unrelated working directory"
       command: "intelligence route",
       route: {
         schemaVersion: 2,
-        policyVersion: 3,
-        catalogVersion: "openai-2026-07-21",
+        policyVersion: 4,
+        catalogVersion: "openai-2026-09-11",
         taskShape: "clear/repeatable",
         profile: "luna",
         requestedModel: "gpt-5.6-luna",

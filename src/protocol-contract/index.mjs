@@ -1,3 +1,4 @@
+import { JOINED_SUBAGENT_MODELS } from "../launch-contract.mjs";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
@@ -105,7 +106,7 @@ const PLANNER_NATIVE_TASK = closed({
   thinking: { const: "medium" },
 });
 const JOINED_SUBAGENT_NATIVE_TASK = closed({
-  model: { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] },
+  model: { enum: [...JOINED_SUBAGENT_MODELS] },
   thinking: { type: "string", minLength: 1, maxLength: 32 },
 });
 const ROUTE_ENFORCEMENT = closed({
@@ -777,7 +778,7 @@ function reconcilePolicy(onFound) {
 function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
   const nativeTask = closed({
     model: memberKind === "joined-subagent"
-      ? { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] }
+      ? { enum: [...JOINED_SUBAGENT_MODELS] }
       : { type: "string", minLength: 1, maxLength: 128 },
     thinking: { type: "string", minLength: 1, maxLength: 32 },
   }, []);

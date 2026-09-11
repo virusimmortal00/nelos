@@ -83,7 +83,12 @@ test("wrong home, unreviewed version and malformed streams fail closed", async (
     userAgent: "Codex Desktop/0.152.0 (Mac OS 26.6.1; arm64) dumb (nelos_executor; 1.0.0)" });
   assert.equal((await desktop.session.open()).state, "ready");
   for (const initialize of [{ ...identity, codexHome: "/other" }, { ...identity, userAgent: "codex-cli/0.153.0" },
-    { ...identity, userAgent: "codex-cli/0.152.0-alpha" }]) {
+    { ...identity, userAgent: "codex-cli/0.152.0-alpha" },
+    { ...identity, userAgent: "codex-cli/0.155.0" },
+    { ...identity, userAgent: "codex-cli/0.154.0-alpha.6.2" },
+    { ...identity, userAgent: "codex-cli/0.154.0+unreviewed" },
+    { ...identity, userAgent: "foreign codex-cli/0.154.0" },
+    { ...identity, userAgent: "codex-cli/0.154.0/other" }]) {
     const { session } = fixture(t, undefined, {}, initialize);
     await assert.rejects(session.open(), { code: "session-identity-mismatch" });
   }

@@ -1,4 +1,10 @@
 const profiles = Object.freeze({
+  astra: Object.freeze({
+    id: "astra",
+    label: "Astra",
+    requestedModel: "gpt-6-astra",
+    supportedEfforts: Object.freeze(["low", "medium", "high", "xhigh", "max", "ultra"]),
+  }),
   sol: Object.freeze({
     id: "sol",
     label: "Sol",
@@ -23,35 +29,31 @@ const profiles = Object.freeze({
  * Reviewed release data, not a live entitlement or availability assertion.
  * The host remains authoritative for whether a requested model can launch.
  *
- * The "xhigh" effort string is unverified against a live `model/list` response.
- * https://learn.chatgpt.com/docs/models lists an "Extra high" tier alongside
- * Low/Medium/High/Max/Ultra, but https://learn.chatgpt.com/docs/app-server's
- * own model/list documentation does not enumerate a full reasoningEffort value
- * set to confirm "xhigh" (vs. e.g. "extra_high" or "extraHigh") is the literal
- * wire string. A wrong value would surface as a loud launch-time error rather
- * than silently misbehaving, so this is flagged rather than guessed at.
+ * Astra's literal effort strings were observed through signed-in model/list on
+ * 0.153.4, 0.154.0, and Desktop's 0.154.0-alpha.6.1 on 2026-09-11. This is Codex
+ * capability evidence, not an assertion about the API's reasoning parameters.
  */
 export const INTELLIGENCE_PROFILE_CATALOG = Object.freeze({
   schemaVersion: 1,
-  catalogVersion: "openai-2026-07-21",
-  reviewedAt: "2026-07-21",
-  sourceUrl: "https://developers.openai.com/api/docs/guides/latest-model",
+  catalogVersion: "openai-2026-09-11",
+  reviewedAt: "2026-09-11",
+  sourceUrl: "https://learn.chatgpt.com/docs/models",
   evidence: Object.freeze({
     kind: "verified-openai-docs",
     summary:
-      "Current OpenAI model guidance identifies Sol, Terra, and Luna as the frontier, balanced, and efficient GPT-5.6 choices and recommends deliberate reasoning selection.",
+      "OpenAI Codex guidance recommends GPT-6 Astra; the catalog also retains the reviewed GPT-5.6 Sol, Terra, and Luna profiles. Explicit Astra selection does not change existing task-shape defaults.",
   }),
   hostCapabilityEvidence: Object.freeze({
     kind: "current-codex-desktop-capability",
-    observedAt: "2026-07-25",
+    observedAt: "2026-09-11",
     summary:
-      "The current Desktop durable-task API exposes Sol, Terra, and Luna, while the joined-subagent collaboration launcher exposes only Sol and Terra; routing must respect the selected launcher.",
+      "The current Desktop durable-task and joined-subagent tools expose Astra, Sol, Terra, and Luna. Signed-in App Server model/list advertises Astra with low, medium, high, xhigh, max, and ultra on all three inspected binaries. Nelos retains its narrower joined-model policy pending separate routing evaluation.",
   }),
   policy: Object.freeze({
     kind: "local-reviewed-policy",
-    version: 3,
+    version: 4,
     summary:
-      "Nelos independently routes model and reasoning choices through launcher-specific capabilities, keeping Luna on durable tasks and Sol or Terra on joined subagents.",
+      "Nelos permits explicit Astra on durable tasks and joined subagents, preserves existing task-shape defaults, keeps Luna on durable tasks, and requires explicit native-fan-out permission for Ultra.",
   }),
   profiles,
 });

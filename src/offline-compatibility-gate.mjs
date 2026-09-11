@@ -356,11 +356,12 @@ function defaultCheckRunners() {
         "test/app-server-execution-profile.test.mjs",
         "test/app-server-execution-transport.test.mjs",
         "test/executor-app-server-session.test.mjs",
+        "test/executor-schema-compatibility.test.mjs",
       ]),
     ],
     [
       "repo.executor-admission",
-      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs"]),
+      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs"]),
     ],
     [
       "repo.protocol-contracts",

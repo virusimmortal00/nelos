@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-11",
+  "platform": "darwin-arm64",
+  "installed": {
+    "desktopVersion": "26.903.71938",
+    "desktopBuild": "8576",
+    "bundleIdentifier": "com.openai.codex",
+    "bundlePath": "/Applications/ChatGPT.app",
+    "cliVersion": "0.153.4",
+    "cliSource": "Desktop bundle on PATH"
+  },
+  "latest": {
+    "desktop": {
+      "version": "26.908.31748",
+      "build": "8720",
+      "publishedAt": "2026-09-11T03:33:04Z",
+      "source": "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
+      "bundledCliVersion": "0.154.0-alpha.6.1",
+      "archiveSignatureVerified": true,
+      "archiveSha256": "81fe2b609c641ed1ba0d56ae8b985a9d5ee3fccc5d551d381616e3a5172204eb"
+    },
+    "publicCli": {
+      "tag": "rust-v0.154.0",
+      "publishedAt": "2026-09-09T22:35:38Z",
+      "url": "https://github.com/openai/codex/releases/tag/rust-v0.154.0",
+      "digest": "sha256:344310a0a591c1b192e04feff304321a69907c9498baaac331ca7e16ebcef9d7"
+    }
+  },
+  "probes": [
+    {
+      "label": "installed",
+      "userAgent": "Codex Desktop/0.153.4 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    },
+    {
+      "label": "public-cli",
+      "userAgent": "Codex Desktop/0.154.0 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    },
+    {
+      "label": "latest-desktop",
+      "userAgent": "Codex Desktop/0.154.0-alpha.6.1 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    }
+  ],
+  "sessionDiscoveryVersions": [
+    "0.153.4",
+    "0.154.0",
+    "0.154.0-alpha.6.1"
+  ],
+  "runtimeExecutionTested": false,
+  "remoteHostTested": false,
+  "latestDesktopUiTested": false,
+  "remoteVersionCheck": {
+    "host": "m3",
+    "outcome": "unavailable",
+    "reason": "SSH connection to m3.sayers.io port 22 timed out (10-second connection bound)"
+  }
+}

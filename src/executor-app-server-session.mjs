@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { AppServerRpcDispatcher, appServerResponseError, validateAppServerDispatcherOptions } from "./app-server-rpc-dispatcher.mjs";
 import { ExecutorContractError, executorInteger, executorText } from "./executor-contract.mjs";
-import { EXECUTION_DISCOVERY_SCHEMA_VERSION } from "./app-server-execution-profile.mjs";
+import { REVIEWED_EXECUTION_SCHEMA_VERSIONS } from "./app-server-execution-profile.mjs";
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const error = (code) => new ExecutorContractError(code);
@@ -98,8 +98,8 @@ export class ExecutorAppServerSessionV1 {
         capabilities: { experimentalApi: true, requestAttestation: false },
       });
       const version = typeof identity?.userAgent === "string"
-        ? identity.userAgent.match(/\b(?:codex-cli|Codex Desktop)\/(\d+\.\d+\.\d+)(?![\w.+-])/u)?.[1] : null;
-      if (version !== EXECUTION_DISCOVERY_SCHEMA_VERSION || identity.codexHome !== codexHome ||
+        ? identity.userAgent.match(/^(?:codex-cli|Codex Desktop)\/([^\s()]+)(?=\s|$)/u)?.[1] : null;
+      if (!REVIEWED_EXECUTION_SCHEMA_VERSIONS.includes(version) || identity.codexHome !== codexHome ||
           typeof identity.platformFamily !== "string" || !identity.platformFamily ||
           typeof identity.platformOs !== "string" || !identity.platformOs) throw error("session-identity-mismatch");
       if (this.#state !== "opening") throw error("session-unavailable");

@@ -11,18 +11,25 @@ cheaper or weaker default.
 
 ## The profiles
 
-Nelos ships a small, versioned catalog of GPT-5.6 profiles
+Nelos ships a small, versioned catalog of Codex model profiles
 (`src/intelligence-profile-catalog.mjs`, reviewed against OpenAI's model guidance
 and re-dated on each review):
 
 | Profile | Model | Character | Reasoning efforts |
 | --- | --- | --- | --- |
+| **Astra** | `gpt-6-astra` | Explicit choice for complex work | `low` → `max`, plus `ultra` |
 | **Sol** | `gpt-5.6-sol` | Frontier — deepest judgment | `low` → `max`, plus `ultra` |
 | **Terra** | `gpt-5.6-terra` | Balanced, efficient default | `low` → `max`, plus `ultra` |
 | **Luna** | `gpt-5.6-luna` | Fastest, most efficient | `low` → `max` |
 
+Astra support was checked through signed-in `model/list` on CLI 0.153.4, CLI 0.154.0,
+and Desktop’s bundled 0.154.0-alpha.6.1 on 2026-09-11. Use `profile: "astra"`
+or `model: "gpt-6-astra"` for an explicit selection. Existing task-shape
+defaults are unchanged; Luna’s joined restriction is Nelos policy, not a claim
+that the current host lacks that model.
+
 The effort ladder is `low` · `medium` · `high` · `xhigh` · `max` · `ultra`. Only
-Sol and Terra are eligible for `ultra` (see [Max and Ultra](#max-and-ultra)).
+Astra, Sol, and Terra are eligible for `ultra` (see [Max and Ultra](#max-and-ultra)).
 
 ## Task shapes pick the starting point
 
@@ -34,7 +41,7 @@ work isn't starved:
 | --- | --- | --- | --- |
 | `complex/open-ended` | Sol | `medium` | Sustained judgment needs a frontier model; medium is the lowest reviewed starting point. |
 | `everyday` | Terra | `low` | A capable, efficient default for ordinary implementation work. |
-| `clear/repeatable` | Luna for durable spinoffs; Terra for joined subagents | `low` | Luna is the efficient durable-task choice, while the native collaboration launcher currently supports only Sol and Terra. |
+| `clear/repeatable` | Luna for durable spinoffs; Terra for joined subagents | `low` | Luna is the efficient durable-task choice, while Nelos retains its reviewed Terra default for joined work. |
 
 ## Overriding the recommendation
 
@@ -87,7 +94,7 @@ Luna on `spawn-subagent`, including lower-level orchestration calls.
 
 `max` is the highest **single-task** reasoning tier. `ultra` goes further: it also
 permits native **subagent fan-out**, so it's gated twice — it requires an explicit
-or recommended **Sol or Terra** profile *and* explicit permission
+or recommended **Astra, Sol, or Terra** profile *and* explicit permission
 (`allowNativeFanout: true`). Requesting `ultra` any other way is an error.
 
 ## Verification (fail-closed)
