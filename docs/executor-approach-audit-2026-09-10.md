@@ -149,3 +149,17 @@ prior evidence; repeated requests cannot consume another attempt. Live canaries
 on both m3 CLIs completed and accepted attempt two after crashing attempt one.
 See [retry evidence](owned-retry-canary-2026-09-11.json). Automatic scheduling of
 retry requests and parent wake-up remain open.
+
+
+The automatic retry slice adds explicitly opted-in owner timers to V2 policies.
+They collect and retry confirmed interruptions without a connected parent MCP,
+use the existing durable attempt transitions, and stop at policy limits. Startup
+alone still cannot launch the first attempt; acceptance remains a parent action.
+[Automatic canaries](owned-automatic-retry-canary-2026-09-11.json) exercise owner
+loss and frontend absence. Parent wake delivery remains open: the existing
+lifecycle produces host effects but has no unattended executor-to-parent adapter.
+
+CodeRabbit identified one drain race in automatic scheduling: drain could begin
+while reading the journal for a selected but unstarted retry. The scheduler now
+rechecks drain immediately after that read. A regression test pauses the read,
+drains the service, and verifies that no replacement turn is sent.

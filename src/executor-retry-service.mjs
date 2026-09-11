@@ -13,7 +13,13 @@ const fail = (code) => { throw new ExecutorContractError(code); };
 const equal = (a, b) => executorDigest(a) === executorDigest(b);
 
 export function normalizeExecutorRetryPolicyV1(value) {
-  executorExact(value, ["schemaVersion", "attempts"]);
+  const automatic = Object.hasOwn(value ?? {}, "automaticRetry");
+  executorExact(value, ["schemaVersion", "attempts", ...(automatic ? ["automaticRetry"] : [])]);
+  if (automatic) {
+    executorExact(value.automaticRetry, ["intervalMs"]);
+    if (!Number.isSafeInteger(value.automaticRetry.intervalMs) || value.automaticRetry.intervalMs < 1000 ||
+        value.automaticRetry.intervalMs > 60_000) fail("invalid-retry-interval");
+  }
   if (value.schemaVersion !== 2 || !Array.isArray(value.attempts) || value.attempts.length < 2 || value.attempts.length > 3) fail("invalid-retry-policy");
   const attempts = value.attempts.map(normalizeExecutorJobV1), first = attempts[0];
   const definition = (job) => {
@@ -30,7 +36,7 @@ export function normalizeExecutorRetryPolicyV1(value) {
     if (attempt.job.workUnits[0].attempt !== index + 1 || attempt.job.wave.members[0].launchSequence !== 1 ||
         attempt.job.workUnits[0].policy.maxAttempts !== attempts.length || !equal(definition(first), definition(attempt))) fail("retry-policy-scope-mismatch");
   }
-  return { schemaVersion: 2, attempts };
+  return { schemaVersion: 2, attempts, ...(automatic ? { automaticRetry: { intervalMs: value.automaticRetry.intervalMs } } : {}) };
 }
 
 // A retry family owns one active job service at a time. Previous attempts keep
@@ -39,12 +45,15 @@ export class ExecutorRetryServiceV1 {
   #policy; #options; #directory; #now; #job = null; #index = 0; #history = [];
   #clients = new Map(); #queue = Promise.resolve(); #starting; #owner;
   #done; #finish; #switching = false; #draining = false; #failure = null;
+  #timer = null; #ended = false; #automaticClient; #automaticError = null; #backoff = 0; #nextCheckAt = null;
   constructor({ config, directory, now = Date.now, ...options }) {
     if (typeof now !== "function") fail("invalid-provider");
     this.#now = now;
     this.#policy = normalizeExecutorRetryPolicyV1(config);
     this.#options = options; this.#directory = directory;
-    this.#done = new Promise((resolve) => { this.#finish = resolve; });
+    this.#done = new Promise((resolve) => { this.#finish = () => {
+      this.#ended = true; this.#cancelTimer(); resolve();
+    }; });
   }
   #attemptDirectory(index) { return join(this.#directory, `attempt-${index + 1}`); }
   #markerPath(index) { return join(this.#directory, `retry-${index + 1}.json`); }
@@ -108,7 +117,9 @@ export class ExecutorRetryServiceV1 {
             if (gap || !equal(marker, await this.#prior(index - 1))) fail("retry-evidence-mismatch");
             this.#index = index; this.#history.push(marker);
           }
-          await this.#openJob(); ready(this.status()); await this.#done;
+          await this.#openJob();
+          if (this.#policy.automaticRetry) { this.#automaticClient = this.attach(); this.#schedule(); }
+          ready(this.status()); await this.#done;
         });
       } catch (error) { this.#failure = error.code ?? "retry-service-unavailable"; rejected(error); this.#finish(); }
       return this.status();
@@ -140,7 +151,54 @@ export class ExecutorRetryServiceV1 {
     ...(this.#draining ? { state: "draining", acceptingLaunches: false } : {}),
     ...(this.#failure ? { state: "failed", reason: this.#failure, acceptingLaunches: false } : {}),
     attempt: this.#index + 1, maxAttempts: this.#policy.attempts.length,
-    previousAttempts: structuredClone(this.#history), retryConfigured: true, retryOn: ["interrupted"] }; }
+    previousAttempts: structuredClone(this.#history), retryConfigured: true, retryOn: ["interrupted"],
+    automaticRetry: { enabled: Boolean(this.#policy.automaticRetry), nextCheckAt: this.#nextCheckAt, lastError: this.#automaticError } }; }
+  #cancelTimer() { clearTimeout(this.#timer); this.#timer = null; this.#nextCheckAt = null; }
+  #schedule() {
+    if (!this.#policy.automaticRetry || this.#draining || this.#ended) return;
+    const interval = Math.min(60_000, this.#policy.automaticRetry.intervalMs * 2 ** this.#backoff);
+    this.#nextCheckAt = this.#now() + interval;
+    this.#timer = setTimeout(() => {
+      this.#timer = null; this.#nextCheckAt = null;
+      // Share the parent-request queue so a timer and an explicit retry cannot
+      // select different attempts or race a join decision.
+      const next = this.#queue.catch(() => {}).then(async () => {
+        if (this.#draining || this.#ended) return false;
+        return this.#automaticStep();
+      }).then((again) => {
+        this.#automaticError = null; this.#backoff = 0;
+        if (again) this.#schedule();
+      }).catch((error) => {
+        this.#automaticError = error.code ?? "automatic-retry-unavailable";
+        this.#backoff = Math.min(6, this.#backoff + 1);
+        if (this.#automaticError !== "retry-authorization-expired") this.#schedule();
+      });
+      this.#queue = next;
+    }, interval);
+  }
+  async #automaticStep() {
+    const config = this.#policy.attempts[this.#index];
+    const read = async () => (await this.#journal(this.#index).read(config.job.workUnits[0].workUnitId))?.operations.at(-1);
+    let operation = await read();
+    if (this.#draining || this.#ended) return false;
+    if (!operation) {
+      // Startup alone never authorizes the first launch. A persisted transition
+      // is sufficient to resume a selected but not yet dispatched retry.
+      if (this.#index === 0) return true;
+      if (this.#now() >= config.expiresAt) fail("retry-authorization-expired");
+      const result = await this.#job.request(this.#client(this.#automaticClient), "launch", {});
+      if (!["wave-started", "existing-operation"].includes(result.kind)) fail("automatic-retry-admission-unavailable");
+      return true;
+    }
+    await this.#job.request(this.#client(this.#automaticClient), "collect", {});
+    operation = await read();
+    if (operation?.phase !== "terminal") return true;
+    if (operation.completion?.status !== "interrupted" || operation.completion.result.workOutcome === "succeeded" ||
+        this.#index + 1 >= this.#policy.attempts.length) return false;
+    const result = await this.#retry(this.#automaticClient, { expectedAttempt: this.#index + 1 });
+    if (!["wave-started", "existing-operation"].includes(result.kind)) fail("automatic-retry-admission-unavailable");
+    return true;
+  }
   get stopped() { return this.#owner ?? Promise.reject(new ExecutorContractError("supervisor-not-started")); }
   request(client, method, params) {
     const next = this.#queue.catch(() => {}).then(async () => {
@@ -189,6 +247,7 @@ export class ExecutorRetryServiceV1 {
   }
   drain() {
     this.#draining = true;
+    this.#cancelTimer();
     if (!this.#job) { this.#finish(); return this.status(); }
     this.#queue = this.#queue.catch(() => {}).then(() => this.#job.drain()).catch(() => { this.#finish(); });
     return this.status();

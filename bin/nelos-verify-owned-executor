@@ -15,9 +15,10 @@ import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 
 const [command, codexHomeInput, hostId, queenThreadId, mode = "normal"] = process.argv.slice(2);
-if (![6, 7].includes(process.argv.length) || !["normal", "crash", "retry"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
-  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash|retry]");
+if (![6, 7].includes(process.argv.length) || !["normal", "crash", "retry", "automatic-retry"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
+  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash|retry|automatic-retry]");
 }
+const retryFamily = ["retry", "automatic-retry"].includes(mode);
 const source = dirname(dirname(fileURLToPath(import.meta.url)));
 const codexHome = await realpath(codexHomeInput);
 const root = await realpath(await mkdtemp(join(tmpdir(), "nc-")));
@@ -49,14 +50,15 @@ const config = { schemaVersion: 1, command, codexHome, hostId, expiresAt: Date.n
   prompts: [{ sliceId: "read-marker", text: prompt }],
 } };
 let selectedPolicy = config;
-if (mode === "retry") {
+if (retryFamily) {
   config.job.workUnits[0].policy.maxAttempts = 2;
   const second = structuredClone(config);
   second.job.workUnits[0].attempt = 2; second.job.wave.members[0].attempt = 2;
   second.job.prompts[0].text = prompt.replace(formatResultEnvelope(resultTemplate), formatResultEnvelope({ ...resultTemplate, attempt: 2 }));
   second.job.wave.members[0].promptDigest = executorDigest(second.job.prompts[0].text);
   second.job.wave.waveDigest = executorDigest(second.job.prompts[0].text);
-  selectedPolicy = { schemaVersion: 2, attempts: [config, second] };
+  selectedPolicy = { schemaVersion: 2, attempts: [config, second],
+    ...(mode === "automatic-retry" ? { automaticRetry: { intervalMs: 1000 } } : {}) };
 }
 await writeFile(policyPath, JSON.stringify(selectedPolicy), { mode: 0o600 });
 const endpoint = join(directory, "endpoint.json");
@@ -129,18 +131,40 @@ try {
   client = await mcpProcess();
   const retry = await client.call("launch"); assert.equal(retry.kind, "existing-operation");
   proof.checks.explicitRetryReusedOperation = true;
-  if (["crash", "retry"].includes(mode)) {
+  if (["crash", "retry", "automatic-retry"].includes(mode)) {
     const active = await client.call("collect");
     assert.equal(active.status, "inProgress", "crash test must observe a live turn");
     proof.threadId = active.threadId; proof.turnId = active.turnId;
     await client.close(); client = null;
     owner.child.kill("SIGKILL");
     assert.equal((await deadline(owner.exited, 15_000, "crash-owner")).signal, "SIGKILL");
-    owner = await serviceProcess(); client = await mcpProcess();
-    const retryAfterCrash = await client.call("launch");
-    assert.equal(retryAfterCrash.kind, "existing-operation");
-    assert.equal(retryAfterCrash.threadId, proof.threadId); assert.equal(retryAfterCrash.turnId, proof.turnId);
-    proof.checks.ownerCrashReusedExactOperation = true;
+    owner = await serviceProcess();
+    if (mode === "automatic-retry") {
+      // No MCP frontend is connected and no retry/collect request is sent while
+      // the restarted owner reconciles attempt one and completes attempt two.
+      const secondJournal = new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-2", "journal") });
+      let second;
+      for (let i = 0; i < 120; i++) {
+        second = (await secondJournal.read(unitId))?.operations.at(-1);
+        if (second?.phase === "terminal") break;
+        await delay(1500);
+      }
+      assert.equal(second?.phase, "terminal", "automatic attempt must finish without a parent frontend");
+      const first = (await new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-1", "journal") }).read(unitId)).operations.at(-1);
+      assert.equal(first.threadId, proof.threadId); assert.equal(first.turnId, proof.turnId);
+      assert.equal(first.completion.status, "interrupted");
+      proof.previousAttempt = { threadId: first.threadId, turnId: first.turnId, status: first.completion.status };
+      assert.notEqual(second.threadId, first.threadId);
+      proof.checks.automaticRetryCompletedWithoutFrontend = true;
+      proof.checks.ownerCrashPreservedExactPredecessor = true;
+      client = await mcpProcess();
+    } else {
+      client = await mcpProcess();
+      const retryAfterCrash = await client.call("launch");
+      assert.equal(retryAfterCrash.kind, "existing-operation");
+      assert.equal(retryAfterCrash.threadId, proof.threadId); assert.equal(retryAfterCrash.turnId, proof.turnId);
+      proof.checks.ownerCrashReusedExactOperation = true;
+    }
   }
   let collected;
   for (let i = 0; i < 120; i++) {
@@ -167,9 +191,9 @@ try {
   assert.equal(await readFile(join(cwd, "marker.txt"), "utf8"), `${marker}\n`);
   proof.threadId = collected.threadId; proof.turnId = collected.turnId; proof.workUnitId = unitId;
   proof.recoveredStatus = collected.status; proof.recoveredWorkOutcome = collected.result.workOutcome;
-  const decision = { ...(mode === "retry" ? { expectedAttempt: 2 } : {}), decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
+  const decision = { ...(retryFamily ? { expectedAttempt: 2 } : {}), decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
   let joined = null;
-  if (["normal", "retry"].includes(mode) || collected.result?.result?.outcome === "succeeded") {
+  if (["normal", "retry", "automatic-retry"].includes(mode) || collected.result?.result?.outcome === "succeeded") {
     assert.equal(collected.result?.result?.outcome, "succeeded");
     assert.equal(collected.result.result.summary, marker);
     proof.checks.independentMarkerVerification = true;
@@ -190,11 +214,11 @@ try {
   if (joined) assert.deepEqual(await client.call("join", decision), joined);
   proof.checks.terminalRestartPreservedCollection = true;
   if (joined) proof.checks.completedRestartPreservedCollectionAndJoin = true;
-  const record = await new ExecutorLaunchJournalV1({ directory: join(directory, ...(mode === "retry" ? ["attempt-2"] : []), "journal") }).read(unitId);
+  const record = await new ExecutorLaunchJournalV1({ directory: join(directory, ...(retryFamily ? ["attempt-2"] : []), "journal") }).read(unitId);
   assert.equal(record.operations.length, 1);
   assert.equal(record.operations[0].threadId, proof.threadId); assert.equal(record.operations[0].turnId, proof.turnId);
   proof.checks.singleDurableOperationPerAttempt = true;
-  if (mode === "retry") {
+  if (retryFamily) {
     const first = await new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-1", "journal") }).read(unitId);
     assert.equal(first.operations.length, 1); assert.equal(first.operations[0].threadId, proof.previousAttempt.threadId);
     assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");

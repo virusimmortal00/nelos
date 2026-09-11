@@ -454,7 +454,47 @@ a fresh MCP frontend, parent acceptance of attempt two, completed-service restar
 and the attempt limit. [Live results](owned-retry-canary-2026-09-11.json) cover
 m3's standalone CLI 0.154.0 and Desktop-bundled 0.154.0-alpha.6.2.
 
-Retries currently require an explicit parent call within that installed policy.
-There is no background retry loop or parent wake adapter yet. Policies for
-non-interruption failures, retries of write-capable workers, unknown-ID recovery,
-and general scheduling remain separate rollout work.
+### Automatic retry scheduling
+
+V2 policies can explicitly opt into owner-side scheduling by adding
+`"automaticRetry": { "intervalMs": 1000 }`. The integer interval is bounded to
+1–60 seconds and included in the immutable policy binding. Omitting the field
+preserves the prior manual behavior and policy digest. Frontends cannot enable
+it or alter the approved prompts, attempt count, expiry, or execution scope.
+
+The owner periodically collects the current recorded operation. Startup does
+not launch an unused first attempt. Once the parent launches it, a confirmed
+interruption can advance through the same persisted retry transition used by
+`nelos_owned_retry`. Scheduling continues with no MCP frontend connected and
+resumes after owner restart. A selected retry with no recorded operation can
+obtain a fresh grant; an existing operation is collected, never dispatched again.
+Running, unknown, failed and successful operations cannot trigger a replacement.
+Terminal success or failure and the attempt limit stop the timer. Expired retry
+authorization stops scheduling with a status reason; historical collection
+remains available to the parent.
+
+Timer work and parent requests share one serialized queue. Drain cancels the
+timer and prevents another launch. Transient collection/admission failures use
+exponential backoff capped at 60 seconds. `nelos_owned_status.automaticRetry`
+reports whether scheduling is enabled, its next check time, and the last error
+code. Backoff resets after a successful check and on owner restart. Results
+still require the parent's explicit, attempt-specific acceptance.
+
+```sh
+npm run verify:owned-executor -- /absolute/codex /absolute/codex-home host-id parent-task-id automatic-retry
+```
+
+The automatic canary crashes its first owner during a live turn, starts a new
+owner, and keeps the MCP frontend disconnected until the second attempt's
+terminal result is durable. It then independently verifies the file marker,
+joins attempt two, restarts the owner, and checks replay and attempt limits.
+See [live evidence](owned-automatic-retry-canary-2026-09-11.json).
+
+Parent wake delivery is still open. The existing spin-off lifecycle emits a
+host-owned `native-send-message` effect and requires an exact host receipt;
+that is not an unattended sender connected to the owned executor. A future
+adapter must deliver persisted completion identity through the parent host and
+reconcile uncertain sends. The worker's separate App Server must not resume or
+steer the live parent as a substitute. Non-interruption retry policies,
+write-capable workers, unknown-ID recovery, and general scheduling also remain
+separate rollout work.

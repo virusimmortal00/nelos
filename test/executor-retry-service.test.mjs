@@ -6,18 +6,20 @@ import { mkdtemp, mkdir, realpath, rm, readFile, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExecutorRetryServiceV1, normalizeExecutorRetryPolicyV1 } from "../src/executor-retry-service.mjs";
+import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
 import { executorRepositoryIdentityV1 } from "../src/executor-job-service.mjs";
 import { executorDigest } from "../src/executor-contract.mjs";
 import { serveExecutorJobV1, ExecutorServiceClientV1 } from "../src/executor-service-channel.mjs";
 import { mockStdioAppServer } from "./support/mock-stdio-app-server.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 
-async function fixture(t) {
+async function fixture(t, { automatic = false, maxAttempts = 2 } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "nr-")));
   const cwd = join(root, "repo"), directory = join(root, "svc"), codexHome = join(root, "home");
   await mkdir(cwd); await mkdir(codexHome); await promisify(execFile)("git", ["init", "--quiet", cwd]);
   const repositoryId = await executorRepositoryIdentityV1(cwd), expiresAt = Date.now() + 600_000;
-  const config = { schemaVersion: 2, attempts: [1, 2].map((attempt) => {
+  const config = { schemaVersion: 2, attempts: Array.from({ length: maxAttempts }, (_, index) => index + 1).map((attempt) => {
     const prompt = `Read fixture, attempt ${attempt}`;
     return { schemaVersion: 1, command: "/test/codex", codexHome, hostId: "host", expiresAt, job: {
       wave: { schemaVersion: 1, backend: "nelos-app-server", planRunId: `run:${"a".repeat(40)}`, waveIndex: 1,
@@ -28,10 +30,11 @@ async function fixture(t) {
       workUnits: [{ webId: "A1", queenThreadId: "parent", workUnitId: "job", specRevision: 1, attempt, memberKind: "spinoff",
         capabilities: ["observe", "read-result"], title: "Worker", objectiveSummary: "Read fixture", deliverable: "Envelope",
         acceptanceCriteria: ["Expected result"], dependencies: [], required: true,
-        policy: { maxAttempts: 2, onBlocked: "queen-review", onFailure: "queen-review" } }],
+        policy: { maxAttempts, onBlocked: "queen-review", onFailure: "queen-review" } }],
       prompts: [{ sliceId: "worker", text: prompt }],
     } };
   }) };
+  if (automatic) config.automaticRetry = { intervalMs: 1000 };
   const threads = new Map(); let missingModel = false, onSecondTurn = null;
   const server = mockStdioAppServer(({ method, params }) => {
     if (method === "initialize") return { userAgent: "future-client/dev", codexHome, platformFamily: "unix", platformOs: "macos" };
@@ -64,7 +67,7 @@ async function fixture(t) {
     await service.stopped; await endpoint.close(); await rm(root, { recursive: true, force: true });
   });
   return { root, directory, config, server, connect, expireRetry() { retryNow = expiresAt + 1; }, setMissingModel(value) { missingModel = value; },
-    onSecondTurn(callback) { onSecondTurn = callback; }, status: () => service.status(), create,
+    onSecondTurn(callback) { onSecondTurn = callback; }, status: () => service.status(), create, drain: () => service.drain(), stopped: () => service.stopped,
     finish(attempt, status = "completed") {
       const thread = threads.get(`child-${attempt}`);
       thread.turns[0] = { id: `turn-${attempt}`, status, items: status === "completed" ? [{ type: "agentMessage", phase: "final_answer",
@@ -96,6 +99,113 @@ test("preauthorized retry is bounded, replay-safe and preserves attempt-specific
   await assert.rejects(second.request("retry", { expectedAttempt: 2 }), { code: "retry-attempt-limit" });
   assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 2);
   assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 2);
+});
+
+async function eventually(check) {
+  for (let i = 0; i < 160; i++) { if (await check()) return; await delay(50); }
+  assert.fail("automatic retry did not reach the expected state");
+}
+
+test("automatic retry waits for initial launch, survives frontend exit and stops at the attempt limit", async (t) => {
+  const f = await fixture(t, { automatic: true });
+  await delay(1200);
+  assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 0);
+  const client = await f.connect(); await client.request("launch"); client.close();
+  f.finish(1, "interrupted");
+  await eventually(() => f.server.requests.filter(({ method }) => method === "turn/start").length === 2);
+  assert.equal(f.status().previousAttempts[0].threadId, "child-1");
+  f.finish(2, "interrupted");
+  await eventually(() => f.status().automaticRetry.nextCheckAt === null && f.status().activities === 0);
+  const fresh = await f.connect();
+  assert.equal((await fresh.request("collect")).status, "interrupted");
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 2);
+});
+
+test("automatic retry backs off on missing capability and resumes the selected attempt after owner restart", async (t) => {
+  const f = await fixture(t, { automatic: true }), client = await f.connect();
+  await client.request("launch"); f.setMissingModel(true); f.finish(1, "interrupted"); client.close();
+  await eventually(() => f.status().automaticRetry.lastError === "automatic-retry-admission-unavailable");
+  assert.equal(f.status().attempt, 2);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  await f.restart(); f.setMissingModel(false);
+  await eventually(() => f.server.requests.filter(({ method }) => method === "turn/start").length === 2);
+  f.finish(2);
+  await eventually(() => f.status().automaticRetry.nextCheckAt === null && f.status().activities === 0);
+  const fresh = await f.connect();
+  assert.equal((await fresh.request("collect")).result.result.attempt, 2);
+  const joined = await fresh.request("join", { expectedAttempt: 2, decision: "accepted", decisionSummary: "Parent checked second result" });
+  assert.equal(joined.readiness.entries[0].accepted, true);
+});
+
+for (const terminal of ["completed", "failed"]) {
+  test(`automatic retry preserves ${terminal} work for the parent`, async (t) => {
+    const f = await fixture(t, { automatic: true }), client = await f.connect();
+    await client.request("launch"); f.finish(1, terminal); client.close();
+    await eventually(() => f.status().automaticRetry.nextCheckAt === null && f.status().activities === 0);
+    assert.equal(f.status().attempt, 1);
+    assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  });
+}
+
+test("automatic retry cannot advance expired authorization or start work after drain", async (t) => {
+  const f = await fixture(t, { automatic: true }), client = await f.connect();
+  await client.request("launch"); f.expireRetry(); f.finish(1, "interrupted");
+  await eventually(() => f.status().automaticRetry.lastError === "retry-authorization-expired");
+  f.drain(); await delay(1200);
+  assert.equal(f.status().automaticRetry.nextCheckAt, null);
+  assert.equal(f.status().attempt, 1);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+});
+
+test("automatic retry is immutable opt-in and rejects unbounded scheduling settings", async (t) => {
+  const f = await fixture(t);
+  assert.equal(Object.hasOwn(normalizeExecutorRetryPolicyV1(f.config), "automaticRetry"), false);
+  assert.equal(f.status().automaticRetry.enabled, false);
+  for (const automaticRetry of [true, null, {}, { intervalMs: 0 }, { intervalMs: 60_001 }, { intervalMs: 1000, maxAttempts: 9 }]) {
+    assert.throws(() => normalizeExecutorRetryPolicyV1({ ...f.config, automaticRetry }));
+  }
+  const client = await f.connect(); await client.request("launch"); f.finish(1, "interrupted"); await client.request("collect");
+  await delay(1200);
+  assert.equal(f.status().attempt, 1);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+});
+
+test("automatic and parent retries share a three-attempt budget without overlapping workers", async (t) => {
+  const f = await fixture(t, { automatic: true, maxAttempts: 3 }), client = await f.connect();
+  await client.request("launch");
+  await delay(1200);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1, "running work must not retry");
+  f.finish(1, "interrupted");
+  await eventually(() => f.server.requests.filter(({ method }) => method === "turn/start").length === 2);
+  assert.equal((await client.request("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+  f.finish(2, "interrupted");
+  await client.request("retry", { expectedAttempt: 2 });
+  f.finish(3);
+  await eventually(() => f.status().automaticRetry.nextCheckAt === null && f.status().activities === 0);
+  assert.equal(f.status().attempt, 3);
+  assert.equal(f.status().previousAttempts.length, 2);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 3);
+  await assert.rejects(client.request("retry", { expectedAttempt: 1 }), { code: "stale-retry-attempt" });
+});
+
+test("drain during the scheduler's journal read prevents a selected retry launch", async (t) => {
+  const f = await fixture(t, { automatic: true }), client = await f.connect();
+  await client.request("launch"); f.setMissingModel(true); f.finish(1, "interrupted");
+  await eventually(() => f.status().automaticRetry.lastError === "automatic-retry-admission-unavailable");
+  f.setMissingModel(false);
+  let reading = false, release;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const original = ExecutorLaunchJournalV1.prototype.read;
+  t.mock.method(ExecutorLaunchJournalV1.prototype, "read", async function (id) {
+    const record = await original.call(this, id);
+    if (!record && !reading) { reading = true; await blocked; }
+    return record;
+  });
+  try { await eventually(() => reading); f.drain(); }
+  finally { release(); }
+  await f.stopped();
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  assert.equal(f.status().automaticRetry.nextCheckAt, null);
 });
 
 for (const status of ["inProgress", "completed", "failed"]) {
