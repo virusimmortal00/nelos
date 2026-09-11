@@ -32,9 +32,10 @@ export class ExecutorServiceRuntimeV1 {
   #recoveryState = "not-started";
   #recoveryReason = null;
   #startupPending = new Set();
+  #recoveryReadsEnabled;
 
   constructor({ directory, scope, runtimeGeneration, sessionOptions, validateTarget,
-    evaluate = null, authorize = null, grantOptions = {} }) {
+    evaluate = null, authorize = null, grantOptions = {}, validateRecovery = null }) {
     if (evaluate !== null && typeof evaluate !== "function") fail("invalid-provider");
     this.#session = new ExecutorAppServerSessionV1({ ...sessionOptions, dispatcherOptions: {
       ...sessionOptions?.dispatcherOptions,
@@ -43,7 +44,8 @@ export class ExecutorServiceRuntimeV1 {
     } });
     this.#supervisor = new ExecutorServiceSupervisorV1({ session: this.#session, directory, scope, runtimeGeneration });
     this.#scope = structuredClone(scope);
-    this.#effects = new ExecutorAppServerEffectsV1({ session: this.#session, validateTarget });
+    this.#effects = new ExecutorAppServerEffectsV1({ session: this.#session, validateTarget, validateRecovery });
+    this.#recoveryReadsEnabled = validateRecovery !== null;
     this.#relay = new ExecutorApprovalRelayV1({ ownsTurn: (input, options) => this.#effects.ownsTurn(input, options) });
     this.#authority = new ExecutorGrantAuthorityV1({ ...grantOptions, authorize, evaluate: evaluate && (async (wave, options) => {
       const owner = this.#supervisor.status();
@@ -101,7 +103,10 @@ export class ExecutorServiceRuntimeV1 {
           const record = await this.#journal.read(id);
           // Cached terminal evidence is revalidated against its durable unit
           // binding. No old thread is adopted into the new connection.
-          if (record?.operations.at(-1).completion) await this.#coordinator.collectResult(id);
+          const operation = record?.operations.at(-1);
+          if (operation?.completion || (this.#recoveryReadsEnabled && ["running", "terminal"].includes(operation?.phase))) {
+            await this.#coordinator.collectResult(id, { recover: this.#recoveryReadsEnabled });
+          }
           await this.#settle(id);
           if (this.#startupPending.has(id)) this.#attention.set(id, "startup-upstream-reconciliation-required");
         } catch (error) {
@@ -200,7 +205,9 @@ export class ExecutorServiceRuntimeV1 {
   async #collect(workUnitId) {
     if (this.#collections.has(workUnitId)) return this.#collections.get(workUnitId);
     if (this.#collections.size >= 16) fail("result-collection-capacity");
-    const collection = this.#coordinator.collectResult(workUnitId).then(async (result) => {
+    const collection = this.#coordinator.collectResult(workUnitId, {
+      recover: this.#recoveryReadsEnabled && this.#startupPending.has(workUnitId),
+    }).then(async (result) => {
       this.#attention.delete(workUnitId);
       await this.#settle(workUnitId);
       return result;
@@ -241,6 +248,7 @@ export class ExecutorServiceRuntimeV1 {
   async recover(client, workUnitId) {
     this.#client(client);
     const result = await this.#coordinator.recover(workUnitId);
+    if (this.#recoveryReadsEnabled && ["running", "terminal"].includes(result.phase)) return this.#collect(workUnitId);
     await this.#settle(workUnitId);
     return result;
   }

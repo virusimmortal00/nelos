@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "runtimeCertified": false,
+  "scope": "Recorded-turn recovery after forcibly terminating only the canary owner while its worker is in progress",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T19:13:26.626Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-nFzQJy",
+      "hostId": "m3",
+      "mode": "crash",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "ownerCrashReusedExactOperation": true,
+        "interruptedWorkNotAccepted": true,
+        "terminalRestartPreservedCollection": true,
+        "singleDurableOperation": true
+      },
+      "servicePid": 47769,
+      "threadId": "01a091e3-9876-75a2-9ac9-ecefa11eb94e",
+      "turnId": "01a091e3-9ca7-7f53-b709-068dcf8d0981",
+      "workUnitId": "canary-9cef4df1960d",
+      "recoveredStatus": "interrupted",
+      "recoveredWorkOutcome": "unknown",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T19:13:29.282Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T19:13:26.626Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-BLPXsu",
+      "hostId": "m3",
+      "mode": "crash",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0-alpha.6.2",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "ownerCrashReusedExactOperation": true,
+        "interruptedWorkNotAccepted": true,
+        "terminalRestartPreservedCollection": true,
+        "singleDurableOperation": true
+      },
+      "servicePid": 47770,
+      "threadId": "01a091e3-9876-7501-a63b-ebc1451a79ee",
+      "turnId": "01a091e3-9c9a-7632-9464-9714d8e6b5d2",
+      "workUnitId": "canary-3105ed522151",
+      "recoveredStatus": "interrupted",
+      "recoveredWorkOutcome": "unknown",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T19:13:29.282Z"
+    }
+  ],
+  "limitations": [
+    "Recovery observes exact journal-owned IDs; it grants no live mutation rights.",
+    "Interrupted execution is not automatically restarted or accepted.",
+    "Unknown creation/turn IDs remain unresolved; no listing-based adoption."
+  ]
+}

@@ -208,8 +208,8 @@ export class ExecutorLaunchCoordinatorV1 {
     });
   }
 
-  async collectResult(workUnitId, { refresh = false } = {}) {
-    if (typeof refresh !== "boolean") fail("invalid-result-refresh");
+  async collectResult(workUnitId, { refresh = false, recover = false } = {}) {
+    if (typeof refresh !== "boolean" || typeof recover !== "boolean") fail("invalid-result-refresh");
     return this.#withLock(workUnitId, async () => {
       let record = await this.#journal.read(workUnitId);
       const op = record?.operations.at(-1);
@@ -223,8 +223,10 @@ export class ExecutorLaunchCoordinatorV1 {
       await matchingBinding();
       if (op.completion && !refresh) return { ...summary(op), source: "owned-app-server",
         status: op.completion.status, result: op.completion.result };
-      if (typeof this.#effects.readResult !== "function") fail("result-reader-unavailable");
-      const response = await this.#effect("readResult", { threadId: op.threadId, turnId: op.turnId });
+      const method = recover ? "readRecordedResult" : "readResult";
+      if (typeof this.#effects[method] !== "function") fail("result-reader-unavailable");
+      const response = await this.#effect(method, recover ? { operation: op }
+        : { threadId: op.threadId, turnId: op.turnId });
       await matchingBinding();
       const observed = normalizeExecutorResultEvidenceV1(response,
         { member: op.member, threadId: op.threadId, turnId: op.turnId });

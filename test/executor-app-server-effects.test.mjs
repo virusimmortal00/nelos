@@ -168,3 +168,13 @@ test("an envelope for another work-unit revision is never accepted as this worke
   }] }];
   await assert.rejects(f.effects.readResult(turnIdentity), { code: "result-scope-mismatch" });
 });
+
+test("recorded result observation never grants live turn ownership or mutation rights", async (t) => {
+  const f = await executorAppServerFixture(t, { validateRecovery: async () => true });
+  f.state.turns = [{ id: "old-turn", status: "inProgress", items: [] }];
+  const operation = { phase: "running", member: f.member, threadId: "owned-task", turnId: "old-turn" };
+  assert.equal((await f.effects.readRecordedResult({ operation })).status, "inProgress");
+  assert.equal(await f.effects.ownsTurn({ threadId: "owned-task", turnId: "old-turn" }), false);
+  await assert.rejects(f.effects.interrupt({ threadId: "owned-task", turnId: "old-turn" }), { code: "foreign-or-inactive-executor-turn" });
+  assert.deepEqual(f.server.requests.filter(({ method }) => !["initialize", "initialized"].includes(method)).map(({ method }) => method), ["thread/read"]);
+});

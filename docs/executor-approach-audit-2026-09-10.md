@@ -135,3 +135,10 @@ and [live evidence](owned-service-canary-2026-09-11.json) supersede the original
 remaining-work list for this bounded read-only flow. General scheduling,
 interactive approvals, active-operation reattachment, automatic wake-up,
 multiworktree coverage and legacy receipt migration remain open.
+
+The next September 11 milestone adds observation of exact recorded turns after
+owner loss, with account/target verification and no live ownership adoption.
+[Crash canaries](owned-recovery-canary-2026-09-11.json) on both updated m3 CLIs
+recovered an interrupted turn without creating another turn or accepting failed
+work. This reduces the active-operation recovery gap; resuming execution and
+handling lost replies with unknown turn IDs remain open.

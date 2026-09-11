@@ -258,7 +258,8 @@ and release the exact pending binding; dispatch records become uncertain;
 recorded thread identities can repair the private unit binding. Saved terminal
 results are checked against that binding before releasing their holds. No old
 thread is adopted by the replacement session and no upstream mutation is
-replayed. Terminal status without saved result evidence remains unresolved.
+replayed. Without a trusted recorded-result reader, terminal status without saved
+result evidence remains unresolved. The job service reader is described below.
 
 `status().acceptingLaunches` is false throughout scanning and while any startup
 record needs reconciliation. After inventory, attachments can inspect/recover
@@ -270,7 +271,9 @@ decision. Inventory failure is not a clean start.
 This supplies the conservative startup barrier. A reviewed protocol to
 reattach active/unknown upstream ownership is still required before such a
 replacement owner can resume work automatically. The current implementation
-reports attention instead of claiming a recovery it cannot prove.
+reports attention instead of claiming a recovery it cannot prove. The later
+recorded-result reader can reconcile exact known turns without acquiring live
+ownership.
 
 ## First parent-facing service job
 
@@ -340,3 +343,51 @@ verification, dynamic plan scheduling, multiple-worktree coverage, an interactiv
 approval adapter, or automatic parent wake-up. Those remain later milestones,
 along with migration of legacy pending launch receipts. The explicit parent ID
 is operator-configured; no Desktop-native parent relationship is inferred.
+
+## Recovery of recorded turns after owner loss
+
+The fixed read-only job service now installs a trusted recorded-result reader.
+At startup, the owner can read the exact native thread and turn from its private
+journal when the operation was `running` or `terminal`. It verifies the private
+work-unit binding, approved job scope, canonical repository identity, Codex home
+and account fingerprint. Account and target checks bracket the upstream read;
+returned history must match the expected thread, turn and repository. Changed
+launch settings or an expired launch approval do not prevent reading already
+recorded work. Cached evidence still follows its existing private-store checks.
+
+This uses `thread/read` with turns included. The [official App Server documentation](https://learn.chatgpt.com/docs/app-server)
+distinguishes reading stored history from loading a thread with `thread/resume`.
+Recovery never installs the recorded thread in the effects layer's live ownership
+map, so it cannot answer approvals, interrupt, steer, resume or start that turn.
+Frontend inputs cannot choose an arbitrary recovery thread or grant this access.
+The generic runtime keeps this reader disabled unless the service installs the
+validation callback.
+
+An observed terminal status and validated result classification are persisted
+before the service releases its work hold. Interrupted or failed work is not
+accepted as successful work. A known running turn can be observed again through
+`nelos_owned_collect`; it keeps its hold and admission barrier until an actual
+terminal observation arrives. Missing turns, incomplete history, changed account
+fingerprints and target mismatches remain unresolved. A lost creation/start reply
+without a recorded turn ID still cannot authorize lookup-based adoption or replay.
+
+Run the explicit crash canary with the final `crash` argument:
+
+```sh
+npm run verify:owned-executor -- /absolute/codex /absolute/codex-home host-id parent-task-id crash
+```
+
+The driver first verifies that its newly created worker is in progress, closes
+its MCP frontend, and sends SIGKILL only to its own detached service process.
+It starts a replacement owner, waits for a rotated endpoint, verifies reuse of
+the original thread and turn, and collects the preserved upstream outcome. It
+then restarts once more to check the recovered cache. [Live evidence](owned-recovery-canary-2026-09-11.json)
+records this flow on m3 with CLI 0.154.0 and Desktop-bundled 0.154.0-alpha.6.2.
+Both reported `interrupted`, with unknown work outcome and no parent acceptance;
+neither created another turn. These are observed outcomes, not a claim that
+all Codex versions finish an interrupted turn in the same way.
+
+This milestone reconciles recorded execution history. It does not revive model
+execution killed with the old App Server. A new attempt needs a separate policy
+and authorization flow; automatic retry, unknown-ID reconciliation, parent wake,
+interactive approvals and broader scheduling remain later work.

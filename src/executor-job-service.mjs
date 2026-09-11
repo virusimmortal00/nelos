@@ -78,6 +78,14 @@ export class ExecutorJobServiceV1 {
       sessionOptions: { ...sessionOptions, command: selected.command,
         codexHome: selected.codexHome, cwd: selected.job.wave.members[0].target.cwd },
       validateTarget,
+      validateRecovery: async (operation, { request, signal }) => {
+        if (operation.scopeDigest !== scopeDigest ||
+            executorDigest(operation.member) !== executorDigest(selected.job.wave.members[0])) return false;
+        // Expired launch approval or changed config does not invalidate a read
+        // of already-owned history. A changed account still blocks new reads.
+        const account = await request("account/read", { refreshToken: false }, { signal });
+        return observationDigest([account]) === operation.context.accountFingerprint;
+      },
       evaluate: async (wave, { owner, request, observedVersion, signal }) => {
         if (executorDigest(wave) !== scopeDigest || Date.now() >= selected.expiresAt) fail("job-authorization-expired-or-mismatched");
         const member = wave.members[0];

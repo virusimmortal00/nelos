@@ -32,10 +32,10 @@ async function fixture(t, { missingModel = false, expired = false, reorderConfig
         dependencies: [], required: true, policy: { maxAttempts: 1, onBlocked: "queen-review", onFailure: "queen-review" } }],
       prompts: [{ sliceId: "worker", text: prompt }],
     } };
-  let title = null, turns = [], configReads = 0;
+  let title = null, turns = [], configReads = 0, accountChanged = false, readCwd = cwd, changeAccountDuringRead = false;
   const server = mockStdioAppServer(({ method, params }) => {
     if (method === "initialize") return { userAgent: "future-client/dev", codexHome, platformFamily: "unix", platformOs: "macos" };
-    if (method === "account/read") return { requiresOpenaiAuth: true, account: { type: "chatgpt", email: "secret@example.invalid" } };
+    if (method === "account/read") return { requiresOpenaiAuth: true, account: { type: "chatgpt", email: accountChanged ? "different@example.invalid" : "secret@example.invalid" } };
     if (method === "model/list") return { data: missingModel ? [] : [{ model: "gpt-6-astra", supportedReasoningEfforts: [{ reasoningEffort: "medium" }] }] };
     if (method === "permissionProfile/list") return { data: [{ id: ":read-only", allowed: true }] };
     if (method === "configRequirements/read") return { requirements: null };
@@ -43,7 +43,7 @@ async function fixture(t, { missingModel = false, expired = false, reorderConfig
     if (method === "thread/start") return { thread: { id: "child", cwd }, cwd, model: params.model,
       activePermissionProfile: { id: params.permissions }, approvalPolicy: params.approvalPolicy };
     if (method === "thread/name/set") { title = params.name; return {}; }
-    if (method === "thread/read") return { thread: { id: "child", name: title, turns } };
+    if (method === "thread/read") { if (changeAccountDuringRead) accountChanged = true; return { thread: { id: "child", name: title, cwd: readCwd, turns } }; }
     if (method === "turn/start") { turns = [{ id: "turn", status: "inProgress", items: [] }]; return { turn: turns[0] }; }
     throw new Error("unexpected fixture method");
   });
@@ -60,12 +60,17 @@ async function fixture(t, { missingModel = false, expired = false, reorderConfig
   });
   return { config, root, directory, server, connect, status: () => service.status(),
     descriptor: () => endpoint.descriptorPath,
+    changeAccount() { accountChanged = true; },
+    changeAccountDuringRead() { changeAccountDuringRead = true; },
+    changeReadTarget() { readCwd = "/another-repository"; },
+    setTurns(value) { turns = value; },
     finish() { turns = [{ id: "turn", status: "completed", items: [{ type: "agentMessage", phase: "final_answer",
       text: formatResultEnvelope({ schemaVersion: 1, workUnitId: "job-1", specRevision: 1, attempt: 1,
         outcome: "succeeded", summary: "Expected summary", artifacts: [], verification: ["Fixture verified"], blockers: [], recoveryHint: null }) }] }]; },
-    async restart({ staleDescriptor = null } = {}) {
+    async restart({ staleDescriptor = null, crash = false } = {}) {
       for (const client of clients) client.close();
-      service.drain(); await service.stopped; await endpoint.close();
+      if (crash) server.children.at(-1).emit("exit", 1); else service.drain();
+      await service.stopped; await endpoint.close();
       if (staleDescriptor) await writeFile(endpoint.descriptorPath, staleDescriptor, { mode: 0o600 });
       service = create(); await service.start(); endpoint = await serveExecutorJobV1({ service, directory });
     },
@@ -176,3 +181,53 @@ test("malformed endpoint JSON cannot echo credential content in an error", async
     assert.doesNotMatch(error.message, /sentinel/); return true;
   });
 });
+
+test("restart observes a recorded running turn until completion without adopting or replaying it", async (t) => {
+  const f = await fixture(t), first = await f.connect();
+  await first.request("launch"); await f.restart({ crash: true });
+  const client = await f.connect();
+  assert.equal(f.status().recovery.state, "attention");
+  assert.equal(f.status().activities, 1);
+  assert.equal((await client.request("collect")).status, "inProgress");
+  assert.equal((await client.request("launch")).kind, "existing-operation");
+  f.finish();
+  assert.equal((await client.request("collect")).status, "completed");
+  assert.equal(f.status().recovery.state, "complete");
+  assert.equal(f.status().activities, 0);
+  assert.equal((await client.request("join", { decision: "accepted", decisionSummary: "Verified recovered fixture" })).readiness.entries[0].accepted, true);
+  assert.equal(f.server.requests.filter(({ method }) => method === "thread/start").length, 1);
+  assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  assert.equal(f.server.requests.filter(({ method }) => ["thread/resume", "turn/steer", "turn/interrupt"].includes(method)).length, 0);
+});
+
+test("startup collects a completed turn whose result was never cached by the old service", async (t) => {
+  const f = await fixture(t), first = await f.connect();
+  await first.request("launch"); f.finish(); await f.restart({ crash: true });
+  assert.equal(f.status().recovery.state, "complete");
+  const client = await f.connect();
+  assert.equal((await client.request("collect")).result.workOutcome, "succeeded");
+  assert.equal(f.status().activities, 0);
+});
+
+for (const mode of ["account", "mid-read-account", "target", "missing-turn", "still-running", "interrupted"]) {
+  test(`recorded recovery handles ${mode} without fabricating completion or acceptance`, async (t) => {
+    const f = await fixture(t), first = await f.connect(); await first.request("launch");
+    if (mode === "account") f.changeAccount();
+    if (mode === "mid-read-account") { f.finish(); f.changeAccountDuringRead(); }
+    if (mode === "target") f.changeReadTarget();
+    if (mode === "missing-turn") f.setTurns([{ id: "other-turn", status: "completed", items: [] }]);
+    if (mode === "interrupted") f.setTurns([{ id: "turn", status: "interrupted", items: [] }]);
+    await f.restart({ crash: true }); const client = await f.connect();
+    if (mode === "interrupted") {
+      const result = await client.request("collect");
+      assert.equal(result.status, "interrupted"); assert.notEqual(result.result.workOutcome, "succeeded");
+      assert.equal(f.status().activities, 0);
+      await assert.rejects(client.request("join", { decision: "accepted", decisionSummary: "Do not auto-accept" }), { code: "validated-terminal-result-required" });
+    } else {
+      assert.equal(f.status().activities, 1); assert.equal(f.status().acceptingLaunches, false);
+      if (mode === "still-running") assert.equal((await client.request("collect")).status, "inProgress");
+      else await assert.rejects(client.request("collect"));
+    }
+    assert.equal(f.server.requests.filter(({ method }) => method === "turn/start").length, 1);
+  });
+}

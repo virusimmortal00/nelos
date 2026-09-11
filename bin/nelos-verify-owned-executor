@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, realpath, writeFile, readFile, open, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, writeFile, readFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +14,9 @@ import { executorRepositoryIdentityV1 } from "../src/executor-job-service.mjs";
 import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 
-const [command, codexHomeInput, hostId, queenThreadId] = process.argv.slice(2);
-if (process.argv.length !== 6 || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
-  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id>");
+const [command, codexHomeInput, hostId, queenThreadId, mode = "normal"] = process.argv.slice(2);
+if (![6, 7].includes(process.argv.length) || !["normal", "crash"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
+  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash]");
 }
 const source = dirname(dirname(fileURLToPath(import.meta.url)));
 const codexHome = await realpath(codexHomeInput);
@@ -56,6 +56,7 @@ const deadline = (promise, ms, label) => {
   })]).finally(() => clearTimeout(timer));
 };
 async function serviceProcess() {
+  const previousToken = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
   const log = await open(join(root, "service.log"), "a", 0o600);
   const child = spawn(process.execPath, [join(source, "bin/nelos-executor-service"), policyPath, directory],
     { cwd: source, env: { ...process.env, CODEX_HOME: codexHome }, detached: true, stdio: ["ignore", "ignore", log.fd] });
@@ -63,7 +64,8 @@ async function serviceProcess() {
   const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
   for (let i = 0; i < 100; i++) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error("service-exited-before-ready");
-    if (await stat(endpoint).then(() => true, () => false)) return { child, exited };
+    const token = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
+    if (token && token !== previousToken) return { child, exited };
     await delay(100);
   }
   throw new Error("service-start-timeout");
@@ -103,7 +105,7 @@ async function mcpProcess() {
     return body.result;
   }, async close() { child.stdin.end(); assert.equal(await deadline(exited, 10_000, "mcp-close"), 0); } };
 }
-const proof = { schemaVersion: 1, startedAt: new Date().toISOString(), root, hostId, parentTaskId: queenThreadId,
+const proof = { schemaVersion: 1, startedAt: new Date().toISOString(), root, hostId, mode, parentTaskId: queenThreadId,
   model: "gpt-6-astra", reasoningEffort: "medium", permissionProfile: ":read-only", approvalPolicy: "never",
   observedCli: (await promisify(execFile)(command, ["--version"])).stdout.trim(), checks: {} };
 let owner, client;
@@ -117,6 +119,19 @@ try {
   client = await mcpProcess();
   const retry = await client.call("launch"); assert.equal(retry.kind, "existing-operation");
   proof.checks.explicitRetryReusedOperation = true;
+  if (mode === "crash") {
+    const active = await client.call("collect");
+    assert.equal(active.status, "inProgress", "crash test must observe a live turn");
+    proof.threadId = active.threadId; proof.turnId = active.turnId;
+    await client.close(); client = null;
+    owner.child.kill("SIGKILL");
+    assert.equal((await deadline(owner.exited, 15_000, "crash-owner")).signal, "SIGKILL");
+    owner = await serviceProcess(); client = await mcpProcess();
+    const retryAfterCrash = await client.call("launch");
+    assert.equal(retryAfterCrash.kind, "existing-operation");
+    assert.equal(retryAfterCrash.threadId, proof.threadId); assert.equal(retryAfterCrash.turnId, proof.turnId);
+    proof.checks.ownerCrashReusedExactOperation = true;
+  }
   let collected;
   for (let i = 0; i < 120; i++) {
     collected = await client.call("collect");
@@ -124,23 +139,32 @@ try {
     await delay(1500);
   }
   assert.equal(collected.phase, "terminal", JSON.stringify(collected));
-  assert.equal(collected.result?.result?.outcome, "succeeded");
-  assert.equal(collected.result.result.summary, marker);
   assert.equal(await readFile(join(cwd, "marker.txt"), "utf8"), `${marker}\n`);
-  proof.checks.independentMarkerVerification = true;
   proof.threadId = collected.threadId; proof.turnId = collected.turnId; proof.workUnitId = unitId;
+  proof.recoveredStatus = collected.status; proof.recoveredWorkOutcome = collected.result.workOutcome;
   const decision = { decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
-  const joined = await client.call("join", decision);
-  assert.equal(joined.readiness.entries[0].accepted, true);
-  assert.deepEqual(await client.call("join", decision), joined);
-  proof.checks.explicitParentJoin = true;
+  let joined = null;
+  if (mode === "normal" || collected.result?.result?.outcome === "succeeded") {
+    assert.equal(collected.result?.result?.outcome, "succeeded");
+    assert.equal(collected.result.result.summary, marker);
+    proof.checks.independentMarkerVerification = true;
+    joined = await client.call("join", decision);
+    assert.equal(joined.readiness.entries[0].accepted, true);
+    assert.deepEqual(await client.call("join", decision), joined);
+    proof.checks.explicitParentJoin = true;
+  } else {
+    assert.notEqual(collected.result.workOutcome, "succeeded");
+    if (!collected.result.result) await assert.rejects(client.call("join", decision), /validated-terminal-result-required/);
+    proof.checks.interruptedWorkNotAccepted = true;
+  }
   await client.close(); client = null;
   owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "service-drain")).code, 0);
   owner = await serviceProcess();
   client = await mcpProcess();
   assert.deepEqual(await client.call("collect"), collected);
-  assert.deepEqual(await client.call("join", decision), joined);
-  proof.checks.completedRestartPreservedCollectionAndJoin = true;
+  if (joined) assert.deepEqual(await client.call("join", decision), joined);
+  proof.checks.terminalRestartPreservedCollection = true;
+  if (joined) proof.checks.completedRestartPreservedCollectionAndJoin = true;
   const record = await new ExecutorLaunchJournalV1({ directory: join(directory, "journal") }).read(unitId);
   assert.equal(record.operations.length, 1);
   assert.equal(record.operations[0].threadId, proof.threadId); assert.equal(record.operations[0].turnId, proof.turnId);

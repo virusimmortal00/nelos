@@ -13,13 +13,16 @@ const TERMINAL = new Set(["completed", "failed", "interrupted"]);
 export class ExecutorAppServerEffectsV1 {
   #session;
   #validateTarget;
+  #validateRecovery;
   #operations = new Map();
   #threads = new Map();
 
-  constructor({ session, validateTarget }) {
-    if (!(session instanceof ExecutorAppServerSessionV1) || typeof validateTarget !== "function") fail("invalid-effect-dependencies");
+  constructor({ session, validateTarget, validateRecovery = null }) {
+    if (!(session instanceof ExecutorAppServerSessionV1) || typeof validateTarget !== "function" ||
+        (validateRecovery !== null && typeof validateRecovery !== "function")) fail("invalid-effect-dependencies");
     this.#session = session;
     this.#validateTarget = validateTarget;
+    this.#validateRecovery = validateRecovery;
   }
 
   #ready(signal) {
@@ -188,14 +191,40 @@ export class ExecutorAppServerEffectsV1 {
     executorExact(input, ["threadId", "turnId"]);
     const entry = this.#owned(input.threadId);
     if (!entry.turnId || input.turnId !== entry.turnId) fail("foreign-executor-turn");
+    return this.#readResult(input, entry.member, { signal });
+  }
+
+  // Private journal evidence grants observation of an exact recorded turn,
+  // never live ownership, approvals, interruption, resume, or another start.
+  async readRecordedResult({ operation }, { signal } = {}) {
+    if (!this.#validateRecovery) fail("recorded-result-reader-unavailable");
+    if (!["running", "terminal"].includes(operation?.phase)) fail("recorded-turn-identity-required");
+    executorText(operation.threadId, 256); executorText(operation.turnId, 256);
+    const member = normalizeExecutorMemberV1(operation.member);
+    const verify = async () => {
+      await this.#target(member, signal);
+      if (await this.#validateRecovery(structuredClone(operation), {
+        signal, request: (...args) => this.#session.request(...args),
+      }) !== true) fail("recorded-result-scope-unverified");
+      this.#ready(signal);
+    };
+    await verify();
+    const result = await this.#readResult({ threadId: operation.threadId, turnId: operation.turnId },
+      member, { signal, recorded: true });
+    await verify();
+    return result;
+  }
+
+  async #readResult(input, member, { signal, recorded = false }) {
     this.#ready(signal);
     const response = await this.#session.request("thread/read", { threadId: input.threadId, includeTurns: true }, { signal });
     const thread = response?.thread;
     if (thread?.id !== input.threadId || !Array.isArray(thread.turns) || thread.turns.length > 256) fail("invalid-result-thread");
+    if (recorded && thread.cwd !== member.target.cwd) fail("recorded-result-target-mismatch");
     const matches = thread.turns.filter((turn) => turn?.id === input.turnId);
     if (matches.length !== 1) fail("result-turn-unavailable");
     const turn = matches[0];
-    if (TERMINAL.has(turn.status)) entry.phase = "terminal";
+    if (!recorded && TERMINAL.has(turn.status)) this.#owned(input.threadId).phase = "terminal";
     if ((!TERMINAL.has(turn.status) && turn.status !== "inProgress") ||
         (turn.itemsView !== undefined && turn.itemsView !== "full") ||
         !Array.isArray(turn.items) || turn.items.length > 1024) fail("incomplete-result-turn");
@@ -208,8 +237,8 @@ export class ExecutorAppServerEffectsV1 {
     }
     const result = classifyWorkResult({ latestTurn: { id: turn.id, status: turn.status,
       items: items.map(({ type, text, phase }) => ({ type, text, phase })) } });
-    if (result.result && (result.result.workUnitId !== entry.member.workUnitId ||
-        result.result.specRevision !== entry.member.specRevision || result.result.attempt !== entry.member.attempt)) fail("result-scope-mismatch");
+    if (result.result && (result.result.workUnitId !== member.workUnitId ||
+        result.result.specRevision !== member.specRevision || result.result.attempt !== member.attempt)) fail("result-scope-mismatch");
     // Transport completion and semantic acceptance remain separate.
     return { ...input, terminal: TERMINAL.has(turn.status), status: turn.status, result };
   }
