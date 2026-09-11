@@ -156,8 +156,24 @@
   "latestDesktopUiTested": false,
   "remoteVersionCheck": {
     "host": "m3",
-    "outcome": "unavailable",
-    "reason": "SSH connection to m3.sayers.io port 22 timed out (10-second connection bound)"
+    "observedAt": "2026-09-11T16:23:35Z",
+    "outcome": "available",
+    "priorAttempt": "SSH connection timed out",
+    "platform": "Darwin 25.5.0 arm64",
+    "desktopVersion": "26.715.72359",
+    "desktopBuild": "5718",
+    "bundleIdentifier": "com.openai.codex",
+    "bundledCli": {
+      "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "version": "0.145.0-alpha.30"
+    },
+    "standaloneCli": {
+      "path": "/Users/bobby.sayers/.local/bin/codex",
+      "version": "0.146.0"
+    },
+    "noninteractivePathContainsCodex": false,
+    "ownedExecutorVersionAdmitted": false,
+    "runtimeDiscoveryTested": false
   },
   "installedDaemon": {
     "command": "codex app-server daemon version",

@@ -23,10 +23,26 @@ reporting 0.154.0; its downloaded asset matched the release's SHA-256 digest.
 See [machine-readable observations](codex-compatibility-2026-09-11.json).
 
 The newer binaries were staged in temporary directories. The installed app and
-global CLI were not replaced. The latest Desktop UI and remote `m3` host were
+global CLI were not replaced. The latest Desktop UI and remote execution were
 not exercised, so this is not Desktop integration or remote-launch certification.
-A read-only SSH version check against `m3` timed out connecting to port 22;
-its installed version remains unverified. Production-feed availability may differ from an account's staged update offer.
+The initial `m3` SSH connection timed out; a retry at 16:23 UTC succeeded. Production-feed availability may differ from an account's staged update offer.
+
+## Remote host retry
+
+Read-only SSH checks on `m3` at 2026-09-11 16:23 UTC found:
+
+| Component | Installed on m3 |
+| --- | --- |
+| Platform | Darwin 25.5.0, arm64 |
+| Desktop | 26.715.72359, build 5718 |
+| Desktop-bundled CLI | 0.145.0-alpha.30 |
+| Standalone CLI | 0.146.0 in `/Users/bobby.sayers/.local/bin/codex` |
+
+The noninteractive SSH PATH does not expose `codex`; absolute paths were used
+to verify both installations. Both CLI versions are outside the owned executor
+allowlist and older than the 0.152.0 discovery baseline. Connectivity and
+installed versions are now verified; remote Astra discovery and execution
+remain untested. No remote installation was changed.
 
 ## Astra and protocol evidence
 
@@ -116,5 +132,6 @@ safe adoption of an old turn. No daemon was bootstrapped or restarted here.
 
 This continuation does not close #125 or enable the owned backend in production.
 Private service wiring, active ownership reattachment, parent acceptance/join,
-and real remote canaries remain required. The `m3` connection timeout prevents
-claiming even a current remote version inventory.
+and real remote canaries remain required. The successful `m3` retry establishes its installed versions, but those
+versions are outside the reviewed owned-executor profile. Remote runtime
+validation remains required.
