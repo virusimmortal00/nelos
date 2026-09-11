@@ -151,8 +151,13 @@ export class ExecutorGrantAuthorityV1 {
           scopeDigest: executorDigest(scope), context: structuredClone(context), expiresAt: grant.expiresAt };
       });
     } catch (error) {
-      this.#grants.delete(executionGrantId);
-      return deny("execution-unavailable", error instanceof ExecutorContractError ? error.code : "authority-unavailable");
+      const code = error instanceof ExecutorContractError ? error.code : "authority-unavailable";
+      // A failed probe still denies this admission. Only evidence that the
+      // grant is stale revokes it; capacity/timeouts/provider failures can be
+      // retried through the same full context check before any mutation.
+      if (["stale-execution-grant", "stale-execution-context", "approval-channel-unavailable",
+        "executor-capability-unavailable"].includes(code)) this.#grants.delete(executionGrantId);
+      return deny("execution-unavailable", code);
     }
   }
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setImmediate as tick } from "node:timers/promises";
 import { ExecutorGrantAuthorityV1, gateExecutorWaveV1 } from "../src/executor-grants.mjs";
 import { executorDigest, normalizeExecutorWaveV1 } from "../src/executor-contract.mjs";
 import { executorProviders, executorWave } from "./support/executor-fixture.mjs";
@@ -127,6 +128,34 @@ test("grant capacity is rechecked after concurrent authorizations", async (t) =>
   const results = await Promise.all([service.issue({ wave: executorWave() }), service.issue({ wave: executorWave() })]);
   assert.equal(results.filter(({ kind }) => kind === "execution-granted").length, 1);
   assert.equal(results.filter(({ reason }) => reason === "grant-capacity").length, 1);
+});
+
+test("temporary admission failures deny the call without destroying a valid grant", async (t) => {
+  const providers = executorProviders();
+  let mode = "ready";
+  const releases = [];
+  const service = authority(t, { ...providers, evaluate: async (...args) => {
+    if (mode === "busy") await new Promise((resolve) => releases.push(resolve));
+    if (mode === "broken") throw new Error("temporary probe failure");
+    return providers.evaluate(...args);
+  } });
+  const wave = executorWave();
+  const { executionGrantId } = await service.issue({ wave });
+  mode = "busy";
+  const pending = Array.from({ length: 16 }, () => service.validate({ wave, executionGrantId }));
+  await tick();
+  assert.equal(releases.length, 16);
+  assert.equal((await service.validate({ wave, executionGrantId })).reason, "authority-busy");
+  mode = "ready";
+  releases.forEach((release) => release());
+  assert.ok((await Promise.all(pending)).every(({ kind }) => kind === "execution-admitted"));
+  mode = "broken";
+  assert.equal((await service.validate({ wave, executionGrantId })).reason, "authority-unavailable");
+  mode = "ready";
+  assert.equal((await service.validate({ wave, executionGrantId })).kind, "execution-admitted");
+  providers.state.config = "9".repeat(64);
+  assert.equal((await service.validate({ wave, executionGrantId })).reason, "stale-execution-grant");
+  assert.equal((await service.validate({ wave, executionGrantId })).reason, "unknown-execution-grant");
 });
 
 test("canonical scope ignores member/key ordering and preserves foreign paths verbatim", () => {
