@@ -41,6 +41,7 @@ export function normalizeExecutorResultEvidenceV1(value, { member, threadId, tur
   // Fixed-key projection avoids treating object key order as evidence identity.
   const projected = Object.fromEntries(FIELDS.map((key) => [key, result[key]]));
   if (result.result !== null && normalized.result !== null) projected.result = normalized.result;
+  if (result.resultError !== null && normalized.resultError !== null) projected.resultError = normalized.resultError;
   if (executorDigest(projected) !== executorDigest(normalized)) fail("invalid-owned-result");
   return { threadId, turnId, status: value.status, terminal: value.terminal, result: normalized };
 }

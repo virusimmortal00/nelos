@@ -163,6 +163,13 @@ export class ExecutorAppServerEffectsV1 {
     return { ...input, interruptRequested: true };
   }
 
+  async describeOwnedTurn(input, options = {}) {
+    if (!await this.ownsTurn(input, options)) return null;
+    const entry = this.#owned(input.threadId);
+    return { threadId: entry.threadId, turnId: entry.turnId,
+      workUnitId: entry.member.workUnitId, operationId: entry.operationId };
+  }
+
   async observeNotification({ method, params }, { signal } = {}) {
     if (method !== "turn/completed") return null;
     const turnId = params?.turn?.id;

@@ -208,7 +208,35 @@ journals with terminal status alone still require a result read. No transcript
 is persisted, and transport completion never implies queen acceptance.
 
 Active-turn restart recovery/reattachment, parent join and wake,
-and releasing activity holds after durable collection still need integration.
+and production service wiring still need integration.
 The fixture now exercises create → bind → title → start → read → terminal
 recording, alongside early approvals and late-answer cancellation. This remains
 fixture coverage rather than a remote execution canary.
+
+## Composed service runtime
+
+`ExecutorServiceRuntimeV1` now composes the session, owner supervisor, approval
+relay, grant authority, effects, journal, coordinator and private work-unit store.
+It wires terminal notifications into asynchronous durable collection without
+blocking notification delivery on the work-unit lock. Pending collections are
+bounded and duplicate reads are coalesced. Failed collection retains the work
+hold and reports attention; an explicit collection can retry the read.
+
+Wave admission reserves service-owned work holds before awaiting the launch
+coordinator. Concurrent calls share each work-unit hold. Frontend detachment
+cannot release them, and drain rejects new waves while permitting existing
+approvals and collection. Only saved result evidence, proven non-dispatch, or
+the absence of an owned operation releases a hold. Approval holds remain until
+the relay returns, including when terminal collection finishes first. Unknown
+launch outcomes retain their holds for reconciliation. Scope checks bind grants
+to this supervisor's owner epoch, runtime generation, host and Codex-home ID;
+interactive admission also requires a connected relay channel.
+
+The runtime is an internal composition API, not an externally authenticated
+control channel. Its attachment tokens remain opaque in-process objects.
+Policy/certification evaluation, authorization, worktree target verification and
+the user-interaction adapter are constructor-installed dependencies. Missing
+providers deny execution. The constructor does not provide a production policy
+or treat caller JSON as authorization. Discovery/provisioning, active-operation
+reconciliation at startup, the private channel/daemon, and product integration
+remain rollout requirements. The new tests use a simulated stdio server.
