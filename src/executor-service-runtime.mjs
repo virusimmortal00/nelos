@@ -188,7 +188,11 @@ export class ExecutorServiceRuntimeV1 {
       this.#attention.delete(workUnitId);
       this.#startupPending.delete(workUnitId);
       if (this.#recoveryState === "attention" && !this.#startupPending.size) this.#recoveryState = "complete";
-    } catch { this.#attention.set(workUnitId, "durable-state-unavailable"); }
+    } catch (error) {
+      const missing = error instanceof ExecutorContractError && error.code === "startup-journal-entry-missing";
+      this.#attention.set(workUnitId, missing ? error.code : "durable-state-unavailable");
+      if (missing) throw error;
+    }
   }
 
   async #collect(workUnitId) {

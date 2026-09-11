@@ -291,7 +291,7 @@ async function runNodeTests(root, testPaths) {
   try {
     await execFileAsync(
       process.execPath,
-      ["--require", blocker, "--test", ...testPaths],
+      ["--require", blocker, "--import", resolve(root, "scripts/test-bootstrap.mjs"), "--test", ...testPaths],
       {
         cwd: root,
         encoding: "utf8",
@@ -340,6 +340,8 @@ function defaultCheckRunners() {
       ({ root }) => runNodeTests(root, [
         "test/model-catalog-freshness.test.mjs",
         "test/check-model-catalog.test.mjs",
+        "test/intelligence-profile-router.test.mjs",
+        "test/launch-contract.test.mjs",
       ]),
     ],
     [

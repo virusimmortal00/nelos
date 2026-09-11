@@ -117,6 +117,17 @@ test("a contradictory saved binding retains startup attention even with terminal
   assert.equal(f.runtime.status().acceptingLaunches, false);
 });
 
+test("a vanished startup record remains a distinct error and cannot release its hold", async (t) => {
+  const f = await fixture(t, { phase: "running" });
+  await f.runtime.start();
+  await rm(join(f.directory, "journal", `${executorDigest("unit-1")}.json`));
+  await assert.rejects(f.runtime.recover(f.runtime.attach(), "unit-1"), { code: "startup-journal-entry-missing" });
+  assert.equal(f.runtime.status().activities, 1);
+  assert.equal(f.runtime.status().recovery.pending, 1);
+  assert.equal(f.runtime.status().attention[0].reason, "startup-journal-entry-missing");
+  assert.equal(f.runtime.status().acceptingLaunches, false);
+});
+
 test("corrupt inventory and wrong work-host scope fail startup without upstream mutations", async (t) => {
   for (const mode of ["corrupt", "foreign"]) {
     const f = await fixture(t, { foreign: mode === "foreign" });

@@ -169,6 +169,8 @@ test("offline blocker closes direct socket, DNS promise, HTTP/2, and datagram pa
   );
   for (const expression of [
     "new (require('node:net').Socket)().connect(443, 'example.test')",
+    "require('node:net').connect({ port: 443, host: '127.0.0.1' })",
+    "require('node:net').createConnection({ path: '/tmp/foreign-service.sock' })",
     "require('node:dns').promises.lookup('example.test')",
     "require('node:http2').connect('https://example.test')",
     "require('node:dgram').createSocket('udp4')",
@@ -185,6 +187,37 @@ test("offline blocker closes direct socket, DNS promise, HTTP/2, and datagram pa
       },
     );
   }
+});
+
+test("offline blocker permits only Unix sockets listened to by the test process", async () => {
+  const blocker = fileURLToPath(new URL("../scripts/offline-network-blocker.cjs", import.meta.url));
+  await execFileAsync(process.execPath, ["--require", blocker, "--eval", `
+    const assert = require('node:assert/strict');
+    const net = require('node:net');
+    const fs = require('node:fs/promises');
+    const { realpathSync } = require('node:fs');
+    const { join } = require('node:path');
+    (async () => {
+      const root = await fs.mkdtemp(join(realpathSync('/tmp'), 'nelos-offline-ipc-'));
+      const path = join(root, 'fixture.sock');
+      const server = net.createServer(socket => socket.end('fixture'));
+      try {
+        await new Promise(resolve => server.listen(path, resolve));
+        for (const open of [() => net.connect(path), () => net.createConnection({ path }), () => new net.Socket().connect({ path })]) {
+          const socket = open();
+          let data = '';
+          socket.on('data', chunk => { data += chunk; });
+          await new Promise((resolve, reject) => { socket.on('close', resolve); socket.on('error', reject); });
+          assert.equal(data, 'fixture');
+        }
+        await new Promise(resolve => server.close(resolve));
+        assert.throws(() => net.connect(path), /blocked a network operation/);
+      } finally {
+        if (server.listening) await new Promise(resolve => server.close(resolve));
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `], { encoding: "utf8", timeout: 10_000 });
 });
 
 test("compatibility workflows never edit checked-in claims or source", async () => {
