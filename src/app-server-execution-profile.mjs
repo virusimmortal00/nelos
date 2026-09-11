@@ -5,7 +5,7 @@ export const EXECUTION_DISCOVERY_SCHEMA_VERSION = "0.152.0";
 // Exact generated-schema reviews, not runtime execution certification. Desktop
 // can bundle a prerelease CLI even when the Desktop release channel is stable.
 export const REVIEWED_EXECUTION_SCHEMA_VERSIONS = Object.freeze([
-  "0.152.0", "0.153.4", "0.154.0", "0.154.0-alpha.6.1",
+  "0.152.0", "0.153.4", "0.154.0", "0.154.0-alpha.6.1", "0.154.0-alpha.6.2",
 ]);
 export const EXECUTION_DISCOVERY_METHODS = Object.freeze([
   "account/read", "model/list", "permissionProfile/list", "configRequirements/read",

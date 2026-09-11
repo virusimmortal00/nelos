@@ -85,7 +85,10 @@ test("wrong home, unreviewed version and malformed streams fail closed", async (
   for (const initialize of [{ ...identity, codexHome: "/other" }, { ...identity, userAgent: "codex-cli/0.153.0" },
     { ...identity, userAgent: "codex-cli/0.152.0-alpha" },
     { ...identity, userAgent: "codex-cli/0.155.0" },
-    { ...identity, userAgent: "codex-cli/0.154.0-alpha.6.2" },
+    { ...identity, userAgent: "codex-cli/0.154.0-alpha.6.3" },
+    { ...identity, userAgent: "foreign_executor/0.154.0" },
+    { ...identity, userAgent: "nelos_executor/0.155.0" },
+    { ...identity, userAgent: "nelos_executor/0.154.0/other" },
     { ...identity, userAgent: "codex-cli/0.154.0+unreviewed" },
     { ...identity, userAgent: "foreign codex-cli/0.154.0" },
     { ...identity, userAgent: "codex-cli/0.154.0/other" }]) {
@@ -96,6 +99,15 @@ test("wrong home, unreviewed version and malformed streams fail closed", async (
   await session.open();
   server.children[0].stdout.write("{bad-json}\n");
   assert.equal(session.status().state, "failed");
+});
+
+test("standalone SSH identity uses the explicit initialization client name", async (t) => {
+  for (const version of ["0.154.0", "0.154.0-alpha.6.2"]) {
+    const { session, server } = fixture(t, undefined, {}, { ...identity,
+      userAgent: `nelos_executor/${version} (Mac OS 26.5.2; arm64) unknown (nelos_executor; 1.0.0)` });
+    assert.equal((await session.open()).observedVersion, version);
+    assert.equal(server.requests[0].params.clientInfo.name, "nelos_executor");
+  }
 });
 
 test("startup deadline and close-before-open do not leave a replacement process", async (t) => {

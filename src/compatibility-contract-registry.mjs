@@ -1020,6 +1020,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "test/fixtures/app-server-owned-execution-0.153.4.json",
           "test/fixtures/app-server-owned-execution-0.154.0.json",
           "test/fixtures/app-server-owned-execution-0.154.0-alpha.6.1.json",
+          "test/fixtures/app-server-owned-execution-0.154.0-alpha.6.2.json",
         ]),
         runtime: Object.freeze([]),
         checks: Object.freeze(["repo.execution-foundation"]),

@@ -98,7 +98,7 @@ export class ExecutorAppServerSessionV1 {
         capabilities: { experimentalApi: true, requestAttestation: false },
       });
       const version = typeof identity?.userAgent === "string"
-        ? identity.userAgent.match(/^(?:codex-cli|Codex Desktop)\/([^\s()]+)(?=\s|$)/u)?.[1] : null;
+        ? identity.userAgent.match(/^(?:codex-cli|Codex Desktop|nelos_executor)\/([^\s()]+)(?=\s|$)/u)?.[1] : null;
       if (!REVIEWED_EXECUTION_SCHEMA_VERSIONS.includes(version) || identity.codexHome !== codexHome ||
           typeof identity.platformFamily !== "string" || !identity.platformFamily ||
           typeof identity.platformOs !== "string" || !identity.platformOs) throw error("session-identity-mismatch");

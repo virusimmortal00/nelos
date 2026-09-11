@@ -12,13 +12,13 @@
   },
   "latest": {
     "desktop": {
-      "version": "26.908.31748",
-      "build": "8720",
-      "publishedAt": "2026-09-11T03:33:04Z",
+      "version": "26.908.40401",
+      "build": "8837",
+      "publishedAt": "2026-09-11T14:40:02Z",
       "source": "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
-      "bundledCliVersion": "0.154.0-alpha.6.1",
+      "bundledCliVersion": "0.154.0-alpha.6.2",
       "archiveSignatureVerified": true,
-      "archiveSha256": "81fe2b609c641ed1ba0d56ae8b985a9d5ee3fccc5d551d381616e3a5172204eb"
+      "archiveSha256": "491670fc43c1f2c713961e18b6a0b5de19f114d41484ce2e264da1d9b7086fdf"
     },
     "publicCli": {
       "tag": "rust-v0.154.0",
@@ -149,10 +149,11 @@
   "sessionDiscoveryVersions": [
     "0.153.4",
     "0.154.0",
-    "0.154.0-alpha.6.1"
+    "0.154.0-alpha.6.1",
+    "0.154.0-alpha.6.2"
   ],
   "runtimeExecutionTested": false,
-  "remoteHostTested": false,
+  "remoteHostTested": true,
   "latestDesktopUiTested": false,
   "remoteVersionCheck": {
     "host": "m3",
@@ -207,6 +208,111 @@
         "error": "Rate limit exceeded",
         "retryAfter": "31 minutes as reported by CodeRabbit"
       }
+    }
+  },
+  "previouslyAvailableDesktop": {
+    "version": "26.908.31748",
+    "build": "8720",
+    "publishedAt": "2026-09-11T03:33:04Z",
+    "source": "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
+    "bundledCliVersion": "0.154.0-alpha.6.1",
+    "archiveSignatureVerified": true,
+    "archiveSha256": "81fe2b609c641ed1ba0d56ae8b985a9d5ee3fccc5d551d381616e3a5172204eb"
+  },
+  "remoteRuntimeExecutionTested": false,
+  "remoteUpgrade": {
+    "host": "m3",
+    "observedAt": "2026-09-11T16:49:48.874Z",
+    "desktopVersion": "26.908.40401",
+    "desktopBuild": "8837",
+    "bundledCliVersion": "0.154.0-alpha.6.2",
+    "standaloneCliVersion": "0.154.0",
+    "cliUpdateMethod": "codex update (official standalone installer)",
+    "desktopUpdateMethod": "verified Sparkle archive and codesign; graceful quit, replace, reopen",
+    "desktopBackup": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/ChatGPT-previous-5718.app",
+    "priorCliReleasePreserved": true,
+    "daemon": {
+      "status": "running",
+      "backend": "pid",
+      "managedCodexPath": "/Users/bobby.sayers/.codex/packages/standalone/current/bin/codex",
+      "managedCodexVersion": "0.154.0",
+      "socketPath": "/Users/bobby.sayers/.codex/app-server-control/app-server-control.sock",
+      "cliVersion": "0.154.0",
+      "appServerVersion": "0.154.0"
+    },
+    "daemonMigration": "Verified zero loaded threads on legacy 0.146.0 WebSocket server, terminated that PID gracefully, and started managed 0.154.0 with the previous features.code_mode_host override.",
+    "runtimeDiscoveryTested": true,
+    "modelTurnsStarted": 0
+  },
+  "additionalDiscoveryReports": {
+    "localLatestDesktop": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0-alpha.6.2",
+      "observedVersion": "0.154.0-alpha.6.2",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/virusimmortal00/.codex/worktrees/ed9f/nelos",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
+    },
+    "remoteDesktop": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0-alpha.6.2",
+      "observedVersion": "0.154.0-alpha.6.2",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/nelos-probe",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
+    },
+    "remoteStandaloneCli": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0",
+      "observedVersion": "0.154.0",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/nelos-probe",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
     }
   }
 }
