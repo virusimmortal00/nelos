@@ -166,11 +166,11 @@
     "Final versioned package, fresh-install/upgrade and artifact reproducibility checks remain release gates."
   ],
   "runtimeSource": {
-    "integrity": "sha256:28225801e82db14a194d6fc992caf238d667e6ca53287f2f035ccee25533debf",
-    "fileCount": 147,
-    "algorithm": "SHA-256 of lexically sorted recursive regular src and bin files plus package.json, excluding bin/nelos-verify-owned-plan; append relative path + newline, bytes, newline for each file.",
+    "integrity": "sha256:1bcc8f5d1eeeaa4909ab41060cea3bc9181fb387f9891c955926c95c9e9d0200",
+    "fileCount": 146,
+    "algorithm": "SHA-256 of lexically sorted recursive regular src and bin files plus package.json, excluding bin/nelos-verify-owned-plan and src/compatibility-contract-registry.mjs; append relative path + newline, bytes, newline for each file.",
     "localAndM3Equal": true,
-    "canaryNote": "Both live lanes used the same v4 canary. Its subsequent MCP frontend failure-cleanup correction was checked with a real hung child process; production execution files remain byte-identical to the tested stage."
+    "canaryNote": "Both live lanes used the same v4 canary. Its subsequent MCP frontend cleanup correction passed a real hung-child check. A compatibility registry mapping for the legacy orchestration adapter was added after the commit gate flagged it. Runtime implementation files remain byte-identical to the tested stage; registry and artifact metadata have separate offline verification."
   },
   "queueProbe": {
     "observedAt": "2026-09-12T01:06:29.790Z",
