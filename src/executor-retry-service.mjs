@@ -23,6 +23,7 @@ export function normalizeExecutorRetryPolicyV1(value) {
   }
   if (value.schemaVersion !== 2 || !Array.isArray(value.attempts) || value.attempts.length < 2 || value.attempts.length > 3) fail("invalid-retry-policy");
   const attempts = value.attempts.map(normalizeExecutorJobV1), first = attempts[0];
+  if (attempts.some(({ schemaVersion }) => schemaVersion !== 1)) fail("retry-policy-must-be-read-only");
   const definition = (job) => {
     const copy = structuredClone(job);
     copy.job.workUnits[0].attempt = 1;
@@ -204,6 +205,10 @@ export class ExecutorRetryServiceV1 {
   request(client, method, params) {
     const next = this.#queue.catch(() => {}).then(async () => {
       this.#client(client);
+      if (["collect", "join", "acknowledge"].includes(method) && Object.hasOwn(params ?? {}, "workUnitId")) {
+        if (params.workUnitId !== this.#policy.attempts[0].job.workUnits[0].workUnitId) fail("executor-plan-member-unavailable");
+        const { workUnitId, ...rest } = params; params = rest;
+      }
       if (method === "status") { executorExact(params, []); return this.status(); }
       if (method === "notifications") {
         executorExact(params, []);

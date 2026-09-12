@@ -36,7 +36,7 @@ export class ExecutorServiceRuntimeV1 {
   #onTerminal;
 
   constructor({ directory, scope, runtimeGeneration, sessionOptions, validateTarget,
-    evaluate = null, authorize = null, grantOptions = {}, validateRecovery = null, onTerminal = null }) {
+    evaluate = null, authorize = null, grantOptions = {}, validateRecovery = null, validateThread = null, onTerminal = null }) {
     if (evaluate !== null && typeof evaluate !== "function") fail("invalid-provider");
     if (onTerminal !== null && typeof onTerminal !== "function") fail("invalid-provider");
     this.#onTerminal = onTerminal;
@@ -47,7 +47,7 @@ export class ExecutorServiceRuntimeV1 {
     } });
     this.#supervisor = new ExecutorServiceSupervisorV1({ session: this.#session, directory, scope, runtimeGeneration });
     this.#scope = structuredClone(scope);
-    this.#effects = new ExecutorAppServerEffectsV1({ session: this.#session, validateTarget, validateRecovery });
+    this.#effects = new ExecutorAppServerEffectsV1({ session: this.#session, validateTarget, validateRecovery, validateThread });
     this.#recoveryReadsEnabled = validateRecovery !== null;
     this.#relay = new ExecutorApprovalRelayV1({ ownsTurn: (input, options) => this.#effects.ownsTurn(input, options) });
     this.#authority = new ExecutorGrantAuthorityV1({ ...grantOptions, authorize, evaluate: evaluate && (async (wave, options) => {

@@ -1,5 +1,8 @@
 # Proposal: MCP-owned App Server execution
 
+Current implementation: [owned executor plan runbook](owned-executor-plan-runbook.md).
+The milestone sections below retain their historical scope.
+
 Status: proposed architecture, 2026-09-02. Extends the investigation of
 [#125](https://github.com/virusimmortal00/nelos/issues/125). No runtime behavior
 or existing permission contract changes with this document.

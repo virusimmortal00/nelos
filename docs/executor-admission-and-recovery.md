@@ -1,5 +1,8 @@
 # Executor admission and recovery
 
+Current implementation: [owned executor plan runbook](owned-executor-plan-runbook.md).
+The milestone sections below retain their historical scope.
+
 Development contract, 2026-09-02. This implements the service-side boundary in
 the [owned App Server design](mcp-owned-app-server-execution.md). It does not
 enable an MCP execution tool or certify a runtime.

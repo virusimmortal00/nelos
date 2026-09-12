@@ -207,6 +207,10 @@ export function derivePlanWaveActionV1(
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
   }
+  if (planRun.sourceId?.startsWith("owned:")) {
+    return action("owned-executor", { planRunId: planRun.planRunId, tool: "nelos_owned_status",
+      after: "Review owned service readiness, then call nelos_owned_launch. Collect and explicitly join each workUnitId before launching the next wave." });
+  }
   const verification = planRun.waves?.find(
     ({ waveIndex }) => waveIndex === currentWave.index,
   );

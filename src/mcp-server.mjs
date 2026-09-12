@@ -722,7 +722,9 @@ const TOOLS = [
       "this tool never launches work.",
     inputSchema: LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args) {
+    async run(args, { planRunStore }) {
+      const record = await planRunStore.read(args.request?.verification?.planRunId);
+      if (record?.sourceId?.startsWith("owned:")) throw new Error("owned plans require nelos_owned_launch; native launch receipts are unavailable for this plan");
       return {
         command: "launch authorize",
         receipt: createLaunchAuthorizationReceiptV1(args),

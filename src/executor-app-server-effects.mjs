@@ -14,15 +14,18 @@ export class ExecutorAppServerEffectsV1 {
   #session;
   #validateTarget;
   #validateRecovery;
+  #validateThread;
   #operations = new Map();
   #threads = new Map();
 
-  constructor({ session, validateTarget, validateRecovery = null }) {
+  constructor({ session, validateTarget, validateRecovery = null, validateThread = null }) {
     if (!(session instanceof ExecutorAppServerSessionV1) || typeof validateTarget !== "function" ||
         (validateRecovery !== null && typeof validateRecovery !== "function")) fail("invalid-effect-dependencies");
     this.#session = session;
     this.#validateTarget = validateTarget;
     this.#validateRecovery = validateRecovery;
+    if (validateThread !== null && typeof validateThread !== "function") fail("invalid-effect-dependencies");
+    this.#validateThread = validateThread;
   }
 
   #ready(signal) {
@@ -99,6 +102,9 @@ export class ExecutorAppServerEffectsV1 {
       this.#ready(signal);
       const observed = await this.#session.request("thread/read", { threadId: input.threadId, includeTurns: false }, { signal });
       if (observed?.thread?.id !== input.threadId) fail("thread-read-identity-mismatch");
+      if (this.#validateThread && !await this.#validateThread({ threadId: input.threadId, member: structuredClone(entry.member) },
+        { request: (...args) => this.#session.request(...args), signal })) fail("required-worker-tool-unavailable");
+      this.#ready(signal);
       entry.titled = observed.thread.name === entry.member.title;
       return { observedTitle: observed.thread.name ?? null };
     } finally { entry.phase = "created"; }

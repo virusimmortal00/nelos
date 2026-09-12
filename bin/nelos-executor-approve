@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+import { createInterface } from "node:readline/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { ExecutorServiceClientV1 } from "../src/executor-service-channel.mjs";
+
+if (process.argv.length !== 3 || !process.stdin.isTTY) throw new Error("usage: run node bin/nelos-executor-approve <private-ui-endpoint.json> in an interactive terminal");
+const client = await ExecutorServiceClientV1.connect(process.argv[2]);
+const terminal = createInterface({ input: process.stdin, output: process.stderr });
+let stopped = false;
+const stop = () => { stopped = true; client.close(); terminal.close(); };
+process.on("SIGINT", stop); process.on("SIGTERM", stop);
+try {
+  while (!stopped) {
+    const { request } = await client.request("poll");
+    if (!request) { await delay(500); continue; }
+    process.stderr.write(`\n${request.method}\n${JSON.stringify(request.params, null, 2)}\n`);
+    let response;
+    if (request.supportedDecisions) {
+      const decision = (await terminal.question(`Decision [${request.supportedDecisions.join("/")}] (default cancel): `)).trim() || "cancel";
+      response = { decision: request.supportedDecisions.includes(decision) ? decision : "cancel" };
+    } else {
+      const answer = await terminal.question("Enter the JSON response for this request, or leave blank to cancel: ");
+      try { response = answer.trim() ? JSON.parse(answer) : request.method === "item/tool/requestUserInput" ? { answers: {} } : { action: "cancel", content: null }; }
+      catch { response = request.method === "item/tool/requestUserInput" ? { answers: {} } : { action: "cancel", content: null }; }
+    }
+    await client.request("answer", { requestToken: request.requestToken, response });
+  }
+} catch (error) { if (!stopped) throw error; }
+finally { stop(); process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }

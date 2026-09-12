@@ -14,7 +14,7 @@ import { mockStdioAppServer } from "./support/mock-stdio-app-server.mjs";
 import { formatResultEnvelope } from "../src/work-result.mjs";
 import { ExecutorCompletionOutboxV1 } from "../src/executor-completion-outbox.mjs";
 
-async function fixture(t, { missingModel = false, expired = false, reorderConfig = false } = {}) {
+async function fixture(t, { missingModel = false, expired = false, reorderConfig = false, projectBookkeeping = false, effectiveConfigChange = false } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "nj-")));
   const cwd = join(root, "repo"), directory = join(root, "svc"), codexHome = join(root, "home");
   await mkdir(cwd); await mkdir(codexHome);
@@ -34,6 +34,7 @@ async function fixture(t, { missingModel = false, expired = false, reorderConfig
         dependencies: [], required: true, policy: { maxAttempts: 1, onBlocked: "queen-review", onFailure: "queen-review" } }],
       prompts: [{ sliceId: "worker", text: prompt }],
     } };
+  let created = false;
   let title = null, turns = [], configReads = 0, accountChanged = false, readCwd = cwd, changeAccountDuringRead = false;
   const server = mockStdioAppServer(({ method, params }) => {
     if (method === "initialize") return { userAgent: "future-client/dev", codexHome, platformFamily: "unix", platformOs: "macos" };
@@ -41,7 +42,11 @@ async function fixture(t, { missingModel = false, expired = false, reorderConfig
     if (method === "model/list") return { data: missingModel ? [] : [{ model: "gpt-6-astra", supportedReasoningEfforts: [{ reasoningEffort: "medium" }] }] };
     if (method === "permissionProfile/list") return { data: [{ id: ":read-only", allowed: true }] };
     if (method === "configRequirements/read") return { requirements: null };
-    if (method === "config/read") return { config: reorderConfig && ++configReads % 2 ? { one: 1, nested: { b: 2, a: 1 } } : reorderConfig ? { nested: { a: 1, b: 2 }, one: 1 } : { fixture: true } };
+    if (method === "config/read") {
+      assert.equal(params.cwd, cwd);
+      return { config: projectBookkeeping ? { projects: created ? { [cwd]: { trust_level: "trusted" } } : {}, fixture: effectiveConfigChange && created ? "changed" : true } : reorderConfig && ++configReads % 2 ? { one: 1, nested: { b: 2, a: 1 } } : reorderConfig ? { nested: { a: 1, b: 2 }, one: 1 } : { fixture: true } };
+    }
+    if (method === "thread/start") created = true;
     if (method === "thread/start") return { thread: { id: "child", cwd }, cwd, model: params.model,
       activePermissionProfile: { id: params.permissions }, approvalPolicy: params.approvalPolicy };
     if (method === "thread/name/set") { title = params.name; return {}; }
@@ -310,4 +315,14 @@ test("single-job clients can bind a join to its attempt and see retries are unco
   await assert.rejects(client.request("retry", { expectedAttempt: 1 }), { code: "retry-not-configured" });
   await assert.rejects(client.request("join", { expectedAttempt: 2, decision: "accepted", decisionSummary: "Wrong attempt" }), { code: "stale-attempt-decision" });
   assert.equal((await client.request("join", { expectedAttempt: 1, decision: "accepted", decisionSummary: "Correct attempt" })).readiness.entries[0].accepted, true);
+});
+
+
+test("target-effective config tolerates project trust bookkeeping but blocks a real effective config change", async (t) => {
+  for (const effectiveConfigChange of [false, true]) {
+    const f = await fixture(t, { projectBookkeeping: true, effectiveConfigChange }), client = await f.connect();
+    const result = await client.request("launch");
+    assert.equal(result.kind, effectiveConfigChange ? "reconciliation-required" : "wave-started");
+    if (effectiveConfigChange) assert.equal(result.members[0].reason, "stale-execution-grant");
+  }
 });
