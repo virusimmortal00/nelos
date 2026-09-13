@@ -432,7 +432,7 @@ async function main() {
             trustedCodex,
             ["plugin", "list", "--available", "--json"],
             {
-              env: { ...process.env, CODEX_HOME: codexHome },
+              env: { ...process.env, HOME: home, CODEX_HOME: codexHome },
               timeout: 10_000,
               maxBuffer: 1024 * 1024,
             },
@@ -507,7 +507,8 @@ async function main() {
     const stream = result.coherent ? process.stdout : process.stderr;
     stream.write(formatResult(result));
   }
-  const mcpStream = mcpState.state === "healthy" ? process.stdout : process.stderr;
+  const mcpAcceptable = ["healthy", "host-default"].includes(mcpState.state);
+  const mcpStream = mcpAcceptable ? process.stdout : process.stderr;
   mcpStream.write(`MCP ${mcpState.state.toUpperCase()}: ${mcpState.detail}\n`);
   if (mcpState.recovery) {
     mcpStream.write(`MCP recovery:\n${mcpState.recovery}\n`);
@@ -523,7 +524,7 @@ async function main() {
     );
     process.exitCode = 1;
   }
-  if (mcpState.state !== "healthy") process.exitCode = 1;
+  if (!mcpAcceptable) process.exitCode = 1;
 }
 
 main().catch((error) => {

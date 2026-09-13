@@ -1209,6 +1209,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "bin/nelos-semantic-advisory",
           "bin/nelos-title",
           "bin/nelos-uninstall-distribution",
+          "bin/nelos-verify-distribution",
           "evals/routing/**",
           "mcp.json",
           "plugin.json",

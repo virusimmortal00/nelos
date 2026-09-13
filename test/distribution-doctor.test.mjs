@@ -443,7 +443,7 @@ test("marketplace recovery restores an update interrupted after displacement", a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("doctor reports four distinct bundled MCP states with one fixed recovery", async () => {
+test("doctor reports explicit and host-default bundled MCP states with one fixed recovery", async () => {
   const scenarios = [
     {
       state: "missing",
@@ -453,7 +453,7 @@ test("doctor reports four distinct bundled MCP states with one fixed recovery", 
       state: "disabled",
       mutate: async (fixture) => writeFile(
         fixture.configPath,
-        'unrelated_secret = "DO_NOT_ECHO_DOCTOR"\n',
+        '[plugins."nelos@personal".mcp_servers.nelos]\nenabled = false\nunrelated_secret = "DO_NOT_ECHO_DOCTOR"\n',
       ),
     },
     {
@@ -463,6 +463,8 @@ test("doctor reports four distinct bundled MCP states with one fixed recovery", 
         '{"nelos":{"command":"node","args":[],"env":{"NELOS_PLUGIN_VERSION":"DO_NOT_ECHO_DOCTOR"}}}\n',
       ),
     },
+    { state: "host-default", mutate: (fixture) => writeFile(
+      fixture.configPath, '[plugins."nelos@personal"]\nenabled = true\n') },
     { state: "healthy", mutate: async () => {} },
   ];
   for (const scenario of scenarios) {
@@ -479,7 +481,8 @@ test("doctor reports four distinct bundled MCP states with one fixed recovery", 
       });
       const check = diagnosis.checks.find(({ id }) => id === "bundled-mcp-server");
       assert.equal(check.state, scenario.state);
-      assert.equal(check.nextStep === null, scenario.state === "healthy");
+      assert.equal(check.nextStep === null, ["healthy", "host-default"].includes(scenario.state));
+      if (scenario.state === "host-default") assert.equal(check.status, "warning");
       if (scenario.state === "disabled") {
         assert.equal(
           check.nextStep,

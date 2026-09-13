@@ -55,6 +55,10 @@ test("bundled MCP inspection distinguishes missing, disabled, incompatible, and 
         env: { NELOS_PLUGIN_VERSION: version },
       },
     });
+    const inherited = await inspect(paths);
+    assert.equal(inherited.state, "host-default");
+    assert.equal(inherited.recovery, null);
+    await writeFile(paths.configPath, block.replace("true", "false"));
     const disabled = await inspect(paths);
     assert.equal(disabled.state, "disabled");
     assert.equal(disabled.recovery, block);
@@ -110,4 +114,23 @@ test("bundled MCP inspection is bounded and never returns adversarial contents",
   } finally {
     await rm(paths.root, { recursive: true, force: true });
   }
+});
+
+
+test("host defaults do not hide explicit plugin or server disablement", async () => {
+  const paths = await fixture();
+  try {
+    for (const config of ["", `[plugins.'${selector}']\nenabled = true\n`]) {
+      await writeFile(paths.configPath, config);
+      assert.equal((await inspect(paths)).state, "host-default");
+    }
+    await writeFile(paths.configPath, `[plugins.'${selector}']\nenabled = false\n[plugins.'${selector}'.mcp_servers.nelos]\nenabled = true\n`);
+    const disabled = await inspect(paths);
+    assert.equal(disabled.state, "disabled");
+    assert.equal(disabled.recovery, `[plugins.${JSON.stringify(selector)}]\nenabled = true`);
+    await writeFile(paths.configPath, `[plugins.'${selector}'.mcp_servers]\nnelos = { enabled = false }\n`);
+    assert.equal((await inspect(paths)).state, "disabled");
+    await writeFile(paths.configPath, `[plugins.'${selector}'.mcp_servers]\nnelos = { enabled = true }\n`);
+    assert.equal((await inspect(paths)).state, "healthy");
+  } finally { await rm(paths.root, { recursive: true, force: true }); }
 });

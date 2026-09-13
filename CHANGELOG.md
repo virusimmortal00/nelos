@@ -7,10 +7,13 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
-## [0.14.0-rc.1] - 2026-09-12
+## [0.14.0-rc.2] - 2026-09-12
 
 ### User-facing changes
 
+- Report inherited MCP enablement as host defaults instead of incorrectly marking
+  a working server disabled. Explicit disablement still produces a diagnostic.
+- Honor the distribution verifier's `--home` during native plugin discovery.
 - Align generated plugin manifests and runtime identities with the documented
   SemVer prerelease and build-metadata formats; retain exact identity matching.
 - Keep plugin and MCP tools available across CLI versions, including prerelease

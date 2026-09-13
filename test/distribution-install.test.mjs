@@ -103,6 +103,9 @@ async function main() {
   }
   if (args[0] !== "plugin") throw new Error("unsupported fake codex command");
   if (args[1] === "list") {
+    if (process.env.FAKE_CODEX_EXPECT_HOME && process.env.HOME !== process.env.FAKE_CODEX_EXPECT_HOME) {
+      throw new Error("wrong home reached fake Codex");
+    }
     const state = await readState();
     const entry = {
       pluginId: selector,
@@ -2343,4 +2346,17 @@ test("staging retains bundled provenance inside an unrelated Git checkout", asyn
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("verification binds native plugin discovery to the explicit home", async () => {
+  const fixture = await createFixture();
+  try {
+    await installFixture(fixture);
+    const result = await runVerifier({ ...fixture.env, HOME: fixture.root,
+      FAKE_CODEX_EXPECT_HOME: fixture.home },
+      ["--home", fixture.home, "--codex-home", fixture.codexHome, "--codex", fixture.codexPath]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /OK cached plugin/u);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
