@@ -375,8 +375,8 @@ test("inspection lazily starts one app server and returns bounded metadata", asy
     platformFamily: "unix",
     platformOs: "macos",
     minimumVersion: null,
-    testedVersions: ["0.144.5", "0.144.6"],
-    supportedVersions: ["0.144.5", "0.144.6"],
+    testedVersions: ["0.144.5", "0.144.6", "0.154.0"],
+    supportedVersions: ["0.144.5", "0.144.6", "0.154.0"],
     requiredMethods: [
       "thread/read",
       "thread/name/set",
@@ -769,7 +769,7 @@ test("newer untested app-server versions proceed with advisory health", async ()
       version: "0.145.0",
       versionTested: false,
       minimumVersion: null,
-      testedVersions: ["0.144.5", "0.144.6"],
+      testedVersions: ["0.144.5", "0.144.6", "0.154.0"],
       lastFailure: null,
     },
   );

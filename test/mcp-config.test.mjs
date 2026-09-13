@@ -60,7 +60,14 @@ test("the generated launch form is the verified inline bootstrap", () => {
   assert.ok(!server.args[1].includes("${"), "bootstrap must not rely on substitution");
   assert.ok(!server.args[1].includes("`"), "bootstrap must stay embeddable");
   assert.throws(() => buildMcpConfig("not-a-version"));
-  assert.throws(() => buildMcpConfig("1.2.3+other.build"));
+  for (const version of ["1.2.3-alpha.1", "1.2.3-rc.1+codex.20260912", "1.2.3+other.build"]) {
+    assert.equal(buildMcpConfig(version).mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY,
+      `nelos-release-v1:${version}`);
+  }
+  for (const version of ["01.2.3", "1.2.3-rc.01", "1.2.3+", "1.2.3/../other"]) {
+    assert.throws(() => buildMcpConfig(version));
+  }
+  assert.throws(() => buildMcpConfig("1.2.3-rc.1", "nelos-release-v1:1.2.3"));
 });
 
 async function bootstrapFixture() {

@@ -769,6 +769,18 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         }),
       ]),
     }),
+    Object.freeze({
+      id: "codex@0.154.0",
+      version: "0.154.0",
+      fixture: "test/fixtures/mcp-app-server-protocol-v0.144.x.json",
+      upstreamSourceRefs: Object.freeze([
+        Object.freeze({
+          repository: "https://github.com/openai/codex",
+          requestedRef: "refs/tags/rust-v0.154.0",
+          commitSha: "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+        }),
+      ]),
+    }),
   ]),
   checks: Object.freeze([
     Object.freeze({
@@ -884,6 +896,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([
         "codex@0.144.5",
         "codex@0.144.6",
+        "codex@0.154.0",
       ]),
       mappings: Object.freeze({
         owned: Object.freeze(["src/protocol-contract/**"]),
@@ -934,6 +947,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
       supportedCodexReleases: Object.freeze([
         "codex@0.144.5",
         "codex@0.144.6",
+        "codex@0.154.0",
       ]),
       mappings: Object.freeze({
         owned: Object.freeze(["src/mcp-app-server-bridge.mjs", "src/app-server-version.mjs"]),
@@ -1248,6 +1262,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "scripts/validate-marketplace-promotion.mjs",
           "scripts/validate-plugin-release.mjs",
           "scripts/verify-mcp-app.mjs",
+          "scripts/verify-clean-install.mjs",
           "scripts/verify-planning-lifecycle.mjs",
           "scripts/verify-plugin-marketplace-upgrade.mjs",
           "scripts/verify-release-compatibility-evidence.mjs",
@@ -1337,6 +1352,8 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           "docs/observation-join.md",
           "docs/mcp-tool-surface.md",
           "docs/release-policy.md",
+          "docs/release-verification-2026-09-12.md",
+          "docs/release-verification-2026-09-12.json",
           "docs/routing-evaluation.md",
           "docs/routing.md",
           "docs/slice-planning.md",

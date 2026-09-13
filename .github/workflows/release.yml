@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        codex: ["0.144.5", "0.144.6"]
+        codex: ["0.144.5", "0.144.6", "0.154.0"]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -132,6 +132,13 @@ jobs:
               --validate-only \
               --tag "$RELEASE_TAG"
           fi
+      - name: Install Codex for the real marketplace upgrade gate
+        shell: bash
+        run: |
+          npm install --prefix .ci/codex --no-save --package-lock=false --ignore-scripts @openai/codex@0.154.0
+          .ci/codex/node_modules/.bin/codex --version
+          mkdir -p "$CODEX_HOME"
+          echo "$GITHUB_WORKSPACE/.ci/codex/node_modules/.bin" >> "$GITHUB_PATH"
       - run: npm run check
       - run: npm test
       - run: npm run verify:golden-loop

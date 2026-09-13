@@ -24,7 +24,7 @@ Nelos has four existing App Server profiles and a development discovery profile:
 
 | Profile | Transport | Purpose | Compatibility decision |
 | --- | --- | --- | --- |
-| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | No CLI version gate; tested-version metadata names `0.144.5` and `0.144.6`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; all builds are evaluated by the same per-operation response validators |
+| Strict MCP bridge | Child `codex app-server --stdio`, JSONL | Bounded task inspection, title verification, parent wake delivery, and archive effects | No CLI version gate; tested-version metadata names `0.144.5`, `0.144.6`, and `0.154.0`, backed by one combined reduced `v0.144.x` fixture, earlier Desktop `0.144.6` evidence, and `0.4.0` release revalidation of the exact CLI npm distributions for both versions; all builds are evaluated by the same per-operation response validators |
 | Source CLI | Explicit Unix-WebSocket endpoint | Developer task start, list, read, send, title, watch, collect, and archive commands | Conditional development support on observed `0.144.6`; not covered by the strict bridge attestation |
 | Distribution installer | Validated host-owned Unix-WebSocket endpoint | Best-effort refresh of a running plugin registry after a coherent disk install | Optimization only; under-development methods may fail and must degrade to restart-required |
 | Verifier cleanup | Explicit disposable endpoint | Best-effort interruption of a smoke-test turn | Test-only; not a supported product dependency |
@@ -43,6 +43,8 @@ The supported revision-1 baseline is:
   Desktop `0.144.6`, plus `0.4.0` release revalidation of the exact
   `codex-cli 0.144.5` and `0.144.6` npm distributions; the raw generated
   schemas remain temporary rather than separately checked-in captures, and
+  the same reduced method/field/status subset was revalidated against CLI
+  `0.154.0` on 2026-09-12, with exact source and runtime-transport evidence;
   other versions can operate without being labeled tested;
 - `initialize`, followed by the outbound `initialized` notification;
 - `capabilities.experimentalApi: true`;

@@ -28,10 +28,12 @@ process.stderr.write(result.stderr ?? "");
 
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
+// Node 20 includes nonmatching tests as skipped in its total; later Node
+// releases omit them. Require exactly one successful named test on either.
 if (
-  !/^# tests 1$/mu.test(result.stdout) ||
   !/^# pass 1$/mu.test(result.stdout) ||
   !/^# fail 0$/mu.test(result.stdout) ||
+  !/^# cancelled 0$/mu.test(result.stdout) ||
   !new RegExp(`^ok \\d+ - ${testName}$`, "mu").test(result.stdout)
 ) {
   throw new Error(`clean-install gate did not execute exactly "${testName}"`);

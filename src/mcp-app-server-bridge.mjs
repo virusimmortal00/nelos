@@ -17,6 +17,7 @@ export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
 export const TESTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
   "0.144.5",
   "0.144.6",
+  "0.154.0",
 ]);
 // Deprecated schema-v1 export: CLI versions no longer impose a runtime floor.
 export const MINIMUM_CODEX_APP_SERVER_VERSION = null;

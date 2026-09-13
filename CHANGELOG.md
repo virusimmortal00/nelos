@@ -5,7 +5,46 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
-None.
+### User-facing changes
+
+- Align generated plugin manifests and runtime identities with the documented
+  SemVer prerelease and build-metadata formats; retain exact identity matching.
+- Keep plugin and MCP tools available across CLI versions, including prerelease
+  and unrecognized build identities. Check capabilities for each operation.
+- Add an owned executor with isolated worktree plans, dependency joins, durable
+  completion inboxes, and attempt-bound acknowledgments. An operator prepares
+  immutable job policies; a separate operator channel handles requested approvals.
+- Recover recorded worker outcomes after owner loss and support bounded,
+  preauthorized retries for interrupted read-only jobs.
+
+### Compatibility requirements
+
+- Node.js 20 or newer. Release evidence includes exact CLI `0.154.0` alongside
+  historical `0.144.5` and `0.144.6` protocol targets. These are test identities,
+  not a runtime allowlist.
+- Signed-in `gpt-6-astra` owned-plan canaries passed on m3 with CLI `0.154.0`
+  and Desktop-bundled `0.154.0-alpha.6.2`; see the checked-in canary evidence.
+
+### Migrations
+
+- Existing native work units cannot be adopted into the owned executor. Prepare
+  a fresh owned plan with pinned repository/worktree policies. Review and
+  integrate worktree artifacts explicitly; dependency completion requires a join.
+
+### Security fixes
+
+- Update development dependencies `fast-uri`, `hono`, and `qs` to releases that
+  resolve the current dependency audit advisories.
+- Bind worktree, approval, required-tool readiness, and completion acceptance to
+  the exact owned attempt. Unknown dispatch outcomes remain inspectable and
+  cannot trigger a duplicate launch.
+
+### Known limitations
+
+- Detached parent wake remains unavailable. Collect the durable inbox and join
+  completed work explicitly. Full Desktop/runtime certification remains pending.
+- Automatic retries apply only to explicitly preauthorized read-only jobs;
+  write jobs require operator recovery. Worktree changes are not auto-merged.
 
 ## [0.13.0] - 2026-09-02
 

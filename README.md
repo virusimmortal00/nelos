@@ -209,18 +209,18 @@ default. A cleanup already underway keeps its per-web policy snapshot. See
 
 ## Codex compatibility
 
-Nelos is tested against Codex CLI `0.144.5` and Codex Desktop `0.144.6`.
-Codex `0.145.x` and later versions are allowed but have not yet been
-verified against Nelos's full app-server test matrix. The
-`nelos_app_server_health` tool reports the observed version, the tested
-versions, and whether the current version has been tested.
+The strict bridge has reviewed protocol evidence for Codex CLI `0.144.5`,
+`0.144.6`, and `0.154.0`. Separate signed-in owned-plan canaries exercise
+`gpt-6-astra` on CLI `0.154.0` and Desktop-bundled `0.154.0-alpha.6.2`;
+see [owned-plan evidence](docs/owned-full-plan-canary-2026-09-11.json).
+These observations describe the tested operations, not full Desktop certification.
+The `nelos_app_server_health` tool reports the observed and tested versions.
 
-Nelos requires Codex `0.144.5` or newer. It does not block a newer semantic
-release merely because that release has not been tested yet; instead, the
-bridge continues to validate every app-server response and reports a focused
-compatibility error if an operation's actual contract has changed. Prerelease
-and build identities are reported as untested and remain subject to the same
-strict per-response validation.
+Nelos imposes no Codex version minimum or exhaustive allowlist. Stable,
+prerelease, development, and unrecognized version strings all remain eligible
+for the same operation-specific capability and response checks. An unsupported
+operation reports a focused error while unrelated plugin and MCP tools remain
+available. Authorization and identity checks still apply.
 
 Pull requests use one required, token-free deterministic compatibility gate.
 Run the identical command locally:

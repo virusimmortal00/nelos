@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSemanticVersion } from "./experimentation-contract/semantic-version.mjs";
 
 import {
   PROVENANCE_FILENAME,
@@ -192,7 +193,7 @@ export async function deriveRuntimeIdentityV1({
     mcpConfig?.mcpServers?.nelos?.env?.NELOS_RELEASE_BUILD_IDENTITY ?? null;
   if (
     typeof embeddedBuildIdentity !== "string" ||
-    !/^nelos-release-v1:\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/u.test(embeddedBuildIdentity) ||
+    !isSemanticVersion(version) ||
     embeddedBuildIdentity !== mcpBuildIdentity ||
     embeddedBuildIdentity !== `nelos-release-v1:${version}`
   ) {

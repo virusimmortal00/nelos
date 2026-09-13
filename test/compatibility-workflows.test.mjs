@@ -129,7 +129,7 @@ test("drift lanes are scheduled/manual, bounded, and preserve unavailable report
 test("release evidence binds exact source, schema, and runtime identities", async () => {
   const workflow = await text("../.github/workflows/release.yml");
   assert.match(workflow, /compatibility-exact:/u);
-  assert.match(workflow, /codex: \["0\.144\.5", "0\.144\.6"\]/u);
+  assert.match(workflow, /codex: \["0\.144\.5", "0\.144\.6", "0\.154\.0"\]/u);
   assert.match(workflow, /--lane source-release/u);
   assert.match(workflow, /--lane schema/u);
   assert.match(workflow, /--expected-version/u);

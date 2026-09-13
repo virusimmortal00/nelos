@@ -44,6 +44,7 @@ test("checked-in generated-schema artifacts record identities, provenance, diges
       expectedCodexIdentities: [
         { version: "0.144.5", commitSha: null },
         { version: "0.144.6", commitSha: null },
+        { version: "0.154.0", commitSha: null },
       ],
       artifact: {
         path: "test/fixtures/mcp-app-server-protocol-v0.144.x.json",
@@ -58,7 +59,7 @@ test("checked-in generated-schema artifacts record identities, provenance, diges
   assert.equal(report.observedAt, "2026-07-29T12:00:00.000Z");
   assert.deepEqual(
     report.observations.map(({ codexIdentity }) => codexIdentity.version),
-    ["0.144.5", "0.144.6"],
+    ["0.144.5", "0.144.6", "0.154.0"],
   );
 });
 
