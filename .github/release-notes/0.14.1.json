@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "0.14.1",
+  "notesDigest": "sha256:9540d70ee04195128b4d82d2cb0e557b9bb538d36465b0f99fc373f9e16413f9",
+  "author": "Codex primary release agent",
+  "reviewer": "Codex independent release notes editor (/root/release_notes_editor)",
+  "decision": "approved",
+  "assessment": {
+    "userValue": {
+      "status": "pass",
+      "rationale": "The final 0.14.1 text describes explicit Astra selection, background dependency workers, restart recovery, and compatibility fixes as observable capabilities since the prior published 0.13.0 release. Executor users receive the fresh-plan requirement and explicit parent review and integration actions. The unpublished 0.14.0 candidate is not presented as a user upgrade baseline."
+    },
+    "plainLanguage": {
+      "status": "pass",
+      "rationale": "The overview explains the executor as background tasks in separate Git worktrees. Entries use concrete actions and explain inactive conversation behavior. The two model/profile identifiers enable explicit Astra selection, while longer service setup terminology stays in the linked guide."
+    },
+    "publicMigration": {
+      "status": "pass",
+      "rationale": "The guide remains tracked in the verified public virusimmortal00/nelos repository and is unchanged from my prior review. The absolute URL now targets the planned immutable v0.14.1 tag and is suitable for the extracted GitHub Release body. The guide provides preparation commands, private file permissions, MCP attachment, collection and acceptance steps, recovery limits, and an explicit statement that existing native tasks cannot be transferred."
+    },
+    "accurateClaims": {
+      "status": "pass",
+      "rationale": "Re-read the exact final notes and confirmed their only changes from my reviewed 0.14.0 candidate are the version heading and matching guide URL. The source, executable files, and executor guide are unchanged from that candidate; the new test change isolates a temporary release-artifact fixture. The previously reviewed v0.13.0 release diff and signed-in canary records support the bounded capabilities. Notes preserve unchanged routing defaults and deny automatic parent wake, unattended plans, automatic write retries, and make no Desktop certification claim."
+    },
+    "scopeSeparation": {
+      "status": "pass",
+      "rationale": "User capabilities, upgrade actions, and practical limitations remain in the release section. CI fixture repair and the unpublished candidate replacement are engineering details with no runtime behavior change, so omitting them is appropriate. Test counts, hashes, machine identifiers, review results, and internal implementation inventories remain outside these notes."
+    }
+  }
+}

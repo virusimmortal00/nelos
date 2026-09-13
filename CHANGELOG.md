@@ -7,7 +7,7 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
-## [0.14.0] - 2026-09-13
+## [0.14.1] - 2026-09-13
 
 Nelos keeps its plugin tools available as Codex CLI versions change and adds an
 optional executor for running background tasks in separate Git worktrees.
@@ -36,7 +36,7 @@ optional executor for running background tasks in separate Git worktrees.
   without enabling the optional executor.
 - To use the executor, prepare a fresh plan and review its execution policies.
   Existing native tasks cannot be transferred into it. Follow the
-  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.0/docs/owned-executor-plan-runbook.md).
+  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.1/docs/owned-executor-plan-runbook.md).
 
 ### Known issues
 

@@ -290,6 +290,10 @@ test("release artifact build is reproducible and checksum-complete", async () =>
       await readFile(join(fixtureRoot, "package.json"), "utf8"),
     );
     const tag = `v${packageMetadata.version}`;
+    // The copied checkout may already carry an approved production review.
+    // This fixture replaces its notes and owns its approval lifecycle.
+    const reviewPath = join(fixtureRoot, ".github", "release-notes", `${packageMetadata.version}.json`);
+    await rm(reviewPath, { force: true });
     const changelogPath = join(fixtureRoot, "CHANGELOG.md");
     await writeFile(
       changelogPath,
@@ -317,7 +321,7 @@ This fixture exercises a reader-facing release description.
       { cwd: fixtureRoot }), /Missing or invalid editorial review/);
     const notes = extractReleaseNotes(await readFile(changelogPath, "utf8"), packageMetadata.version);
     await mkdir(join(fixtureRoot, ".github", "release-notes"), { recursive: true });
-    await writeFile(join(fixtureRoot, ".github", "release-notes", `${packageMetadata.version}.json`), JSON.stringify({
+    await writeFile(reviewPath, JSON.stringify({
       schemaVersion: 1, version: packageMetadata.version, notesDigest: releaseNotesDigest(notes),
       author: "test-author", reviewer: "test-editor", decision: "approved",
       assessment: Object.fromEntries(EDITORIAL_CHECKS.map(name => [name,
