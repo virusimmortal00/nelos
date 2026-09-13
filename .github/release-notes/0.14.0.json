@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "0.14.0",
+  "notesDigest": "sha256:05bb84535b3f62826d0d728e0067352573fc62049d02e31ea8206b9007286a13",
+  "author": "Codex primary release agent",
+  "reviewer": "CodeRabbit independent editorial reviewer",
+  "decision": "pending",
+  "assessment": {
+    "userValue": {
+      "status": "pending",
+      "rationale": ""
+    },
+    "plainLanguage": {
+      "status": "pending",
+      "rationale": ""
+    },
+    "publicMigration": {
+      "status": "pending",
+      "rationale": ""
+    },
+    "accurateClaims": {
+      "status": "pending",
+      "rationale": ""
+    },
+    "scopeSeparation": {
+      "status": "pending",
+      "rationale": ""
+    }
+  }
+}

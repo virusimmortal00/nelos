@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "VERSION",
+  "notesDigest": "COPY_FROM_RELEASE_NOTES_CHECK",
+  "author": "",
+  "reviewer": "",
+  "decision": "pending",
+  "assessment": {
+    "userValue": { "status": "pending", "rationale": "" },
+    "plainLanguage": { "status": "pending", "rationale": "" },
+    "publicMigration": { "status": "pending", "rationale": "" },
+    "accurateClaims": { "status": "pending", "rationale": "" },
+    "scopeSeparation": { "status": "pending", "rationale": "" }
+  }
+}

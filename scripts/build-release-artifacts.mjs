@@ -24,6 +24,8 @@ import {
   pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
 import { assertAgentPluginLayout } from "./generate-mcp-config.mjs";
+import { checkReleaseNotes, extractReleaseNotes } from "./release-notes.mjs";
+export { extractReleaseNotes } from "./release-notes.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -132,26 +134,6 @@ export function validateVersionCoherence({
     fail("distribution provenance cache identity is missing or stale");
   }
   return version;
-}
-
-export function extractReleaseNotes(changelog, version) {
-  const escaped = version.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const heading = new RegExp(
-    `^## \\[${escaped}\\] - \\d{4}-\\d{2}-\\d{2}\\s*$`,
-    "mu",
-  );
-  const match = heading.exec(changelog);
-  if (!match) {
-    fail(`CHANGELOG.md has no dated ${version} release section`);
-  }
-  const start = match.index;
-  const remainder = changelog.slice(start + match[0].length);
-  const nextHeading = /^##\s+/mu.exec(remainder);
-  const end =
-    nextHeading === null
-      ? changelog.length
-      : start + match[0].length + nextHeading.index;
-  return `${changelog.slice(start, end).trim()}\n`;
 }
 
 function packageNameFromLockPath(path, metadata) {
@@ -301,6 +283,7 @@ async function readReleaseInputs(tag, root = repositoryRoot) {
     actualIntegrity,
   });
   const releaseNotes = extractReleaseNotes(changelog, version);
+  await checkReleaseNotes({ root, version, requireReview: true });
   return {
     packageMetadata,
     provenance,

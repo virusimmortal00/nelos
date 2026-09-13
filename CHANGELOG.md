@@ -7,107 +7,42 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
-## [0.14.0-rc.3] - 2026-09-12
+## [0.14.0] - 2026-09-13
 
-### User-facing changes
+Nelos keeps its plugin tools available as Codex CLI versions change and adds an
+optional executor for running background tasks in separate Git worktrees.
 
-- Fix release verification cleanup to stop the npm launcher and native Codex
-  descendants before removing temporary plugin files. This supersedes the
-  cancelled `rc.2` release gate; no public `rc.2` release was published.
+### Added
 
-- Report inherited MCP enablement as host defaults instead of incorrectly marking
-  a working server disabled. Explicit disablement still produces a diagnostic.
-- Honor the distribution verifier's `--home` during native plugin discovery.
-- Align generated plugin manifests and runtime identities with the documented
-  SemVer prerelease and build-metadata formats; retain exact identity matching.
-- Keep plugin and MCP tools available across CLI versions, including prerelease
-  and unrecognized build identities. Check capabilities for each operation.
-- Add an owned executor with isolated worktree plans, dependency joins, durable
-  completion inboxes, and attempt-bound acknowledgments. An operator prepares
-  immutable job policies; a separate operator channel handles requested approvals.
-- Recover recorded worker outcomes after owner loss and support bounded,
-  preauthorized retries for interrupted read-only jobs.
+- Run an explicitly prepared dependency plan with background workers. Completed
+  results remain available when the coordinating conversation disconnects, so
+  you can return, review the work, and continue the plan.
+- Recover recorded worker results after the executor service restarts. Operators
+  can also configure bounded retries for interrupted read-only tasks.
 
-### Compatibility requirements
+### Fixed
 
-- Node.js 20 or newer. Release evidence includes exact CLI `0.154.0` alongside
-  historical `0.144.5` and `0.144.6` protocol targets. These are test identities,
-  not a runtime allowlist.
-- Signed-in `gpt-6-astra` owned-plan canaries passed on m3 with CLI `0.154.0`
-  and Desktop-bundled `0.154.0-alpha.6.2`; see the checked-in canary evidence.
+- New, prerelease, or unrecognized Codex CLI version strings no longer disable
+  the plugin. Each operation checks the capabilities it needs, and an
+  unsupported operation leaves unrelated tools available.
+- Diagnostics now recognize MCP servers enabled through host defaults and honor
+  the distribution verifier's selected Codex home.
 
-### Migrations
+### Upgrade notes
 
-- Existing native work units cannot be adopted into the owned executor. Prepare
-  a fresh owned plan with pinned repository/worktree policies. Review and
-  integrate worktree artifacts explicitly; dependency completion requires a join.
+- Requires Node.js 20 or newer. Existing plugin workflows remain available
+  without enabling the optional executor.
+- To use the executor, prepare a fresh plan and review its execution policies.
+  Existing native tasks cannot be transferred into it. Follow the
+  [owned executor setup and recovery guide](docs/owned-executor-plan-runbook.md).
 
-### Security fixes
+### Known issues
 
-- Update development dependencies `fast-uri`, `hono`, and `qs` to releases that
-  resolve the current dependency audit advisories.
-- Bind worktree, approval, required-tool readiness, and completion acceptance to
-  the exact owned attempt. Unknown dispatch outcomes remain inspectable and
-  cannot trigger a duplicate launch.
-
-### Known limitations
-
-- Detached parent wake remains unavailable. Workers can finish while the parent
-  is inactive, but dependent waves wait for explicit parent acceptance and launch.
-  Reconnect, collect the durable inbox, and join completed work. This candidate
-  does not promise unattended execution of an entire dependency plan.
-- Full Desktop/runtime certification remains pending; this is a prerelease.
-- Automatic retries apply only to explicitly preauthorized read-only jobs;
-  write jobs require operator recovery. Worktree changes are not auto-merged.
-
-## [0.14.0-rc.2] - 2026-09-12
-
-### User-facing changes
-
-- Report inherited MCP enablement as host defaults instead of incorrectly marking
-  a working server disabled. Explicit disablement still produces a diagnostic.
-- Honor the distribution verifier's `--home` during native plugin discovery.
-- Align generated plugin manifests and runtime identities with the documented
-  SemVer prerelease and build-metadata formats; retain exact identity matching.
-- Keep plugin and MCP tools available across CLI versions, including prerelease
-  and unrecognized build identities. Check capabilities for each operation.
-- Add an owned executor with isolated worktree plans, dependency joins, durable
-  completion inboxes, and attempt-bound acknowledgments. An operator prepares
-  immutable job policies; a separate operator channel handles requested approvals.
-- Recover recorded worker outcomes after owner loss and support bounded,
-  preauthorized retries for interrupted read-only jobs.
-
-### Compatibility requirements
-
-- Node.js 20 or newer. Release evidence includes exact CLI `0.154.0` alongside
-  historical `0.144.5` and `0.144.6` protocol targets. These are test identities,
-  not a runtime allowlist.
-- Signed-in `gpt-6-astra` owned-plan canaries passed on m3 with CLI `0.154.0`
-  and Desktop-bundled `0.154.0-alpha.6.2`; see the checked-in canary evidence.
-
-### Migrations
-
-- Existing native work units cannot be adopted into the owned executor. Prepare
-  a fresh owned plan with pinned repository/worktree policies. Review and
-  integrate worktree artifacts explicitly; dependency completion requires a join.
-
-### Security fixes
-
-- Update development dependencies `fast-uri`, `hono`, and `qs` to releases that
-  resolve the current dependency audit advisories.
-- Bind worktree, approval, required-tool readiness, and completion acceptance to
-  the exact owned attempt. Unknown dispatch outcomes remain inspectable and
-  cannot trigger a duplicate launch.
-
-### Known limitations
-
-- Detached parent wake remains unavailable. Workers can finish while the parent
-  is inactive, but dependent waves wait for explicit parent acceptance and launch.
-  Reconnect, collect the durable inbox, and join completed work. This candidate
-  does not promise unattended execution of an entire dependency plan.
-- Full Desktop/runtime certification remains pending; this is a prerelease.
-- Automatic retries apply only to explicitly preauthorized read-only jobs;
-  write jobs require operator recovery. Worktree changes are not auto-merged.
+- An inactive coordinating conversation does not automatically resume when its
+  workers finish. Return to the conversation to collect and accept results,
+  then launch dependent work. Entire plans do not run unattended.
+- Worktree changes require explicit review and integration. Write tasks are not
+  automatically retried; their recovery requires an operator decision.
 
 ## [0.13.0] - 2026-09-02
 
