@@ -95,6 +95,7 @@ jobs:
 
   verify:
     name: Release gate / Node 20 / ${{ matrix.os }}
+    timeout-minutes: 20
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

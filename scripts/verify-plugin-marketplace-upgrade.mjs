@@ -31,6 +31,7 @@ import {
   pluginCacheIdentity,
 } from "../src/distribution-provenance.mjs";
 import { materializeMarketplaceProvenance } from "./validate-marketplace-promotion.mjs";
+import { stopChild } from "./dev-app-server.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -194,7 +195,8 @@ async function freshProcessProbe({ installedPath, candidateRoot, expectedVersion
 
 async function waitForSocket(path, child, stderr) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (child.exitCode !== null) {
+    if (stderr.spawnError) throw stderr.spawnError;
+    if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(`fresh Codex app-server exited before startup: ${stderr.value.trim()}`);
     }
     try {
@@ -207,7 +209,7 @@ async function waitForSocket(path, child, stderr) {
   throw new Error("fresh Codex app-server did not create its control socket");
 }
 
-async function verifyFreshCodexTask({
+export async function verifyFreshCodexTask({
   codexCommand,
   env,
   expectedVersion,
@@ -220,11 +222,15 @@ async function verifyFreshCodexTask({
   const child = spawn(
     codexCommand,
     ["app-server", "--listen", `unix://${socketPath}`],
-    { env, stdio: ["ignore", "ignore", "pipe"] },
+    // The npm command is a launcher with a native child. Own the whole group
+    // so a launcher exit cannot leave the server mutating the fixture cache.
+    { env, detached: true, stdio: ["ignore", "ignore", "pipe"] },
   );
+  child.once("error", (error) => { stderr.spawnError = error; });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => { stderr.value += chunk; });
   let client;
+  let primaryError;
   try {
     await waitForSocket(socketPath, child, stderr);
     client = await openAppServerClient({
@@ -260,15 +266,21 @@ async function verifyFreshCodexTask({
       throw new Error("fresh Codex app-server did not create a verification task");
     }
     return { taskId: started.thread.id, appServerPid: child.pid };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    client?.close();
-    child.kill("SIGTERM");
-    await Promise.race([
-      new Promise((accept) => child.once("exit", accept)),
-      new Promise((accept) => setTimeout(accept, 2_000)),
-    ]);
-    if (child.exitCode === null) child.kill("SIGKILL");
-    await rm(socketRoot, { recursive: true, force: true });
+    try {
+      client?.close();
+      await stopChild(child, { processGroup: true, timeoutMs: 2_000 });
+      await rm(socketRoot, { recursive: true, force: true });
+    } catch (error) {
+      if (primaryError) {
+        throw new AggregateError([primaryError, error],
+          `${primaryError.message}; fresh Codex cleanup failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 }
 
@@ -282,6 +294,7 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
   const isolatedHome = join(root, "home");
   const codexHome = join(isolatedHome, ".codex");
   let server;
+  let primaryError;
   try {
     await mkdir(sourceRoot, { recursive: true });
     await mkdir(codexHome, { recursive: true });
@@ -416,9 +429,23 @@ export async function verifyPluginMarketplaceUpgrade({ codexCommand = "codex" } 
       hostReload: { attempted: false, reason: "no owned live MCP child across replacement" },
       hostOwnedSiblingFallback: RUNTIME_UPGRADE_RECOVERY_ACTION,
     };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    if (server) await new Promise((accept) => server.close(accept));
-    await rm(root, { recursive: true, force: true });
+    try {
+      if (server) {
+        server.closeAllConnections();
+        await new Promise((accept) => server.close(accept));
+      }
+      await rm(root, { recursive: true, force: true });
+    } catch (error) {
+      if (primaryError) {
+        throw new AggregateError([primaryError, error],
+          `${primaryError.message}; marketplace cleanup failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 }
 
