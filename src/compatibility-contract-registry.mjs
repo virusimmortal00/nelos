@@ -1287,6 +1287,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
         ]),
         test: Object.freeze([
           "test/agent-plugin-layout.test.mjs",
+          "test/bundled-mcp-state.test.mjs",
           "test/check-model-catalog.test.mjs",
           "test/cli.test.mjs",
           "test/cli-completions.test.mjs",
