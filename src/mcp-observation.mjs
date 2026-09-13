@@ -28,7 +28,7 @@ function initialMember(workUnit) {
     capabilities: [...workUnit.capabilities],
     required: workUnit.required,
     title: {
-      state: "pending",
+      state: workUnit.memberKind === "joined-subagent" ? "not-applicable" : "pending",
       requestedTitle: workUnit.title,
       observedTitle: null,
       retryOrdinal: 0,
@@ -77,9 +77,12 @@ function synthesize(current, workUnits, webId, queenThreadId, waveScope = null) 
       .filter((workUnit) => workUnit.binding.state === "bound")
       .map((workUnit) => {
         const existing = priorScopeMatches ? prior.get(workUnit.workUnitId) : null;
-        return existing && sameBinding(existing, workUnit)
+        const member = existing && sameBinding(existing, workUnit)
           ? existing
           : initialMember(workUnit);
+        return workUnit.memberKind === "joined-subagent"
+          ? { ...member, title: { ...member.title, state: "not-applicable", observedTitle: null } }
+          : member;
       })
       .sort((left, right) => left.workUnitId.localeCompare(right.workUnitId)),
     consumedReceipts: priorScopeMatches ? (current?.consumedReceipts ?? []) : [],
@@ -572,7 +575,7 @@ export const MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA = Object.freeze({
             actionId: { type: "string" },
             webId: { type: "string" },
             queenThreadId: { type: "string" },
-            status: { enum: ["event", "timeout"] },
+            status: { enum: ["event", "timeout", "snapshot"] },
             targets: { type: "array", minItems: 1, maxItems: 100, items: WAIT_TARGET_SCHEMA },
           },
           required: [

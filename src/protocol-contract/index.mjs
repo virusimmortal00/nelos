@@ -623,6 +623,10 @@ const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "native-wait-wave", {
     targets: { type: "array", minItems: 1, maxItems: 16, items: MEMBER_TARGET },
     after: { const: "read-results" },
+    continuation: closed({
+      tool: { const: "nelos_orchestrate_collect" },
+      arguments: closed({ webId: ID, queenThreadId: ID }),
+    }),
   }),
   discriminated("kind", "native-wait", {
     threadIds: {
@@ -655,7 +659,7 @@ const NEXT_ACTION_MEMBERS = [
     title: { type: "string", minLength: 1, maxLength: 512 },
     verify: { const: true },
     after: {
-      enum: ["repeat-plan-slices", "repeat-launch-verify-batch"],
+      enum: ["repeat-plan-slices", "repeat-launch-verify-batch", "repeat-result-collection"],
     },
   }, ["threadId", "title", "verify"]),
   discriminated("kind", "verify-route", {
@@ -692,6 +696,22 @@ const NEXT_ACTION_MEMBERS = [
   discriminated("kind", "advance-orchestration", {
     tool: { const: "nelos_orchestrate_advance" },
     arguments: closed({ webId: ID, queenThreadId: ID, receipt: { type: "null" } }),
+  }),
+  discriminated("kind", "collect-results", {
+    tool: { const: "nelos_orchestrate_collect" },
+    arguments: closed({ webId: ID, queenThreadId: ID }),
+  }),
+  discriminated("kind", "decide-collected-result", {
+    tool: { const: "nelos_queen_decide" },
+    arguments: closed({
+      schemaVersion: VERSION, webId: ID, queenThreadId: ID,
+      receipt: discriminated("type", "native-result-read", {
+        actionId: ID, workUnitId: WORK_UNIT_ID, specRevision: POSITIVE,
+        attempt: POSITIVE, bindingGeneration: POSITIVE, memberThreadId: ID,
+        requestedTurnId: ID, sourceTurnId: ID,
+        resultEnvelope: PROTOCOL_RESULT_ENVELOPE_SCHEMA_V1,
+      }),
+    }),
   }),
   discriminated("kind", "cleanup-spinoffs", {
     tool: { const: "nelos_spinoff_cleanup" },
@@ -1009,7 +1029,7 @@ const RECEIPT_MEMBERS = [
     actionId: ID,
     webId: ID,
     queenThreadId: ID,
-    status: { enum: ["event", "timeout"] },
+    status: { enum: ["event", "timeout", "snapshot"] },
     targets: {
       type: "array",
       minItems: 1,
@@ -1209,6 +1229,14 @@ const COMPATIBILITY_MEMBERS = [
     },
   }),
   producerOutput("nelos_orchestrate_advance", {
+    schemaVersion: VERSION,
+    webId: ID,
+    queenThreadId: ID,
+    checkpoint: BOUNDED_RECORD,
+    join: BOUNDED_RECORD,
+    nextAction: PROTOCOL_ACTION_SCHEMA_V1,
+  }, ["schemaVersion", "webId", "queenThreadId", "checkpoint", "join"]),
+  producerOutput("nelos_orchestrate_collect", {
     schemaVersion: VERSION,
     webId: ID,
     queenThreadId: ID,

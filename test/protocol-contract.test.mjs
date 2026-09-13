@@ -63,6 +63,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "attach-native-task-options",
     "decide",
     "advance-orchestration",
+    "collect-results",
+    "decide-collected-result",
     "cleanup-spinoffs",
     "execute-cli",
     "attention",
@@ -445,6 +447,7 @@ const verificationOutput = {
       turnId: "turn-member",
     }],
     after: "read-results",
+    continuation: { tool: "nelos_orchestrate_collect", arguments: { webId: "A1", queenThreadId: "queen-1" } },
   },
 };
 

@@ -195,6 +195,12 @@ async function roundTrip(messages, options = {}) {
       serverVersion: "0.0.0-test",
       onExit: resolve,
       currentThreadId: () => "queen-1",
+      appServerBridge: {
+        async inspect({ threadId }) {
+          assert.equal(threadId, "queen-1");
+          return { threadId, title: "👑A1 · Queen" };
+        },
+      },
       planRunStore,
       webRegistry,
       workerRegistry: TEST_WORKER_REGISTRY,
@@ -486,6 +492,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_intelligence_resolve_subagent",
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
+      "nelos_orchestrate_collect",
       "nelos_queen_decide",
       "nelos_config_get",
       "nelos_config_set",
@@ -695,6 +702,7 @@ test("tools/list honestly annotates planning, app-server, and orchestration effe
       "nelos_orchestrate_create",
       "nelos_orchestrate_advance",
       "nelos_launch_verify_batch",
+      "nelos_orchestrate_collect",
       "nelos_execution_map_refresh",
       "nelos_execution_map_history",
     ].map((name) => [name, [EXECUTION_MAP_RESOURCE_URI, "execution-map"]]),
@@ -1350,7 +1358,7 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
               waveIndex: args.waveIndex,
               waveDigest: args.waveDigest,
             });
-            return { record: {}, wave };
+            return { record: { queenThreadId: "queen-1", webIdentity: { webId: "A1" } }, wave };
           },
           async markWaveVerified(value) {
             assert.deepEqual(value, {
@@ -1684,7 +1692,7 @@ test("launch verification leaves a wave unverified when joined adoption cannot p
   }
 });
 
-test("launch verification keeps subagent-only plans lightweight", async (t) => {
+test("legacy joined-only verification requires persisted join identity before acceptance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "nelos-lightweight-subagent-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const planRunStore = new PlanRunStoreV1({
@@ -1746,9 +1754,11 @@ test("launch verification keeps subagent-only plans lightweight", async (t) => {
 
   assert.equal(toolBody(response).isError, false);
   assert.equal(await executionStore.read("review-only"), null);
+  assert.equal(toolBody(response).body.nextAction.kind, "attention");
+  assert.equal(toolBody(response).body.nextAction.reason, "missing-persisted-plan-web-identity");
   assert.deepEqual(
     (await planRunStore.read(run.planRunId)).verifiedWaveIndexes,
-    [1],
+    [],
   );
 });
 
@@ -4606,4 +4616,119 @@ test("completion inbox tools accept exact notice acknowledgments without caller-
   ], { ownedExecutorClient });
   assert.deepEqual(calls, [{ method: "notifications", params: {} }, { method: "acknowledge", params: args }]);
   assert.equal(responses.at(-1).result.isError, true);
+});
+
+test("joined-only plans collect native results, replay safely, and reach accepted completion", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-joined-completion-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planRunStore = new PlanRunStoreV1({ directory: join(root, "plans") });
+  const executionStore = new ExecutionStoreV1({ directory: join(root, "executions") });
+  const checkpointStore = new OrchestrationCheckpointStoreV1({ directory: join(root, "checkpoints") });
+  const acceptanceStore = new QueenAcceptanceStoreV1({ directory: join(root, "acceptance") });
+  const webRecords = new Map();
+  let queenTitle = "Queen";
+  let turnStatus = "inProgress";
+  let resultReads = 0;
+  let resultMode = "valid";
+  const resultEnvelope = { schemaVersion: 1, workUnitId: "joined-result", specRevision: 1,
+    attempt: 1, outcome: "succeeded", summary: "Fixture totals are 60 and 66",
+    verification: ["Both sums verified"], artifacts: [], blockers: [], recoveryHint: null };
+  const options = {
+    planRunStore,
+    webRegistry: {
+      async withLock(callback) { return callback(); },
+      async read(id) { return webRecords.get(id) ?? null; },
+      async list() { return [...webRecords.values()]; },
+      async write(value) { webRecords.set(value.threadId, value); },
+    },
+    orchestrationAdapter: new McpOrchestrationAdapterV1({ store: executionStore }),
+    joinAdapter: new McpJoinAdapterV1({ executionStore, checkpointStore, acceptanceStore, planRunStore }),
+    queenDecisionAdapter: new McpQueenDecisionAdapterV1({ executionStore, checkpointStore, acceptanceStore }),
+    appServerBridge: {
+      async inspect({ threadId }) {
+        assert.equal(threadId, "queen-1", "joined members must not receive title observations");
+        return { threadId, title: queenTitle };
+      },
+      async latestTurn({ threadId }) {
+        assert.equal(threadId, "native-child");
+        return { turnId: "native-turn", status: turnStatus };
+      },
+      async readResult({ threadId, turnId }) {
+        assert.equal(threadId, "native-child");
+        assert.equal(turnId, "native-turn");
+        resultReads += 1;
+        if (resultMode === "unavailable") throw new Error("native read unavailable");
+        if (resultMode === "wrong-turn") return { sourceTurnId: "older-turn", resultEnvelope };
+        return { sourceTurnId: turnId, resultEnvelope };
+      },
+    },
+    async launchBatchVerifier(args) {
+      assert.equal(args.members[0].agentPath, "/root/joined_result");
+      return { schemaVersion: 1, parentThreadId: "queen-1", allVerified: true,
+        members: [{ sliceId: "joined-result", lifecycle: "subagent", threadId: "native-child",
+          checks: { identity: "verified", read: "verified", topology: "verified", title: "not-applicable", route: "verified" }, verified: true }] };
+    },
+  };
+  const call = async (name, args) => {
+    const [, response] = await roundTrip([INITIALIZE, {
+      jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args },
+    }], options);
+    const result = toolBody(response);
+    assert.equal(result.isError, false, JSON.stringify(result.body));
+    if (MCP_PROTOCOL_TOOL_OUTPUT_SCHEMAS_V1[name]) protocolCompatibilityEnvelopeV1(name, result.body);
+    return result.body;
+  };
+  const plan = validPlan("joined-result");
+  const request = { plan, queenThreadId: "queen-1" };
+  const initial = await call("nelos_plan_slices", request);
+  assert.equal(initial.nextAction.kind, "native-set-title");
+  queenTitle = initial.nextAction.title; // Simulated exact native title effect.
+  const proposed = await call("nelos_plan_slices", request);
+  assert.equal(proposed.nextAction.kind, "authorization-required");
+  assert.ok(proposed.planRun.webIdentity.webId);
+  const authorization = await call("nelos_launch_authorize", {
+    ...proposed.nextAction.authorizationEffect.arguments,
+    userIntentConfirmed: true,
+    capabilities: { source: "native-host-tool-registry", launchers: [{
+      launcher: "spawn-subagent", memberKinds: ["joined-subagent"], workspaceModes: ["shared-read-only"],
+      routes: [{ model: proposed.nextAction.members[0].nativeTask.model,
+        reasoningEfforts: [proposed.nextAction.members[0].nativeTask.thinking] }],
+    }] },
+  });
+  const launch = await call("nelos_plan_slices", { ...request, launchAuthorization: authorization.receipt });
+  assert.equal(launch.nextAction.kind, "launch-wave");
+  assert.ok(launch.nextAction.members[0].orchestration, "joined launch must have a durable result contract");
+  const verificationArgs = { ...launch.nextAction.verification, parentThreadId: "queen-1",
+    members: [{ sliceId: "joined-result", lifecycle: "subagent", agentPath: "/root/joined_result", turnId: "native-turn" }] };
+  const verified = await call("nelos_launch_verify_batch", verificationArgs);
+  const resumedPlan = await call("nelos_plan_slices", request);
+  assert.equal(resumedPlan.planRun.planRunId, launch.planRun.planRunId);
+  assert.equal(resumedPlan.nextAction.kind, "collect-results", "verified workers must never be relaunched on plan replay");
+  const continuation = verified.nextAction.continuation;
+  assert.equal(continuation.tool, "nelos_orchestrate_collect");
+  const pending = await call(continuation.tool, continuation.arguments);
+  assert.equal(pending.nextAction.reason, "required-member-result-not-completed");
+  assert.equal(resultReads, 0);
+  turnStatus = "completed";
+  resultMode = "wrong-turn";
+  assert.equal((await call(continuation.tool, continuation.arguments)).nextAction.reason, "current-native-result-identity-mismatch");
+  resultMode = "unavailable";
+  assert.equal((await call(continuation.tool, continuation.arguments)).nextAction.reason, "current-native-result-unavailable");
+  assert.equal((await acceptanceStore.list(continuation.arguments)).length, 0);
+  resultMode = "valid";
+  const collected = await call(continuation.tool, continuation.arguments);
+  assert.equal(collected.nextAction.kind, "decide-collected-result");
+  assert.equal(collected.checkpoint.members[0].title.state, "not-applicable");
+  assert.equal(collected.checkpoint.members[0].coordination.state, "collected");
+  options.joinAdapter = new McpJoinAdapterV1({ executionStore, checkpointStore, acceptanceStore, planRunStore });
+  const replayed = await call(continuation.tool, continuation.arguments);
+  assert.deepEqual(replayed.nextAction, collected.nextAction);
+  assert.equal(resultReads, 3, "consumed observation is replayed without rereading or relaunching the worker");
+  const decision = await call(collected.nextAction.tool, { ...collected.nextAction.arguments,
+    decision: "accepted", decisionSummary: "Both fixture sums are correct" });
+  const completed = await call(decision.nextAction.tool, decision.nextAction.arguments);
+  assert.equal(completed.nextAction.kind, "complete");
+  assert.equal(completed.checkpoint.members[0].coordination.state, "accepted");
+  assert.equal((await executionStore.read("joined-result")).memberKind, "joined-subagent");
+  assert.equal((await planRunStore.read(launch.planRun.planRunId)).verifiedWaveIndexes.length, 1);
 });

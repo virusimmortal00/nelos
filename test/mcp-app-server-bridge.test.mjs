@@ -1463,3 +1463,33 @@ test("parent wake steers the known active queen turn", async () => {
   );
   await bridge.close();
 });
+
+test("result collection returns only the exact current terminal envelope", async (t) => {
+  const { formatResultEnvelope } = await import("../src/work-result.mjs");
+  const envelope = { schemaVersion: 1, workUnitId: "unit", specRevision: 1, attempt: 1,
+    outcome: "succeeded", summary: "verified", verification: [], artifacts: [], blockers: [], recoveryHint: null };
+  const final = { type: "agentMessage", phase: "final_answer", text: formatResultEnvelope(envelope) };
+  for (const [label, turn, expectedId, succeeds] of [
+    ["exact", { id: "turn-1", status: "completed", items: [{ type: "agentMessage", phase: "commentary", text: "private intermediate text" }, final] }, "turn-1", true],
+    ["stale", { id: "turn-2", status: "completed", items: [final] }, "turn-1", false],
+    ["active", { id: "turn-1", status: "inProgress", items: [final] }, "turn-1", false],
+    ["unstructured", { id: "turn-1", status: "completed", items: [{ ...final, text: "done" }] }, "turn-1", false],
+  ]) {
+    await t.test(label, async () => {
+      const fake = fakeCodexAppServer({ initialTurns: [turn] });
+      const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess, requestTimeoutMs: 1000 });
+      try {
+        const request = bridge.readResult({ threadId: "thread-1", turnId: expectedId });
+        if (succeeds) assert.deepEqual(await request, { sourceTurnId: "turn-1", resultEnvelope: envelope });
+        else await assert.rejects(request, /result/i);
+        assert.equal(fake.requests.some(({ method }) => ["thread/resume", "turn/start", "thread/name/set"].includes(method)), false);
+      } finally { await bridge.close(); }
+    });
+  }
+  const fake = fakeCodexAppServer({ initialTurns: [{ id: "turn-1", status: "completed", items: [final] }] });
+  const bridge = new CodexAppServerBridgeV1({ spawnProcess: fake.spawnProcess, requestTimeoutMs: 1000 });
+  try {
+    bridge.latestTurn = async () => ({ turnId: "newer-turn", status: "completed" });
+    await assert.rejects(bridge.readResult({ threadId: "thread-1", turnId: "turn-1" }), /changed during collection/);
+  } finally { await bridge.close(); }
+});

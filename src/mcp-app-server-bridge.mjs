@@ -12,6 +12,7 @@ import {
 import { appServerVersionFromUserAgent } from "./app-server-version.mjs";
 import { isSemanticVersion } from "./experimentation-contract/semantic-version.mjs";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
+import { finalAgentMessage, parseResultEnvelope } from "./work-result.mjs";
 
 export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
 export const TESTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
@@ -1139,6 +1140,28 @@ export class CodexAppServerBridgeV1 {
       turnId: threadId(turn.id),
       status: turn.status,
     };
+  }
+
+  async readResult({ threadId: requestedThreadId, turnId: requestedTurnId } = {}) {
+    const owner = threadId(requestedThreadId);
+    const expected = threadId(requestedTurnId);
+    const page = await this.#readRequest("thread/turns/list", {
+      threadId: owner, limit: 1, sortDirection: "desc", itemsView: "full",
+    });
+    const turn = page?.data?.[0];
+    if (!Array.isArray(page?.data) || page.data.length !== 1 ||
+        turn?.id !== expected || turn.status !== "completed") {
+      throw bridgeError("Current terminal result is unavailable", "invalid-response");
+    }
+    const parsed = parseResultEnvelope(finalAgentMessage(turn));
+    if (parsed.format !== "envelope") {
+      throw bridgeError("Current terminal result has no valid Nelos envelope", "invalid-response");
+    }
+    const latest = await this.latestTurn({ threadId: owner });
+    if (latest?.turnId !== expected || latest.status !== "completed") {
+      throw bridgeError("Current terminal result changed during collection", "invalid-response");
+    }
+    return { sourceTurnId: expected, resultEnvelope: parsed.result };
   }
 
   async collaborationAgentStatus({

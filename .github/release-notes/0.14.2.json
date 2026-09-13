@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "0.14.2",
+  "notesDigest": "sha256:213fc5fb46260e67372e364746dbfdebb1520e09620eb46d4edc12878540b341",
+  "author": "Codex primary release agent",
+  "reviewer": "Codex independent release notes editor (/root/release_notes_editor)",
+  "decision": "approved",
+  "assessment": {
+    "userValue": {
+      "status": "pass",
+      "rationale": "The consolidated notes describe observable changes since the last published 0.13.0 release: joined-subagent result acceptance and saved-result recovery, explicit Astra selection, optional background dependency workers, restart recovery, and compatibility diagnostics. They identify the existing-plan attention condition and tell affected users to recover their original workers without relaunching them."
+    },
+    "plainLanguage": {
+      "status": "pass",
+      "rationale": "The revised collection entry explains reviewing, accepting, and reusing saved results without exposing an internal continuation protocol. Background execution and inactive-parent limitations use concrete actions. The exact model selectors and legacy-plan error remain because readers need them to choose a model or identify the documented recovery path."
+    },
+    "publicMigration": {
+      "status": "pass",
+      "rationale": "Both absolute links target tracked guides in the previously verified public virusimmortal00/nelos repository under the planned v0.14.2 tag. The Queen Join Loop heading exists and describes replaying the original plan, settling its parent title, and verifying existing members without replacement launches. The executor guide provides preparation, attachment, acceptance, and recovery steps and explains that existing native tasks cannot be transferred into the optional executor."
+    },
+    "accurateClaims": {
+      "status": "pass",
+      "rationale": "Reviewed the new collection, bridge, identity, and checkpoint changes against v0.14.1 and the earlier distributed changes against v0.13.0. The bridge validates terminal result identity and rechecks the current turn; collection consumes exact receipts and leaves acceptance to the coordinator. Focused test assertions cover interrupted collection replay and accepted completion, supporting the bounded wording without establishing live certification. Existing background and retry claims remain consistent with the reviewed canaries and runbook. Notes make no completed full-verification or Desktop-certification claim and retain the parent-wake and write-retry limits."
+    },
+    "scopeSeparation": {
+      "status": "pass",
+      "rationale": "The notes present user capabilities, required recovery actions, and practical limitations. They omit unpublished candidate history, test counts, CI state, hashes, review results, and runtime protocol details. The exact legacy error is retained only to identify an affected upgrade path; detailed recovery mechanics are placed in the public guide."
+    }
+  }
+}

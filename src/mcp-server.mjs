@@ -43,6 +43,12 @@ import {
   McpJoinAdapterV1,
 } from "./mcp-observation.mjs";
 import {
+  collectOrchestrationResultsV1,
+  hasHostRecoveryEffectV1,
+  MCP_RESULT_COLLECTION_INPUT_SCHEMA,
+  resultCollectionActionV1,
+} from "./mcp-result-collection.mjs";
+import {
   MCP_QUEEN_DECISION_INPUT_SCHEMA,
   McpQueenDecisionAdapterV1,
 } from "./mcp-queen-decision.mjs";
@@ -211,8 +217,8 @@ async function adoptVerifiedJoinedMembers(
     ({ lifecycle }) => lifecycle === "subagent",
   );
   if (joined.length === 0) return;
-  // Subagent-only plans intentionally have no durable web identity or later
-  // durable dependency consumer, so they retain their lightweight path.
+  // Legacy runs can lack an identity. They must replay planning before the
+  // caller can enter the persisted result-acceptance path.
   if (!record.webIdentity) return;
   if (!record.plan) {
     throw new Error(
@@ -300,7 +306,7 @@ async function plannedSlicesOutput(
     parentPlanRun?.webIdentity ?? existing?.webIdentity ?? null;
   let settledQueenTitle = null;
 
-  if (plan.summary.spinoffs > 0) {
+  {
     const before = await appServerBridge.inspect({ threadId: queenThreadId });
     if (!before.title) {
       throw new Error("current queen task has no settled title");
@@ -473,8 +479,6 @@ async function plannedSlicesOutput(
     launchAuthorization,
     ...additionalFields,
   });
-  if (plan.summary.spinoffs === 0) return output;
-
   const requestedTitle = planRun.webIdentity.queenTitle;
   const changed = requestedTitle !== settledQueenTitle;
   return {
@@ -665,7 +669,7 @@ const TOOLS = [
       "Validate a structured slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
       "machine-generated nextAction. Every wave requires exact native-host " +
-      "capability and creation authorization. Plans containing spinoffs first " +
+      "capability and creation authorization. All coordinated plans first " +
       "synchronize and verify the current queen title through Codex.",
     inputSchema: {
       type: "object",
@@ -756,7 +760,7 @@ const TOOLS = [
         appServerBridge,
         waveContract: wave,
       });
-      if (verification.allVerified) {
+      if (verification.allVerified && record.webIdentity) {
         await adoptVerifiedJoinedMembers(
           record,
           verification,
@@ -786,7 +790,14 @@ const TOOLS = [
       return {
         command: "launch verify batch",
         verification,
-        nextAction: verification.allVerified
+        nextAction: verification.allVerified && !record.webIdentity
+          ? {
+              schemaVersion: 1,
+              kind: "attention",
+              reason: "missing-persisted-plan-web-identity",
+              planRunId: args.planRunId,
+            }
+          : verification.allVerified
           ? {
               schemaVersion: 1,
               kind: "native-wait-wave",
@@ -816,6 +827,13 @@ const TOOLS = [
                     };
               }),
               after: "read-results",
+              continuation: {
+                tool: "nelos_orchestrate_collect",
+                arguments: {
+                  webId: record.webIdentity.webId,
+                  queenThreadId: record.queenThreadId,
+                },
+              },
             }
           : titleMismatch && expectedTitle
             ? {
@@ -1194,7 +1212,18 @@ const TOOLS = [
     inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { joinAdapter }) {
-      return joinAdapter.advance(args);
+      const result = await joinAdapter.advance(args);
+      if (hasHostRecoveryEffectV1(result)) return result;
+      return { ...result, nextAction: result.nextAction ?? resultCollectionActionV1(result) };
+    },
+  },
+  {
+    name: "nelos_orchestrate_collect",
+    description: "Read bounded native terminal results for a verified wave, consume exact observation receipts, and return a queen acceptance proposal. Never launches, waits on, renames, archives, or accepts a native task. Unavailable or changing evidence stops collection.",
+    inputSchema: MCP_RESULT_COLLECTION_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { joinAdapter, appServerBridge }) {
+      return collectOrchestrationResultsV1(args, { joinAdapter, appServerBridge });
     },
   },
   {

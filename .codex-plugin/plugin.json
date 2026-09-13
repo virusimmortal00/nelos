@@ -1,7 +1,7 @@
 {
   "name": "nelos",
-  "version": "0.14.1",
-  "releaseBuildIdentity": "nelos-release-v1:0.14.1",
+  "version": "0.14.2",
+  "releaseBuildIdentity": "nelos-release-v1:0.14.2",
   "description": "Plan complex Codex work into safe, dependency-aware parallel slices.",
   "author": {
     "name": "Bobby Sayers",

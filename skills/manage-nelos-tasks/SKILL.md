@@ -5,10 +5,8 @@ description: Coordinate parallel agents and resume multi-step coding work with t
 
 # Coordinate Work with Nelos
 
-Use Nelos when coding work needs independent workers, ordered dependencies,
-and a reliable join of their results. It tracks what can run together, what
-must wait, and which results have actually been accepted across restarts.
-The coordinating agent (the queen) remains responsible for the outcome.
+Use Nelos for independent workers, ordered dependencies, and result acceptance
+across restarts. The coordinating agent (the queen) owns the outcome.
 
 ## Choose the Scope
 
@@ -96,6 +94,15 @@ After the fast path or bootstrap, execute only the returned
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
   After terminal turns call `nelos_execution_map_refresh` with resolved fields; never trust mailbox status.
+  Then call the exact `continuation.tool` and `continuation.arguments` to enter
+  persisted result collection. A refreshed map does not accept results.
+- `advance-orchestration` and `collect-results`: call their exact tool and arguments.
+  Collection reads native evidence and returns consumed result receipts. Never
+  infer terminal status or author a worker result envelope. Joined members have
+  no title effect and keep collaboration controls throughout collection.
+- `decide-collected-result`: judge the returned result, then call its exact tool
+  and arguments, adding only `decision` and `decisionSummary`. Follow the returned
+  continuation until all required results are accepted.
 - `native-wait` and `native-read`: use Codex task controls for durable task
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
@@ -117,6 +124,9 @@ After the fast path or bootstrap, execute only the returned
 - `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
   adding only `resolution: "detach"`; never detach locally.
 - `attention`: stop and resolve the named evidence gap; do not infer an action.
+  For `missing-persisted-plan-web-identity`, replay the original unchanged plan
+  to adopt its join identity, settle the returned queen title, and replay exact
+  launch verification for existing members. Never relaunch those members.
   For `missing-persisted-dependency-work-units`, replay exact launch
   verification for named legacy joined members, then retry the transition.
 - `complete`: stop; the command has no additional protocol step.

@@ -7,13 +7,16 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
-## [0.14.1] - 2026-09-13
+## [0.14.2] - 2026-09-13
 
 Nelos keeps its plugin tools available as Codex CLI versions change and adds an
 optional executor for running background tasks in separate Git worktrees.
 
 ### Added
 
+- Review and accept worker results even when a plan uses only joined subagents.
+  If collection is interrupted after a result is saved, continuing uses that
+  saved result.
 - Choose GPT-6 Astra explicitly for coordinated tasks using `profile: "astra"`
   or `model: "gpt-6-astra"`. Existing task-routing defaults are unchanged.
 - Run an explicitly prepared dependency plan with background workers. Completed
@@ -34,9 +37,13 @@ optional executor for running background tasks in separate Git worktrees.
 
 - Requires Node.js 20 or newer. Existing plugin workflows remain available
   without enabling the optional executor.
+- If an existing plan reports `missing-persisted-plan-web-identity`, ask the
+  coordinating agent to replay the original plan and verify its existing
+  workers; do not launch replacements. See
+  [recovering existing plans](https://github.com/virusimmortal00/nelos/blob/v0.14.2/docs/task-orchestration.md#queen-join-loop).
 - To use the executor, prepare a fresh plan and review its execution policies.
   Existing native tasks cannot be transferred into it. Follow the
-  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.1/docs/owned-executor-plan-runbook.md).
+  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.2/docs/owned-executor-plan-runbook.md).
 
 ### Known issues
 

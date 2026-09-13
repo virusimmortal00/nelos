@@ -235,6 +235,13 @@ export function derivePlanWaveActionV1(
   ) {
     throw new Error("launch wave conflicts with its persisted member contract");
   }
+  if (planRun.verifiedWaveIndexes?.includes(currentWave.index)) {
+    return planRun.webIdentity
+      ? action("collect-results", { tool: "nelos_orchestrate_collect", arguments: {
+          webId: planRun.webIdentity.webId, queenThreadId: planRun.queenThreadId,
+        } })
+      : action("attention", { reason: "missing-persisted-plan-web-identity", planRunId: planRun.planRunId });
+  }
   const proposed = action("launch-wave", {
     waveIndex: currentWave.index,
     members: currentWave.slices.map((slice) => ({
