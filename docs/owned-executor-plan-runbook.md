@@ -120,6 +120,51 @@ plans use schema 4. Automatic retries remain explicitly authorized read-only
 policies; write workers are not automatically repeated after interruption.
 Review their actual worktree before authorizing replacement work.
 
+## What happens while the parent is detached
+
+The **parent** is the coordinating Codex conversation. It is **detached** when
+that conversation is no longer running its collection/join loop or its MCP
+frontend has disconnected. **Wake** would mean delivering a worker-completion
+notice to that original conversation and causing Codex to start a new parent
+turn reliably, including after a lost reply or a reconnect.
+
+The executor currently provides a durable inbox, not an automatic parent wake:
+
+- A separately running executor service continues its owned workers when the MCP
+  frontend disconnects. This requires the service and execution host to remain
+  running; it is not a promise that model execution survives machine shutdown.
+- Completion records and acknowledgment state are persisted. On return, the
+  parent can reconnect, collect results and artifacts, and explicitly accept or
+  reject the current attempt. Repeated reads do not erase an unseen result.
+- Acknowledging a notice records receipt only. Acceptance remains a separate
+  decision. Dependent workers wait for successful prerequisite acceptance and
+  the next explicit launch request.
+- An active parent can poll the inbox and carry out that loop. An inactive
+  parent is not automatically resumed, steered, or sent a native message by the
+  owned executor. A user returning to the conversation can ask it to continue.
+
+For example, A and B can finish while the parent is inactive. Their results
+remain available, but dependent worker C does not begin until the parent returns,
+reviews and accepts both results, and launches the next ready wave. This release
+supports durable background workers; it does not promise an unattended plan
+that runs through every dependency and final integration by itself.
+
+The isolated queue probe submitted the same message identity through two App
+Server owners and received different queue-entry IDs. It did not test visibility
+in the parent's owner before the second submission, or start a parent turn.
+That evidence is insufficient to claim either working deduplication or a
+fundamental lack of host support. A queued record alone also does not establish
+that the parent will run. See the exact
+[queue observation](owned-full-plan-canary-2026-09-11.json).
+
+Enabling automatic wake requires a verified sender for the parent's actual host,
+reconciliation after uncertain sends, and tests for active/inactive parents,
+reconnects, owner restarts and repeated delivery. The sender must preserve the
+parent's ownership and route identity. A successful wake would prompt collection
+and review; it would not automatically accept a worker's result. Until that
+integration is established, `detachedWakeAvailable` remains `false`, while
+ordinary plugin tools and owned workers remain available.
+
 ## Trusted approval terminal
 
 An isolated job may select `on-request` or `untrusted` instead of `never`. Such
@@ -168,8 +213,9 @@ launches a third worker only after both prerequisites are accepted. It checks
 inbox acknowledgment replay, unique native identities and an unchanged source
 repository. Canary worktrees and private proof files are retained for inspection.
 
-Detached parent wake remains unavailable. Queue experiments did not establish
-reliable cross-owner deduplication. The durable parent loop is supported without
-claiming native Desktop lineage, Desktop approval UI integration or handoff
-certification. Linux/Node 20, fresh install/upgrade and final release-artifact
-verification remain release gates, separate from these implementation tests.
+Detached parent wake remains unavailable for the reasons above. The durable
+parent loop is supported without claiming native Desktop lineage, Desktop
+approval UI integration or handoff certification. The
+[release verification report](release-verification-2026-09-12.md) records the
+macOS/Linux Node 20, fresh-install, upgrade and packaging checks. Every final
+versioned candidate must pass those gates with its own coherent release identity.

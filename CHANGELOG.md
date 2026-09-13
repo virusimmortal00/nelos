@@ -5,6 +5,10 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
+None.
+
+## [0.14.0-rc.1] - 2026-09-12
+
 ### User-facing changes
 
 - Align generated plugin manifests and runtime identities with the documented
@@ -41,8 +45,11 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ### Known limitations
 
-- Detached parent wake remains unavailable. Collect the durable inbox and join
-  completed work explicitly. Full Desktop/runtime certification remains pending.
+- Detached parent wake remains unavailable. Workers can finish while the parent
+  is inactive, but dependent waves wait for explicit parent acceptance and launch.
+  Reconnect, collect the durable inbox, and join completed work. This candidate
+  does not promise unattended execution of an entire dependency plan.
+- Full Desktop/runtime certification remains pending; this is a prerelease.
 - Automatic retries apply only to explicitly preauthorized read-only jobs;
   write jobs require operator recovery. Worktree changes are not auto-merged.
 

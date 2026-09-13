@@ -221,6 +221,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
+          prerelease=false
+          if [[ "${version%%+*}" == *-* ]]; then
+            prerelease=true
+          fi
           mapfile -t assets < <(
             find dist/release -maxdepth 1 -type f \
               ! -name release-notes.md -print | sort
@@ -242,12 +246,14 @@ jobs:
             gh release edit "$RELEASE_TAG" \
               --repo "$GH_REPO" \
               --draft \
+              --prerelease="$prerelease" \
               --title "Nelos $version" \
               --notes-file dist/release/release-notes.md
           elif grep -qi "release not found" release-view-error.txt; then
             gh release create "$RELEASE_TAG" \
               --repo "$GH_REPO" \
               --draft \
+              --prerelease="$prerelease" \
               --verify-tag \
               --title "Nelos $version" \
               --notes-file dist/release/release-notes.md \

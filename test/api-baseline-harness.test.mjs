@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
+import { isSemanticVersion } from "../src/experimentation-contract/semantic-version.mjs";
 import { canonicalDigest, deriveTaskDigest, deriveTaskIdentity, reviseTask, sealTask, sha256Bytes } from "../src/experimentation-contract/index.mjs";
 import { bundleDigest, createStarterDevelopmentRelease, createTaskPackage } from "../src/experimentation-corpus/index.mjs";
 import { expandExperimentPlan } from "../src/experiment-runner.mjs";
@@ -534,7 +535,7 @@ test("npm/plugin payload excludes calibration and keeps release identities coher
   const packageMetadata = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, "package.json"), "utf8"));
   const plugin = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".codex-plugin/plugin.json"), "utf8"));
   const mcp = JSON.parse(await readFile(resolve(REPOSITORY_ROOT, ".mcp.json"), "utf8"));
-  assert.match(packageMetadata.version, /^\d+\.\d+\.\d+$/u);
+  assert.equal(isSemanticVersion(packageMetadata.version), true);
   assert.equal(plugin.version, packageMetadata.version);
   assert.equal(plugin.releaseBuildIdentity, `nelos-release-v1:${packageMetadata.version}`);
   assert.equal(mcp.mcpServers.nelos.env.NELOS_PLUGIN_VERSION, packageMetadata.version);

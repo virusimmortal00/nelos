@@ -38,8 +38,35 @@ async function repositoryFixture(tag) {
   };
 }
 
-test("the repository is a coherent stable marketplace candidate", async () => {
+// Exercise stable-channel rules independently of the repository's current
+// release channel. Only these in-memory identities are normalized.
+async function stableFixture(tag) {
   const fixture = await repositoryFixture();
+  const version = "1.2.3";
+  fixture.tag = tag ?? `v${version}`;
+  fixture.packageMetadata.version = version;
+  fixture.pluginMetadata.version = version;
+  fixture.pluginMetadata.releaseBuildIdentity = `nelos-release-v1:${version}`;
+  fixture.mcpMetadata.mcpServers.nelos.env.NELOS_PLUGIN_VERSION = version;
+  fixture.mcpMetadata.mcpServers.nelos.env.NELOS_RELEASE_BUILD_IDENTITY = `nelos-release-v1:${version}`;
+  fixture.provenance.revision = version;
+  fixture.provenance.cacheIdentity = `${fixture.provenance.sourceRepository}#nelos@${version}`;
+  fixture.lockMetadata.version = version;
+  fixture.lockMetadata.packages[""].version = version;
+  return fixture;
+}
+
+test("the repository's actual release channel controls stable promotion", async () => {
+  const fixture = await repositoryFixture();
+  if (/^v\d+\.\d+\.\d+$/u.test(fixture.tag)) {
+    assert.doesNotThrow(() => validateMarketplacePromotion(fixture));
+  } else {
+    assert.throws(() => validateMarketplacePromotion(fixture), /vMAJOR\.MINOR\.PATCH/u);
+  }
+});
+
+test("a coherent stable fixture can enter the marketplace", async () => {
+  const fixture = await stableFixture();
   assert.deepEqual(
     validateMarketplacePromotion(fixture),
     {
@@ -58,14 +85,14 @@ test("stable promotion rejects prereleases, builds, and version drift", async ()
     "v0.4.0+codex.20260729010101",
     "0.4.0",
   ]) {
-    const fixture = await repositoryFixture(tag);
+    const fixture = await stableFixture(tag);
     assert.throws(
       () => validateMarketplacePromotion(fixture),
       /vMAJOR\.MINOR\.PATCH/u,
     );
   }
 
-  const fixture = await repositoryFixture();
+  const fixture = await stableFixture();
   fixture.pluginMetadata.version = "0.4.1";
   assert.throws(
     () => validateMarketplacePromotion(fixture),
@@ -85,7 +112,7 @@ test("stable promotion rejects semantic-version downgrades", async () => {
     1,
   );
 
-  const downgrade = await repositoryFixture();
+  const downgrade = await stableFixture();
   const [major, minor, patch] = downgrade.packageMetadata.version.split(".");
   downgrade.currentStableVersion = `${major}.${minor}.${BigInt(patch) + 1n}`;
   assert.throws(
@@ -93,13 +120,13 @@ test("stable promotion rejects semantic-version downgrades", async () => {
     /older than current stable version/u,
   );
 
-  const sameVersion = await repositoryFixture();
+  const sameVersion = await stableFixture();
   sameVersion.currentStableVersion = sameVersion.packageMetadata.version;
   assert.doesNotThrow(() => validateMarketplacePromotion(sameVersion));
 });
 
 test("stable promotion rejects marketplace contract drift", async () => {
-  const remoteSource = await repositoryFixture();
+  const remoteSource = await stableFixture();
   remoteSource.marketplace.plugins[0].source = {
     source: "url",
     url: "https://example.com/nelos.git",
@@ -109,7 +136,7 @@ test("stable promotion rejects marketplace contract drift", async () => {
     /supported contract/u,
   );
 
-  const multiplePlugins = await repositoryFixture();
+  const multiplePlugins = await stableFixture();
   multiplePlugins.marketplace.plugins.push({
     ...multiplePlugins.marketplace.plugins[0],
     name: "another-plugin",
