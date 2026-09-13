@@ -14,6 +14,8 @@ optional executor for running background tasks in separate Git worktrees.
 
 ### Added
 
+- Choose GPT-6 Astra explicitly for coordinated tasks using `profile: "astra"`
+  or `model: "gpt-6-astra"`. Existing task-routing defaults are unchanged.
 - Run an explicitly prepared dependency plan with background workers. Completed
   results remain available when the coordinating conversation disconnects, so
   you can return, review the work, and continue the plan.
@@ -34,7 +36,7 @@ optional executor for running background tasks in separate Git worktrees.
   without enabling the optional executor.
 - To use the executor, prepare a fresh plan and review its execution policies.
   Existing native tasks cannot be transferred into it. Follow the
-  [owned executor setup and recovery guide](docs/owned-executor-plan-runbook.md).
+  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.0/docs/owned-executor-plan-runbook.md).
 
 ### Known issues
 

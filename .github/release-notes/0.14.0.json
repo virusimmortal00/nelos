@@ -1,30 +1,30 @@
 {
   "schemaVersion": 1,
   "version": "0.14.0",
-  "notesDigest": "sha256:05bb84535b3f62826d0d728e0067352573fc62049d02e31ea8206b9007286a13",
+  "notesDigest": "sha256:be3a194bc5255751c42ecf7e6b52f41235cade885f24e1db919beffd0370f959",
   "author": "Codex primary release agent",
-  "reviewer": "CodeRabbit independent editorial reviewer",
-  "decision": "pending",
+  "reviewer": "Codex independent release notes editor (/root/release_notes_editor)",
+  "decision": "approved",
   "assessment": {
     "userValue": {
-      "status": "pending",
-      "rationale": ""
+      "status": "pass",
+      "rationale": "The notes describe explicit Astra selection, background dependency workers, restart recovery, and compatibility fixes as observable capabilities. Upgrade guidance identifies executor users who must prepare a fresh plan; limitations explain the required parent review and integration actions."
     },
     "plainLanguage": {
-      "status": "pending",
-      "rationale": ""
+      "status": "pass",
+      "rationale": "The overview explains the executor as background tasks in separate Git worktrees. Entries use concrete actions and explain inactive conversation behavior. Model/profile identifiers are retained because readers need them to select Astra, while detailed service terminology stays in the linked guide."
     },
     "publicMigration": {
-      "status": "pending",
-      "rationale": ""
+      "status": "pass",
+      "rationale": "GitHub confirms virusimmortal00/nelos is public. The versioned absolute URL will resolve with the planned v0.14.0 tag to the tracked runbook reviewed here; it also works when these notes become a GitHub Release body. The guide supplies preparation commands, private file permissions, MCP attachment, collection and acceptance steps, and recovery limits. Existing native tasks are explicitly not transferable."
     },
     "accurateClaims": {
-      "status": "pending",
-      "rationale": ""
+      "status": "pass",
+      "rationale": "Reviewed the release diff from v0.13.0, including Astra catalog and routing, version admission, host-default MCP diagnostics, and executor installation and tools. Background completion, restart collection, and bounded read-only retry claims agree with the runbook and recorded signed-in canaries. The notes preserve unchanged routing defaults and explicitly deny automatic parent resumption, unattended plans, and automatic write retries; they make no Desktop certification claim."
     },
     "scopeSeparation": {
-      "status": "pending",
-      "rationale": ""
+      "status": "pass",
+      "rationale": "The release section contains user capabilities, affected-user upgrade guidance, and practical limitations. It excludes test counts, CI methodology, hashes, review results, machine identities, and internal implementation inventories; operational detail is linked through the public runbook."
     }
   }
 }
