@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "version": "0.14.3",
+  "notesDigest": "sha256:0207e88139bfa9df3bde75e168a0ae5bf47f45e7825442bc56b381739963a9ea",
+  "author": "Codex primary release agent",
+  "reviewer": "CodeRabbit AI editorial review for PR #129",
+  "decision": "approved",
+  "assessment": {
+    "userValue": {
+      "status": "pass",
+      "rationale": "The notes identify users of coordinated tasks with a planning worker and describe the observable result: the task continues after the planner launches instead of stopping."
+    },
+    "plainLanguage": {
+      "status": "pass",
+      "rationale": "The revised notes lead with the visible task behavior and use the reviewer-proposed launch-ID wording. Internal terms called out in the first review, including action identity, receipt.actionId, and coordinator, were removed."
+    },
+    "publicMigration": {
+      "status": "pass",
+      "rationale": "The fix removes no public capability and requires no separate migration procedure. The entry states the recovery behavior for a missing action ID without sending users to private or unavailable guidance."
+    },
+    "accurateClaims": {
+      "status": "pass",
+      "rationale": "The revised text states the two behaviors supported by the diff: installed instructions identify the launch ID to copy, and receipt validation reports the exact correction when that ID is omitted. It no longer claims automatic preservation."
+    },
+    "scopeSeparation": {
+      "status": "pass",
+      "rationale": "The notes contain only the user-visible failure and corrected behavior. They omit CI details, test counts, hashes, review metadata, and implementation inventories."
+    }
+  }
+}
