@@ -171,6 +171,33 @@ function resultReceipt(initial, response) {
   };
 }
 
+test("planning lifecycle identifies the required launch receipt action ID", async () => {
+  const value = await fixture();
+  try {
+    const initial = await value.coordinator.advance(request(), {
+      appServerBridge: value.bridge,
+    });
+    const receipt = launchReceipt(initial);
+    delete receipt.actionId;
+
+    await assert.rejects(
+      value.coordinator.advance(
+        request({
+          bootstrapId: initial.lifecycle.bootstrapId,
+          receipt,
+        }),
+        { appServerBridge: value.bridge },
+      ),
+      {
+        message:
+          "receipt.actionId is required; copy nextAction.member.actionId unchanged",
+      },
+    );
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
 test("planning lifecycle is idempotent, restart-safe, and completes from exact receipts", async () => {
   const value = await fixture();
   try {
