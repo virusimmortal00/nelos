@@ -292,6 +292,15 @@ function normalizeReceipt(value) {
       `planning lifecycle receipt schemaVersion must be ${PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION}`,
     );
   }
+  if (value.actionId === undefined) {
+    const actionSource =
+      value.type === "native-planner-created"
+        ? "nextAction.member.actionId"
+        : "nextAction.actionId";
+    throw new Error(
+      `receipt.actionId is required; copy ${actionSource} unchanged`,
+    );
+  }
   const common = {
     schemaVersion: PLANNING_LIFECYCLE_RECEIPT_SCHEMA_VERSION,
     type: value.type,

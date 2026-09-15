@@ -7,6 +7,17 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
+## [0.14.3] - 2026-09-15
+
+Planner startup now preserves the action identity required to continue a
+coordinated task after its planning worker launches.
+
+### Fixed
+
+- Coordinated tasks no longer stop with an invalid `receipt.actionId` after the
+  planner is created. Nelos now tells the coordinator which launch action ID to
+  copy, and a missing ID reports the exact correction.
+
 ## [0.14.2] - 2026-09-13
 
 Nelos keeps its plugin tools available as Codex CLI versions change and adds an

@@ -19,8 +19,8 @@ across restarts. The coordinating agent (the queen) owns the outcome.
 - Handle isolated edits, explanations, single-task renaming, and standalone
   reviews directly with the appropriate tools; they do not need a task web.
 
-Automatic discovery does not expand the user's task or grant permission for
-external changes. Respect explicit limits on delegation and side effects.
+Discovery does not expand scope or grant external-change permission. Respect
+delegation and side-effect limits.
 
 ## Execute Safely
 
@@ -59,8 +59,10 @@ After the fast path or bootstrap, execute only the returned
 
 - `native-set-title`: for the queen or durable spinoff, use exact `threadId` and
   `title`; verify, then repeat the returning tool. Joined subagents cannot use it.
-- `launch-planner`: follow the bounded path; map exact `forkTurns` to the
-  native launcher's `fork_turns` field.
+- `launch-planner`: map `forkTurns` exactly to `fork_turns`. Replay
+  `native-planner-created` with exact `schemaVersion`, `type`, `actionId`,
+  `bootstrapId`, `parentThreadId`, and `agentPath`. Copy `nextAction.member.actionId`
+  unchanged; never omit it.
 - `verify-route`: call its `tool` with unchanged `arguments`.
 - `authorization-required`: run its `authorizationEffect` with registry data and
   confirmed user intent. Replay its exact receipt; never author one.

@@ -39,6 +39,11 @@ test("the skill has one native path driven by machine-generated next actions", (
   );
   assert.match(skill, /`native-set-title`/);
   assert.match(skill, /`launch-planner`/);
+  assert.match(skill, /Replay\s+`native-planner-created` with/);
+  assert.match(
+    skill,
+    /Copy `nextAction\.member\.actionId`\s+unchanged; never omit it/,
+  );
   assert.match(skill, /`launch-wave`/);
   assert.match(skill, /primary identity is `agentPath`/);
   assert.match(skill, /internal thread ID is verification\s+evidence only/);
@@ -56,7 +61,7 @@ test("the skill has one native path driven by machine-generated next actions", (
     skill,
     /never omit,\s+substitute, or inherit a decided `nativeTask`/i,
   );
-  assert.match(skill, /`forkTurns` to the\s+native launcher's `fork_turns` field/);
+  assert.match(skill, /`forkTurns` exactly to `fork_turns`/);
   assert.match(skill, /never bind an agent name as a\s+thread ID/i);
   assert.match(skill, /`nelos_launch_verify_batch`/);
   assert.match(skill, /`allVerified` is true/);
