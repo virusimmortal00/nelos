@@ -5,10 +5,8 @@ description: Coordinate parallel agents and resume multi-step coding work with t
 
 # Coordinate Work with Nelos
 
-Use Nelos when coding work needs independent workers, ordered dependencies,
-and a reliable join of their results. It tracks what can run together, what
-must wait, and which results have actually been accepted across restarts.
-The coordinating agent (the queen) remains responsible for the outcome.
+Use Nelos for independent workers, ordered dependencies, and result acceptance
+across restarts. The coordinating agent (the queen) owns the outcome.
 
 ## Choose the Scope
 
@@ -21,8 +19,8 @@ The coordinating agent (the queen) remains responsible for the outcome.
 - Handle isolated edits, explanations, single-task renaming, and standalone
   reviews directly with the appropriate tools; they do not need a task web.
 
-Automatic discovery does not expand the user's task or grant permission for
-external changes. Respect explicit limits on delegation and side effects.
+Discovery does not expand scope or grant external-change permission. Respect
+delegation and side-effect limits.
 
 ## Execute Safely
 
@@ -61,8 +59,10 @@ After the fast path or bootstrap, execute only the returned
 
 - `native-set-title`: for the queen or durable spinoff, use exact `threadId` and
   `title`; verify, then repeat the returning tool. Joined subagents cannot use it.
-- `launch-planner`: follow the bounded path; map exact `forkTurns` to the
-  native launcher's `fork_turns` field.
+- `launch-planner`: map `forkTurns` exactly to `fork_turns`. Replay
+  `native-planner-created` with exact `schemaVersion`, `type`, `actionId`,
+  `bootstrapId`, `parentThreadId`, and `agentPath`. Copy `nextAction.member.actionId`
+  unchanged; never omit it.
 - `verify-route`: call its `tool` with unchanged `arguments`.
 - `authorization-required`: run its `authorizationEffect` with registry data and
   confirmed user intent. Replay its exact receipt; never author one.
@@ -70,7 +70,7 @@ After the fast path or bootstrap, execute only the returned
 - `launch-wave`: its `executionGate` is authoritative. Dispatch only listed
   members with exact fields. Never omit, substitute, or inherit a decided `nativeTask`.
   `create-thread` makes spinoffs; `spawn-subagent` uses
-  `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
+  `agentTaskName`. Joined subagents support Astra, Sol, or Terra under Nelos policy; Luna is
   valid only for durable spinoffs. Never bind an agent name as a thread ID.
   For each `orchestration`, call its exact tool/arguments, execute
   `native-create`, and submit the unchanged work unit plus exact task-ID receipt.
@@ -96,6 +96,15 @@ After the fast path or bootstrap, execute only the returned
 - `native-wait-wave`: route every target independently by `controlSurface`;
   `collaboration` targets are subagents and `codex-task` targets are spinoffs.
   After terminal turns call `nelos_execution_map_refresh` with resolved fields; never trust mailbox status.
+  Then call the exact `continuation.tool` and `continuation.arguments` to enter
+  persisted result collection. A refreshed map does not accept results.
+- `advance-orchestration` and `collect-results`: call their exact tool and arguments.
+  Collection reads native evidence and returns consumed result receipts. Never
+  infer terminal status or author a worker result envelope. Joined members have
+  no title effect and keep collaboration controls throughout collection.
+- `decide-collected-result`: judge the returned result, then call its exact tool
+  and arguments, adding only `decision` and `decisionSummary`. Follow the returned
+  continuation until all required results are accepted.
 - `native-wait` and `native-read`: use Codex task controls for durable task
   targets. For task checks call `nelos_thread_wait`, then
   `nelos_thread_inventory`. Never serially poll a web.
@@ -117,6 +126,9 @@ After the fast path or bootstrap, execute only the returned
 - `orchestration-repair-member`: submit its exact identity as an `orchestration-member-repaired` receipt through `nelos_orchestrate_advance`,
   adding only `resolution: "detach"`; never detach locally.
 - `attention`: stop and resolve the named evidence gap; do not infer an action.
+  For `missing-persisted-plan-web-identity`, replay the original unchanged plan
+  to adopt its join identity, settle the returned queen title, and replay exact
+  launch verification for existing members. Never relaunch those members.
   For `missing-persisted-dependency-work-units`, replay exact launch
   verification for named legacy joined members, then retry the transition.
 - `complete`: stop; the command has no additional protocol step.

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
+import { executorMcpToolsV1 } from "./executor-mcp-tools.mjs";
 
 import {
   planWorkSlices,
@@ -41,6 +42,12 @@ import {
   MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
   McpJoinAdapterV1,
 } from "./mcp-observation.mjs";
+import {
+  collectOrchestrationResultsV1,
+  hasHostRecoveryEffectV1,
+  MCP_RESULT_COLLECTION_INPUT_SCHEMA,
+  resultCollectionActionV1,
+} from "./mcp-result-collection.mjs";
 import {
   MCP_QUEEN_DECISION_INPUT_SCHEMA,
   McpQueenDecisionAdapterV1,
@@ -210,8 +217,8 @@ async function adoptVerifiedJoinedMembers(
     ({ lifecycle }) => lifecycle === "subagent",
   );
   if (joined.length === 0) return;
-  // Subagent-only plans intentionally have no durable web identity or later
-  // durable dependency consumer, so they retain their lightweight path.
+  // Legacy runs can lack an identity. They must replay planning before the
+  // caller can enter the persisted result-acceptance path.
   if (!record.webIdentity) return;
   if (!record.plan) {
     throw new Error(
@@ -299,7 +306,7 @@ async function plannedSlicesOutput(
     parentPlanRun?.webIdentity ?? existing?.webIdentity ?? null;
   let settledQueenTitle = null;
 
-  if (plan.summary.spinoffs > 0) {
+  {
     const before = await appServerBridge.inspect({ threadId: queenThreadId });
     if (!before.title) {
       throw new Error("current queen task has no settled title");
@@ -472,8 +479,6 @@ async function plannedSlicesOutput(
     launchAuthorization,
     ...additionalFields,
   });
-  if (plan.summary.spinoffs === 0) return output;
-
   const requestedTitle = planRun.webIdentity.queenTitle;
   const changed = requestedTitle !== settledQueenTitle;
   return {
@@ -664,7 +669,7 @@ const TOOLS = [
       "Validate a structured slice-plan JSON object and return " +
       "dependency-safe waves with reviewed per-slice launch options and the " +
       "machine-generated nextAction. Every wave requires exact native-host " +
-      "capability and creation authorization. Plans containing spinoffs first " +
+      "capability and creation authorization. All coordinated plans first " +
       "synchronize and verify the current queen title through Codex.",
     inputSchema: {
       type: "object",
@@ -721,7 +726,9 @@ const TOOLS = [
       "this tool never launches work.",
     inputSchema: LAUNCH_AUTHORIZATION_PRODUCER_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
-    async run(args) {
+    async run(args, { planRunStore }) {
+      const record = await planRunStore.read(args.request?.verification?.planRunId);
+      if (record?.sourceId?.startsWith("owned:")) throw new Error("owned plans require nelos_owned_launch; native launch receipts are unavailable for this plan");
       return {
         command: "launch authorize",
         receipt: createLaunchAuthorizationReceiptV1(args),
@@ -753,7 +760,7 @@ const TOOLS = [
         appServerBridge,
         waveContract: wave,
       });
-      if (verification.allVerified) {
+      if (verification.allVerified && record.webIdentity) {
         await adoptVerifiedJoinedMembers(
           record,
           verification,
@@ -783,7 +790,14 @@ const TOOLS = [
       return {
         command: "launch verify batch",
         verification,
-        nextAction: verification.allVerified
+        nextAction: verification.allVerified && !record.webIdentity
+          ? {
+              schemaVersion: 1,
+              kind: "attention",
+              reason: "missing-persisted-plan-web-identity",
+              planRunId: args.planRunId,
+            }
+          : verification.allVerified
           ? {
               schemaVersion: 1,
               kind: "native-wait-wave",
@@ -813,6 +827,13 @@ const TOOLS = [
                     };
               }),
               after: "read-results",
+              continuation: {
+                tool: "nelos_orchestrate_collect",
+                arguments: {
+                  webId: record.webIdentity.webId,
+                  queenThreadId: record.queenThreadId,
+                },
+              },
             }
           : titleMismatch && expectedTitle
             ? {
@@ -1172,7 +1193,7 @@ const TOOLS = [
       "Durably advance one spinoff or joined-subagent work unit to " +
       "launch-pending and return one lifecycle-specific native-create effect, " +
       "or validate a host create receipt and bind its member thread ID. Joined " +
-      "subagent launches accept only Sol or Terra; Luna is durable-task-only. " +
+      "subagent launches accept Astra, Sol, or Terra under the reviewed Nelos policy. " +
       "This tool never contacts the app server.",
     inputSchema: MCP_ORCHESTRATE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
@@ -1191,7 +1212,18 @@ const TOOLS = [
     inputSchema: MCP_OBSERVATION_ADVANCE_INPUT_SCHEMA,
     annotations: STATEFUL_ANNOTATIONS,
     async run(args, { joinAdapter }) {
-      return joinAdapter.advance(args);
+      const result = await joinAdapter.advance(args);
+      if (hasHostRecoveryEffectV1(result)) return result;
+      return { ...result, nextAction: result.nextAction ?? resultCollectionActionV1(result) };
+    },
+  },
+  {
+    name: "nelos_orchestrate_collect",
+    description: "Read bounded native terminal results for a verified wave, consume exact observation receipts, and return a queen acceptance proposal. Never launches, waits on, renames, archives, or accepts a native task. Unavailable or changing evidence stops collection.",
+    inputSchema: MCP_RESULT_COLLECTION_INPUT_SCHEMA,
+    annotations: STATEFUL_ANNOTATIONS,
+    async run(args, { joinAdapter, appServerBridge }) {
+      return collectOrchestrationResultsV1(args, { joinAdapter, appServerBridge });
     },
   },
   {
@@ -1307,8 +1339,8 @@ const TOOLS = [
   },
 ];
 
-export function listNelosMcpTools() {
-  return TOOLS.map(({
+export function listNelosMcpTools({ ownedExecutorClient = null } = {}) {
+  return [...TOOLS, ...executorMcpToolsV1(ownedExecutorClient)].map(({
     name,
     description,
     inputSchema,
@@ -1380,6 +1412,7 @@ export function startNelosMcpServer({
   configuration = new NelosConfigurationV1(),
   lifecycleAdapter = new SpinoffLifecycleAdapterV1({ configuration }),
   appServerBridge = new CodexAppServerBridgeV1(),
+  ownedExecutorClient = null,
   planRunStore = new PlanRunStoreV1(),
   webRegistry = DEFAULT_WEB_REGISTRY,
   planningLifecycle = new PlanningLifecycleCoordinatorV1(),
@@ -1399,6 +1432,7 @@ export function startNelosMcpServer({
   if (typeof onLeaseRemove !== "function") throw new Error("onLeaseRemove must be a function");
   if (typeof onExit !== "function") throw new Error("onExit must be a function");
   let initialized = false;
+  const instanceTools = [...TOOLS, ...executorMcpToolsV1(ownedExecutorClient)];
   let negotiatedVersion = null;
 
   // Derivation starts now, at bootstrap, rather than on first use: it must
@@ -1486,7 +1520,7 @@ export function startNelosMcpServer({
   }
 
   async function callTool(params) {
-    const tool = TOOLS.find((candidate) => candidate.name === params?.name);
+    const tool = instanceTools.find((candidate) => candidate.name === params?.name);
     if (!tool) {
       const error = new Error(`unknown tool: ${params?.name}`);
       error.jsonRpcCode = -32602;
@@ -1623,7 +1657,7 @@ export function startNelosMcpServer({
       return;
     }
     if (method === "tools/list") {
-      send({ jsonrpc: "2.0", id, result: { tools: listNelosMcpTools() } });
+      send({ jsonrpc: "2.0", id, result: { tools: listNelosMcpTools({ ownedExecutorClient }) } });
       return;
     }
     if (method === "tools/call") {
@@ -1818,6 +1852,7 @@ export function startNelosMcpServer({
       // checked. Close the bridge only after that serialized request chain has
       // drained; closing beside it can tear down an admitted in-flight call.
       processing.then(() => appServerBridge.close?.()),
+      processing.then(() => ownedExecutorClient?.close?.()),
       Promise.allSettled([
         Promise.all([processing, drainLease])
           .then(() => workerLeaseResult)

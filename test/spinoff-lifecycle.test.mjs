@@ -6,7 +6,6 @@ import { join } from "node:path";
 import test, { after } from "node:test";
 import { createPlanRunV1 } from "../src/plan-run-store.mjs";
 import { planWorkSlices } from "../src/slice-planner.mjs";
-import { authorizeLaunchProposal } from "./support/launch-authorization-helper.mjs";
 
 import {
   NelosConfigStoreV1,
@@ -744,7 +743,7 @@ test("remembering a cleanup policy requires explicit user intent", async (t) => 
   );
 });
 
-test("wave-scoped cleanup isolates retries and archive effects across waves", async (t) => {
+test("wave-scoped cleanup isolates retries and collects an already verified next wave", async (t) => {
   const second = workUnit({
     workUnitId: "member-b",
     title: "Member B",
@@ -804,15 +803,17 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
     archiveReceipts: [archiveReceipt(first.effects[0])],
   });
   assert.equal(settled.state, "complete");
-  assert.equal(settled.nextAction.kind, "authorization-required");
-  const authorized = await adapter.cleanup({
+  assert.deepEqual(settled.nextAction, {
+    schemaVersion: 1, kind: "collect-results", tool: "nelos_orchestrate_collect",
+    arguments: { webId: "A1", queenThreadId: "queen" },
+  });
+  const replayed = await adapter.cleanup({
     webId: "A1", queenThreadId: "queen", planRunId,
     waveIndex: 1, waveDigest: waves[0].waveDigest,
-    launchAuthorization: authorizeLaunchProposal(settled.nextAction),
   });
-  assert.equal(authorized.state, "complete");
-  assert.equal(authorized.nextAction.kind, "launch-wave");
-  assert.equal(authorized.nextAction.waveIndex, 2);
+  assert.equal(replayed.state, "complete");
+  assert.deepEqual(replayed.nextAction, settled.nextAction);
+  assert.deepEqual(replayed.effects, []);
   const later = await adapter.cleanup({
     webId: "A1", queenThreadId: "queen", planRunId,
     waveIndex: 2, waveDigest: waves[1].waveDigest, policy: "auto",

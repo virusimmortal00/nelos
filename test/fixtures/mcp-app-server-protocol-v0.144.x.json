@@ -1,8 +1,9 @@
 {
-  "source": "codex-cli 0.144.5 and Codex Desktop 0.144.6: codex app-server generate-json-schema --experimental",
+  "source": "codex-cli 0.144.5 and Codex Desktop 0.144.6, revalidated against codex-cli 0.154.0 on 2026-09-12: codex app-server generate-json-schema --experimental; retained historical fixture filename",
   "testedCodexVersions": [
     "0.144.5",
-    "0.144.6"
+    "0.144.6",
+    "0.154.0"
   ],
   "initialize": {
     "requiredResponseFields": [

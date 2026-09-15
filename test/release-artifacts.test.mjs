@@ -256,6 +256,24 @@ test("release workflow is tag-triggered, recoverable, gated, draft-only, and che
   );
 });
 
+test("draft release classification distinguishes prereleases from build metadata", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
+  const classify = workflow.match(/(version="\$\{RELEASE_TAG#v\}"[\s\S]*?)\s+mapfile -t assets/u)?.[1];
+  assert.ok(classify, "the workflow must classify the exact tag before creating a draft");
+  for (const [tag, expected] of [
+    ["v0.14.0-rc.1", "true"],
+    ["v0.14.0-rc.1+codex.20260912", "true"],
+    ["v0.14.0", "false"],
+    ["v0.14.0+codex.build-with-hyphens", "false"],
+  ]) {
+    const { stdout } = await execFileAsync("bash", ["-c", `${classify}\nprintf '%s' "$prerelease"`],
+      { env: { ...process.env, RELEASE_TAG: tag } });
+    assert.equal(stdout, expected, tag);
+  }
+  assert.equal((workflow.match(/--prerelease="\$prerelease"/gu) ?? []).length, 2,
+    "both draft creation and update must preserve the release channel");
+});
+
 test("release artifact build is reproducible and checksum-complete", async () => {
   const root = await mkdtemp(join(tmpdir(), "nelos-release-artifacts-"));
   const fixtureRoot = join(root, "repository");
@@ -272,6 +290,10 @@ test("release artifact build is reproducible and checksum-complete", async () =>
       await readFile(join(fixtureRoot, "package.json"), "utf8"),
     );
     const tag = `v${packageMetadata.version}`;
+    // The copied checkout may already carry an approved production review.
+    // This fixture replaces its notes and owns its approval lifecycle.
+    const reviewPath = join(fixtureRoot, ".github", "release-notes", `${packageMetadata.version}.json`);
+    await rm(reviewPath, { force: true });
     const changelogPath = join(fixtureRoot, "CHANGELOG.md");
     await writeFile(
       changelogPath,
@@ -299,7 +321,7 @@ This fixture exercises a reader-facing release description.
       { cwd: fixtureRoot }), /Missing or invalid editorial review/);
     const notes = extractReleaseNotes(await readFile(changelogPath, "utf8"), packageMetadata.version);
     await mkdir(join(fixtureRoot, ".github", "release-notes"), { recursive: true });
-    await writeFile(join(fixtureRoot, ".github", "release-notes", `${packageMetadata.version}.json`), JSON.stringify({
+    await writeFile(reviewPath, JSON.stringify({
       schemaVersion: 1, version: packageMetadata.version, notesDigest: releaseNotesDigest(notes),
       author: "test-author", reviewer: "test-editor", decision: "approved",
       assessment: Object.fromEntries(EDITORIAL_CHECKS.map(name => [name,

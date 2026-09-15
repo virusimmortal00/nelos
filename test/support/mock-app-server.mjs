@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import net from "node:net";
+import { EventEmitter } from "node:events";
 
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -26,6 +27,7 @@ function encodeServerFrame(message) {
 
 export async function startMockAppServer(socketPath, onRequest = async () => ({})) {
   const requests = [];
+  const messages = new EventEmitter();
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -37,10 +39,13 @@ export async function startMockAppServer(socketPath, onRequest = async () => ({}
 
     const dispatch = async (message) => {
       requests.push(message);
-      if (!("id" in message)) return;
+      messages.emit("message", message);
+      if (!("id" in message) || !("method" in message)) return;
 
       try {
-        const result = await onRequest(message);
+        const result = await onRequest(message, {
+          send: (reply) => socket.write(encodeServerFrame(reply)),
+        });
         if (!socket.destroyed) {
           socket.write(encodeServerFrame({ id: message.id, result: result ?? {} }));
         }
@@ -136,6 +141,7 @@ export async function startMockAppServer(socketPath, onRequest = async () => ({}
 
   return {
     requests,
+    messages,
     async close() {
       for (const socket of sockets) socket.destroy();
       await new Promise((resolve, reject) => {

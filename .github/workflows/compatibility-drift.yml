@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        codex: ["0.144.5", "0.144.6"]
+        codex: ["0.144.5", "0.144.6", "0.154.0"]
     steps:
       - uses: actions/checkout@v7
         with:

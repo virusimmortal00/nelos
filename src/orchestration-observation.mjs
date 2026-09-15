@@ -120,7 +120,7 @@ export function validateNativeWaitReceiptV1(value) {
   ], "native wait receipt");
   if (
     receipt.schemaVersion !== 1 || receipt.type !== "native-wait" ||
-    !new Set(["event", "timeout"]).has(receipt.status) ||
+    !new Set(["event", "timeout", "snapshot"]).has(receipt.status) ||
     !Array.isArray(receipt.targets) || receipt.targets.length === 0 ||
     receipt.targets.length > 100
   ) {
@@ -294,7 +294,7 @@ function waitEffect(checkpoint, members) {
   };
 }
 
-function readEffect(member) {
+export function nativeResultReadEffectV1(member) {
   return {
     schemaVersion: 1,
     type: "native-read-result",
@@ -376,7 +376,7 @@ export function reduceObservationJoinV1(value) {
         member.coordination.state !== "correction-pending" &&
         member.result.state !== "current",
     )
-    .map(readEffect);
+    .map(nativeResultReadEffectV1);
   const correctionMembers = activeRequired.filter(
     (member) =>
       member.coordination.state === "correction-pending" &&

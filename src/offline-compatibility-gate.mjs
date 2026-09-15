@@ -46,17 +46,6 @@ function stableUnique(values) {
   return [...new Set(values)].sort();
 }
 
-function compareVersions(left, right) {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
-    }
-  }
-  return 0;
-}
-
 async function readJson(path, label) {
   let text;
   try {
@@ -203,10 +192,9 @@ async function validateSupportedVersionConsistency({ registry, root }) {
     JSON.stringify(registryVersions) === JSON.stringify(bridgeVersions),
     `registry versions ${registryVersions.join(", ")} do not match bridge versions ${bridgeVersions.join(", ")}`,
   );
-  const minimum = [...registryVersions].sort(compareVersions)[0];
   check(
-    bridge.MINIMUM_CODEX_APP_SERVER_VERSION === minimum,
-    `bridge minimum ${bridge.MINIMUM_CODEX_APP_SERVER_VERSION} does not match ${minimum}`,
+    bridge.MINIMUM_CODEX_APP_SERVER_VERSION === null,
+    "tested CLI versions must not impose a runtime minimum",
   );
   for (const release of registry.supportedCodexReleases) {
     check(
@@ -291,7 +279,7 @@ async function runNodeTests(root, testPaths) {
   try {
     await execFileAsync(
       process.execPath,
-      ["--require", blocker, "--test", ...testPaths],
+      ["--require", blocker, "--import", resolve(root, "scripts/test-bootstrap.mjs"), "--test", ...testPaths],
       {
         cwd: root,
         encoding: "utf8",
@@ -340,6 +328,8 @@ function defaultCheckRunners() {
       ({ root }) => runNodeTests(root, [
         "test/model-catalog-freshness.test.mjs",
         "test/check-model-catalog.test.mjs",
+        "test/intelligence-profile-router.test.mjs",
+        "test/launch-contract.test.mjs",
       ]),
     ],
     [
@@ -347,6 +337,21 @@ function defaultCheckRunners() {
       ({ root }) => runNodeTests(root, [
         "test/mcp-app-server-bridge.test.mjs",
       ]),
+    ],
+    [
+      "repo.execution-foundation",
+      ({ root }) => runNodeTests(root, [
+        "test/app-server-client.test.mjs",
+        "test/app-server-rpc-dispatcher.test.mjs",
+        "test/app-server-execution-profile.test.mjs",
+        "test/app-server-execution-transport.test.mjs",
+        "test/executor-app-server-session.test.mjs",
+        "test/executor-schema-compatibility.test.mjs",
+      ]),
+    ],
+    [
+      "repo.executor-admission",
+      ({ root }) => runNodeTests(root, ["test/executor-grants.test.mjs", "test/executor-launch-journal.test.mjs", "test/executor-launch-coordinator.test.mjs", "test/executor-app-server-effects.test.mjs", "test/executor-service-supervisor.test.mjs", "test/executor-approval-relay.test.mjs", "test/executor-service-runtime.test.mjs", "test/executor-startup-recovery.test.mjs"]),
     ],
     [
       "repo.protocol-contracts",

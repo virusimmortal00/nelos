@@ -11,6 +11,7 @@ import {
   createTaskResultTemplateV1,
 } from "./task-launch-prompt.mjs";
 import { launcherForMemberKind } from "./launch-contract.mjs";
+import { readExecutorClaimV1 } from "./executor-backend-claim.mjs";
 
 export const MCP_ORCHESTRATION_SCHEMA_VERSION = 1;
 export const HOST_CREATE_RECEIPT_SCHEMA_VERSION = 1;
@@ -275,6 +276,9 @@ export class McpOrchestrationAdapterV1 {
     assertReceiptMatchesAction(normalizedReceipt, action);
 
     return withExecutionOrchestrationLock(proposed.workUnitId, async () => {
+      if (await readExecutorClaimV1(this.#store, proposed.workUnitId)) {
+        throw new Error("work unit belongs to the owned executor; use the attached nelos_owned tools");
+      }
       let current = await this.#store.read(proposed.workUnitId);
       if (current === null) {
         try {

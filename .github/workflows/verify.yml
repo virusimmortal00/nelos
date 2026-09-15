@@ -54,7 +54,10 @@ jobs:
       - run: npm ci
       - name: Check release notes before merge and tagging
         env:
-          RELEASE_NOTES_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          # Candidate branches and tags can replace unpublished draft notes.
+          # Compare their historical notes with main; main pushes retain the
+          # previous-commit check so published history cannot be rewritten.
+          RELEASE_NOTES_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.ref == 'refs/heads/main' && github.event.before || 'origin/main' }}
         shell: bash
         run: |
           set -euo pipefail

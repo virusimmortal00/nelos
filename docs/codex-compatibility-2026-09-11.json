@@ -1,0 +1,409 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-11",
+  "platform": "darwin-arm64",
+  "installed": {
+    "desktopVersion": "26.903.71938",
+    "desktopBuild": "8576",
+    "bundleIdentifier": "com.openai.codex",
+    "bundlePath": "/Applications/ChatGPT.app",
+    "cliVersion": "0.153.4",
+    "cliSource": "Desktop bundle on PATH"
+  },
+  "latest": {
+    "desktop": {
+      "version": "26.908.40401",
+      "build": "8837",
+      "publishedAt": "2026-09-11T14:40:02Z",
+      "source": "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
+      "bundledCliVersion": "0.154.0-alpha.6.2",
+      "archiveSignatureVerified": true,
+      "archiveSha256": "491670fc43c1f2c713961e18b6a0b5de19f114d41484ce2e264da1d9b7086fdf"
+    },
+    "publicCli": {
+      "tag": "rust-v0.154.0",
+      "publishedAt": "2026-09-09T22:35:38Z",
+      "url": "https://github.com/openai/codex/releases/tag/rust-v0.154.0",
+      "digest": "sha256:344310a0a591c1b192e04feff304321a69907c9498baaac331ca7e16ebcef9d7"
+    }
+  },
+  "probes": [
+    {
+      "label": "installed",
+      "userAgent": "Codex Desktop/0.153.4 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    },
+    {
+      "label": "public-cli",
+      "userAgent": "Codex Desktop/0.154.0 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    },
+    {
+      "label": "latest-desktop",
+      "userAgent": "Codex Desktop/0.154.0-alpha.6.1 (Mac OS 26.6.1; arm64) dumb (nelos_compatibility_probe; 1.0.0)",
+      "homeMatches": true,
+      "platformFamily": "unix",
+      "platformOs": "macos",
+      "requiresOpenaiAuth": true,
+      "accountType": "chatgpt",
+      "models": [
+        {
+          "model": "gpt-6-astra",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ],
+      "modelNextPage": null,
+      "profiles": [
+        {
+          "id": ":read-only",
+          "allowed": true
+        },
+        {
+          "id": ":workspace",
+          "allowed": true
+        },
+        {
+          "id": ":danger-full-access",
+          "allowed": true
+        }
+      ],
+      "configRequirementsPresent": true,
+      "allowedApprovalPolicies": null
+    }
+  ],
+  "sessionDiscoveryVersions": [
+    "0.153.4",
+    "0.154.0",
+    "0.154.0-alpha.6.1",
+    "0.154.0-alpha.6.2"
+  ],
+  "runtimeExecutionTested": false,
+  "remoteHostTested": true,
+  "latestDesktopUiTested": false,
+  "remoteVersionCheck": {
+    "host": "m3",
+    "observedAt": "2026-09-11T16:23:35Z",
+    "outcome": "available",
+    "priorAttempt": "SSH connection timed out",
+    "platform": "Darwin 25.5.0 arm64",
+    "desktopVersion": "26.715.72359",
+    "desktopBuild": "5718",
+    "bundleIdentifier": "com.openai.codex",
+    "bundledCli": {
+      "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "version": "0.145.0-alpha.30"
+    },
+    "standaloneCli": {
+      "path": "/Users/bobby.sayers/.local/bin/codex",
+      "version": "0.146.0"
+    },
+    "noninteractivePathContainsCodex": false,
+    "ownedExecutorVersionAdmitted": false,
+    "runtimeDiscoveryTested": false
+  },
+  "installedDaemon": {
+    "command": "codex app-server daemon version",
+    "status": "unavailable",
+    "reason": "No managed app-server control socket at the default Codex home"
+  },
+  "validation": {
+    "codeCommits": [
+      "d8784ab",
+      "6b0e722",
+      "bf3aaea"
+    ],
+    "fullSuite": {
+      "passed": 1148,
+      "failed": 0
+    },
+    "syntaxChecks": "passed",
+    "requiredOfflineGate": {
+      "exitCode": 0,
+      "overallStatus": "unverified",
+      "deterministicChecks": "passed",
+      "runtimeCertification": false
+    },
+    "codeRabbit": {
+      "base": "a564c04",
+      "issues": 1,
+      "severity": "minor",
+      "resolution": "Preserve startup-journal-entry-missing and retain its work hold; regression passes",
+      "followUp": {
+        "status": "blocked",
+        "error": "Rate limit exceeded",
+        "retryAfter": "31 minutes as reported by CodeRabbit"
+      }
+    }
+  },
+  "previouslyAvailableDesktop": {
+    "version": "26.908.31748",
+    "build": "8720",
+    "publishedAt": "2026-09-11T03:33:04Z",
+    "source": "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
+    "bundledCliVersion": "0.154.0-alpha.6.1",
+    "archiveSignatureVerified": true,
+    "archiveSha256": "81fe2b609c641ed1ba0d56ae8b985a9d5ee3fccc5d551d381616e3a5172204eb"
+  },
+  "remoteRuntimeExecutionTested": false,
+  "remoteUpgrade": {
+    "host": "m3",
+    "observedAt": "2026-09-11T16:49:48.874Z",
+    "desktopVersion": "26.908.40401",
+    "desktopBuild": "8837",
+    "bundledCliVersion": "0.154.0-alpha.6.2",
+    "standaloneCliVersion": "0.154.0",
+    "cliUpdateMethod": "codex update (official standalone installer)",
+    "desktopUpdateMethod": "verified Sparkle archive and codesign; graceful quit, replace, reopen",
+    "desktopBackup": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/ChatGPT-previous-5718.app",
+    "priorCliReleasePreserved": true,
+    "daemon": {
+      "status": "running",
+      "backend": "pid",
+      "managedCodexPath": "/Users/bobby.sayers/.codex/packages/standalone/current/bin/codex",
+      "managedCodexVersion": "0.154.0",
+      "socketPath": "/Users/bobby.sayers/.codex/app-server-control/app-server-control.sock",
+      "cliVersion": "0.154.0",
+      "appServerVersion": "0.154.0"
+    },
+    "daemonMigration": "Verified zero loaded threads on legacy 0.146.0 WebSocket server, terminated that PID gracefully, and started managed 0.154.0 with the previous features.code_mode_host override.",
+    "runtimeDiscoveryTested": true,
+    "modelTurnsStarted": 0
+  },
+  "additionalDiscoveryReports": {
+    "localLatestDesktop": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0-alpha.6.2",
+      "observedVersion": "0.154.0-alpha.6.2",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/virusimmortal00/.codex/worktrees/ed9f/nelos",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
+    },
+    "remoteDesktop": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0-alpha.6.2",
+      "observedVersion": "0.154.0-alpha.6.2",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/nelos-probe",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
+    },
+    "remoteStandaloneCli": {
+      "schemaVersion": 1,
+      "source": "app-server-read-probe",
+      "reviewedSchemaVersion": "0.154.0",
+      "observedVersion": "0.154.0",
+      "state": "discovery-complete",
+      "executionAuthorized": false,
+      "runtimeCertified": false,
+      "selection": {
+        "cwd": "/Users/bobby.sayers/.codex/update-staging/desktop-8837/nelos-probe",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":read-only",
+        "approvalPolicy": "never"
+      },
+      "checks": {
+        "accountConfigured": "satisfied",
+        "modelAndEffortAdvertised": "satisfied",
+        "permissionProfileAllowed": "satisfied",
+        "approvalPolicyAllowed": "satisfied"
+      },
+      "blockers": []
+    }
+  },
+  "versionDurabilityCheck": {
+    "observedAt": "2026-09-11T16:58:56.435Z",
+    "host": "m3",
+    "modelTurnsStarted": 0,
+    "rows": [
+      {
+        "label": "previous-desktop",
+        "version": "0.145.0-alpha.30",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "unavailable",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "unsatisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": [
+          {
+            "code": "modelAndEffortAdvertised",
+            "method": "model/list",
+            "rpcCode": null
+          }
+        ]
+      },
+      {
+        "label": "previous-standalone",
+        "version": "0.146.0",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "unavailable",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "unsatisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": [
+          {
+            "code": "modelAndEffortAdvertised",
+            "method": "model/list",
+            "rpcCode": null
+          }
+        ]
+      },
+      {
+        "label": "current-desktop",
+        "version": "0.154.0-alpha.6.2",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "discovery-complete",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "satisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": []
+      },
+      {
+        "label": "current-standalone",
+        "version": "0.154.0",
+        "bridgeState": "ready",
+        "threadReadSucceeded": true,
+        "threadStatus": "notLoaded",
+        "ownedSessionState": "ready",
+        "discoveryState": "discovery-complete",
+        "checks": {
+          "accountConfigured": "satisfied",
+          "modelAndEffortAdvertised": "satisfied",
+          "permissionProfileAllowed": "satisfied",
+          "approvalPolicyAllowed": "satisfied"
+        },
+        "blockers": []
+      }
+    ]
+  },
+  "runtimeVersionPolicy": {
+    "admission": "live-capabilities",
+    "cliVersionGate": false,
+    "unrecognizedVersion": "diagnostic-null",
+    "unsupportedMethod": "operation-local-error",
+    "initializationFailure": "later-operation-or-health-probe-can-reconnect",
+    "uncertainMutationReplay": false
+  }
+}

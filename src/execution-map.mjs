@@ -39,6 +39,7 @@ export const EXECUTION_MAP_TOOL_NAMES = Object.freeze(new Set([
   "nelos_plan_slices",
   "nelos_orchestrate_create",
   "nelos_orchestrate_advance",
+  "nelos_orchestrate_collect",
   "nelos_launch_verify_batch",
   "nelos_queen_decide",
   "nelos_spinoff_complete",
@@ -1030,7 +1031,7 @@ function observationMap(toolName, args, result) {
   if (planned) return planned;
   if (toolName === "nelos_execution_map_refresh") return refreshedMap(result);
   if (toolName === "nelos_orchestrate_create") return orchestrationMap(result, args);
-  if (toolName === "nelos_orchestrate_advance") return checkpointMap(result);
+  if (["nelos_orchestrate_advance", "nelos_orchestrate_collect"].includes(toolName)) return checkpointMap(result);
   if (toolName === "nelos_launch_verify_batch") return verificationMap(result);
   if (toolName === "nelos_queen_decide") return decisionMap(result);
   if (toolName === "nelos_spinoff_complete") return completionMap(args);
@@ -1275,7 +1276,7 @@ export async function projectExecutionMapForToolResultV1(
           .map(({ id }) => id)
         : toolName === "nelos_launch_verify_batch"
           ? (result?.verification?.members ?? []).map(({ sliceId }) => sliceId)
-          : toolName === "nelos_orchestrate_advance"
+          : ["nelos_orchestrate_advance", "nelos_orchestrate_collect"].includes(toolName)
             ? (result?.checkpoint?.members ?? [])
               .filter(checkpointHasAuthoritativeStatusEvidence)
               .map(({ workUnitId }) => workUnitId)
@@ -1461,7 +1462,7 @@ export function mcpVisualToolMetadataV1(toolName) {
   const decision = toolName === "nelos_queen_decide";
   const completion = toolName === "nelos_spinoff_complete";
   const verification = toolName === "nelos_launch_verify_batch";
-  const advance = toolName === "nelos_orchestrate_advance";
+  const advance = ["nelos_orchestrate_advance", "nelos_orchestrate_collect"].includes(toolName);
   const refresh = toolName === "nelos_execution_map_refresh";
   const history = toolName === "nelos_execution_map_history";
   return {

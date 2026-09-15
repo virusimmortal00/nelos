@@ -58,14 +58,14 @@ export function lintReleaseNotes(notes) {
     const content = notes.slice(heading.index + heading[0].length, headings[i + 1]?.index).trim();
     if (!content || /^(?:[-*]\s*)?(?:None|N\/A)\.?$/iu.test(content)) problems.push(`Omit the empty ${name} section.`);
   }
-  if (/(?:file:\/\/|https?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/)|\]\((?:\/Users\/|\/private\/tmp\/))/iu.test(notes)) {
+  if (/(?:file:\/\/|https?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/)|\]\((?:\/Users\/|\/private\/tmp\/|[A-Za-z]:[\\/]))/iu.test(notes)) {
     problems.push("Replace machine-local links with publicly usable guidance.");
   }
   return problems;
 }
 
 function text(value, label) {
-  if (typeof value !== "string" || value.trim().length === 0 || value.length > 2000 || /\b(?:TODO|TBD|FIXME)\b|^pending$/iu.test(value)) {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > 2000 || /\b(?:TODO|TBD|FIXME)\b|^pending$/iu.test(value.trim())) {
     throw new Error(`release notes review requires a completed ${label}`);
   }
 }

@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
+import { isSemanticVersion } from "../src/experimentation-contract/semantic-version.mjs";
 
 // Generates both supported plugin layouts from the legacy Codex manifest:
 //
@@ -27,17 +28,12 @@ export const MCP_PLUGIN_VERSION_ENV = "NELOS_PLUGIN_VERSION";
 export const MCP_RELEASE_BUILD_IDENTITY_ENV = "NELOS_RELEASE_BUILD_IDENTITY";
 export const MCP_SERVER_CONFIG_KEY = "nelos";
 
-const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/u;
-const RELEASE_BUILD_IDENTITY =
-  /^nelos-release-v1:\d+\.\d+\.\d+(?:\+codex\.[a-z0-9-]+)?$/u;
-
 function assertReleaseIdentity(version, releaseBuildIdentity) {
-  if (typeof version !== "string" || !RELEASE_VERSION.test(version)) {
+  if (!isSemanticVersion(version)) {
     throw new Error(`mcp config requires a release version, got: ${version}`);
   }
   if (
-    typeof releaseBuildIdentity !== "string" ||
-    !RELEASE_BUILD_IDENTITY.test(releaseBuildIdentity)
+    releaseBuildIdentity !== `nelos-release-v1:${version}`
   ) {
     throw new Error(
       `mcp config requires an embedded release build identity, got: ${releaseBuildIdentity}`,

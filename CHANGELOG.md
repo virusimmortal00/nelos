@@ -7,6 +7,63 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 None.
 
+## [0.14.3] - 2026-09-15
+
+Planner launches for coordinated tasks now include the launch ID that Nelos
+needs to continue the task.
+
+### Fixed
+
+- If a planning-worker launch receipt omits its action ID, Nelos now reports how
+  to copy the required ID from the returned launch action. This prevents the
+  coordinated task from stopping after the planner starts.
+
+## [0.14.2] - 2026-09-13
+
+Nelos keeps its plugin tools available as Codex CLI versions change and adds an
+optional executor for running background tasks in separate Git worktrees.
+
+### Added
+
+- Review and accept worker results even when a plan uses only joined subagents.
+  If collection is interrupted after a result is saved, continuing uses that
+  saved result.
+- Choose GPT-6 Astra explicitly for coordinated tasks using `profile: "astra"`
+  or `model: "gpt-6-astra"`. Existing task-routing defaults are unchanged.
+- Run an explicitly prepared dependency plan with background workers. Completed
+  results remain available when the coordinating conversation disconnects, so
+  you can return, review the work, and continue the plan.
+- Recover recorded worker results after the executor service restarts. Operators
+  can also configure bounded retries for interrupted read-only tasks.
+
+### Fixed
+
+- New, prerelease, or unrecognized Codex CLI version strings no longer disable
+  the plugin. Each operation checks the capabilities it needs, and an
+  unsupported operation leaves unrelated tools available.
+- Diagnostics now recognize MCP servers enabled through host defaults and honor
+  the distribution verifier's selected Codex home.
+
+### Upgrade notes
+
+- Requires Node.js 20 or newer. Existing plugin workflows remain available
+  without enabling the optional executor.
+- If an existing plan reports `missing-persisted-plan-web-identity`, ask the
+  coordinating agent to replay the original plan and verify its existing
+  workers; do not launch replacements. See
+  [recovering existing plans](https://github.com/virusimmortal00/nelos/blob/v0.14.2/docs/task-orchestration.md#queen-join-loop).
+- To use the executor, prepare a fresh plan and review its execution policies.
+  Existing native tasks cannot be transferred into it. Follow the
+  [owned executor setup and recovery guide](https://github.com/virusimmortal00/nelos/blob/v0.14.2/docs/owned-executor-plan-runbook.md).
+
+### Known issues
+
+- An inactive coordinating conversation does not automatically resume when its
+  workers finish. Return to the conversation to collect and accept results,
+  then launch dependent work. Entire plans do not run unattended.
+- Worktree changes require explicit review and integration. Write tasks are not
+  automatically retried; their recovery requires an operator decision.
+
 ## [0.13.0] - 2026-09-02
 
 ### User-facing changes

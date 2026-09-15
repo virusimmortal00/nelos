@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+// Explicit signed-in isolated-worktree canary. Never run by offline tests.
+import assert from "node:assert/strict";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, mkdir, realpath, writeFile, readFile, open } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+import { executorDigest } from "../src/executor-contract.mjs";
+import { executorRepositoryIdentityV1 } from "../src/executor-job-service.mjs";
+import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
+import { formatResultEnvelope } from "../src/work-result.mjs";
+
+import { compileExecutorPlanV1 } from "../src/executor-plan-install.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+const [command, home, hostId, queenThreadId] = process.argv.slice(2);
+if (process.argv.length !== 6 || !isAbsolute(command ?? "") || !isAbsolute(home ?? "")) throw new Error("usage: node bin/nelos-verify-owned-plan <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id>");
+const source = dirname(dirname(fileURLToPath(import.meta.url))), codexHome = await realpath(home);
+const root = await realpath(await mkdtemp(join(tmpdir(), "nf-"))), cwd = join(root, "repo"), directory = join(root, "svc"), policyPath = join(root, "policy.json"), endpoint = join(directory, "endpoint.json");
+const clientHome = join(root, "client-home"), clientState = join(root, "client-state");
+for (const path of [cwd, clientHome, clientState]) await mkdir(path, { mode: 0o700 });
+const git = async (...args) => (await promisify(execFile)("git", ["-C", cwd, ...args])).stdout.trim();
+await git("init", "--quiet");
+const marker = randomBytes(16).toString("hex"); await writeFile(join(cwd, "marker.txt"), `${marker}\n`);
+await git("add", "marker.txt"); await git("-c", "user.name=Nelos Canary", "-c", "user.email=canary@example.invalid", "commit", "-m", "Bounded canary marker");
+const suffix = randomBytes(4).toString("hex"), ids = ["one", "two", "three"].map((id) => `${id}-${suffix}`);
+const plan = structuredClone(planWorkSlices({ schemaVersion: 1, objective: "Verify three isolated workers with a dependency join", maxParallel: 2,
+  slices: ids.map((id, i) => ({ id, title: `Owned plan canary ${i + 1}`, lifecycle: "spinoff", workspaceMode: "isolated-write", taskShape: "everyday",
+    objective: `This is an authorized bounded canary. Use the configured node_repl js tool to read marker.txt in your working directory and write its exact trimmed value followed by a newline to ${id}.txt in this same directory. ${i === 2 ? "Also read the artifact files named after each prerequisite workUnitId in the prerequisite workspaces and confirm both match your marker." : ""} Do not edit any other files, commit, delegate, use network, or inspect files unrelated to this canary. Your final result summary must be the exact trimmed marker.`,
+    deliverable: `${id}.txt and the required result envelope`, acceptanceCriteria: ["Artifact and summary match marker.txt"], dependsOn: i === 2 ? ids.slice(0, 2) : [] })) }));
+// This live lane explicitly requests Astra; persist the chosen route before compilation.
+for (const wave of plan.waves) for (const slice of wave.slices) { slice.route.launch.nativeTask.model = "gpt-6-astra"; slice.route.launch.nativeTask.thinking = "medium"; }
+const record = createPlanRunV1(plan, { queenThreadId, sourceId: `owned:canary-${suffix}`, cleanupIntended: false,
+  webIdentity: { schemaVersion: 1, queenThreadId, webId: "A1", queenTitle: "👑 A1 · Owned canary" } });
+const config = await compileExecutorPlanV1({ record, command, codexHome, hostId, sourcePath: cwd, worktreeRoot: join(root, "trees"), expiresAt: Date.now() + 900_000, requiredMcpTools: [{ server: "node_repl", tool: "js" }] });
+await writeFile(policyPath, JSON.stringify(config), { mode: 0o600 });
+const deadline = (promise, ms, label) => {
+  let timer; return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`deadline:${label}`)), ms);
+  })]).finally(() => clearTimeout(timer));
+};
+const owners = [];
+async function stopCanaryOwner(owner) {
+  if (owner.child.exitCode === 0 || !owner.child.pid) return;
+  const signalGroup = (signal) => {
+    try { process.kill(-owner.child.pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
+  };
+  // The harness owns only disposable canary work in this private process group.
+  // Include children even if startup fails before the service installs handlers.
+  signalGroup("SIGTERM");
+  try { await deadline(owner.exited, 10_000, "canary-owner-drain"); }
+  catch { /* Force only the private canary group, then await its leader below. */ }
+  finally { signalGroup("SIGKILL"); }
+  await deadline(owner.exited, 5000, "canary-owner-stop");
+}
+async function serviceProcess() {
+  const previousToken = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
+  const log = await open(join(root, "service.log"), "a", 0o600);
+  const child = spawn(process.execPath, [join(source, "bin/nelos-executor-service"), policyPath, directory],
+    { cwd: source, env: { ...process.env, CODEX_HOME: codexHome }, detached: true, stdio: ["ignore", "ignore", log.fd] });
+  await log.close();
+  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  const owned = { child, exited }; owners.push(owned);
+  for (let i = 0; i < 100; i++) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error("service-exited-before-ready");
+    const token = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
+    if (token && token !== previousToken) return owned;
+    await delay(100);
+  }
+  throw new Error("service-start-timeout");
+}
+const frontends = [];
+async function closeMcpChild({ child, exited }) {
+  child.stdin.end();
+  try { assert.equal(await deadline(exited, 10_000, "mcp-close"), 0); }
+  finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await deadline(exited, 5000, "mcp-stopped");
+  }
+}
+async function mcpProcess() {
+  const child = spawn(process.execPath, [join(source, "bin/nelos-mcp"), "--executor-endpoint", endpoint],
+    { cwd: source, env: { ...process.env, CODEX_HOME: clientHome, XDG_STATE_HOME: clientState }, stdio: ["pipe", "pipe", "ignore"] });
+  let buffer = "", id = 0; const pending = new Map();
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk; if (Buffer.byteLength(buffer) > 1024 * 1024) { child.kill(); return; }
+    let newline;
+    while ((newline = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+      try { const message = JSON.parse(line); const entry = pending.get(message.id);
+        if (entry) { pending.delete(message.id); entry.resolve(message); }
+      } catch { child.kill(); }
+    }
+  });
+  const exited = new Promise((resolve) => child.once("exit", (code) => {
+    for (const entry of pending.values()) entry.reject(new Error("mcp-exited")); pending.clear(); resolve(code);
+  }));
+  const frontend = { child, exited }; frontends.push(frontend);
+  const request = (method, params) => deadline(new Promise((resolve, reject) => {
+    const key = ++id; pending.set(key, { resolve, reject });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: key, method, params }) + "\n");
+  }), 45_000, method);
+  const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {},
+    clientInfo: { name: "nelos-owned-canary-parent", version: "1" } });
+  assert.ok(init.result);
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+  const list = await request("tools/list", {});
+  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 7);
+  return { async call(method, args = {}) {
+    const reply = await request("tools/call", { name: `nelos_owned_${method}`, arguments: args });
+    const body = JSON.parse(reply.result?.content?.[0]?.text ?? "null");
+    if (reply.error || reply.result?.isError || !body) throw new Error(`mcp-${method}-failed:${JSON.stringify(body ?? reply.error)}`);
+    return body.result;
+  }, async close() { await closeMcpChild(frontend); } };
+}
+const proof = { schemaVersion: 1, startedAt: new Date().toISOString(), root, hostId, parentTaskId: queenThreadId,
+  observedCli: (await promisify(execFile)(command, ["--version"])).stdout.trim(), model: "gpt-6-astra", reasoningEffort: "medium", permissionProfile: ":workspace", approvalPolicy: "never", workers: [], checks: {} };
+let owner, client;
+const journal = (id) => new ExecutorLaunchJournalV1({ directory: join(directory, executorDigest(id).slice(0, 16), "journal") });
+async function waitWithoutFrontend(selected) {
+  for (let i = 0; i < 160; i++) {
+    const done = await Promise.all(selected.map(async (id) => (await journal(id).read(id))?.operations.at(-1)?.phase === "terminal"));
+    if (done.every(Boolean)) return;
+    await delay(1500);
+  }
+  throw new Error("workers-did-not-complete-without-frontend");
+}
+async function collect(id) {
+  const result = await client.call("collect", { workUnitId: id });
+  assert.equal(result.phase, "terminal", JSON.stringify(result));
+  assert.equal(result.result?.result?.outcome, "succeeded", JSON.stringify(result));
+  assert.equal(result.result.result.summary, marker);
+  const job = config.jobs.find(({ config }) => config.job.workUnits[0].workUnitId === id).config;
+  assert.equal(await readFile(join(job.workspace.worktreePath, `${id}.txt`), "utf8"), `${marker}\n`);
+  const operation = (await journal(id).read(id)).operations;
+  assert.equal(operation.length, 1);
+  proof.workers.push({ workUnitId: id, threadId: result.threadId, turnId: result.turnId, cwd: job.workspace.worktreePath, status: result.status });
+}
+try {
+  owner = await serviceProcess(); client = await mcpProcess();
+  const launch = await client.call("launch"); assert.equal(launch.kind, "plan-wave-dispatched", JSON.stringify(launch)); assert.equal(launch.members.length, 2, JSON.stringify(launch));
+  await client.close(); client = null;
+  await waitWithoutFrontend(ids.slice(0, 2)); proof.checks.twoWorkersCompletedWithoutFrontend = true;
+  client = await mcpProcess();
+  for (const id of ids.slice(0, 2)) await collect(id);
+  await client.call("join", { workUnitId: ids[0], expectedAttempt: 1, decision: "accepted", decisionSummary: "Independently verified artifact and marker" });
+  assert.equal((await client.call("launch")).kind, "no-ready-work");
+  await client.close(); client = null; owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "restart-drain")).code, 0);
+  owner = await serviceProcess(); client = await mcpProcess();
+  assert.equal((await client.call("launch")).kind, "no-ready-work"); proof.checks.partialJoinSurvivedRestart = true;
+  await client.call("join", { workUnitId: ids[1], expectedAttempt: 1, decision: "accepted", decisionSummary: "Independently verified artifact and marker" });
+  const next = await client.call("launch"); assert.equal(next.members.length, 1); assert.equal(next.members[0].workUnitId, ids[2]);
+  await client.close(); client = null; await waitWithoutFrontend([ids[2]]); client = await mcpProcess(); await collect(ids[2]);
+  const joined = await client.call("join", { workUnitId: ids[2], expectedAttempt: 1, decision: "accepted", decisionSummary: "Verified dependent artifact and marker" });
+  assert.ok(joined.readiness.entries.every(({ accepted }) => accepted));
+  const notices = (await client.call("notifications")).notifications; assert.equal(notices.length, 3);
+  for (const item of notices) {
+    const args = { workUnitId: item.workUnitId, notificationId: item.notificationId, expectedAttempt: 1 };
+    await client.call("acknowledge", args); await client.call("acknowledge", args);
+  }
+  assert.equal((await client.call("launch")).kind, "no-ready-work");
+  assert.equal(await git("status", "--porcelain"), "");
+  assert.equal(new Set(proof.workers.map(({ threadId }) => threadId)).size, 3);
+  assert.equal(new Set(proof.workers.map(({ cwd }) => cwd)).size, 3);
+  proof.checks.exactlyThreeDistinctWorkersAndWorktrees = true; proof.checks.sourceRepositoryUnchanged = true;
+  proof.checks.allDependenciesAccepted = true; proof.checks.replaySafeNoticeAcknowledgments = true;
+  await client.close(); client = null; owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "final-drain")).code, 0);
+  proof.outcome = "passed";
+} catch (error) { proof.outcome = "failed"; proof.error = String(error.message).slice(0, 3000); for (const frontend of frontends.toReversed()) await closeMcpChild(frontend).catch(() => {});
+  for (const owned of owners.toReversed()) { try { await stopCanaryOwner(owned); } catch (cleanupError) { (proof.cleanupErrors ??= []).push(String(cleanupError.message)); } }
+  process.exitCode = 1; }
+finally { proof.finishedAt = new Date().toISOString(); await writeFile(join(root, "proof.json"), JSON.stringify(proof, null, 2), { mode: 0o600 }); process.stdout.write(JSON.stringify(proof, null, 2) + "\n"); }

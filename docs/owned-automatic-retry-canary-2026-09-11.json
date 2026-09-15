@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "runtimeCertified": false,
+  "scope": "Opt-in automatic read-only retry after owner loss with no MCP frontend connected until completion",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T21:41:09.589Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-andnLb",
+      "hostId": "m3",
+      "mode": "automatic-retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "automaticRetryCompletedWithoutFrontend": true,
+        "ownerCrashPreservedExactPredecessor": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 60861,
+      "threadId": "01a0926a-e03c-7051-9f9b-265a8083304c",
+      "turnId": "01a0926a-e462-7f51-b649-c5a0e97015d1",
+      "previousAttempt": {
+        "threadId": "01a0926a-d567-7b72-99b7-c40f2b15d612",
+        "turnId": "01a0926a-d99d-7df2-b1e2-0051512eb78b",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-d355da699174",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T21:41:31.908Z"
+    },
+    {
+      "schemaVersion": 1,
+      "startedAt": "2026-09-11T21:41:09.589Z",
+      "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nc-dExLe7",
+      "hostId": "m3",
+      "mode": "automatic-retry",
+      "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
+      "permissionProfile": ":read-only",
+      "approvalPolicy": "never",
+      "observedCli": "codex-cli 0.154.0-alpha.6.2",
+      "checks": {
+        "frontendExitPreservedOwner": true,
+        "explicitRetryReusedOperation": true,
+        "automaticRetryCompletedWithoutFrontend": true,
+        "ownerCrashPreservedExactPredecessor": true,
+        "independentMarkerVerification": true,
+        "explicitParentJoin": true,
+        "terminalRestartPreservedCollection": true,
+        "completedRestartPreservedCollectionAndJoin": true,
+        "singleDurableOperationPerAttempt": true,
+        "retryReplayAndLimitVerified": true
+      },
+      "servicePid": 60862,
+      "threadId": "01a0926a-e03c-7a41-b425-b0dbcad5af20",
+      "turnId": "01a0926a-e462-7721-a2c2-f6e400a47356",
+      "previousAttempt": {
+        "threadId": "01a0926a-d567-7581-a02b-e25af307751e",
+        "turnId": "01a0926a-d99d-7e20-b9d9-fd992ab00158",
+        "status": "interrupted"
+      },
+      "workUnitId": "canary-2282e978ceda",
+      "recoveredStatus": "completed",
+      "recoveredWorkOutcome": "succeeded",
+      "outcome": "passed",
+      "finishedAt": "2026-09-11T21:41:34.920Z"
+    }
+  ],
+  "limitations": [
+    "Two preapproved attempts in live runs; three-attempt family covered by offline tests.",
+    "Only confirmed interruption permits retry; unknown dispatch outcomes cannot replay.",
+    "Parent explicitly accepts the result after reconnect; no unattended native parent wake delivery.",
+    "No write-capable worker retry, generic runtime certification or Desktop UI lineage claim."
+  ]
+}

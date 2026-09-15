@@ -1,0 +1,274 @@
+#!/usr/bin/env node
+// Explicit, signed-in, one-worker canary. Never part of an offline test run.
+import assert from "node:assert/strict";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, mkdir, realpath, writeFile, readFile, open } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+import { executorDigest } from "../src/executor-contract.mjs";
+import { executorRepositoryIdentityV1 } from "../src/executor-job-service.mjs";
+import { ExecutorLaunchJournalV1 } from "../src/executor-launch-journal.mjs";
+import { formatResultEnvelope } from "../src/work-result.mjs";
+
+const [command, codexHomeInput, hostId, queenThreadId, mode = "normal"] = process.argv.slice(2);
+if (![6, 7].includes(process.argv.length) || !["normal", "crash", "retry", "automatic-retry"].includes(mode) || !isAbsolute(command ?? "") || !isAbsolute(codexHomeInput ?? "") || !hostId || !queenThreadId) {
+  throw new Error("usage: node bin/nelos-verify-owned-executor <absolute-codex> <absolute-codex-home> <host-id> <parent-task-id> [normal|crash|retry|automatic-retry]");
+}
+const retryFamily = ["retry", "automatic-retry"].includes(mode);
+const source = dirname(dirname(fileURLToPath(import.meta.url)));
+const codexHome = await realpath(codexHomeInput);
+const root = await realpath(await mkdtemp(join(tmpdir(), "nc-")));
+const cwd = join(root, "repo"), directory = join(root, "svc"), policyPath = join(root, "policy.json");
+await mkdir(cwd, { mode: 0o700 });
+const clientHome = join(root, "client-home"), clientState = join(root, "client-state");
+await mkdir(clientHome, { mode: 0o700 }); await mkdir(clientState, { mode: 0o700 });
+await promisify(execFile)("git", ["init", "--quiet", cwd]);
+const marker = randomBytes(16).toString("hex");
+await writeFile(join(cwd, "marker.txt"), `${marker}\n`);
+const unitId = `canary-${randomBytes(6).toString("hex")}`;
+const resultTemplate = { schemaVersion: 1, workUnitId: unitId, specRevision: 1, attempt: 1,
+  outcome: "succeeded", summary: "REPLACE_WITH_MARKER_FILE_CONTENT", artifacts: [],
+  verification: ["Read marker.txt from the specified repository"], blockers: [], recoveryHint: null };
+const prompt = `This is a bounded Nelos read-only transport canary. Read marker.txt in your working directory with a file-reading tool or shell command. Do not modify files, delegate, use network, or read anything outside this repository. Return only the following result envelope, replacing its summary with the exact trimmed marker file content.\n${formatResultEnvelope(resultTemplate)}`;
+const title = "NelOS owned service canary";
+const config = { schemaVersion: 1, command, codexHome, hostId, expiresAt: Date.now() + 600_000, job: {
+  wave: { schemaVersion: 1, backend: "nelos-app-server", planRunId: `run:${randomBytes(20).toString("hex")}`,
+    waveIndex: 1, waveDigest: executorDigest(prompt), members: [{ sliceId: "read-marker", workUnitId: unitId,
+      specRevision: 1, attempt: 1, launchSequence: 1, target: { hostId, codexHomeId: executorDigest(codexHome),
+        repositoryId: await executorRepositoryIdentityV1(cwd), cwd }, workspaceMode: "shared-read-only",
+      model: "gpt-6-astra", reasoningEffort: "medium", permissionProfile: ":read-only", approvalPolicy: "never",
+      title, promptDigest: executorDigest(prompt) }] },
+  workUnits: [{ webId: "A1", queenThreadId, workUnitId: unitId, specRevision: 1, attempt: 1,
+    memberKind: "spinoff", capabilities: ["observe", "read-result"], title,
+    objectiveSummary: "Read and report a random repository marker", deliverable: "Validated result envelope",
+    acceptanceCriteria: ["Summary equals the independently checked marker"], dependencies: [], required: true,
+    policy: { maxAttempts: 1, onBlocked: "queen-review", onFailure: "queen-review" } }],
+  prompts: [{ sliceId: "read-marker", text: prompt }],
+} };
+let selectedPolicy = config;
+if (retryFamily) {
+  config.job.workUnits[0].policy.maxAttempts = 2;
+  const second = structuredClone(config);
+  second.job.workUnits[0].attempt = 2; second.job.wave.members[0].attempt = 2;
+  second.job.prompts[0].text = prompt.replace(formatResultEnvelope(resultTemplate), formatResultEnvelope({ ...resultTemplate, attempt: 2 }));
+  second.job.wave.members[0].promptDigest = executorDigest(second.job.prompts[0].text);
+  second.job.wave.waveDigest = executorDigest(second.job.prompts[0].text);
+  selectedPolicy = { schemaVersion: 2, attempts: [config, second],
+    ...(mode === "automatic-retry" ? { automaticRetry: { intervalMs: 1000 } } : {}) };
+}
+await writeFile(policyPath, JSON.stringify(selectedPolicy), { mode: 0o600 });
+const endpoint = join(directory, "endpoint.json");
+const deadline = (promise, ms, label) => {
+  let timer; return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`deadline:${label}`)), ms);
+  })]).finally(() => clearTimeout(timer));
+};
+async function serviceProcess() {
+  const previousToken = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
+  const log = await open(join(root, "service.log"), "a", 0o600);
+  const child = spawn(process.execPath, [join(source, "bin/nelos-executor-service"), policyPath, directory],
+    { cwd: source, env: { ...process.env, CODEX_HOME: codexHome }, detached: true, stdio: ["ignore", "ignore", log.fd] });
+  await log.close();
+  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  for (let i = 0; i < 100; i++) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error("service-exited-before-ready");
+    const token = await readFile(endpoint, "utf8").then((text) => JSON.parse(text).token, () => null);
+    if (token && token !== previousToken) return { child, exited };
+    await delay(100);
+  }
+  throw new Error("service-start-timeout");
+}
+async function mcpProcess() {
+  const child = spawn(process.execPath, [join(source, "bin/nelos-mcp"), "--executor-endpoint", endpoint],
+    { cwd: source, env: { ...process.env, CODEX_HOME: clientHome, XDG_STATE_HOME: clientState }, stdio: ["pipe", "pipe", "ignore"] });
+  let buffer = "", id = 0; const pending = new Map();
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk; if (Buffer.byteLength(buffer) > 1024 * 1024) { child.kill(); return; }
+    let newline;
+    while ((newline = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+      try { const message = JSON.parse(line); const entry = pending.get(message.id);
+        if (entry) { pending.delete(message.id); entry.resolve(message); }
+      } catch { child.kill(); }
+    }
+  });
+  const exited = new Promise((resolve) => child.once("exit", (code) => {
+    for (const entry of pending.values()) entry.reject(new Error("mcp-exited")); pending.clear(); resolve(code);
+  }));
+  const request = (method, params) => deadline(new Promise((resolve, reject) => {
+    const key = ++id; pending.set(key, { resolve, reject });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: key, method, params }) + "\n");
+  }), 45_000, method);
+  const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {},
+    clientInfo: { name: "nelos-owned-canary-parent", version: "1" } });
+  assert.ok(init.result);
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+  const list = await request("tools/list", {});
+  assert.equal(list.result.tools.filter(({ name }) => name.startsWith("nelos_owned_")).length, 7);
+  return { async call(method, args = {}) {
+    const reply = await request("tools/call", { name: `nelos_owned_${method}`, arguments: args });
+    const body = JSON.parse(reply.result?.content?.[0]?.text ?? "null");
+    if (reply.error || reply.result?.isError || !body) throw new Error(`mcp-${method}-failed:${JSON.stringify(body ?? reply.error)}`);
+    return body.result;
+  }, async close() { child.stdin.end(); assert.equal(await deadline(exited, 10_000, "mcp-close"), 0); } };
+}
+const proof = { schemaVersion: 1, startedAt: new Date().toISOString(), root, hostId, mode, parentTaskId: queenThreadId,
+  model: "gpt-6-astra", reasoningEffort: "medium", permissionProfile: ":read-only", approvalPolicy: "never",
+  observedCli: (await promisify(execFile)(command, ["--version"])).stdout.trim(), checks: {} };
+let owner, client;
+try {
+  owner = await serviceProcess(); proof.servicePid = owner.child.pid;
+  client = await mcpProcess();
+  const launch = await client.call("launch");
+  assert.equal(launch.kind, "wave-started", JSON.stringify(launch));
+  await client.close(); client = null;
+  assert.equal(owner.child.exitCode, null); proof.checks.frontendExitPreservedOwner = true;
+  client = await mcpProcess();
+  const retry = await client.call("launch"); assert.equal(retry.kind, "existing-operation");
+  proof.checks.explicitRetryReusedOperation = true;
+  if (["crash", "retry", "automatic-retry"].includes(mode)) {
+    const active = await client.call("collect");
+    assert.equal(active.status, "inProgress", "crash test must observe a live turn");
+    proof.threadId = active.threadId; proof.turnId = active.turnId;
+    await client.close(); client = null;
+    owner.child.kill("SIGKILL");
+    assert.equal((await deadline(owner.exited, 15_000, "crash-owner")).signal, "SIGKILL");
+    owner = await serviceProcess();
+    if (mode === "automatic-retry") {
+      // No MCP frontend is connected and no retry/collect request is sent while
+      // the restarted owner reconciles attempt one and completes attempt two.
+      const secondJournal = new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-2", "journal") });
+      let second;
+      for (let i = 0; i < 120; i++) {
+        second = (await secondJournal.read(unitId))?.operations.at(-1);
+        if (second?.phase === "terminal") break;
+        await delay(1500);
+      }
+      assert.equal(second?.phase, "terminal", "automatic attempt must finish without a parent frontend");
+      const first = (await new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-1", "journal") }).read(unitId)).operations.at(-1);
+      assert.equal(first.threadId, proof.threadId); assert.equal(first.turnId, proof.turnId);
+      assert.equal(first.completion.status, "interrupted");
+      proof.previousAttempt = { threadId: first.threadId, turnId: first.turnId, status: first.completion.status };
+      assert.notEqual(second.threadId, first.threadId);
+      proof.checks.automaticRetryCompletedWithoutFrontend = true;
+      proof.checks.ownerCrashPreservedExactPredecessor = true;
+      for (const attempt of [1, 2]) {
+        const path = join(directory, `attempt-${attempt}`, "notifications", "completion.json");
+        let record;
+        for (let i = 0; i < 100; i++) {
+          record = await readFile(path, "utf8").then(JSON.parse, () => null);
+          if (record) break;
+          await delay(100);
+        }
+        assert.equal(record?.notification.attempt, attempt);
+        assert.equal(record.notification.parentThreadId, queenThreadId);
+        assert.equal(record.acknowledged, false);
+      }
+      proof.checks.completionNoticesPersistedWithoutFrontend = true;
+      client = await mcpProcess();
+    } else {
+      client = await mcpProcess();
+      const retryAfterCrash = await client.call("launch");
+      assert.equal(retryAfterCrash.kind, "existing-operation");
+      assert.equal(retryAfterCrash.threadId, proof.threadId); assert.equal(retryAfterCrash.turnId, proof.turnId);
+      proof.checks.ownerCrashReusedExactOperation = true;
+    }
+  }
+  let collected;
+  for (let i = 0; i < 120; i++) {
+    collected = await client.call("collect");
+    if (collected.phase === "terminal") break;
+    await delay(1500);
+  }
+  assert.equal(collected.phase, "terminal", JSON.stringify(collected));
+  if (mode === "retry") {
+    assert.equal(collected.status, "interrupted");
+    proof.previousAttempt = { threadId: collected.threadId, turnId: collected.turnId, status: collected.status };
+    const retried = await client.call("retry", { expectedAttempt: 1 });
+    assert.equal(retried.kind, "wave-started", JSON.stringify(retried));
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    await client.close(); client = await mcpProcess();
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    for (let i = 0; i < 120; i++) {
+      collected = await client.call("collect"); if (collected.phase === "terminal") break; await delay(1500);
+    }
+    assert.equal(collected.phase, "terminal"); assert.equal(collected.result?.result?.attempt, 2);
+    assert.notEqual(collected.threadId, proof.previousAttempt.threadId);
+    proof.checks.preapprovedRetryCompleted = true;
+  }
+  assert.equal(await readFile(join(cwd, "marker.txt"), "utf8"), `${marker}\n`);
+  proof.threadId = collected.threadId; proof.turnId = collected.turnId; proof.workUnitId = unitId;
+  proof.recoveredStatus = collected.status; proof.recoveredWorkOutcome = collected.result.workOutcome;
+  const notices = await client.call("notifications");
+  assert.equal(notices.detachedWakeAvailable, false);
+  assert.equal(notices.notifications.length, retryFamily ? 2 : 1);
+  const currentNotice = notices.notifications.at(-1);
+  assert.equal(currentNotice.threadId, collected.threadId); assert.equal(currentNotice.turnId, collected.turnId);
+  assert.equal(currentNotice.acknowledged, false);
+  const acknowledgments = [];
+  for (const notice of notices.notifications) {
+    const args = { notificationId: notice.notificationId, expectedAttempt: notice.attempt };
+    const acknowledged = await client.call("acknowledge", args);
+    assert.equal(acknowledged.acknowledged, true);
+    assert.deepEqual(await client.call("acknowledge", args), acknowledged);
+    acknowledgments.push(acknowledged);
+  }
+  proof.checks.exactCompletionAcknowledgments = true;
+  const decision = { ...(retryFamily ? { expectedAttempt: 2 } : {}), decision: "accepted", decisionSummary: "Parent independently compared the returned nonce with the unchanged marker file." };
+  let joined = null;
+  if (["normal", "retry", "automatic-retry"].includes(mode) || collected.result?.result?.outcome === "succeeded") {
+    assert.equal(collected.result?.result?.outcome, "succeeded");
+    assert.equal(collected.result.result.summary, marker);
+    proof.checks.independentMarkerVerification = true;
+    joined = await client.call("join", decision);
+    assert.equal(joined.readiness.entries[0].accepted, true);
+    assert.deepEqual(await client.call("join", decision), joined);
+    proof.checks.explicitParentJoin = true;
+  } else {
+    assert.notEqual(collected.result.workOutcome, "succeeded");
+    if (!collected.result.result) await assert.rejects(client.call("join", decision), /validated-terminal-result-required/);
+    proof.checks.interruptedWorkNotAccepted = true;
+  }
+  await client.close(); client = null;
+  owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "service-drain")).code, 0);
+  owner = await serviceProcess();
+  client = await mcpProcess();
+  assert.deepEqual(await client.call("collect"), collected);
+  assert.deepEqual((await client.call("notifications")).notifications, acknowledgments);
+  for (const notice of acknowledgments) {
+    assert.deepEqual(await client.call("acknowledge", { notificationId: notice.notificationId, expectedAttempt: notice.attempt }), notice);
+  }
+  proof.checks.acknowledgmentsSurvivedOwnerRestart = true;
+  if (joined) assert.deepEqual(await client.call("join", decision), joined);
+  proof.checks.terminalRestartPreservedCollection = true;
+  if (joined) proof.checks.completedRestartPreservedCollectionAndJoin = true;
+  const record = await new ExecutorLaunchJournalV1({ directory: join(directory, ...(retryFamily ? ["attempt-2"] : []), "journal") }).read(unitId);
+  assert.equal(record.operations.length, 1);
+  assert.equal(record.operations[0].threadId, proof.threadId); assert.equal(record.operations[0].turnId, proof.turnId);
+  proof.checks.singleDurableOperationPerAttempt = true;
+  if (retryFamily) {
+    const first = await new ExecutorLaunchJournalV1({ directory: join(directory, "attempt-1", "journal") }).read(unitId);
+    assert.equal(first.operations.length, 1); assert.equal(first.operations[0].threadId, proof.previousAttempt.threadId);
+    assert.equal((await client.call("retry", { expectedAttempt: 1 })).kind, "existing-operation");
+    await assert.rejects(client.call("retry", { expectedAttempt: 2 }), /retry-attempt-limit/);
+    proof.checks.retryReplayAndLimitVerified = true;
+  }
+  await client.close(); client = null;
+  owner.child.kill("SIGTERM"); assert.equal((await deadline(owner.exited, 15_000, "final-drain")).code, 0);
+  proof.outcome = "passed";
+} catch (error) {
+  proof.outcome = "failed"; proof.error = String(error.message).slice(0, 2000);
+  // Never replay a launch or destroy uncertain work. Retain private recovery
+  // state and the independently owned service for operator inspection.
+  await client?.close().catch(() => {});
+  owner?.child.unref(); process.exitCode = 1;
+} finally {
+  proof.finishedAt = new Date().toISOString();
+  await writeFile(join(root, "proof.json"), JSON.stringify(proof, null, 2) + "\n", { mode: 0o600 });
+  process.stdout.write(JSON.stringify(proof, null, 2) + "\n");
+}

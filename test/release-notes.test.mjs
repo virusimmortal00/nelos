@@ -41,11 +41,16 @@ test("missing, pending, self-authored, and incomplete reviews fail closed", () =
     assert.throws(() => validateEditorialReview({ notes, version, review }), /approved editorial review/);
   }
   assert.throws(() => validateEditorialReview({ notes, version, review: { ...approval(), reviewer: " FIXTURE-AUTHOR " } }), /other than/);
+  for (const field of ["author", "reviewer"]) {
+    assert.throws(() => validateEditorialReview({ notes, version, review: { ...approval(), [field]: " pending " } }), /completed/);
+  }
   for (const name of EDITORIAL_CHECKS) {
     const review = approval();
     review.assessment[name].status = "pending";
     assert.throws(() => validateEditorialReview({ notes, version, review }), /has not passed/);
     review.assessment[name] = { status: "pass", rationale: "" };
+    assert.throws(() => validateEditorialReview({ notes, version, review }), /completed/);
+    review.assessment[name].rationale = " pending ";
     assert.throws(() => validateEditorialReview({ notes, version, review }), /completed/);
   }
 });
@@ -55,7 +60,9 @@ test("mechanical lint rejects placeholders, missing summary, empty sections and 
   for (const text of [notes.replace("Task status is easier to read while parallel work is running.", ""),
     notes.replace("progress", "TODO"), `${notes}\n### Fixed\n\nNone.\n`,
     `${notes}\n### Changed\n\n- More changes.\n`,
-    `${notes}\n### Upgrade notes\n\n- [Instructions](/Users/operator/upgrade.md)\n`]) {
+    `${notes}\n### Upgrade notes\n\n- [Instructions](/Users/operator/upgrade.md)\n`,
+    `${notes}\n### Upgrade notes\n\n- [Instructions](C:/Users/operator/upgrade.md)\n`,
+    `${notes}\n### Upgrade notes\n\n- [Instructions](C:\\Users\\operator\\upgrade.md)\n`]) {
     assert.ok(lintReleaseNotes(text).length > 0);
   }
   // Technical CLI names remain legitimate when needed by users, not word-banned.

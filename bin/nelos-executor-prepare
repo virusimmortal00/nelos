@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+import { readPrivateExecutorJsonV1 } from "../src/executor-service-channel.mjs";
+import { installExecutorPlanV1 } from "../src/executor-plan-install.mjs";
+if (process.argv.length !== 3) throw new Error("usage: node bin/nelos-executor-prepare <private-operator-plan.json>");
+const result = await installExecutorPlanV1(await readPrivateExecutorJsonV1(process.argv[2]));
+process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

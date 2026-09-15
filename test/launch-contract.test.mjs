@@ -26,8 +26,8 @@ test("joined-subagent launch contracts reject Luna at the shared boundary", () =
   );
 });
 
-test("joined subagents accept Sol and Terra while durable tasks retain Luna", () => {
-  for (const model of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
+test("joined subagents accept Astra, Sol, and Terra while durable tasks retain Luna", () => {
+  for (const model of ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"]) {
     assert.equal(
       normalizeNativeLaunchV1(
         {

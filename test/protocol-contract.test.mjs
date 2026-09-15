@@ -63,6 +63,8 @@ test("definitive unions use the repository's emitted discriminators", () => {
     "attach-native-task-options",
     "decide",
     "advance-orchestration",
+    "collect-results",
+    "decide-collected-result",
     "cleanup-spinoffs",
     "execute-cli",
     "attention",
@@ -338,6 +340,10 @@ test("wave actions use persisted plan-run and collaboration identities", () => {
     validateProtocolContractV1("action", subagentWave),
     subagentWave,
   );
+  assert.equal(validateProtocolContractV1("action", {
+    ...subagentWave, members: [{ ...subagentMember,
+      nativeTask: { ...subagentMember.nativeTask, model: "gpt-6-astra" } }],
+  }).members[0].nativeTask.model, "gpt-6-astra");
   assert.throws(
     () => validateProtocolContractV1("action", {
       ...subagentWave,
@@ -441,6 +447,7 @@ const verificationOutput = {
       turnId: "turn-member",
     }],
     after: "read-results",
+    continuation: { tool: "nelos_orchestrate_collect", arguments: { webId: "A1", queenThreadId: "queen-1" } },
   },
 };
 
@@ -1115,6 +1122,11 @@ test("transition reducer binds full persisted action and all receipt identities"
     }),
     /exactly one/,
   );
+  assert.equal(validateProtocolContractV1("effect", {
+    ...createEffect, memberKind: "joined-subagent", launcher: "spawn-subagent",
+    launch: { schemaVersion: 1, launcher: "spawn-subagent", workspaceMode: "shared-read-only",
+      nativeTask: { model: "gpt-6-astra", thinking: "medium" }, requiresThreadId: true, onMissingThreadId: "attention" },
+  }).launch.nativeTask.model, "gpt-6-astra");
   const accepted = reduceProtocolTransitionV1(state, action, readReceipt());
   assert.equal(accepted.accepted, true);
   assert.equal(accepted.state.cursor, 1);

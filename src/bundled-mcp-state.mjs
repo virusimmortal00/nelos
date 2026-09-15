@@ -1,5 +1,9 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { parse: parseToml } = require("./vendor/smol-toml-1.6.0.cjs");
 
 export const BUNDLED_MCP_SERVER = "nelos";
 export const MAX_MCP_INSPECTION_BYTES = 1_048_576;
@@ -12,7 +16,7 @@ function result(state, selector, server, detail) {
   const recovery =
     state === "disabled"
       ? enablementBlock(selector, server)
-      : state === "healthy"
+      : ["healthy", "host-default"].includes(state)
         ? null
         : `Run \`codex plugin add ${selector}\` to reinstall the bundled server.`;
   return { state, detail, recovery };
@@ -42,34 +46,32 @@ async function readBoundedRegularFile(path) {
 }
 
 function inspectEnablement(text, selector, server) {
-  const expectedHeader =
-    `[plugins.${JSON.stringify(selector)}.mcp_servers.${JSON.stringify(server)}]`;
-  const lines = text.split(/\r?\n/u);
-  let inTarget = false;
-  let targetCount = 0;
-  let enabled = null;
-  let malformed = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("[")) {
-      inTarget = trimmed === expectedHeader;
-      if (inTarget) {
-        targetCount += 1;
-        if (targetCount > 1) malformed = true;
+  try {
+    const config = parseToml(text);
+    const plugins = config.plugins;
+    const plugin = plugins?.[selector];
+    const servers = plugin?.mcp_servers;
+    const descriptor = servers?.[server];
+    for (const value of [plugins, plugin, servers, descriptor]) {
+      if (value !== undefined && (value === null || typeof value !== "object" || Array.isArray(value))) {
+        return { enabled: null, malformed: true };
       }
-      continue;
     }
-    if (!inTarget || trimmed === "" || trimmed.startsWith("#")) continue;
-    const assignment = /^enabled\s*=\s*(true|false)\s*(?:#.*)?$/u.exec(trimmed);
-    if (assignment) {
-      if (enabled !== null) malformed = true;
-      enabled = assignment[1] === "true";
-    } else if (/^enabled\b/u.test(trimmed)) {
-      malformed = true;
+    for (const value of [plugin?.enabled, descriptor?.enabled]) {
+      if (value !== undefined && typeof value !== "boolean") return { enabled: null, malformed: true };
     }
+    if (plugin?.enabled === false) return { enabled: false, malformed: false, disabledBy: "plugin" };
+    if (descriptor?.enabled === false) return { enabled: false, malformed: false, disabledBy: "server" };
+    return { enabled: descriptor?.enabled === true ? true : null, malformed: false };
+  } catch {
+    // TOML parser errors can contain user configuration; never return them.
+    return { enabled: null, malformed: true };
   }
-  return { enabled: targetCount === 1 && enabled === true, malformed };
+}
+
+function hostDefaultState(selector, server) {
+  return result("host-default", selector, server,
+    "bundled server metadata is valid; enablement follows Codex host defaults (no explicit override)");
 }
 
 export async function inspectBundledMcpState({
@@ -116,7 +118,7 @@ export async function inspectBundledMcpState({
     config = await readBoundedRegularFile(configPath);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return result("disabled", selector, server, "bundled server is not enabled");
+      return hostDefaultState(selector, server);
     }
     return result("incompatible", selector, server, "Codex MCP enablement is incompatible");
   }
@@ -124,9 +126,14 @@ export async function inspectBundledMcpState({
   if (enablement.malformed) {
     return result("incompatible", selector, server, "Codex MCP enablement is incompatible");
   }
-  if (!enablement.enabled) {
-    return result("disabled", selector, server, "bundled server is not enabled");
+  if (enablement.enabled === false) {
+    const disabled = result("disabled", selector, server, "bundled server is explicitly disabled");
+    if (enablement.disabledBy === "plugin") {
+      disabled.recovery = `[plugins.${JSON.stringify(selector)}]\nenabled = true`;
+    }
+    return disabled;
   }
+  if (enablement.enabled === null) return hostDefaultState(selector, server);
   return result("healthy", selector, server, "bundled server is installed, compatible, and enabled");
 }
 

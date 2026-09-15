@@ -247,19 +247,26 @@ Additional app-server behavior was verified on 2026-07-24:
 
 ## Experimental protocol compatibility
 
-Codex does not currently advertise an app-server method list during
-initialization. Nelos therefore treats the checked-in compact fixture generated
-by `codex app-server generate-json-schema --experimental` as the capability
-attestation. The relevant initialization, `thread/read`, `thread/name/set`,
-`thread/resume`, `thread/turns/list`, `turn/start`, `turn/steer`,
-`thread/archive`, thread-status, and active-flag shapes are identical in public
-stable `0.144.5` and Desktop `0.144.6`; both are tested. The bridge parses the
-version from the initialized server's `userAgent`, rejects semantic versions
-older than `0.144.5`, and provisionally allows newer semantic versions. An
-untested version is advisory rather than a startup failure: every response
-still passes the same bounded shape validation, so an actual protocol change
-fails at the affected operation instead of blocking the whole plugin in
-advance.
+The MCP bridge and owned executor do not impose CLI version floors or version
+allowlists. Older, newer, prerelease, and unrecognized version strings may use
+working capabilities. A bounded initialization response is still required;
+version parsing is optional diagnostic metadata, not authentication or authority.
+The bridge's `minimumVersion` health field and deprecated
+`MINIMUM_CODEX_APP_SERVER_VERSION` export are `null`; the legacy constructor
+option is ignored. `versionTested` is `null` when a version cannot be parsed.
+
+Codex's tested initialization responses do not advertise a complete method list.
+Nelos validates each requested operation and its response instead of probing
+mutating methods as a capability test. Missing methods report the affected
+method and leave other tools available. Missing required permission or policy
+information still prevents the operation that depends on it. A failed startup
+can be retried by a later operation or explicit health probe after Codex is
+repaired; it is not permanently cached for the plugin's lifetime.
+
+The checked-in generated schemas and tested-version list remain maintainer
+evidence, independent of runtime admission. The initialization and native task
+control shapes were reviewed on public stable `0.144.5` and Desktop `0.144.6`;
+they are not an exhaustive list of builds users may run.
 
 As additional evidence—not a replacement for the Desktop `0.144.6` evidence
 above—the `0.4.0` release gate revalidated isolated npm distributions of
@@ -271,14 +278,14 @@ cleanup.
 
 In a clean plugin MCP environment, the app server identifies itself with the
 initialized client name (`nelos_mcp/<version>`); interactive shells may instead
-report `Codex Desktop/<version>` or `codex-cli/<version>`. All three reviewed
-forms use the same minimum-version and tested-version classification.
+report `Codex Desktop/<version>` or `codex-cli/<version>`. These names and future client names are accepted; their version text is used
+only for tested-version reporting.
 
 Read transport failures receive exactly one reconnect and replay. A second
 failure is returned. Mutations are attempted once and are never replayed after
 a timeout, disconnect, or malformed response. The health tool exposes only
-bounded counters, compatibility state, platform labels, the observed and
-minimum versions, the tested-version list, whether the current version was
+bounded counters, compatibility state, platform labels, the observed version
+(with a null minimum), the tested-version list, whether the current version was
 tested, required methods, and classified failure codes—never raw stderr or task
 content. Its legacy `supportedVersions` field mirrors `testedVersions` for
 schema-v1 consumers and must not be interpreted as an exhaustive allowlist.

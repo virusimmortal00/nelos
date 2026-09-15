@@ -26,7 +26,7 @@ const JOINED_SUBAGENT_ROUTE = Object.freeze({
   profileId: "terra",
   effort: "low",
   rationale:
-    "Clear, repeatable joined-subagent work uses Terra with low reasoning because the current native collaboration launcher supports Sol and Terra, not Luna.",
+    "Clear, repeatable joined-subagent work uses Terra with low reasoning under the reviewed Nelos routing policy.",
 });
 
 const INDEPENDENT_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -84,7 +84,7 @@ export function routeIntelligenceProfile(input) {
     requestedModel === "gpt-5.6-luna"
   ) {
     throw new Error(
-      "joined-subagent launches do not support gpt-5.6-luna; use Sol or Terra",
+      "joined-subagent launches do not support gpt-5.6-luna under the reviewed Nelos policy; use Astra, Sol, or Terra",
     );
   }
 
@@ -106,8 +106,8 @@ export function routeIntelligenceProfile(input) {
     throw new Error(`unsupported independent reasoning effort: ${requestedEffort}`);
   }
   if (requestedEffort === "ultra") {
-    if (!selectedProfile || !["sol", "terra"].includes(selectedProfile.id)) {
-      throw new Error("Ultra requires an explicit or recommended Sol or Terra profile");
+    if (!selectedProfile || !selectedProfile.supportedEfforts.includes("ultra")) {
+      throw new Error("Ultra requires an explicit or recommended Astra, Sol, or Terra profile");
     }
     if (input.nativeFanoutAllowed !== true) {
       throw new Error("Ultra requires explicit native-fan-out permission");

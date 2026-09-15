@@ -1,15 +1,27 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+  AppServerRpcDispatcher,
+  validateAppServerDispatcherOptions,
+} from "./app-server-rpc-dispatcher.mjs";
+import {
+  normalizeExecutionProbeOptionsV1,
+  probeAppServerExecutionV1,
+} from "./app-server-execution-profile.mjs";
 
-import { compareSemanticVersions } from "./experimentation-contract/semantic-version.mjs";
+import { appServerVersionFromUserAgent } from "./app-server-version.mjs";
+import { isSemanticVersion } from "./experimentation-contract/semantic-version.mjs";
 import { renderQueenTitle } from "./task-launch-prompt.mjs";
+import { finalAgentMessage, parseResultEnvelope } from "./work-result.mjs";
 
 export const MCP_APP_SERVER_BRIDGE_SCHEMA_VERSION = 1;
 export const TESTED_CODEX_APP_SERVER_VERSIONS = Object.freeze([
   "0.144.5",
   "0.144.6",
+  "0.154.0",
 ]);
-export const MINIMUM_CODEX_APP_SERVER_VERSION = "0.144.5";
+// Deprecated schema-v1 export: CLI versions no longer impose a runtime floor.
+export const MINIMUM_CODEX_APP_SERVER_VERSION = null;
 // Backward-compatible package export. These are the versions Nelos has tested,
 // not an exhaustive allowlist of versions that may use the bridge.
 export const SUPPORTED_CODEX_APP_SERVER_VERSIONS =
@@ -176,7 +188,7 @@ function publicThread(thread, expectedThreadId) {
   };
 }
 
-function initializeCompatibility(result, testedVersions, minimumVersion) {
+function initializeCompatibility(result, testedVersions) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw bridgeError(
       "Codex app-server initialize response is incompatible",
@@ -206,24 +218,7 @@ function initializeCompatibility(result, testedVersions, minimumVersion) {
       "incompatible-initialize",
     );
   }
-  const versionMatch = userAgent.match(
-    /\b(?:Codex Desktop|codex-cli|nelos_mcp)\/((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9a-z-]+(?:\.[0-9a-z-]+)*)?(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?)(?![\w.+-])/iu,
-  );
-  if (!versionMatch) {
-    throw bridgeError(
-      "Codex app-server did not identify a versioned Codex runtime",
-      "incompatible-identity",
-    );
-  }
-  const version = versionMatch[1];
-  if (compareSemanticVersions(version, minimumVersion) < 0) {
-    const error = bridgeError(
-      `Codex app-server version ${version} predates the minimum compatible version ${minimumVersion}`,
-      "incompatible-version",
-    );
-    error.observedVersion = version;
-    throw error;
-  }
+  const version = appServerVersionFromUserAgent(userAgent);
   return {
     version,
     versionTested: testedVersions.includes(version),
@@ -287,6 +282,7 @@ function publicFailure(error) {
 
 const CERTAINLY_UNAPPLIED_MUTATION_CODES = new Set([
   "request-rejected",
+  "method-unsupported",
   "bridge-closed",
   "input-unavailable",
 ]);
@@ -389,8 +385,9 @@ export class CodexAppServerBridgeV1 {
     platformOs: null,
   };
   #connectionAttempts = 0;
+  #dispatcher = null;
+  #dispatcherOptions;
   #failureSequence = 0;
-  #incompatibilityError = null;
   #lastFailure = null;
   #mutationAttempts = 0;
   #nextId = 1;
@@ -403,7 +400,6 @@ export class CodexAppServerBridgeV1 {
   #requestTimeoutMs;
   #spawnProcess;
   #stdoutBuffer = "";
-  #minimumVersion;
   #testedVersions;
   #topologyProjections = 0;
   #waitEvents = 0;
@@ -414,12 +410,12 @@ export class CodexAppServerBridgeV1 {
 
   constructor({
     command = "codex",
-    minimumVersion = MINIMUM_CODEX_APP_SERVER_VERSION,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     spawnProcess = spawn,
     supportedVersions,
     testedVersions = supportedVersions ?? TESTED_CODEX_APP_SERVER_VERSIONS,
     waitInitialInspectionAllowanceMs = WAIT_INITIAL_INSPECTION_ALLOWANCE_MS,
+    dispatcherOptions = {},
   } = {}) {
     if (typeof command !== "string" || !command.trim()) {
       throw new Error("app-server command must be a non-empty string");
@@ -439,34 +435,23 @@ export class CodexAppServerBridgeV1 {
     }
     if (
       !Array.isArray(testedVersions) ||
-      testedVersions.length === 0 ||
       testedVersions.some(
         (version) =>
           typeof version !== "string" ||
-          !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version),
+          !isSemanticVersion(version),
       )
     ) {
       throw new Error(
-        "app-server testedVersions must contain stable semantic versions",
-      );
-    }
-    if (
-      typeof minimumVersion !== "string" ||
-      !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
-        minimumVersion,
-      )
-    ) {
-      throw new Error(
-        "app-server minimumVersion must be a stable semantic version",
+        "app-server testedVersions must contain semantic versions",
       );
     }
     this.#command = command;
-    this.#minimumVersion = minimumVersion;
     this.#requestTimeoutMs = requestTimeoutMs;
     this.#spawnProcess = spawnProcess;
     this.#testedVersions = Object.freeze([...new Set(testedVersions)]);
     this.#waitInitialInspectionAllowanceMs =
       waitInitialInspectionAllowanceMs;
+    this.#dispatcherOptions = validateAppServerDispatcherOptions(dispatcherOptions);
   }
 
   async #connect({ deadlineAt = null } = {}) {
@@ -476,7 +461,6 @@ export class CodexAppServerBridgeV1 {
     if (this.#ready) {
       return beforeDeadline(this.#ready, deadlineAt, "initialize");
     }
-    if (this.#incompatibilityError) throw this.#incompatibilityError;
     this.#connectionAttempts += 1;
     this.#stdoutBuffer = "";
     this.#compatibility = {
@@ -491,6 +475,17 @@ export class CodexAppServerBridgeV1 {
         stdio: ["pipe", "pipe", "pipe"],
       });
       this.#child = child;
+      this.#dispatcher = new AppServerRpcDispatcher({
+        ...this.#dispatcherOptions,
+        sendResponse: (message) => {
+          if (child !== this.#child) return;
+          this.#write(message);
+        },
+        onResponse: (message) => this.#response(message),
+        onError: (error) => this.#fail(
+          bridgeError("Codex app-server dispatch failed", error.code), child,
+        ),
+      });
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk) => this.#consume(chunk, child));
       child.once("error", (error) => this.#fail(error, child));
@@ -522,7 +517,6 @@ export class CodexAppServerBridgeV1 {
       const compatibility = initializeCompatibility(
         initialized,
         this.#testedVersions,
-        this.#minimumVersion,
       );
       this.#compatibility = {
         state: "ready",
@@ -542,15 +536,6 @@ export class CodexAppServerBridgeV1 {
               { retriable: true },
             );
       if (!child || child === this.#child) {
-        if (normalized.observedVersion) {
-          this.#compatibility = {
-            ...this.#compatibility,
-            version: normalized.observedVersion,
-          };
-        }
-        if (normalized.bridgeCode?.startsWith("incompatible-")) {
-          this.#incompatibilityError = normalized;
-        }
         this.#fail(
           normalized,
           child ?? this.#child,
@@ -573,21 +558,15 @@ export class CodexAppServerBridgeV1 {
   #consume(chunk, sourceChild) {
     if (sourceChild !== this.#child) return;
     this.#stdoutBuffer += chunk;
-    if (Buffer.byteLength(this.#stdoutBuffer, "utf8") > MAX_MESSAGE_BYTES) {
-      this.#fail(
-        bridgeError(
-          "Codex app-server response exceeded the size limit",
-          "response-too-large",
-          { retriable: true },
-        ),
-        sourceChild,
-      );
-      return;
-    }
     let newline;
     while ((newline = this.#stdoutBuffer.indexOf("\n")) !== -1) {
-      const line = this.#stdoutBuffer.slice(0, newline).trim();
+      const rawLine = this.#stdoutBuffer.slice(0, newline);
       this.#stdoutBuffer = this.#stdoutBuffer.slice(newline + 1);
+      if (Buffer.byteLength(rawLine, "utf8") > MAX_MESSAGE_BYTES) {
+        this.#fail(bridgeError("Codex app-server message exceeded the size limit", "response-too-large"), sourceChild);
+        return;
+      }
+      const line = rawLine.trim();
       if (!line) continue;
       let message;
       try {
@@ -603,24 +582,32 @@ export class CodexAppServerBridgeV1 {
         );
         return;
       }
-      if (message.id === undefined || message.id === null) continue;
-      const pending = this.#pending.get(message.id);
-      if (!pending) continue;
-      this.#pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) {
-        this.#requestsFailed += 1;
-        this.#recordFailure("request-rejected", pending.method);
-        pending.reject(
-          bridgeError(
-            "Codex app-server request failed",
-            "request-rejected",
-          ),
-        );
-      } else {
-        this.#requestsSucceeded += 1;
-        pending.resolve(message.result);
-      }
+      this.#dispatcher.receive(message);
+      if (sourceChild !== this.#child) return;
+    }
+    if (Buffer.byteLength(this.#stdoutBuffer, "utf8") > MAX_MESSAGE_BYTES) {
+      this.#fail(bridgeError("Codex app-server message exceeded the size limit", "response-too-large"), sourceChild);
+    }
+  }
+
+  #response(message) {
+    const pending = this.#pending.get(message.id);
+    if (!pending) return;
+    this.#pending.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.error) {
+      this.#requestsFailed += 1;
+      const unsupported = message.error.code === -32601;
+      const code = unsupported ? "method-unsupported" : "request-rejected";
+      this.#recordFailure(code, pending.method);
+      const error = bridgeError(unsupported
+        ? `Codex app-server does not support ${pending.method}`
+        : "Codex app-server request failed", code);
+      error.rpcCode = Number.isSafeInteger(message.error.code) ? message.error.code : null;
+      pending.reject(error);
+    } else {
+      this.#requestsSucceeded += 1;
+      pending.resolve(message.result);
     }
   }
 
@@ -630,9 +617,11 @@ export class CodexAppServerBridgeV1 {
       error instanceof AppServerBridgeError
         ? error
         : bridgeError("Codex app-server transport failed", fallbackCode, {
-            retriable: fallbackCode !== "incompatible-version",
+            retriable: true,
           });
     const child = this.#child;
+    this.#dispatcher?.close();
+    this.#dispatcher = null;
     this.#child = null;
     this.#ready = null;
     this.#stdoutBuffer = "";
@@ -669,7 +658,11 @@ export class CodexAppServerBridgeV1 {
         { retriable: true },
       );
     }
-    this.#child.stdin.write(`${JSON.stringify(message)}\n`);
+    const payload = `${JSON.stringify(message)}\n`;
+    if (Buffer.byteLength(payload) + (this.#child.stdin.writableLength ?? 0) > MAX_MESSAGE_BYTES) {
+      throw bridgeError("Codex app-server output capacity exceeded", "output-overflow");
+    }
+    this.#child.stdin.write(payload);
   }
 
   #notify(method, params) {
@@ -686,6 +679,9 @@ export class CodexAppServerBridgeV1 {
     } = {},
   ) {
     if (!skipConnect) await this.#connect({ deadlineAt });
+    if (this.#pending.size >= 256) {
+      throw bridgeError("Codex app-server request capacity exceeded", "request-overflow");
+    }
     if (mutation) this.#mutationAttempts += 1;
     let timeoutMs = this.#requestTimeoutMs;
     if (deadlineAt !== null) {
@@ -740,10 +736,39 @@ export class CodexAppServerBridgeV1 {
     }
   }
 
+  async probeExecution(options) {
+    const selected = normalizeExecutionProbeOptionsV1(options);
+    const deadlineAt = Date.now() + selected.timeoutMs;
+    await this.#connect({ deadlineAt });
+    const child = this.#child;
+    const epoch = this.#connectionAttempts;
+    const requireSameConnection = () => {
+      if (!child || child !== this.#child || epoch !== this.#connectionAttempts || this.#closed) {
+        throw bridgeError("Codex app-server probe connection changed", "probe-connection-changed");
+      }
+    };
+    const result = await probeAppServerExecutionV1({
+      observedVersion: this.#compatibility.version,
+      options: { ...selected, timeoutMs: Math.max(1, deadlineAt - Date.now()) },
+      request: async (method, params) => {
+        requireSameConnection();
+        // Discovery never retries or reconnects: all observations belong to one process.
+        const response = await this.#request(method, params, { deadlineAt, skipConnect: true });
+        requireSameConnection();
+        return response;
+      },
+    });
+    if (child !== this.#child || epoch !== this.#connectionAttempts || this.#closed) {
+      result.state = "unavailable";
+      result.blockers.push({ code: "probe-connection-changed", method: null, rpcCode: null });
+    }
+    return result;
+  }
+
   async health({ probe = false } = {}) {
     if (
       probe &&
-      ["idle", "unavailable"].includes(this.#compatibility.state)
+      ["idle", "unavailable", "incompatible"].includes(this.#compatibility.state)
     ) {
       try {
         await this.#connect();
@@ -763,10 +788,10 @@ export class CodexAppServerBridgeV1 {
           : this.#testedVersions.includes(this.#compatibility.version),
       platformFamily: this.#compatibility.platformFamily,
       platformOs: this.#compatibility.platformOs,
-      minimumVersion: this.#minimumVersion,
+      minimumVersion: null,
       testedVersions: [...this.#testedVersions],
       // Retained for schema-v1 consumers. New integrations should use
-      // testedVersions; newer semantic versions are not blocked.
+      // testedVersions; no CLI version is blocked.
       supportedVersions: [...this.#testedVersions],
       requiredMethods: [...REQUIRED_CODEX_APP_SERVER_METHODS],
       connectionAttempts: this.#connectionAttempts,
@@ -1117,6 +1142,28 @@ export class CodexAppServerBridgeV1 {
     };
   }
 
+  async readResult({ threadId: requestedThreadId, turnId: requestedTurnId } = {}) {
+    const owner = threadId(requestedThreadId);
+    const expected = threadId(requestedTurnId);
+    const page = await this.#readRequest("thread/turns/list", {
+      threadId: owner, limit: 1, sortDirection: "desc", itemsView: "full",
+    });
+    const turn = page?.data?.[0];
+    if (!Array.isArray(page?.data) || page.data.length !== 1 ||
+        turn?.id !== expected || turn.status !== "completed") {
+      throw bridgeError("Current terminal result is unavailable", "invalid-response");
+    }
+    const parsed = parseResultEnvelope(finalAgentMessage(turn));
+    if (parsed.format !== "envelope") {
+      throw bridgeError("Current terminal result has no valid Nelos envelope", "invalid-response");
+    }
+    const latest = await this.latestTurn({ threadId: owner });
+    if (latest?.turnId !== expected || latest.status !== "completed") {
+      throw bridgeError("Current terminal result changed during collection", "invalid-response");
+    }
+    return { sourceTurnId: expected, resultEnvelope: parsed.result };
+  }
+
   async collaborationAgentStatus({
     parentThreadId: requestedParentThreadId,
     agentThreadId: requestedAgentThreadId,
@@ -1425,6 +1472,8 @@ export class CodexAppServerBridgeV1 {
 
   async close() {
     const child = this.#child;
+    this.#dispatcher?.close();
+    this.#dispatcher = null;
     this.#child = null;
     this.#ready = null;
     this.#closed = true;

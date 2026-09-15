@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { computeDistributionIntegrity } from "../src/distribution-provenance.mjs";
+import { ExecutorRetryServiceV1 } from "../src/executor-retry-service.mjs";
+import { ExecutorJobServiceV1 } from "../src/executor-job-service.mjs";
+import { ExecutorPlanServiceV1 } from "../src/executor-plan-service.mjs";
+import { serveExecutorApprovalUiV1 } from "../src/executor-approval-channel.mjs";
+import { readPrivateExecutorJsonV1, serveExecutorJobV1 } from "../src/executor-service-channel.mjs";
+
+const [policyPath, directory] = process.argv.slice(2);
+if (!policyPath || !directory || process.argv.length !== 4) {
+  throw new Error("usage: node bin/nelos-executor-service <private-job-policy.json> <private-state-directory>");
+}
+const config = await readPrivateExecutorJsonV1(policyPath);
+const integrity = await computeDistributionIntegrity(dirname(dirname(fileURLToPath(import.meta.url))));
+const Service = config.schemaVersion === 4 ? ExecutorPlanServiceV1 : config.schemaVersion === 2 ? ExecutorRetryServiceV1 : ExecutorJobServiceV1;
+const service = new Service({ config, directory, runtimeGeneration: integrity.replace(/^sha256:/u, "") });
+await service.start();
+let endpoint;
+try { endpoint = await serveExecutorJobV1({ service, directory }); }
+catch (error) { service.drain(); throw error; }
+const jobs = config.schemaVersion === 4 ? config.jobs.map(({ config }) => config) : config.schemaVersion === 2 ? config.attempts : [config];
+let approvalEndpoint;
+try {
+  if (jobs.some(({ job }) => job.wave.members.some(({ approvalPolicy }) => approvalPolicy !== "never"))) {
+    approvalEndpoint = await serveExecutorApprovalUiV1({ service, directory: join(directory, "ui") });
+  }
+} catch (error) { service.drain(); await endpoint.close(); throw error; }
+const drain = () => service.drain();
+process.on("SIGTERM", drain); process.on("SIGINT", drain);
+await service.stopped;
+await approvalEndpoint?.close();
+await endpoint.close();
+process.removeListener("SIGTERM", drain); process.removeListener("SIGINT", drain);

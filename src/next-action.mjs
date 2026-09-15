@@ -207,6 +207,10 @@ export function derivePlanWaveActionV1(
   if (!planRun) {
     throw new Error("launch wave requires a persisted plan run");
   }
+  if (planRun.sourceId?.startsWith("owned:")) {
+    return action("owned-executor", { planRunId: planRun.planRunId, tool: "nelos_owned_status",
+      after: "Review owned service readiness, then call nelos_owned_launch. Collect and explicitly join each workUnitId before launching the next wave." });
+  }
   const verification = planRun.waves?.find(
     ({ waveIndex }) => waveIndex === currentWave.index,
   );
@@ -230,6 +234,13 @@ export function derivePlanWaveActionV1(
     })
   ) {
     throw new Error("launch wave conflicts with its persisted member contract");
+  }
+  if (planRun.verifiedWaveIndexes?.includes(currentWave.index)) {
+    return planRun.webIdentity
+      ? action("collect-results", { tool: "nelos_orchestrate_collect", arguments: {
+          webId: planRun.webIdentity.webId, queenThreadId: planRun.queenThreadId,
+        } })
+      : action("attention", { reason: "missing-persisted-plan-web-identity", planRunId: planRun.planRunId });
   }
   const proposed = action("launch-wave", {
     waveIndex: currentWave.index,

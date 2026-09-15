@@ -269,7 +269,7 @@ test("read-only verification detects a tampered PATH command without executing i
   }
 });
 
-test("distribution verifier reports four distinct bundled MCP states without echoing fixtures", async () => {
+test("distribution verifier reports explicit and host-default bundled MCP states without echoing fixtures", async () => {
   const scenarios = [
     {
       state: "MISSING",
@@ -279,7 +279,7 @@ test("distribution verifier reports four distinct bundled MCP states without ech
       state: "DISABLED",
       mutate: (fixture) => writeFile(
         join(fixture.environment.CODEX_HOME, "config.toml"),
-        'unrelated_secret = "DO_NOT_ECHO_VERIFIER"\n',
+        '[plugins."nelos@personal".mcp_servers.nelos]\nenabled = false\nunrelated_secret = "DO_NOT_ECHO_VERIFIER"\n',
       ),
     },
     {
@@ -289,6 +289,8 @@ test("distribution verifier reports four distinct bundled MCP states without ech
         '{"nelos":{"command":"node","args":[],"env":{"NELOS_PLUGIN_VERSION":"DO_NOT_ECHO_VERIFIER"}}}\n',
       ),
     },
+    { state: "HOST-DEFAULT", mutate: (fixture) => writeFile(
+      join(fixture.environment.CODEX_HOME, "config.toml"), '[plugins."nelos@personal"]\nenabled = true\n') },
     { state: "HEALTHY", mutate: async () => {} },
   ];
   for (const scenario of scenarios) {
@@ -300,7 +302,7 @@ test("distribution verifier reports four distinct bundled MCP states without ech
       assert.match(combined, new RegExp(`^MCP ${scenario.state}:`, "m"));
       assert.equal(
         (combined.match(/^MCP recovery:$/gm) ?? []).length,
-        scenario.state === "HEALTHY" ? 0 : 1,
+        ["HEALTHY", "HOST-DEFAULT"].includes(scenario.state) ? 0 : 1,
       );
       if (scenario.state === "DISABLED") {
         assert.match(
@@ -309,7 +311,7 @@ test("distribution verifier reports four distinct bundled MCP states without ech
         );
       }
       assert.doesNotMatch(combined, /DO_NOT_ECHO_VERIFIER/u);
-      assert.equal(result.status, scenario.state === "HEALTHY" ? 0 : 1);
+      assert.equal(result.status, ["HEALTHY", "HOST-DEFAULT"].includes(scenario.state) ? 0 : 1);
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }

@@ -18,10 +18,10 @@ test("reviewed catalog records evidence and local-policy provenance", () => {
     },
     {
       schemaVersion: 1,
-      catalogVersion: "openai-2026-07-21",
-      reviewedAt: "2026-07-21",
-      sourceUrl: "https://developers.openai.com/api/docs/guides/latest-model",
-      policyVersion: 3,
+      catalogVersion: "openai-2026-09-11",
+      reviewedAt: "2026-09-11",
+      sourceUrl: "https://learn.chatgpt.com/docs/models",
+      policyVersion: 4,
       evidenceKind: "verified-openai-docs",
       policyKind: "local-reviewed-policy",
       hostEvidenceKind: "current-codex-desktop-capability",
@@ -248,6 +248,22 @@ test("omitted routing preserves host defaults", () => {
   );
 });
 
+test("Astra overrides preserve exact model and effort on both reviewed launch surfaces", () => {
+  for (const launchSurface of ["durable-task", "joined-subagent"]) {
+    for (const override of [{ profileOverride: "astra" }, { modelOverride: "gpt-6-astra" }]) {
+      for (const effortOverride of ["low", "medium", "high", "xhigh", "max", "ultra"]) {
+        const route = routeIntelligenceProfile({ launchSurface, ...override, effortOverride, nativeFanoutAllowed: true });
+        assert.deepEqual(route.launch.nativeTask, { model: "gpt-6-astra", thinking: effortOverride });
+      }
+      assert.deepEqual(routeIntelligenceProfile({ launchSurface, ...override }).launch.nativeTask, { model: "gpt-6-astra" });
+      assert.throws(() => routeIntelligenceProfile({ launchSurface, ...override, effortOverride: "ultra" }),
+        /explicit native-fan-out permission/);
+    }
+  }
+  assert.throws(() => routeIntelligenceProfile({ launchSurface: "durable-task", profileOverride: "astra",
+    modelOverride: "gpt-5.6-sol" }), /overrides conflict/);
+});
+
 test("Ultra requires explicit native fan-out permission", () => {
   assert.throws(
     () =>
@@ -274,6 +290,6 @@ test("Ultra requires explicit native fan-out permission", () => {
         nativeFanoutAllowed: true,
         launchSurface: "durable-task",
       }),
-    /Ultra requires an explicit or recommended Sol or Terra profile/,
+    /Ultra requires an explicit or recommended Astra, Sol, or Terra profile/,
   );
 });

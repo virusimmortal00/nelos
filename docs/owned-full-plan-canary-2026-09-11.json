@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-12T01:52:57.117Z",
+  "scope": "Explicit service-owned durable-worker plans on m3; no native Desktop lineage or detached parent wake certification",
+  "host": {
+    "id": "m3",
+    "platform": "Darwin 25.5 arm64",
+    "node": "24.18.0",
+    "desktopVersion": "26.908.40401",
+    "desktopBuild": "8837"
+  },
+  "checks": {
+    "offlineTestsPassed": 1219,
+    "focusedReviewFixTestsPassed": 25,
+    "canaryStartupFailureReapsOwnedWorkers": true,
+    "syntaxCheckPassed": true,
+    "requiredOfflineCompatibilityPassed": true,
+    "hungMcpFrontendReaped": true
+  },
+  "lanes": [
+    {
+      "name": "standalone-cli",
+      "stage": "full-plan-canary-v4-20260911",
+      "requiredMcpTools": [
+        {
+          "server": "node_repl",
+          "tool": "js"
+        }
+      ],
+      "proof": {
+        "schemaVersion": 1,
+        "startedAt": "2026-09-12T01:49:51.009Z",
+        "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-RIDQ9D",
+        "hostId": "m3",
+        "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+        "observedCli": "codex-cli 0.154.0",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":workspace",
+        "approvalPolicy": "never",
+        "workers": [
+          {
+            "workUnitId": "one-bff5b280",
+            "threadId": "01a0934e-876d-7f62-9315-153c7cfd5fa6",
+            "turnId": "01a0934e-8e9c-7f02-a607-ec93a81d4445",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-RIDQ9D/trees/2c8824b9af586173545f",
+            "status": "completed"
+          },
+          {
+            "workUnitId": "two-bff5b280",
+            "threadId": "01a0934e-9074-7460-b156-e816b65ec722",
+            "turnId": "01a0934e-97a9-7eb1-bbab-1f7467b0ab78",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-RIDQ9D/trees/e49d30a5e2e49a990950",
+            "status": "completed"
+          },
+          {
+            "workUnitId": "three-bff5b280",
+            "threadId": "01a0934e-f670-7552-b9d7-a9be9f08fa05",
+            "turnId": "01a0934e-fdc0-7153-9882-28f507eec87c",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-RIDQ9D/trees/4f9b12240ac32742c908",
+            "status": "completed"
+          }
+        ],
+        "checks": {
+          "twoWorkersCompletedWithoutFrontend": true,
+          "partialJoinSurvivedRestart": true,
+          "exactlyThreeDistinctWorkersAndWorktrees": true,
+          "sourceRepositoryUnchanged": true,
+          "allDependenciesAccepted": true,
+          "replaySafeNoticeAcknowledgments": true
+        },
+        "outcome": "passed",
+        "finishedAt": "2026-09-12T01:50:51.754Z"
+      }
+    },
+    {
+      "name": "desktop-bundled-cli",
+      "stage": "full-plan-canary-v4-20260911",
+      "requiredMcpTools": [
+        {
+          "server": "node_repl",
+          "tool": "js"
+        }
+      ],
+      "proof": {
+        "schemaVersion": 1,
+        "startedAt": "2026-09-12T01:48:11.019Z",
+        "root": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-6QVVPg",
+        "hostId": "m3",
+        "parentTaskId": "01a08e45-246e-7a02-9834-2ad62d881c2c",
+        "observedCli": "codex-cli 0.154.0-alpha.6.2",
+        "model": "gpt-6-astra",
+        "reasoningEffort": "medium",
+        "permissionProfile": ":workspace",
+        "approvalPolicy": "never",
+        "workers": [
+          {
+            "workUnitId": "one-6c1f01d8",
+            "threadId": "01a0934d-00ec-7491-bed8-6e37432d44c4",
+            "turnId": "01a0934d-086c-7a60-9d36-6371c5699b4c",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-6QVVPg/trees/459eb8873a37f3c8f263",
+            "status": "completed"
+          },
+          {
+            "workUnitId": "two-6c1f01d8",
+            "threadId": "01a0934d-0a50-7552-89f4-5cf09e5459a7",
+            "turnId": "01a0934d-114a-7911-931c-635876732691",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-6QVVPg/trees/1751505c75819563722c",
+            "status": "completed"
+          },
+          {
+            "workUnitId": "three-6c1f01d8",
+            "threadId": "01a0934d-75fa-7963-a2ca-dbb040405c55",
+            "turnId": "01a0934d-7d34-79c1-a7d5-7cf5c4ff2972",
+            "cwd": "/private/var/folders/mg/j465819j3cl6_7v9b5wpsp8h0000gp/T/nf-6QVVPg/trees/cd9698b63bee5d91277a",
+            "status": "completed"
+          }
+        ],
+        "checks": {
+          "twoWorkersCompletedWithoutFrontend": true,
+          "partialJoinSurvivedRestart": true,
+          "exactlyThreeDistinctWorkersAndWorktrees": true,
+          "sourceRepositoryUnchanged": true,
+          "allDependenciesAccepted": true,
+          "replaySafeNoticeAcknowledgments": true
+        },
+        "outcome": "passed",
+        "finishedAt": "2026-09-12T01:49:07.294Z"
+      }
+    }
+  ],
+  "correctedFailures": [
+    {
+      "failure": "New worktree parent was absent",
+      "correction": "Provision its canonical parent before the receipt-backed Git operation; nested-path regression test."
+    },
+    {
+      "failure": "Codex project trust bookkeeping invalidated an otherwise valid launch grant after thread creation",
+      "correction": "Resolve config for the exact cwd and fingerprint effective policy without the raw global projects table; effective config drift still refuses launch."
+    },
+    {
+      "failure": "Desktop-dependent worker returned a blocked malformed envelope reporting no filesystem tools",
+      "correction": "Optional operator-required tool inventory is verified on the newly owned thread before turn/start; failed result stayed unaccepted."
+    }
+  ],
+  "review": {
+    "provider": "CodeRabbit",
+    "initialIssues": 3,
+    "initialSeverity": "major",
+    "recheckIssues": 1,
+    "recheckSeverity": "minor",
+    "outstandingReportedIssues": 0,
+    "resolution": [
+      "Startup drain waits for startup and accounts for every child; pre-start drain refuses.",
+      "Failed job status preserves dependency identity without reading corrupt snapshots; new launches remain blocked.",
+      "Canary startup/failure cleanup stops its owned process group, including a worker ignoring SIGTERM.",
+      "Hung MCP frontend cleanup forces termination and waits for process exit, including initialization failures."
+    ],
+    "verification": "25 focused tests plus a 1,219-test full suite passed; real child-process checks verified startup-failure and hung-MCP cleanup."
+  },
+  "limitations": [
+    "Linux and Node 20 release gate remains separate.",
+    "Native Desktop UI approval, lineage and handoff are not certified.",
+    "Detached parent wake remains unavailable; completion inbox and explicit parent join are durable.",
+    "Write workers are not automatically retried or merged. Existing read-only retry policies remain supported.",
+    "Final versioned package, fresh-install/upgrade and artifact reproducibility checks remain release gates."
+  ],
+  "runtimeSource": {
+    "integrity": "sha256:1bcc8f5d1eeeaa4909ab41060cea3bc9181fb387f9891c955926c95c9e9d0200",
+    "fileCount": 146,
+    "algorithm": "SHA-256 of lexically sorted recursive regular src and bin files plus package.json, excluding bin/nelos-verify-owned-plan and src/compatibility-contract-registry.mjs; append relative path + newline, bytes, newline for each file.",
+    "localAndM3Equal": true,
+    "canaryNote": "Both live lanes used the same v4 canary. Its subsequent MCP frontend cleanup correction passed a real hung-child check. A compatibility registry mapping for the legacy orchestration adapter was added after the commit gate flagged it. Runtime implementation files remain byte-identical to the tested stage; registry and artifact metadata have separate offline verification."
+  },
+  "queueProbe": {
+    "observedAt": "2026-09-12T01:06:29.790Z",
+    "scope": "Isolated canary parent; no turn/start, thread/resume or queue/start",
+    "parentThreadId": "01a09326-d14e-73a0-a78d-55db5a89eb47",
+    "clientUserMessageId": "nelos-queue-probe:c404bef1-7012-4e96-be17-39c2a2cbce39",
+    "senderQueuedSubmissionId": "01a09326-d432-71e3-b858-62d3dee258ee",
+    "ownerQueuedSubmissionId": "01a09326-d4d7-7511-8dfa-b9ecca878953",
+    "conclusion": "Different queue entries for the same message ID do not establish cross-owner deduplication. Parent visibility before the second add was not tested; detached wake remains unavailable."
+  }
+}

@@ -202,6 +202,20 @@ evidence. Native read/set/verify is the normal compatibility path.
 
 ## Queen Join Loop
 
+Every coordinated plan has a persisted web identity, including a plan containing
+only joined subagents. Launch verification durably binds those members and
+returns an exact `nelos_orchestrate_collect` continuation. After the native wait,
+collection reads the latest terminal result through the read-only App Server
+bridge, rechecks its turn identity, and consumes the generated observation
+receipt. It returns the exact `nelos_queen_decide` arguments; the queen supplies
+only the acceptance decision and its summary. Repeating collection after an
+interruption returns the already consumed result instead of launching again.
+Joined subagents never receive native title effects.
+
+A pre-existing plan without a web identity must replay its original plan, settle
+the returned queen title, and replay launch verification for the existing
+members. The missing identity is not permission to create replacement workers.
+
 For required members, the queen should remain active and wait through each
 member's actual control surface rather than serial status polling:
 

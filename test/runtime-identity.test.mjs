@@ -109,6 +109,18 @@ test("derives a coherent identity from all on-disk sources", async () => {
   });
 });
 
+test("prerelease identity remains exact across disk and bootstrap sources", async () => {
+  await withTempDir(async (dir) => {
+    const version = "1.2.3-rc.1+candidate.20260912";
+    const root = await writeDistribution(join(dir, "dist"), version);
+    const identity = await deriveRuntimeIdentityV1({ moduleRoot: root, declaredVersion: version });
+    assert.equal(identity.version, version);
+    await writeDistribution(root, version, { mcpBuildIdentity: "nelos-release-v1:1.2.3" });
+    await assert.rejects(deriveRuntimeIdentityV1({ moduleRoot: root }),
+      { code: "IDENTITY_SOURCES_DISAGREE" });
+  });
+});
+
 test("accepts a bootstrap-declared version that agrees with disk", async () => {
   await withTempDir(async (dir) => {
     const root = await writeDistribution(join(dir, "dist"), "1.2.3");

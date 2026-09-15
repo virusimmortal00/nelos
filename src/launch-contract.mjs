@@ -11,7 +11,8 @@ const LIFECYCLE_MEMBER_KINDS = Object.freeze({
 });
 
 const WORKSPACE_MODES = new Set(["shared-read-only", "isolated-write"]);
-const JOINED_SUBAGENT_MODELS = new Set([
+export const JOINED_SUBAGENT_MODELS = Object.freeze([
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ]);
@@ -136,10 +137,10 @@ export function normalizeNativeLaunchV1(value, memberKind) {
   if (
     memberKind === "joined-subagent" &&
     model !== undefined &&
-    !JOINED_SUBAGENT_MODELS.has(model)
+    !JOINED_SUBAGENT_MODELS.includes(model)
   ) {
     throw new Error(
-      `joined-subagent launches do not support ${model}; use Sol or Terra`,
+      `joined-subagent launches do not support ${model} under the reviewed Nelos policy; use Astra, Sol, or Terra`,
     );
   }
   if (model !== undefined) normalizedNativeTask.model = model;

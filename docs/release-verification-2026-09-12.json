@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-13T01:29:40.244767+00:00",
+  "status": "automated-development-verification-passed",
+  "releasePublished": false,
+  "releaseVersionSelected": false,
+  "baseCommit": "cef23ff4b58a232005d1f098c71ba2d5d503c1c0",
+  "testedInputs": {
+    "sha256": "sha256:96222d4614bba580fdbc22842f6870b46fe0ec19870dfc98f02e2c2da0280a16",
+    "fileCount": 335,
+    "rule": "Sorted tracked src/, bin/, scripts/, test/, package.json and package-lock.json. For each: UTF-8 relative path plus newline, file bytes, newline.",
+    "excluded": [
+      "src/compatibility-contract-registry.mjs"
+    ],
+    "exclusionReason": "Only evidence-path mappings were added after the full tests; the committed required compatibility gate validates the final registry."
+  },
+  "tests": {
+    "macos": {
+      "tests": 1220,
+      "pass": 1220,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "linux": {
+      "tests": 1220,
+      "pass": 1220,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    }
+  },
+  "logs": {
+    "macosTests": {
+      "localPath": "/tmp/nelos-release-verified-macos-tests.log",
+      "sha256": "sha256:690bd93f0fa16500127e07999d3b97a23d911622c878d462032b03c36439a425"
+    },
+    "macosSyntax": {
+      "localPath": "/tmp/nelos-release-verified-macos-check.log",
+      "sha256": "sha256:20585bca47bf378e732bc5d7153d145c314c2b2a71aaf3551a17a0b049a7f235"
+    },
+    "macosGoldenLoop": {
+      "localPath": "/tmp/nelos-release-final-macos-golden.log",
+      "sha256": "sha256:9a661e4ea90cb18580f7d0baf9314da8a43ad2614482ece32b28084b5fe26e13"
+    },
+    "macosCleanNode20": {
+      "localPath": "/tmp/nelos-release-final-clean-node20.log",
+      "sha256": "sha256:3f6de8dc98263f3f1852be1529e91e291bb59254bf53447a279e729ca7bc426b"
+    },
+    "macosCleanNode26": {
+      "localPath": "/tmp/nelos-release-final-clean-node26.log",
+      "sha256": "sha256:ba37b2195ba68b23d607d6631dbe5b85959b9a29335b3da5bf252c56df43c607"
+    },
+    "linuxTests": {
+      "localPath": "/private/tmp/nelos-release-verified-linux-reports/test.log",
+      "sha256": "sha256:f1a7e6cdc24c9ac2969b54e7f8b707fb57e9ea29e79ff47bdd86131945cda31b"
+    },
+    "linuxSyntax": {
+      "localPath": "/private/tmp/nelos-release-verified-linux-reports/check.log",
+      "sha256": "sha256:20585bca47bf378e732bc5d7153d145c314c2b2a71aaf3551a17a0b049a7f235"
+    },
+    "linuxGoldenLoop": {
+      "localPath": "/private/tmp/nelos-release-verified-linux-reports/golden-loop.log",
+      "sha256": "sha256:f1c8f1d594e7e3e95c100de96c59cb8fc950fe86e3cbb6c03250e6e2a6affd5c"
+    },
+    "linuxCleanInstall": {
+      "localPath": "/private/tmp/nelos-release-verified-linux-reports/clean-install.log",
+      "sha256": "sha256:35fb0ae5d287c1f427ca668a24edc61a8081ae7897e49e07589de69011689aaf"
+    },
+    "exactBundle": {
+      "localPath": "/tmp/nelos-release-bundle-0154.json",
+      "sha256": "sha256:e2688373e92fda35c01d895ca280eedd5c3c66567e01893138c000530356da4b"
+    },
+    "review": {
+      "localPath": "/tmp/nelos-release-coderabbit.ndjson",
+      "sha256": "sha256:d04803baf52f9229a225cfe8ae19baa9f53f5befe598af36b88f35fe2775fed0"
+    }
+  },
+  "exactRelease": {
+    "outcome": "passed",
+    "codexIdentity": {
+      "version": "0.154.0",
+      "requestedRef": "refs/tags/rust-v0.154.0",
+      "commitSha": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+    },
+    "schemaDigest": "sha256:715e8c3e4913341f0978aec20f0d5b86e43adafb85a18fe8cdd59760559ecc06",
+    "schemaFiles": 426,
+    "reducedSubsetReview": {
+      "verified": true,
+      "codexVersion": "0.154.0",
+      "methods": [
+        "thread/read",
+        "thread/name/set",
+        "thread/resume",
+        "thread/turns/list",
+        "turn/start",
+        "turn/steer",
+        "thread/archive"
+      ],
+      "checks": [
+        "required initialization fields",
+        "exact required request keys",
+        "presence of every consumed optional request key",
+        "consumed response paths including nullable and variant fields",
+        "exact thread-status and active-flag enums"
+      ],
+      "limitations": [
+        "Reduced subset review, not full schema equivalence or execution/host certification.",
+        "Response path existence does not claim the schema requires every nullable field."
+      ],
+      "sourceSha256": {
+        "ClientRequest.json": "sha256:4b1ea47e8a389402556b23451b5a690944e498dc31557b1bca3525631655f1f4",
+        "v1/InitializeResponse.json": "sha256:62ad689c2cb6379913c1d72749cfd8de5089d35760214123518eb92eef11acc9",
+        "v2/ThreadReadResponse.json": "sha256:59bf376d403bc3a696047147a1fdbbbaebd72518b3dda37f0e4709b8d61ad854",
+        "v2/ThreadTurnsListResponse.json": "sha256:45bffd91efc358859a1a54b8165c0a8b1c21ebc2a312da9f25d05ff27af798ee",
+        "v2/TurnStartResponse.json": "sha256:6fc49c3e5d0ce11a3a109ae194619b04d6e3ff98fa29bac683fdb754608958be",
+        "v2/TurnSteerResponse.json": "sha256:866ba9a77c12b5d570c837d58f73bf40b24e50fa93404bdf792dd984d313b1aa"
+      }
+    },
+    "macosTransport": {
+      "schemaVersion": 1,
+      "checkId": "runtime.stdio-transport",
+      "evidenceKind": "runtime-transport",
+      "outcome": "passed",
+      "countsForCompatibility": true,
+      "authority": "decisive-wire-evidence",
+      "expectedCodexIdentities": [
+        {
+          "version": "0.154.0",
+          "commitSha": null
+        }
+      ],
+      "observedCodexIdentity": {
+        "version": "0.154.0",
+        "commitSha": null
+      },
+      "provenance": {
+        "mode": "runtime",
+        "executable": "/private/tmp/nelos-release-codex-0154/node_modules/.bin/codex",
+        "transport": "stdio-jsonl",
+        "operations": [
+          "thread/list"
+        ],
+        "digest": "sha256:50f916ebab5f9243cd1744a668a54f0362676c999b8f8a627b83ae4e1d853f01"
+      },
+      "digest": "sha256:50f916ebab5f9243cd1744a668a54f0362676c999b8f8a627b83ae4e1d853f01",
+      "observedAt": "2026-09-13T01:17:28.132Z",
+      "observations": [
+        {
+          "operation": "initialize",
+          "status": "passed",
+          "digest": "sha256:dea762bcb5e11030938f57739abe922d369a465ed7fd359123406e07e779c9ea"
+        },
+        {
+          "operation": "thread/list",
+          "status": "passed",
+          "digest": "sha256:5baaaed66c7e5238866ffaa8f89085f5a124fdc4f9a752272a4f29de648457dc"
+        }
+      ],
+      "failure": null,
+      "limitations": [
+        "Does not infer Codex Desktop, cloud, entitlement, rollout, or closed-host semantics."
+      ],
+      "summary": "runtime-transport passed against exact Codex 0.154.0"
+    },
+    "linuxTransport": {
+      "schemaVersion": 1,
+      "checkId": "runtime.stdio-transport",
+      "evidenceKind": "runtime-transport",
+      "outcome": "passed",
+      "countsForCompatibility": true,
+      "authority": "decisive-wire-evidence",
+      "expectedCodexIdentities": [
+        {
+          "version": "0.154.0",
+          "commitSha": null
+        }
+      ],
+      "observedCodexIdentity": {
+        "version": "0.154.0",
+        "commitSha": null
+      },
+      "provenance": {
+        "mode": "runtime",
+        "executable": "/tmp/nelos-codex/node_modules/.bin/codex",
+        "transport": "stdio-jsonl",
+        "operations": [
+          "thread/list"
+        ],
+        "digest": "sha256:4ecef51be8cf609a17af3db76174f4c0f9cd3b4d8e263a4ef728c8f58f205b32"
+      },
+      "digest": "sha256:4ecef51be8cf609a17af3db76174f4c0f9cd3b4d8e263a4ef728c8f58f205b32",
+      "observedAt": "2026-09-13T01:26:58.921Z",
+      "observations": [
+        {
+          "operation": "initialize",
+          "status": "passed",
+          "digest": "sha256:9d480b7e0643cd58324b7d34598fed1b1ae222073d8511fe8022dec48f81d16d"
+        },
+        {
+          "operation": "thread/list",
+          "status": "passed",
+          "digest": "sha256:3d07500966d86c7d63f023947da9d77b806c339fad8544676e4ac0f29e945044"
+        }
+      ],
+      "failure": null,
+      "limitations": [
+        "Does not infer Codex Desktop, cloud, entitlement, rollout, or closed-host semantics."
+      ],
+      "summary": "runtime-transport passed against exact Codex 0.154.0"
+    }
+  },
+  "marketplaceUpgrade": {
+    "stable": {
+      "verified": true,
+      "marketplaceName": "upgrade-fixture",
+      "legacyVersion": "0.4.0",
+      "candidateVersion": "0.13.0",
+      "legacyRevision": "3a0164b2682db8f900e285bf736adc64fa789f85",
+      "candidateRevision": "56a1031957921ade0aec688d7921411fb075899a",
+      "marketplaceRevision": "c85d89111f8cf8aa4298884d9bd69f8ba1424226",
+      "processRestarted": true,
+      "freshTaskVerified": true,
+      "freshTaskId": "01a09855-1840-7950-b64c-5d96e527b949",
+      "freshCodexPid": 99073,
+      "legacyCacheRemoved": true,
+      "unrelatedDataPreserved": true,
+      "candidateIntegrity": "sha256:91219863b8ce5fa628b3e9b3561af67f333cdc66bd0bce983e5f53fb360be670",
+      "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.13.0",
+      "upgradeLifecycleMatrix": [
+        "old-worker-replacement",
+        "same-version-concurrency",
+        "mixed-generations",
+        "missing-backing-files",
+        "ambiguous-install",
+        "pid-reuse",
+        "crash-recovery",
+        "compatible-rollback",
+        "owner-client-reload",
+        "full-restart"
+      ],
+      "hostReload": {
+        "attempted": false,
+        "reason": "no owned live MCP child across replacement"
+      },
+      "hostOwnedSiblingFallback": "Quit and relaunch Codex, then open a fresh task."
+    },
+    "desktopBundled": {
+      "verified": true,
+      "marketplaceName": "upgrade-fixture",
+      "legacyVersion": "0.4.0",
+      "candidateVersion": "0.13.0",
+      "legacyRevision": "fda0b22e00c41cfec5fc50c2222e518964be61f2",
+      "candidateRevision": "15b6e13c8d04497a81aed7f1e2ce0ec2c6f4245c",
+      "marketplaceRevision": "389fcd42fb0e8eb9676e859e92dc7f308cb9ac18",
+      "processRestarted": true,
+      "freshTaskVerified": true,
+      "freshTaskId": "01a09857-45e7-7d23-8adb-991ebd3ed91e",
+      "freshCodexPid": 3655,
+      "legacyCacheRemoved": true,
+      "unrelatedDataPreserved": true,
+      "candidateIntegrity": "sha256:9fa9b3a224f943951bff53289545b9ad1701673a36e7eeda401a0507c00f044c",
+      "cacheIdentity": "https://github.com/virusimmortal00/nelos.git#nelos@0.13.0",
+      "upgradeLifecycleMatrix": [
+        "old-worker-replacement",
+        "same-version-concurrency",
+        "mixed-generations",
+        "missing-backing-files",
+        "ambiguous-install",
+        "pid-reuse",
+        "crash-recovery",
+        "compatible-rollback",
+        "owner-client-reload",
+        "full-restart"
+      ],
+      "hostReload": {
+        "attempted": false,
+        "reason": "no owned live MCP child across replacement"
+      },
+      "hostOwnedSiblingFallback": "Quit and relaunch Codex, then open a fresh task."
+    },
+    "scope": "Isolated legacy-to-candidate installation and fresh App Server activation; no running Desktop reload."
+  },
+  "audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 1,
+      "dev": 96,
+      "optional": 0,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 96
+    }
+  },
+  "packaging": {
+    "scope": "Private fixture with synthetic version; not public release artifacts. Source differs from development tree in release identities and fixture notes.",
+    "macos": {
+      "version": "0.0.0-rehearsal.20260912",
+      "tag": "v0.0.0-rehearsal.20260912",
+      "sourceCommit": "3dd34060c3d72b84a9f0abd6ca066aa5ba4ec206",
+      "packageDigest": "sha256:5e87137fb0af05c4cec6e16e8661b7f1f8bede1781b1c716e7f48cf9cfd9e3d4",
+      "outputDirectory": "/private/tmp/nelos-release-package-rehearsal-20260912/dist/rehearsal"
+    },
+    "linux": {
+      "version": "0.0.0-rehearsal.20260912",
+      "tag": "v0.0.0-rehearsal.20260912",
+      "sourceCommit": "3dd34060c3d72b84a9f0abd6ca066aa5ba4ec206",
+      "packageDigest": "sha256:322079a1b1b938aa48b4174ad7bcec2257f391a5e605843b541f0655e4c438e6",
+      "outputDirectory": "/work/dist/linux-rehearsal"
+    },
+    "uncompressedTarSha256": "sha256:ec635e350ac33a2b7a408100049e942a9540e05268aa5d2cdf687826dc6b5a50",
+    "macosZlib": "1.2.12",
+    "linuxZlib": "1.3.1-e00f703",
+    "extractedVerification": {
+      "verified": true,
+      "version": "0.0.0-rehearsal.20260912",
+      "sourceCommit": "3dd34060c3d72b84a9f0abd6ca066aa5ba4ec206",
+      "integrity": "sha256:81b38153e8de505dece4327f248735498d2c51378b86f3a272728b2c14b7219d",
+      "ownedExecutorFiles": [
+        "bin/nelos-executor-service",
+        "bin/nelos-executor-prepare",
+        "bin/nelos-executor-approve",
+        "src/executor-plan-service.mjs",
+        "src/executor-approval-channel.mjs",
+        "src/executor-required-tools.mjs"
+      ]
+    }
+  },
+  "limitations": [
+    "No full Desktop UI certification.",
+    "Public CLI alpha 0.155.0-alpha.3.10 not tested.",
+    "Detached parent wake remains unavailable.",
+    "Final release version, tag and tagged-candidate checks remain pending."
+  ]
+}

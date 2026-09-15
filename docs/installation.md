@@ -20,11 +20,22 @@ malformed input.
 | State | Meaning | Single recovery action |
 | --- | --- | --- |
 | `missing` | The installed plugin has no `.mcp.json` or no `nelos` declaration. | Run `codex plugin add <installed-selector>` to reinstall the bundled server. |
-| `disabled` | The declaration is compatible but the exact installed selector and server are not enabled. | Add the exact block emitted by the diagnostic to `CODEX_HOME/config.toml`. |
+| `disabled` | The plugin or its exact server has an explicit `enabled = false` override. | Add the exact block emitted by the diagnostic to `CODEX_HOME/config.toml`. |
 | `incompatible` | Server metadata or the target enablement setting is malformed, unsafe, oversized, or does not match the installed revision. | Run `codex plugin add <installed-selector>` to reinstall the bundled server. |
-| `healthy` | The installed declaration is compatible and its exact selector/server block has `enabled = true`. | None. |
+| `healthy` | The installed declaration is compatible and its server is explicitly enabled without a plugin-level disablement. | None. |
+| `host-default` | Metadata is valid and the server has no explicit enablement override. Codex determines activation using its host defaults. | None; check a fresh task if runtime activation needs verification. |
 
-For example, an installed `nelos@personal` plugin emits only:
+Host-default settings do not disable the plugin or fail distribution coherence
+verification. Doctor reports them as a warning, and the verifier labels them
+explicitly without claiming a live connection. Current Codex can activate the
+bundled server without a per-server override. Explicit plugin/server disablement
+still reports `disabled`; malformed settings report `incompatible`. TOML quoting
+and inline tables are parsed rather than matched by header spelling.
+
+The verifier's `--home` applies to native plugin discovery as well as filesystem
+inspection. `--codex-home` selects the same Codex state root for both.
+
+For example, an explicitly disabled server in `nelos@personal` emits:
 
 ```toml
 [plugins."nelos@personal".mcp_servers."nelos"]

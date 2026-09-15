@@ -187,7 +187,7 @@ export async function diagnoseDistribution(options = {}) {
     checks.push({
       ...item(
         "bundled-mcp-server",
-        mcpState.state === "healthy" ? "ok" : "error",
+        mcpState.state === "healthy" ? "ok" : mcpState.state === "host-default" ? "warning" : "error",
         `${mcpState.state}: ${mcpState.detail}`,
         mcpState.recovery,
       ),
