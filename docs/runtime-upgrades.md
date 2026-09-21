@@ -25,15 +25,45 @@ change the relevant token for incompatible behavior and retain tokens only when
 the regression and cross-generation tests pass. Adding a token requires a new
 contract format; unknown formats fail closed.
 
-The first retained writer pins the contract in `runtime-workers/compatibility.json`
+On a proven empty state root, the first retained writer pins the contract in `runtime-workers/compatibility.json`
 under the same lock used to register workers. A new incompatible writer never
 joins the registry; it can answer diagnostics with `upgrade-deferred`. The pin
 survives crashes, PID reuse, and all workers exiting. Compatible arrivals cannot
 change it between another worker's admission and commit. There is deliberately
-no automatic schema migration or contract-reset operation. Incompatible releases
+no automatic schema migration or contract-reset operation. A missing pin with
+persisted data is unknown compatibility, even when every worker has exited. Incompatible releases
 need a separate, verified migration with writers drained; restoring a compatible
 release is the supported recovery. The optional CLI's direct state writes remain
 outside MCP admission and must not be used to run an incompatible migration.
+
+## One-time adoption of legacy state
+
+Pre-contract installations need an explicit, drained adoption before the first
+contracted release. Verify the existing records and pending receipts against the
+candidate's state, tools, receipts, locking, and instruction contracts, and keep
+a backup before adopting. The operator supplies the reviewed contract file:
+
+```sh
+node /path/to/release/bin/nelos-adopt-legacy-runtime \
+  --package-root /path/to/release \
+  --verified-contract /path/to/reviewed-runtime-compatibility.json \
+  --confirm-verified-legacy-state
+```
+
+Use the same `XDG_STATE_HOME` as the tasks and stop all Nelos writers, including
+CLI writers. The command holds worker registration exclusion, rejects live
+workers, verifies candidate bytes/provenance and the exact supplied contract,
+and atomically pins that contract. It does **not** validate or migrate task
+records; the confirmation attests that compatibility verification was completed.
+It cannot change an existing incompatible pin. Repeat adoption of the same
+contract is idempotent. Then install that compatible release and reopen existing
+tasks; their identities, webs, and receipts are preserved. If installation fails,
+the adopted pin remains and permits a retry with the same contract.
+
+No adoption is required for a proven empty state root or later matching upgrades.
+Unknown files count as persisted state; missing worker leases do not prove safety.
+An incompatible pinned contract needs a separately verified migration, and simply
+restarting Codex will not make it compatible.
 
 ## Retention and task instructions
 

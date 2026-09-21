@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -53,6 +53,7 @@ async function fixture(run) {
     active.set(pid, active.get(pid) ?? processIdentity(pid));
     return new RuntimeWorkerRegistryV1({
       directory,
+      stateDirectory: join(directory, "task-state"),
       verifyContract: overrides.verifyContract,
       pid,
       parentPid,
@@ -251,5 +252,17 @@ test("a failed pre-commit fence cannot leave a pinned cohort behind", async () =
     await assert.rejects(boundary.run({ readOnlyHint: false }, () => writer.register(identity())), { code: "RUNTIME_INTEGRITY_FAILURE" });
     await assert.rejects(readFile(join(directory, "compatibility.json")), { code: "ENOENT" });
     assert.equal((await writer.inspect()).liveWorkerCount, 0);
+  });
+});
+
+
+test("a missing cohort cannot silently adopt persisted state", async () => {
+  await fixture(async ({ registry, directory }) => {
+    await mkdir(join(directory, "task-state"), { recursive: true });
+    await writeFile(join(directory, "task-state", "legacy.json"), "{}\n");
+    const writer = registry(541, 10, { verifyContract: async () => CONTRACT });
+    assert.equal((await writer.inspect()).persistedStateEmpty, false);
+    await assert.rejects(writer.register(identity()), { code: "RUNTIME_UPGRADE_DEFERRED" });
+    await assert.rejects(readFile(join(directory, "compatibility.json")), { code: "ENOENT" });
   });
 });

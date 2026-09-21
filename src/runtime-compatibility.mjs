@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { computeDistributionIntegrity, validateProvenance } from "./distribution-provenance.mjs";
@@ -60,16 +60,32 @@ export async function verifiedRuntimeContractV1(identity) {
   return readRuntimeContractV1(identity.modulePath);
 }
 
-export async function canInstallRuntimeV1(moduleRoot, workers) {
+export async function verifiedDistributionContractV1(moduleRoot) {
   const contract = await readRuntimeContractV1(moduleRoot);
-  if (!contract) return false;
+  if (!contract) return null;
   const provenance = validateProvenance(JSON.parse(await readFile(join(moduleRoot, "distribution-provenance.json"), "utf8")), "upgrade candidate");
   if (await computeDistributionIntegrity(moduleRoot) !== provenance.integrity) {
     throw new Error("upgrade candidate integrity is invalid");
   }
+  return contract;
+}
+
+export async function canInstallRuntimeV1(moduleRoot, workers) {
+  const contract = await verifiedDistributionContractV1(moduleRoot);
+  if (!contract) return false;
   if (workers.compatibilityContract && !runtimeContractsCompatibleV1(contract, workers.compatibilityContract)) return false;
-  if (workers.liveWorkerCount === 0) return true;
+  if (workers.liveWorkerCount === 0) return Boolean(workers.compatibilityContract) || workers.persistedStateEmpty === true;
   if (!workers.activeGenerations?.length || workers.mutationAllowed !== true) return false;
   const peers = await Promise.all(workers.activeGenerations.map(({ identity }) => verifiedRuntimeContractV1(identity)));
   return peers.every((peer) => runtimeContractsCompatibleV1(contract, peer));
+}
+
+// Only infrastructure may precede the first contracted writer. Unknown entries
+// count as persisted state; a missing pin or an empty worker registry is no proof.
+export async function isRuntimeStateEmptyV1(directory = taskStateDirectory()) {
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch (error) { if (error.code === "ENOENT") return true; throw error; }
+  const infrastructure = new Set(["runtime-images", "runtime-workers", "runtime-workers.lock"]);
+  return entries.every((entry) => infrastructure.has(entry.name) && entry.isDirectory());
 }

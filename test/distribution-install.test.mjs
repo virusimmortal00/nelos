@@ -270,7 +270,7 @@ async function installFixture(fixture, overrides = {}) {
     codexCommand: fixture.codexPath,
     force: true,
     env: fixture.env,
-    withRuntimeWorkerExclusion: async (callback) => callback({ liveWorkerCount: 0 }),
+    withRuntimeWorkerExclusion: async (callback) => callback({ liveWorkerCount: 0, persistedStateEmpty: true }),
     ...overrides,
   });
 }
@@ -320,7 +320,7 @@ test("installer holds worker registration exclusion through cache mutation", asy
       withRuntimeWorkerExclusion: async (callback) => {
         exclusionHeld = true;
         try {
-          const result = await callback({ liveWorkerCount: 0 });
+          const result = await callback({ liveWorkerCount: 0, persistedStateEmpty: true });
           const pluginState = JSON.parse(
             await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8"),
           );
@@ -2366,11 +2366,16 @@ test("installer permits compatible retained live workers without removing their 
     });
     assert.equal(installed.provenance.revision, candidateVersion);
     assert.equal(await computeDistributionIntegrity(root), identity.integrity);
+    for (const liveWorkerCount of [0, 2]) {
+      await assert.rejects(installFixture(fixture, {
+        withRuntimeWorkerExclusion: async (callback) => callback({
+          liveWorkerCount, compatibilityContract: { ...contract, state: "incompatible-state" },
+        }),
+      }), /incompatible with persisted Nelos state.*restarting Codex cannot resolve/);
+    }
     await assert.rejects(installFixture(fixture, {
-      withRuntimeWorkerExclusion: async (callback) => callback({
-        liveWorkerCount: 0, compatibilityContract: { ...contract, state: "incompatible-state" },
-      }),
-    }), /incompatible with persisted Nelos state/);
+      withRuntimeWorkerExclusion: async (callback) => callback({ liveWorkerCount: 0 }),
+    }), /compatibility is unknown/);
   } finally {
     if (originalStateHome === undefined) delete process.env.XDG_STATE_HOME;
     else process.env.XDG_STATE_HOME = originalStateHome;
@@ -2413,7 +2418,7 @@ await import(${JSON.stringify(fixture.codexPath)});
         liveWorkerCount: 2, mutationAllowed: true, compatibilityContract: contract,
         activeGenerations: [{ identity }],
       }),
-    }), /refusing to replace the Nelos plugin cache/);
+    }), /incompatible with persisted Nelos state/);
     assert.equal((await readRuntimeContractV1(candidate)).state, "incompatible-after-preflight");
     assert.equal(await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8"), before);
     assert.equal(await readFile(join(fixture.pluginSource, "legacy-marker"), "utf8"), "legacy source\n");

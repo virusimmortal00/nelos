@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runtimeDistribution, retainedWorker } from "./support/runtime-distribution.mjs";
 import { runPlanningLifecycleScenario } from "../scripts/verify-planning-lifecycle.mjs";
-import { runtimeContractsCompatibleV1, validateRuntimeCompatibilityV1 } from "../src/runtime-compatibility.mjs";
+import { canInstallRuntimeV1, isRuntimeStateEmptyV1, runtimeContractsCompatibleV1, validateRuntimeCompatibilityV1 } from "../src/runtime-compatibility.mjs";
+import { RuntimeWorkerRegistryV1 } from "../src/runtime-worker-registry.mjs";
+import { deriveRuntimeIdentityV1 } from "../src/runtime-identity.mjs";
 import { retainRuntimeV1 } from "../src/runtime-retention.mjs";
 
 const CONTRACT = JSON.parse(await readFile(new URL("../src/runtime-compatibility.json", import.meta.url), "utf8"));
@@ -146,4 +149,47 @@ test("repeat retention verifies and reuses the existing image without publicatio
   await writeFile(provenancePath, JSON.stringify(provenance));
   await writeFile(join(target, "src/runtime-compatibility.json"), "{}\n");
   await assert.rejects(retainRuntimeV1({ ...args, publish: noPublish }), /digest|contract/);
+});
+
+
+test("unknown persisted state requires explicit drained adoption and cannot reset a pin", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-legacy-adoption-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const moduleRoot = await runtimeDistribution(join(root, "candidate"), A);
+  const stateDirectory = join(root, "state", "nelos");
+  const directory = join(stateDirectory, "runtime-workers");
+  const registry = new RuntimeWorkerRegistryV1({ directory, stateDirectory,
+    withLock: async (callback) => callback(), verifyContract: async () => CONTRACT });
+  assert.equal(await canInstallRuntimeV1(moduleRoot, await registry.inspect()), true);
+  assert.equal(await canInstallRuntimeV1(moduleRoot, { liveWorkerCount: 0 }), false);
+  await mkdir(stateDirectory, { recursive: true });
+  const record = join(stateDirectory, "legacy-record.json");
+  await writeFile(record, "{\"unchanged\":true}\n");
+  assert.equal(await isRuntimeStateEmptyV1(stateDirectory), false);
+  assert.equal(await canInstallRuntimeV1(moduleRoot, await registry.inspect()), false);
+  await assert.rejects(registry.adoptLegacyState({ moduleRoot, expectedContract: { ...CONTRACT, state: "other" } }), /does not match/);
+  await assert.rejects(readFile(join(directory, "compatibility.json")), { code: "ENOENT" });
+  const command = join(moduleRoot, "bin/nelos-adopt-legacy-runtime");
+  const env = { ...process.env, XDG_STATE_HOME: join(root, "state") };
+  const unconfirmed = spawnSync(process.execPath, [command], { env, encoding: "utf8" });
+  assert.equal(unconfirmed.status, 1);
+  await assert.rejects(readFile(join(directory, "compatibility.json")), { code: "ENOENT" });
+  const adopted = spawnSync(process.execPath, [command, "--package-root", moduleRoot,
+    "--verified-contract", join(moduleRoot, "src/runtime-compatibility.json"),
+    "--confirm-verified-legacy-state"], { env, encoding: "utf8" });
+  assert.equal(adopted.status, 0, adopted.stderr);
+  assert.equal(JSON.parse(adopted.stdout).adopted, true);
+  assert.equal((await registry.adoptLegacyState({ moduleRoot, expectedContract: CONTRACT })).adopted, false);
+  assert.equal(await canInstallRuntimeV1(moduleRoot, await registry.inspect()), true);
+  assert.equal(await readFile(record, "utf8"), "{\"unchanged\":true}\n");
+  const handle = await registry.register(await deriveRuntimeIdentityV1({ moduleRoot }));
+  t.after(() => handle.remove());
+  await assert.rejects(registry.adoptLegacyState({ moduleRoot, expectedContract: CONTRACT }), /every Nelos worker to be drained/);
+  await handle.remove();
+  const incompatible = { ...CONTRACT, state: "other" };
+  const otherRoot = await runtimeDistribution(join(root, "other"), B, incompatible);
+  await assert.rejects(registry.adoptLegacyState({ moduleRoot: otherRoot, expectedContract: incompatible }), /cannot replace/);
+  await writeFile(join(moduleRoot, "src/runtime-compatibility.json"), JSON.stringify(incompatible));
+  await assert.rejects(registry.adoptLegacyState({ moduleRoot, expectedContract: incompatible }), /integrity is invalid/);
+  assert.deepEqual((await registry.inspect()).compatibilityContract, CONTRACT);
 });
