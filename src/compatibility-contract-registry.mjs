@@ -1109,6 +1109,7 @@ export const COMPATIBILITY_CONTRACT_REGISTRY_V1 = Object.freeze({
           ".github/workflows/promote-marketplace.yml",
           "bin/nelos",
           "bin/nelos-compatibility",
+          "bin/nelos-adopt-legacy-runtime",
           "bin/nelos-mcp",
           "bin/nelos-semantic-advisory",
           "bin/nelos-title",
