@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isRetainedRuntimeV1, readRuntimeContractV1 } from "./runtime-compatibility.mjs";
 
 import {
   PROVENANCE_FILENAME,
@@ -30,6 +31,8 @@ import {
 export const RUNTIME_HEALTH_STATES = Object.freeze([
   "healthy",
   "degraded",
+  "retained",
+  "upgrade-deferred",
   "restart-required",
   "ambiguous-install",
   "integrity-failure",
@@ -40,10 +43,11 @@ export const RUNTIME_HEALTH_STATES = Object.freeze([
 // determined at all (a source checkout, or a host with no plugin cache), which
 // is not evidence of staleness. The fence in #91 consumes this field; failing
 // closed on absence would brick every non-plugin install.
-const MUTABLE_STATES = new Set(["healthy", "degraded"]);
+const MUTABLE_STATES = new Set(["healthy", "degraded", "retained"]);
 
 const RECOVERY_BY_STATE = Object.freeze({
   healthy: "None required.",
+  retained: "Continue in this task using the retained runtime and skillPath. No task replacement or web reconciliation is required.",
   degraded:
     "No installed Nelos plugin was found to compare against. If this host " +
     "runs the marketplace plugin, reinstall it; a source checkout needs no action.",
@@ -232,6 +236,7 @@ export async function deriveRuntimeIdentityV1({
     cacheIdentity: provenance.cacheIdentity ?? expectedCacheIdentity,
     modulePath: root,
     embeddedBuildIdentity,
+    runtimeContract: await readRuntimeContractV1(root),
   };
   identity.buildIdentity = deriveBuildIdentityV1({
     ...identity,
@@ -441,6 +446,11 @@ export async function resolveRuntimeHealthV1({
   let detail = integrityDetail;
   if (integrityFailed) {
     state = "integrity-failure";
+  } else if (backingPathPresent && loaded.runtimeContract && isRetainedRuntimeV1(loaded)) {
+    // Installation selects future workers; it cannot retire an existing image.
+    // The registry separately admits only a mutually compatible writer cohort.
+    state = compareRuntimeIdentitiesV1(loaded, installed) === "match" ? "healthy" : "retained";
+    detail = "serving the retained runtime; installation changes do not replace this task's runtime";
   } else if (installedResult.ambiguous) {
     state = "ambiguous-install";
     detail = installedResult.detail;
@@ -486,6 +496,7 @@ export async function resolveRuntimeHealthV1({
       integrity: loaded.integrity,
       buildIdentity: loaded.buildIdentity,
       modulePath: loaded.modulePath,
+      runtimeContract: loaded.runtimeContract ?? null,
     },
     installed: installed
       ? {
@@ -505,6 +516,7 @@ export async function resolveRuntimeHealthV1({
     })),
     activeVersions,
     backingPathPresent,
+    skillPath: join(loaded.modulePath, "skills/manage-nelos-tasks/SKILL.md"),
     mutationAllowed: MUTABLE_STATES.has(state),
     ...(detail ? { detail } : {}),
     recovery: RECOVERY_BY_STATE[state],

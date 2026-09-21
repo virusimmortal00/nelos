@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "state": "nelos-state-v1-exact-attempt-cas",
+  "tools": "nelos-mcp-v1-closed-inputs",
+  "receipts": "nelos-action-v1-checkpoint-bound-replay",
+  "locking": "nelos-file-lock-v1-process-start",
+  "instructions": "nelos-skill-v1-health-admission"
+}

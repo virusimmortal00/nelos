@@ -13,6 +13,7 @@ import {
   withRuntimeWorkerRegistryLock,
 } from "./task-state.mjs";
 import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
+import { runtimeContractsCompatibleV1, validateRuntimeCompatibilityV1, verifiedRuntimeContractV1, verifiedDistributionContractV1, isRuntimeStateEmptyV1 } from "./runtime-compatibility.mjs";
 
 export const RUNTIME_WORKER_LEASE_SCHEMA_VERSION = 1;
 export const RUNTIME_WORKER_LEASE_STATES = Object.freeze([
@@ -172,6 +173,7 @@ async function readLeases(directory) {
 
 export class RuntimeWorkerRegistryV1 {
   #directory;
+  #stateDirectory;
   #now;
   #pid;
   #parentPid;
@@ -182,9 +184,11 @@ export class RuntimeWorkerRegistryV1 {
   #heartbeatMs;
   #setInterval;
   #clearInterval;
+  #verifyContract;
 
   constructor({
     directory = runtimeWorkerDirectory(),
+    stateDirectory = taskStateDirectory(),
     now = Date.now,
     pid = process.pid,
     parentPid = process.ppid,
@@ -195,10 +199,12 @@ export class RuntimeWorkerRegistryV1 {
     heartbeatMs = DEFAULT_RUNTIME_WORKER_HEARTBEAT_MS,
     setIntervalFn = setInterval,
     clearIntervalFn = clearInterval,
+    verifyContract = verifiedRuntimeContractV1,
   } = {}) {
     if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(parentPid) || parentPid <= 0) throw new Error("runtime worker registry requires valid process identifiers");
     if (!Number.isFinite(leaseMs) || leaseMs <= 0 || !Number.isFinite(heartbeatMs) || heartbeatMs <= 0 || heartbeatMs >= leaseMs) throw new Error("runtime worker registry heartbeat bounds are invalid");
     this.#directory = resolve(directory);
+    this.#stateDirectory = resolve(stateDirectory);
     this.#now = now;
     this.#pid = pid;
     this.#parentPid = parentPid;
@@ -209,6 +215,46 @@ export class RuntimeWorkerRegistryV1 {
     this.#heartbeatMs = heartbeatMs;
     this.#setInterval = setIntervalFn;
     this.#clearInterval = clearIntervalFn;
+    this.#verifyContract = verifyContract;
+  }
+
+  async #cohortContract() {
+    try {
+      return validateRuntimeCompatibilityV1(JSON.parse(await readFile(join(this.#directory, "compatibility.json"), "utf8")));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  async #admitCompatibility(identity, live) {
+    const contract = await this.#verifyContract(identity);
+    const cohort = await this.#cohortContract();
+    const peers = await Promise.all(live.map((lease) => this.#verifyContract(lease.runtimeIdentity)));
+    if ((cohort && !runtimeContractsCompatibleV1(contract, cohort)) ||
+        ((contract || peers.some(Boolean)) && peers.some((peer) => !runtimeContractsCompatibleV1(contract, peer)))) {
+      const error = new Error("runtime contract is incompatible with existing state or workers; keep existing tasks on their retained runtime and restore a compatible release");
+      error.code = "RUNTIME_UPGRADE_DEFERRED";
+      throw error;
+    }
+    if (contract && !cohort) {
+      if (live.length === 0 && !await isRuntimeStateEmptyV1(this.#stateDirectory)) {
+        const error = new Error("persisted Nelos state has no compatibility contract; complete the explicit drained legacy-state adoption before starting this release (docs/runtime-upgrades.md)");
+        error.code = "RUNTIME_UPGRADE_DEFERRED";
+        throw error;
+      }
+      await this.#pinContract(contract);
+    }
+  }
+
+  async #pinContract(contract) {
+    await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+    const target = join(this.#directory, "compatibility.json");
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o600 });
+      await commitRuntimeMutationV1(() => rename(temporary, target));
+    } finally { await rm(temporary, { force: true }); }
   }
 
   async #reconcileUnlocked() {
@@ -260,7 +306,8 @@ export class RuntimeWorkerRegistryV1 {
       state: "active",
     };
     await this.#withLock(async () => {
-      await this.#reconcileUnlocked();
+      const { live } = await this.#reconcileUnlocked();
+      await this.#admitCompatibility(projected, live);
       lease = await writeLease(this.#directory, lease);
     });
     const timer = this.#setInterval(() => {
@@ -332,13 +379,35 @@ export class RuntimeWorkerRegistryV1 {
       generations.set(lease.generationKey, group);
     }
     const activeGenerations = [...generations.values()].sort((a, b) => a.generationKey.localeCompare(b.generationKey));
+    const cohort = await this.#cohortContract();
+    const contracts = await Promise.all(activeGenerations.map(({ identity }) => this.#verifyContract(identity)));
+    const compatible = contracts.length > 0 && contracts.every((contract) => runtimeContractsCompatibleV1(contract, cohort));
     return {
-      state: activeGenerations.length > 1 ? "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
-      mutationAllowed: activeGenerations.length <= 1,
+      state: activeGenerations.length > 1 ? compatible ? "compatible-generations" : "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
+      mutationAllowed: cohort ? compatible : activeGenerations.length <= 1,
       activeGenerations,
       liveWorkerCount: live.length,
+      compatibilityContract: cohort,
+      persistedStateEmpty: cohort ? false : await isRuntimeStateEmptyV1(this.#stateDirectory),
       recoveredWorkerIds: recovered.map(({ workerId }) => workerId).sort(),
     };
+  }
+
+  // Deliberate one-time adoption after an operator has verified the legacy
+  // state against this exact contract. Never a pin reset or schema migration.
+  async adoptLegacyState({ moduleRoot, expectedContract }) {
+    const expected = validateRuntimeCompatibilityV1(expectedContract);
+    return this.#withLock(async () => {
+      const report = await this.#inspectUnlocked();
+      if (report.liveWorkerCount !== 0) throw new Error("legacy state adoption requires every Nelos worker to be drained");
+      const contract = await verifiedDistributionContractV1(moduleRoot);
+      if (!runtimeContractsCompatibleV1(contract, expected)) throw new Error("legacy state adoption contract does not match the verified candidate");
+      if (report.compatibilityContract && !runtimeContractsCompatibleV1(contract, report.compatibilityContract)) {
+        throw new Error("legacy state adoption cannot replace an existing compatibility contract; a separately verified migration is required");
+      }
+      if (!report.compatibilityContract) await this.#pinContract(contract);
+      return { compatibilityContract: contract, adopted: !report.compatibilityContract };
+    });
   }
 
   async inspect() {

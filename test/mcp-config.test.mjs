@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DISTRIBUTION_ENTRIES } from "../src/distribution-provenance.mjs";
+import { DISTRIBUTION_ENTRIES, listDistributionFiles } from "../src/distribution-provenance.mjs";
 import { listNelosMcpTools } from "../src/mcp-server.mjs";
 import {
   MCP_CONFIG_FILENAME,
@@ -75,18 +75,10 @@ async function bootstrapFixture() {
     pluginMetadata.version,
   );
   await mkdir(cachedPlugin, { recursive: true });
-  await cp(join(packageRoot, "src"), join(cachedPlugin, "src"), {
-    recursive: true,
-  });
-  await cp(join(packageRoot, "assets"), join(cachedPlugin, "assets"), {
-    recursive: true,
-  });
-  await Promise.all([
-    cp(join(packageRoot, ".codex-plugin"), join(cachedPlugin, ".codex-plugin"), { recursive: true }),
-    cp(join(packageRoot, ".mcp.json"), join(cachedPlugin, ".mcp.json")),
-    cp(join(packageRoot, "package.json"), join(cachedPlugin, "package.json")),
-    cp(join(packageRoot, "distribution-provenance.json"), join(cachedPlugin, "distribution-provenance.json")),
-  ]);
+  for (const path of await listDistributionFiles(packageRoot, { includeProvenance: true })) {
+    await mkdir(join(cachedPlugin, path, ".."), { recursive: true });
+    await cp(join(packageRoot, path), join(cachedPlugin, path));
+  }
   return home;
 }
 

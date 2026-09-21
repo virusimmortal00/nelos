@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+// Explicit, offline adoption only. This does not validate or migrate task data.
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { RuntimeWorkerRegistryV1 } from "../src/runtime-worker-registry.mjs";
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.length !== 5 || args[0] !== "--package-root" || args[2] !== "--verified-contract" ||
+      args[4] !== "--confirm-verified-legacy-state") {
+    throw new Error("usage: node bin/nelos-adopt-legacy-runtime --package-root PATH --verified-contract PATH --confirm-verified-legacy-state (after verifying legacy state compatibility; see docs/runtime-upgrades.md)");
+  }
+  const expectedContract = JSON.parse(await readFile(resolve(args[3]), "utf8"));
+  const result = await new RuntimeWorkerRegistryV1().adoptLegacyState({
+    moduleRoot: resolve(args[1]), expectedContract,
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+main().catch((error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });

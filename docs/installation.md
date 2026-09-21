@@ -48,39 +48,40 @@ tracks untagged `main`, a draft, or a prerelease.
 
 To upgrade, read the new release's **Compatibility requirements** and
 **Migrations**, then refresh the configured Git marketplace and reinstall from
-the refreshed snapshot. Quit Codex completely before running these commands;
-the installer refuses to replace the cache while any live Nelos worker is
-registered:
+the refreshed snapshot. Releases with runtime retention can be installed while
+compatible workers continue serving existing tasks. When upgrading from a release
+without retention, quit Codex completely first: those workers cannot acquire the
+new behavior retroactively.
 
 ```bash
 codex plugin marketplace upgrade nelos-marketplace
 codex plugin add nelos@nelos-marketplace
 ```
 
-Restart Codex and open a fresh task after installation or upgrade. Enabling the
-bundled MCP server remains an explicit per-selector configuration step, as
-shown in the [Quick start](../README.md#quick-start).
+Enabling the bundled MCP server remains an explicit per-selector configuration
+step, as shown in the [Quick start](../README.md#quick-start).
 
-This restart is required, not advisory: an already-open task can retain the old
-skill text, and an already-running MCP worker can retain the old JavaScript
-module even after the marketplace checkout and cache have changed. Quit and
-relaunch Codex after the install command succeeds, then create a new task. Do
-not use that task's pre-upgrade worker as verification evidence.
+After a compatible upgrade, call `nelos_runtime_health` in the existing task.
+When `mutationAllowed` is true, continue using its original runtime, task IDs,
+webs, and receipts. `skillPath` identifies the retained skill and its references
+if the marketplace removed the old cache directory. A reconnected task with an
+old legacy-layout launch configuration can find its retained image by version.
+Multiple different retained builds of the same version are ambiguous and require
+an explicit host refresh; the bootstrap never guesses which build was loaded.
 
-From the first release with cooperative runtime leases onward, every MCP worker
-registers only its own PID, strong process-start identity, parent identity,
-exact loaded generation, and bounded heartbeat under protected Nelos state.
-Multiple tasks on the same exact generation are valid. `nelos_runtime_health`
-reports `restart-required` when live leases name mixed generations; it never
-scans or kills processes by name. Workers from releases predating this registry
-cannot self-register retroactively, so upgrading into this mechanism requires
-one manual full Codex restart and a fresh task.
+Every MCP worker registers its own PID, strong process-start identity, parent,
+exact runtime, and bounded heartbeat. Compatible generations coexist. A new
+incompatible worker reports `upgrade-deferred` without joining the writer cohort
+or blocking incumbents. The persisted contract survives the last worker exiting;
+restarting does not authorize an incompatible state migration.
 
-An app-server client may call `config/mcpServer/reload` only for a connection it
-owns and only when that method is supported, then must verify its old owned
-children closed. The installed plugin cannot authoritatively reap host-owned
-sibling connections. In every other case the exact recovery action remains:
-**Quit and relaunch Codex, then open a fresh task.**
+An app-server client may request `config/mcpServer/reload` only for a supported
+connection it owns, then verify its old children closed. The plugin never signals
+host-owned sibling connections. Hosts that cannot refresh their plugin/tool
+catalog may still need a restart; this does not require rebuilding task webs.
+Workers started before runtime retention may need the one-time legacy recovery
+reported by their old health tool. See [Runtime upgrades](runtime-upgrades.md)
+for the compatibility promise, retention policy, and verification limits.
 
 Each installed copy contains `distribution-provenance.json`. Its
 `sourceRepository`, 40-character `sourceRevision`, `sourceRevisionType`, `revision`,

@@ -6,6 +6,7 @@ const ERROR_CODE_BY_STATE = Object.freeze({
   "restart-required": "STALE_RUNTIME",
   "ambiguous-install": "AMBIGUOUS_RUNTIME_INSTALL",
   "integrity-failure": "RUNTIME_INTEGRITY_FAILURE",
+  "upgrade-deferred": "RUNTIME_UPGRADE_DEFERRED",
 });
 
 function mutationTool(annotations) {

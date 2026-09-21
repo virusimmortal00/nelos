@@ -32,7 +32,7 @@ Planning quality must not depend on the queen's model. One bounded Sol planner
 decomposes; the queen judges. Use bundled MCP tools; never use the CLI as fallback.
 
 Before mutations call `nelos_runtime_health`; require `mutationAllowed`, else use `recovery`.
-Never live-upgrade Nelos. Quit, install externally, relaunch and open fresh task; task alone leaves workers live.
+Compatible upgrades retain each worker’s runtime. When health allows mutations, continue in the same task with existing receipts; use its `skillPath` if the old cache path vanished. Follow `recovery` for incompatible or legacy workers. Never reconstruct webs merely because the plugin version changed.
 
 - A `subagent` is a joined child. Its primary identity is `agentPath`; its
   internal thread ID is verification evidence only. Never call it a spinoff.

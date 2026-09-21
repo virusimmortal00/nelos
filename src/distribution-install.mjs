@@ -65,6 +65,7 @@ import {
   readProcessIdentity,
 } from "./process-liveness.mjs";
 import { RuntimeWorkerRegistryV1 } from "./runtime-worker-registry.mjs";
+import { canInstallRuntimeV1, readRuntimeContractV1, runtimeContractsCompatibleV1 } from "./runtime-compatibility.mjs";
 import {
   hasOnlyManagedSkillFiles,
   pathFingerprint,
@@ -2665,6 +2666,22 @@ async function reconcileCommittedPluginAfterAppServer({
   }
 }
 
+async function assertRuntimeInstallCompatibility(packageRoot, runtimeWorkers) {
+  const contract = await readRuntimeContractV1(packageRoot);
+  if (runtimeWorkers.compatibilityContract && !runtimeContractsCompatibleV1(contract, runtimeWorkers.compatibilityContract)) {
+    throw new Error("upgrade contract is incompatible with persisted Nelos state; restore a compatible release or perform a separately verified drained migration; restarting Codex cannot resolve this mismatch");
+  }
+  if (await canInstallRuntimeV1(packageRoot, runtimeWorkers)) return;
+  if (runtimeWorkers.liveWorkerCount > 0) {
+    throw new Error(
+      `refusing to replace the Nelos plugin cache while ${runtimeWorkers.liveWorkerCount} live Nelos ` +
+      `${runtimeWorkers.liveWorkerCount === 1 ? "worker is" : "workers are"} registered; quit Codex completely, ` +
+      "then verify/adopt legacy state if needed before installing from an external terminal",
+    );
+  }
+  throw new Error("persisted Nelos state compatibility is unknown; verify the candidate contract and complete explicit drained legacy-state adoption (docs/runtime-upgrades.md); absence of live workers does not authorize installation");
+}
+
 export async function installDistribution(options = {}) {
   const withRuntimeWorkerExclusion = options.withRuntimeWorkerExclusion ?? (
     (callback) => new RuntimeWorkerRegistryV1().withRegistrationExclusion(callback)
@@ -2721,13 +2738,7 @@ async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) 
   ) {
     throw new Error("runtime worker preflight returned an invalid result");
   }
-  if (runtimeWorkers.liveWorkerCount > 0) {
-    throw new Error(
-      `refusing to replace the Nelos plugin cache while ${runtimeWorkers.liveWorkerCount} live Nelos ` +
-      `${runtimeWorkers.liveWorkerCount === 1 ? "worker is" : "workers are"} registered; quit Codex completely, ` +
-      "run the installation from an external terminal, then relaunch Codex and open a fresh task",
-    );
-  }
+  await assertRuntimeInstallCompatibility(packageRoot, runtimeWorkers);
   await ensureCanonicalDirectory(home, "home", { create: false });
   await ensureCanonicalDirectory(codexHome, "CODEX_HOME", {
     enforceMode: true,
@@ -2827,6 +2838,7 @@ async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) 
     const statePath = join(installRoot, INSTALL_STATE_FILENAME);
     const previousState = await readInstallState(installRoot);
     const staged = await stageDistribution({ packageRoot, installRoot, env });
+    await assertRuntimeInstallCompatibility(staged.releasePath, runtimeWorkers);
     const journal = {
       schemaVersion: INSTALL_SCHEMA_VERSION,
       id: transactionId,
