@@ -13,7 +13,7 @@ export const incident = JSON.parse(await readFile(
 
 // Only synthetic IDs and bounded outcome facts are retained. No production
 // prompts, transcripts, credentials, paths, or PR content are needed.
-export async function unresolvedSpinoffsFixture(t) {
+export async function unresolvedSpinoffsFixture(t, { finishedCleaned = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), "nelos-unresolved-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identity = { webId: incident.webId, queenThreadId: incident.queenThreadId };
@@ -70,7 +70,7 @@ export async function unresolvedSpinoffsFixture(t) {
     const wave = { planRunId: run.planRunId, queenThreadId: identity.queenThreadId,
       waveIndex: 1, waveDigest: run.waves[0].waveDigest };
     run = await planRunStore.markWaveVerified(wave);
-    if (plan.cleaned) run = await planRunStore.markWaveCleaned(wave);
+    if (plan.cleaned && finishedCleaned) run = await planRunStore.markWaveCleaned(wave);
     runs[plan.id] = run;
   }
   const units = await executionStore.list();

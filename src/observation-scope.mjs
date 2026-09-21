@@ -29,11 +29,7 @@ export function selectObservationRunV1({ runs, checkpoint, workUnits, decisions,
   const pinned = candidates.find(({ planRunId }) => planRunId === checkpoint?.waveScope?.planRunId);
   if (receipt !== null && checkpoint?.waveScope) {
     if (!pinned) throw new Error("observation receipt scope is no longer current");
-    const waveIndex = pinned.verifiedWaveIndexes.at(-1);
-    const wave = pinned.waves.find((item) => item.waveIndex === waveIndex);
-    if (waveIndex !== checkpoint.waveScope.waveIndex || wave?.waveDigest !== checkpoint.waveScope.waveDigest) {
-      throw new Error("observation receipt wave is no longer current");
-    }
+    selectObservationWaveV1(pinned, { checkpoint, workUnits, decisions, receipt });
     return pinned;
   }
   const unfinished = candidates.filter((run) =>
@@ -41,4 +37,27 @@ export function selectObservationRunV1({ runs, checkpoint, workUnits, decisions,
   // Keep in-flight work stable when another plan is registered. Once settled,
   // resume unresolved work even if a completed plan sorts before it by hash.
   return unfinished.find((run) => run === pinned) ?? unfinished[0] ?? pinned ?? candidates[0] ?? null;
+}
+
+function selectObservationWaveV1(run, { checkpoint, workUnits, decisions, receipt = null }) {
+  const waves = run.verifiedWaveIndexes.map((index) => run.waves.find((wave) => wave.waveIndex === index));
+  if (waves.some((wave) => !wave)) throw new Error("observation receipt wave is no longer current: verified wave contract is unavailable");
+  if (receipt !== null && checkpoint?.waveScope) {
+    const wave = waves.find(({ waveIndex, waveDigest }) =>
+      waveIndex === checkpoint.waveScope.waveIndex && waveDigest === checkpoint.waveScope.waveDigest);
+    if (!wave) throw new Error("observation receipt wave is no longer current");
+    return wave;
+  }
+  const latest = waves.at(-1);
+  // Keep the latest launched wave active until it settles, then recover any
+  // older verified wave whose exact acceptance or cleanup evidence is missing.
+  return !isObservationWaveSettledV1(run, latest, workUnits, decisions) ? latest :
+    waves.find((wave) => !isObservationWaveSettledV1(run, wave, workUnits, decisions)) ?? latest;
+}
+
+export function selectObservationScopeV1(input) {
+  const run = selectObservationRunV1(input);
+  if (!run) return { run: null, wave: null, scope: null };
+  const wave = selectObservationWaveV1(run, input);
+  return { run, wave, scope: { planRunId: run.planRunId, waveIndex: wave.waveIndex, waveDigest: wave.waveDigest } };
 }
