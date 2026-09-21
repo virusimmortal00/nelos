@@ -20,12 +20,16 @@ export function isObservationWaveSettledV1(run, wave, workUnits, decisions) {
   });
 }
 
-export function selectObservationRunV1({ runs, checkpoint, workUnits, decisions, receipt = null }) {
+export function currentVerifiedObservationRunsV1(runs) {
   const verified = runs.filter(({ verifiedWaveIndexes }) => verifiedWaveIndexes.length > 0);
   // A verified replan supersedes only its own lineage, not independent plans.
-  const candidates = verified.filter((run) => !verified.some((other) =>
+  return verified.filter((run) => !verified.some((other) =>
     other.rootPlanRunId === (run.rootPlanRunId ?? run.planRunId) &&
     other.replanGeneration > run.replanGeneration));
+}
+
+export function selectObservationRunV1({ runs, checkpoint, workUnits, decisions, receipt = null }) {
+  const candidates = currentVerifiedObservationRunsV1(runs);
   const pinned = candidates.find(({ planRunId }) => planRunId === checkpoint?.waveScope?.planRunId);
   if (receipt !== null && checkpoint?.waveScope) {
     if (!pinned) throw new Error("observation receipt scope is no longer current");

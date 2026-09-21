@@ -2,7 +2,7 @@ import { ExecutionStoreV1 } from "./execution-store.mjs";
 import { OrchestrationCheckpointStoreV1 } from "./orchestration-checkpoint-store.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
-import { isObservationWaveSettledV1 } from "./observation-scope.mjs";
+import { currentVerifiedObservationRunsV1, isObservationWaveSettledV1 } from "./observation-scope.mjs";
 import { assertWebId } from "./task-web.mjs";
 
 export const WEB_INSPECTION_SCHEMA_VERSION = 1;
@@ -285,9 +285,15 @@ export class NelosWebInspectorV1 {
 
     const bindingCounts = {};
     const coordinationCounts = {};
-    const settledIds = new Set(runs.flatMap((run) => run.waves
-      .filter((wave) => isObservationWaveSettledV1(run, wave, workUnits, decisions))
-      .flatMap((wave) => wave.members.map(({ sliceId }) => sliceId))));
+    const settlementById = new Map();
+    for (const run of currentVerifiedObservationRunsV1(runs)) {
+      for (const wave of run.waves) {
+        const settled = isObservationWaveSettledV1(run, wave, workUnits, decisions);
+        for (const { sliceId } of wave.members) {
+          settlementById.set(sliceId, (settlementById.get(sliceId) ?? true) && settled);
+        }
+      }
+    }
     let persistedAttentionRequired = 0;
     for (const workUnit of workUnits) {
       increment(bindingCounts, workUnit.binding.state);
@@ -304,7 +310,7 @@ export class NelosWebInspectorV1 {
       if (
         orchestration.state === "stale" ||
         (orchestration.state === "untracked" && workUnit.required &&
-          workUnit.binding.state === "bound" && !settledIds.has(workUnit.workUnitId)) ||
+          workUnit.binding.state === "bound" && settlementById.get(workUnit.workUnitId) !== true) ||
         orchestration.attentionRequired === true
       ) {
         persistedAttentionRequired += 1;

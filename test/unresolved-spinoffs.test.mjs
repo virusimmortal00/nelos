@@ -209,3 +209,29 @@ test("an older unresolved wave is recovered even when the latest wave in the sam
   assert.notEqual(result.nextAction?.kind, "complete");
   assert.deepEqual(await new McpJoinAdapterV1(fixture).advance(fixture.identity), result);
 });
+
+test("inspection requires every current plan occurrence to settle a reused slice", async (t) => {
+  for (const replacement of [false, true]) {
+    for (const finishedCleaned of [false, true]) {
+      const fixture = await unresolvedSpinoffsFixture(t, { finishedCleaned });
+      const previous = fixture.runs.finished;
+      const checkpoint = await fixture.checkpointStore.read(fixture.identity.webId, fixture.identity.queenThreadId);
+      await fixture.checkpointStore.write({ ...checkpoint, checkpointRevision: 2, waveScope: null, members: [] }, { expectedRevision: 1 });
+      let next = await fixture.planRunStore.create(createPlanRunV1(previous.plan, {
+        queenThreadId: fixture.identity.queenThreadId, sourceId: "reused-preflight",
+        parentPlanRun: replacement ? previous : null, webIdentity: previous.webIdentity,
+      }));
+      const wave = { planRunId: next.planRunId, queenThreadId: fixture.identity.queenThreadId,
+        waveIndex: 1, waveDigest: next.waves[0].waveDigest };
+      next = await fixture.planRunStore.markWaveVerified(wave);
+      const inspect = () => new NelosWebInspectorV1(fixture).inspect(
+        { schemaVersion: 1, ...fixture.identity }, nativeBoundary());
+      assert.equal((await inspect()).summary.persistedAttentionRequired, 4,
+        "a settled old occurrence cannot hide an uncleaned current occurrence");
+      await fixture.planRunStore.markWaveCleaned(wave);
+      assert.equal((await inspect()).summary.persistedAttentionRequired,
+        replacement || finishedCleaned ? 3 : 4,
+        "only superseded ancestors may be ignored; independent occurrences must all settle");
+    }
+  }
+});
