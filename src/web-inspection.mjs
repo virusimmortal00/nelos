@@ -286,10 +286,15 @@ export class NelosWebInspectorV1 {
     const bindingCounts = {};
     const coordinationCounts = {};
     const settlementById = new Map();
+    const unsettledOutsideCheckpoint = new Set();
     for (const run of currentVerifiedObservationRunsV1(runs)) {
       for (const wave of run.waves) {
         const settled = isObservationWaveSettledV1(run, wave, workUnits, decisions);
+        const active = checkpoint?.waveScope?.planRunId === run.planRunId &&
+          checkpoint.waveScope.waveIndex === wave.waveIndex &&
+          checkpoint.waveScope.waveDigest === wave.waveDigest;
         for (const { sliceId } of wave.members) {
+          if (!active && !settled) unsettledOutsideCheckpoint.add(sliceId);
           settlementById.set(sliceId, (settlementById.get(sliceId) ?? true) && settled);
         }
       }
@@ -309,6 +314,8 @@ export class NelosWebInspectorV1 {
       );
       if (
         orchestration.state === "stale" ||
+        (workUnit.required && workUnit.binding.state === "bound" &&
+          unsettledOutsideCheckpoint.has(workUnit.workUnitId)) ||
         (orchestration.state === "untracked" && workUnit.required &&
           workUnit.binding.state === "bound" && settlementById.get(workUnit.workUnitId) !== true) ||
         orchestration.attentionRequired === true
