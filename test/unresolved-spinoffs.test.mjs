@@ -121,3 +121,35 @@ test("receipt replay stays with its issuing plan; the following resume recovers 
   assert.equal((await adapter.advance(fixture.identity)).checkpoint.waveScope.planRunId, fixture.runs.unfinished.planRunId);
   assert.deepEqual(await fixture.acceptanceStore.list(fixture.identity), fixture.decisions, "recovery never invents acceptance");
 });
+
+
+test("final spinoff cleanup explicitly resumes the remaining independent plan", async (t) => {
+  const fixture = await unresolvedSpinoffsFixture(t, { finishedCleaned: false });
+  const joinAdapter = new McpJoinAdapterV1(fixture);
+  const cleanupAction = (await joinAdapter.advance(fixture.identity)).nextAction;
+  assert.equal(cleanupAction.kind, "cleanup-spinoffs");
+  assert.equal(cleanupAction.arguments.planRunId, fixture.runs.finished.planRunId);
+  const lifecycle = new SpinoffLifecycleAdapterV1({
+    ...fixture,
+    store: new SpinoffLifecycleStoreV1({ directory: join(fixture.root, "lifecycle") }),
+    configuration: { async get() { return { setting: { value: "auto" } }; } },
+  });
+  const requested = await lifecycle.cleanup(cleanupAction.arguments);
+  assert.deepEqual(requested.effects.map(({ threadId }) => threadId), ["task-preflight"]);
+  const archiveReceipts = requested.effects.map(({ actionId, threadId }) => ({
+    schemaVersion: 1, type: "native-archive", actionId, threadId, archived: true,
+  }));
+  const cleaned = await lifecycle.cleanup({ ...cleanupAction.arguments, archiveReceipts });
+  assert.equal(cleaned.state, "complete");
+  assert.deepEqual(cleaned.nextAction, {
+    schemaVersion: 1, kind: "advance-orchestration", tool: "nelos_orchestrate_advance",
+    arguments: { ...fixture.identity, receipt: null },
+  });
+  const replay = await lifecycle.cleanup({ ...cleanupAction.arguments, archiveReceipts });
+  assert.deepEqual(replay.effects, []);
+  assert.deepEqual(replay.nextAction, cleaned.nextAction);
+  const resumed = await joinAdapter.advance(cleaned.nextAction.arguments);
+  assert.equal(resumed.checkpoint.waveScope.planRunId, fixture.runs.unfinished.planRunId);
+  assert.deepEqual(resumed.checkpoint.members.map(({ workUnitId }) => workUnitId), ["keys", "telemetry", "template"]);
+  assert.notEqual(resumed.nextAction?.kind, "complete");
+});

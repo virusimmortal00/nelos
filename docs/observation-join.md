@@ -97,7 +97,7 @@ completion. Cleanup may record archival or an intentional keep policy. Native
 Web inspection includes all execution bindings, even outside this checkpoint.
 An untracked required bound member contributes to `persistedAttentionRequired`
 unless its wave has current acceptance and cleanup evidence. Accepted and
-cleaned historical waves therefore do not produce false recovery alarms.
+cleaned historical waves therefore do not produce false recovery alarms. Final-wave spinoff cleanup returns an explicit orchestration advance so independent unfinished plans are revisited before web completion.
 This count indicates missing coordination evidence, not permission to archive.
 
 ## Offline incident verification
