@@ -235,3 +235,27 @@ test("inspection requires every current plan occurrence to settle a reused slice
     }
   }
 });
+
+test("inspection counts unresolved occurrences outside a matching current checkpoint", async (t) => {
+  for (const replacement of [false, true]) {
+    for (const finishedCleaned of [false, true]) {
+      const fixture = await unresolvedSpinoffsFixture(t, { finishedCleaned });
+      const inspect = () => new NelosWebInspectorV1(fixture).inspect(
+        { schemaVersion: 1, ...fixture.identity }, nativeBoundary());
+      assert.equal((await inspect()).summary.persistedAttentionRequired, 3,
+        "the active occurrence awaiting normal cleanup is not additional attention");
+      const previous = fixture.runs.finished;
+      const next = await fixture.planRunStore.create(createPlanRunV1(previous.plan, {
+        queenThreadId: fixture.identity.queenThreadId, sourceId: "reused-current-preflight",
+        parentPlanRun: replacement ? previous : null, webIdentity: previous.webIdentity,
+      }));
+      const wave = { planRunId: next.planRunId, queenThreadId: fixture.identity.queenThreadId,
+        waveIndex: 1, waveDigest: next.waves[0].waveDigest };
+      await fixture.planRunStore.markWaveVerified(wave);
+      assert.equal((await inspect()).summary.persistedAttentionRequired, 4,
+        "matching binding cannot hide another unsettled plan occurrence");
+      await fixture.planRunStore.markWaveCleaned(wave);
+      assert.equal((await inspect()).summary.persistedAttentionRequired, 3);
+    }
+  }
+});

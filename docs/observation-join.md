@@ -101,7 +101,10 @@ Web inspection includes all execution bindings, even outside this checkpoint.
 An untracked required bound member contributes to `persistedAttentionRequired`
 unless every applicable wave has current acceptance and cleanup evidence.
 Superseded ancestors are excluded, but an independent plan sharing the same
-slice ID must also settle before inspection suppresses attention. Accepted and
+slice ID must also settle before inspection suppresses attention. This applies
+even when the member matches the current checkpoint: unresolved occurrences
+outside its exact wave scope count as attention, while normal cleanup of the
+active occurrence does not add an extra attention item. Accepted and
 cleaned historical waves therefore do not produce false recovery alarms. Final-wave spinoff cleanup returns an explicit orchestration advance so independent unfinished plans are revisited before web completion.
 This count indicates missing coordination evidence, not permission to archive.
 
