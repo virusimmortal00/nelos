@@ -161,7 +161,7 @@ async function writeRollout(
   );
 }
 
-class McpProcess {
+export class McpProcess {
   #child;
   #buffer = "";
   #nextId = 1;
@@ -285,7 +285,7 @@ function startMcp(environment) {
   );
 }
 
-export async function runPlanningLifecycleScenario() {
+export async function runPlanningLifecycleScenario({ startWorker = startMcp, onPendingReceipt = async () => {} } = {}) {
   const root = await mkdtemp(join(tmpdir(), "nelos-planning-smoke-"));
   const stateHome = join(root, "state");
   const codexHome = join(root, "codex-home");
@@ -324,7 +324,7 @@ export async function runPlanningLifecycleScenario() {
       NELOS_FAKE_APP_STATE: appStatePath,
     };
 
-    mcp = startMcp(environment);
+    mcp = await startWorker(environment);
     await mcp.initialize();
     const lifecycleRequest = {
       schemaVersion: 1,
@@ -415,8 +415,9 @@ export async function runPlanningLifecycleScenario() {
       waiting.nextAction.reconciliation.unavailableObservations,
       0,
     );
+    await onPendingReceipt({ mcp, environment, launchReceipt, bootstrapId });
     await mcp.stop();
-    mcp = startMcp(environment);
+    mcp = await startWorker(environment);
     await mcp.initialize();
     const resumed = await mcp.tool("nelos_plan_lifecycle", {
       ...lifecycleRequest,

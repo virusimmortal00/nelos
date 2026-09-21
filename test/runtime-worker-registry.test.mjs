@@ -52,6 +52,7 @@ async function fixture(run) {
     active.set(pid, active.get(pid) ?? processIdentity(pid));
     return new RuntimeWorkerRegistryV1({
       directory,
+      verifyContract: overrides.verifyContract,
       pid,
       parentPid,
       now: () => clock,
@@ -187,4 +188,53 @@ test("host reload is restricted to an owning client and restart is the exact fal
     reloadOwnedMcpServerV1({ client, ownsAppServer: true, reloadSupported: true, waitForOwnedChildren: async () => false }),
     /did not close/,
   );
+});
+
+const CONTRACT = { schemaVersion: 1, state: "state-a", tools: "tools-a", receipts: "receipts-a", locking: "locking-a", instructions: "instructions-a" };
+
+test("verified compatible generations coexist and incompatible registration cannot fence incumbents", async () => {
+  await fixture(async ({ registry }) => {
+    const verifyContract = async (value) => value.version === "0.12.7" ? { ...CONTRACT, receipts: "receipts-b" } : CONTRACT;
+    const a = registry(501, 10, { verifyContract });
+    const b = registry(502, 10, { verifyContract });
+    const c = registry(503, 10, { verifyContract });
+    const oldWorker = await a.register(identity("0.12.5", REVISION_A, INTEGRITY_A));
+    const newWorker = await b.register(identity("0.12.6", REVISION_B, INTEGRITY_B));
+    assert.equal((await a.inspect()).state, "compatible-generations");
+    assert.equal((await b.inspect()).mutationAllowed, true);
+    await assert.rejects(c.register(identity("0.12.7")), { code: "RUNTIME_UPGRADE_DEFERRED" });
+    assert.equal((await a.inspect()).liveWorkerCount, 2);
+    assert.equal((await a.inspect()).mutationAllowed, true);
+    await oldWorker.remove();
+    await newWorker.remove();
+    // Persisted state still belongs to the old contract after every writer exits.
+    await assert.rejects(c.register(identity("0.12.7")), { code: "RUNTIME_UPGRADE_DEFERRED" });
+    const rollback = await a.register(identity("0.12.5", REVISION_A, INTEGRITY_A));
+    assert.equal((await a.inspect()).mutationAllowed, true);
+    await rollback.remove();
+  });
+});
+
+test("unknown or legacy workers cannot join a contracted cohort", async () => {
+  await fixture(async ({ registry }) => {
+    const a = registry(511, 10, { verifyContract: async () => CONTRACT });
+    const handle = await a.register(identity());
+    await assert.rejects(registry(512).register(identity()), { code: "RUNTIME_UPGRADE_DEFERRED" });
+    assert.equal((await a.inspect()).liveWorkerCount, 1);
+    await handle.remove();
+  });
+});
+
+test("tampered runtime verification and corrupt cohort state fail closed", async () => {
+  await fixture(async ({ registry, directory }) => {
+    let tampered = false;
+    const a = registry(521, 10, { verifyContract: async () => { if (tampered) throw new Error("tampered runtime"); return CONTRACT; } });
+    const handle = await a.register(identity());
+    tampered = true;
+    await assert.rejects(a.inspect(), /tampered runtime/);
+    tampered = false;
+    await writeFile(join(directory, "compatibility.json"), "{}");
+    await assert.rejects(a.inspect(), /contract is invalid/);
+    await handle.remove();
+  });
 });

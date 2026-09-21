@@ -136,7 +136,8 @@ export const MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS =
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function runtimePreflightInstructions(health) {
-  if (health?.mutationAllowed === true) return MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS;
+  if (health?.mutationAllowed === true) return MCP_RUNTIME_PREFLIGHT_INSTRUCTIONS +
+    (health.skillPath ? ` Continue this task across compatible upgrades. Retained skill: ${health.skillPath}.` : "");
   const versions = Array.isArray(health?.activeVersions) && health.activeVersions.length > 0
     ? ` Active versions: ${health.activeVersions.join(", ")}.`
     : "";
@@ -1417,8 +1418,7 @@ export function startNelosMcpServer({
     .then((identity) => ({ identity, error: null }))
     .catch((error) => ({ identity: null, error }));
   const runtimeIdentity = () => runtimeIdentityResult;
-  const workerLeaseResult = runtimeIdentityResult
-    .then(async ({ identity }) => {
+  const registerWorker = () => runtimeIdentityResult.then(async ({ identity }) => {
       // Identity failures are classified by resolveRuntimeHealth. Registry
       // failure is distinct only after a coherent identity exists.
       if (!identity) return { handle: null, error: null };
@@ -1428,6 +1428,7 @@ export function startNelosMcpServer({
         return { handle: null, error: registryError };
       }
     });
+  let workerLeaseResult = registerWorker();
   const runtimeHealth = async ({ verifyIntegrity = false } = {}) => {
     const { identity, error } = await runtimeIdentity();
     const base = await resolveRuntimeHealth({
@@ -1435,7 +1436,14 @@ export function startNelosMcpServer({
       identityError: error,
       verifyIntegrity,
     });
-    const lease = await workerLeaseResult;
+    const attemptedRegistration = workerLeaseResult;
+    let lease = await attemptedRegistration;
+    if (lease.error?.code === "RUNTIME_UPGRADE_DEFERRED") {
+      // A legacy worker may have drained since initialize. Retry on the next
+      // call, sharing one registration promise across concurrent requests.
+      if (workerLeaseResult === attemptedRegistration) workerLeaseResult = registerWorker();
+      lease = await workerLeaseResult;
+    }
     let registry;
     try {
       registry = await workerRegistry.inspect();
@@ -1443,6 +1451,11 @@ export function startNelosMcpServer({
       registry = { state: "unavailable", mutationAllowed: false, detail: registryError.message };
     }
     if (!identity) return { ...base, registry };
+    if (lease.error?.code === "RUNTIME_UPGRADE_DEFERRED") {
+      return { ...base, state: "upgrade-deferred", mutationAllowed: false, registry,
+        detail: lease.error.message,
+        recovery: "Continue existing tasks on their retained runtime. Restore a release with the same runtime contract; incompatible state migrations require a separate drained migration." };
+    }
     if (lease.error || registry.state === "unavailable") {
       return {
         ...base,
@@ -1452,7 +1465,7 @@ export function startNelosMcpServer({
         recovery: "Quit and relaunch Codex, then open a fresh task.",
       };
     }
-    if (registry.state === "mixed-generations") {
+    if (registry.mutationAllowed === false) {
       const activeVersions = [...new Set([
         ...(base.activeVersions ?? []),
         ...registry.activeGenerations.map(({ identity: active }) => active.version),

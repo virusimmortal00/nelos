@@ -29,6 +29,9 @@ import {
   installDistribution,
   stageDistribution,
 } from "../src/distribution-install.mjs";
+import { retainRuntimeV1 } from "../src/runtime-retention.mjs";
+import { deriveRuntimeIdentityV1 } from "../src/runtime-identity.mjs";
+import { readRuntimeContractV1 } from "../src/runtime-compatibility.mjs";
 import { uninstallDistribution } from "../src/distribution-uninstall.mjs";
 import {
   DISTRIBUTION_ENTRIES,
@@ -2342,5 +2345,34 @@ test("staging retains bundled provenance inside an unrelated Git checkout", asyn
     assert.equal(staged.provenance.sourceRevisionType, "git");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("installer permits compatible retained live workers without removing their runtime", async () => {
+  const fixture = await createFixture();
+  const originalStateHome = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = join(fixture.root, "runtime-state");
+  try {
+    const root = await retainRuntimeV1({ moduleRoot: packageRoot, declaredVersion: candidateVersion });
+    const identity = await deriveRuntimeIdentityV1({ moduleRoot: root });
+    const contract = await readRuntimeContractV1(root);
+    const installed = await installFixture(fixture, {
+      withRuntimeWorkerExclusion: async (callback) => callback({
+        liveWorkerCount: 2, mutationAllowed: true, compatibilityContract: contract,
+        activeGenerations: [{ identity, workers: [{ workerId: "queen" }, { workerId: "spinoff" }] }],
+      }),
+    });
+    assert.equal(installed.provenance.revision, candidateVersion);
+    assert.equal(await computeDistributionIntegrity(root), identity.integrity);
+    await assert.rejects(installFixture(fixture, {
+      withRuntimeWorkerExclusion: async (callback) => callback({
+        liveWorkerCount: 0, compatibilityContract: { ...contract, state: "incompatible-state" },
+      }),
+    }), /incompatible with persisted Nelos state/);
+  } finally {
+    if (originalStateHome === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = originalStateHome;
+    await rm(fixture.root, { recursive: true, force: true });
   }
 });

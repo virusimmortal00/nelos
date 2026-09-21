@@ -13,6 +13,7 @@ import {
   withRuntimeWorkerRegistryLock,
 } from "./task-state.mjs";
 import { commitRuntimeMutationV1 } from "./runtime-mutation-fence.mjs";
+import { runtimeContractsCompatibleV1, validateRuntimeCompatibilityV1, verifiedRuntimeContractV1 } from "./runtime-compatibility.mjs";
 
 export const RUNTIME_WORKER_LEASE_SCHEMA_VERSION = 1;
 export const RUNTIME_WORKER_LEASE_STATES = Object.freeze([
@@ -182,6 +183,7 @@ export class RuntimeWorkerRegistryV1 {
   #heartbeatMs;
   #setInterval;
   #clearInterval;
+  #verifyContract;
 
   constructor({
     directory = runtimeWorkerDirectory(),
@@ -195,6 +197,7 @@ export class RuntimeWorkerRegistryV1 {
     heartbeatMs = DEFAULT_RUNTIME_WORKER_HEARTBEAT_MS,
     setIntervalFn = setInterval,
     clearIntervalFn = clearInterval,
+    verifyContract = verifiedRuntimeContractV1,
   } = {}) {
     if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(parentPid) || parentPid <= 0) throw new Error("runtime worker registry requires valid process identifiers");
     if (!Number.isFinite(leaseMs) || leaseMs <= 0 || !Number.isFinite(heartbeatMs) || heartbeatMs <= 0 || heartbeatMs >= leaseMs) throw new Error("runtime worker registry heartbeat bounds are invalid");
@@ -209,6 +212,37 @@ export class RuntimeWorkerRegistryV1 {
     this.#heartbeatMs = heartbeatMs;
     this.#setInterval = setIntervalFn;
     this.#clearInterval = clearIntervalFn;
+    this.#verifyContract = verifyContract;
+  }
+
+  async #cohortContract() {
+    try {
+      return validateRuntimeCompatibilityV1(JSON.parse(await readFile(join(this.#directory, "compatibility.json"), "utf8")));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  async #admitCompatibility(identity, live) {
+    const contract = await this.#verifyContract(identity);
+    const cohort = await this.#cohortContract();
+    const peers = await Promise.all(live.map((lease) => this.#verifyContract(lease.runtimeIdentity)));
+    if ((cohort && !runtimeContractsCompatibleV1(contract, cohort)) ||
+        ((contract || peers.some(Boolean)) && peers.some((peer) => !runtimeContractsCompatibleV1(contract, peer)))) {
+      const error = new Error("runtime contract is incompatible with existing state or workers; keep existing tasks on their retained runtime and restore a compatible release");
+      error.code = "RUNTIME_UPGRADE_DEFERRED";
+      throw error;
+    }
+    if (contract && !cohort) {
+      await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+      const target = join(this.#directory, "compatibility.json");
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o600 });
+        await rename(temporary, target);
+      } finally { await rm(temporary, { force: true }); }
+    }
   }
 
   async #reconcileUnlocked() {
@@ -260,7 +294,8 @@ export class RuntimeWorkerRegistryV1 {
       state: "active",
     };
     await this.#withLock(async () => {
-      await this.#reconcileUnlocked();
+      const { live } = await this.#reconcileUnlocked();
+      await this.#admitCompatibility(projected, live);
       lease = await writeLease(this.#directory, lease);
     });
     const timer = this.#setInterval(() => {
@@ -332,11 +367,15 @@ export class RuntimeWorkerRegistryV1 {
       generations.set(lease.generationKey, group);
     }
     const activeGenerations = [...generations.values()].sort((a, b) => a.generationKey.localeCompare(b.generationKey));
+    const cohort = await this.#cohortContract();
+    const contracts = await Promise.all(activeGenerations.map(({ identity }) => this.#verifyContract(identity)));
+    const compatible = contracts.length > 0 && contracts.every((contract) => runtimeContractsCompatibleV1(contract, cohort));
     return {
-      state: activeGenerations.length > 1 ? "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
-      mutationAllowed: activeGenerations.length <= 1,
+      state: activeGenerations.length > 1 ? compatible ? "compatible-generations" : "mixed-generations" : activeGenerations.length === 1 ? "single-generation" : "empty",
+      mutationAllowed: cohort ? compatible : activeGenerations.length <= 1,
       activeGenerations,
       liveWorkerCount: live.length,
+      compatibilityContract: cohort,
       recoveredWorkerIds: recovered.map(({ workerId }) => workerId).sort(),
     };
   }

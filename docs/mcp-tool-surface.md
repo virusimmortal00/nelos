@@ -97,20 +97,16 @@ long-lived
 - `nelos_app_server_health` — reports content-free compatibility, version,
   connection, batch, poll, retry, and mutation-attempt telemetry. With
   `probe: true`, it performs only the initialization handshake;
-- `nelos_runtime_health` — reports whether the loaded worker is still the
-  installed plugin generation. A marketplace upgrade replaces the plugin cache
-  while an already-loaded worker keeps serving the JavaScript it imported at
-  startup, so this compares the boot-time identity against the currently
-  installed one and names a single recovery action. It is offline, read-only,
-  and deliberately still answerable after the backing cache path is deleted,
-  because that deletion is one of the conditions it reports. States are
-  combined with cooperative live-worker leases, so same-generation concurrency
-  remains valid and mixed generations fail closed. Call this tool before each
-  stateful Nelos operation and stop when `mutationAllowed` is false. States are
-  `healthy`, `degraded`, `restart-required`, `ambiguous-install`, and
-  `integrity-failure`; `mutationAllowed` is enforced by the central mutation
-  fence. `verifyIntegrity: true` recomputes the distribution digest, which
-  walks the whole distribution and is therefore off by default;
+- `nelos_runtime_health` — reports loaded and installed identities, the retained
+  `skillPath`, and the cooperative worker cohort. It is offline and read-only.
+  Compatible retained workers can continue after their original plugin cache
+  disappears; an incompatible newcomer is deferred without blocking incumbents.
+  Call before each stateful operation and follow `recovery` when
+  `mutationAllowed` is false. States include `healthy`, `degraded`, `retained`,
+  `upgrade-deferred`, `restart-required`, `ambiguous-install`, and
+  `integrity-failure`. The central fence verifies integrity at admission and
+  immediately before durable commits. `verifyIntegrity: true` also checks the
+  loaded distribution on diagnostic calls. See [runtime upgrades](runtime-upgrades.md);
 - `nelos_intelligence_route` — the offline model/reasoning router (pure
   computation);
 - `nelos_intelligence_verify` — runtime-intelligence verification, which
