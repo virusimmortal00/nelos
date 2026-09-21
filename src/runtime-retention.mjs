@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -30,6 +30,18 @@ export async function retainRuntimeV1({ moduleRoot, declaredVersion, directory =
   await verify(root, identity);
   const target = runtimeImagePathV1(identity, directory);
   if (root === target) return target;
+  // Reuse only after verification. A corrupt/incomplete existing image is an
+  // error, not a cache miss that may be silently overwritten.
+  const existing = await lstat(target).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (existing) {
+    if (!existing.isDirectory()) throw new Error("retained runtime is not a directory");
+    await verify(target, identity);
+    await verifyProvenance(target, sourceProvenance);
+    return target;
+  }
   await mkdir(dirname(target), { recursive: true, mode: 0o700 });
   const temporary = await mkdtemp(join(dirname(target), ".staging-"));
   try {

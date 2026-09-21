@@ -129,3 +129,21 @@ test("a pending planner receipt survives upgrade and same-task reconnect with re
   assert.equal(report.completedSlicesPreserved, true);
   assert.equal(report.modelTurns, 0);
 });
+
+
+test("repeat retention verifies and reuses the existing image without publication", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-retention-reuse-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const moduleRoot = await runtimeDistribution(join(root, "cache"), A);
+  const args = { moduleRoot, declaredVersion: A, directory: join(root, "images") };
+  const target = await retainRuntimeV1(args);
+  const noPublish = async () => { assert.fail("existing images must not be copied/published again"); };
+  assert.equal(await retainRuntimeV1({ ...args, publish: noPublish }), target);
+  const provenancePath = join(target, "distribution-provenance.json");
+  const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+  await writeFile(provenancePath, JSON.stringify({ ...provenance, sourceRevision: "a".repeat(40) }));
+  await assert.rejects(retainRuntimeV1({ ...args, publish: noPublish }), /digest|provenance/);
+  await writeFile(provenancePath, JSON.stringify(provenance));
+  await writeFile(join(target, "src/runtime-compatibility.json"), "{}\n");
+  await assert.rejects(retainRuntimeV1({ ...args, publish: noPublish }), /digest|contract/);
+});
