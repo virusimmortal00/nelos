@@ -82,7 +82,10 @@ invalidates old evidence. Observation migration never rewrites an
 An observation checkpoint remains bounded to one verified wave. Plan IDs are
 content hashes, not a chronological or readiness ordering. Scope selection
 keeps an unfinished checkpoint's plan stable; after that plan settles, it
-resumes another unfinished verified plan before returning web completion.
+resumes another unfinished verified plan before returning web completion. Within a
+plan, a settled latest wave cannot hide an older unresolved verified wave.
+Recovery compares the full plan, wave index, and digest; receipt replay stays
+pinned to its exact verified wave and never launches an already verified wave again.
 Verified replans supersede their own lineage only. A submitted receipt remains
 bound to the checkpoint that issued it; a changed or superseded wave rejects
 the receipt instead of applying it to another plan. When a settled plan's

@@ -1084,7 +1084,8 @@ export class SpinoffLifecycleAdapterV1 {
     if (
       state === "complete" &&
       scopedPlanRun !== null &&
-      waveScope.waveIndex < scopedPlanRun.waves.length
+      waveScope.waveIndex < scopedPlanRun.waves.length &&
+      !scopedPlanRun.verifiedWaveIndexes.includes(waveScope.waveIndex + 1)
     ) {
       try {
         if (!scopedPlanRun.plan) {

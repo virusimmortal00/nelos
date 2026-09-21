@@ -8,7 +8,7 @@ import {
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { withObservationCheckpointLock } from "./task-state.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
-import { selectObservationRunV1 } from "./observation-scope.mjs";
+import { selectObservationScopeV1 } from "./observation-scope.mjs";
 import { derivePlanWaveActionV1 } from "./next-action.mjs";
 import {
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
@@ -88,16 +88,8 @@ function synthesize(current, workUnits, webId, queenThreadId, waveScope = null) 
 }
 
 function currentWaveScope(input) {
-  const run = selectObservationRunV1(input);
-  if (!run) return { scope: null, memberIds: null, run: null };
-  const waveIndex = run.verifiedWaveIndexes.at(-1);
-  const wave = run.waves.find((candidate) => candidate.waveIndex === waveIndex);
-  if (!wave) throw new Error("verified observation wave contract is unavailable");
-  return {
-    scope: { planRunId: run.planRunId, waveIndex, waveDigest: wave.waveDigest },
-    memberIds: new Set(wave.members.map(({ sliceId }) => sliceId)),
-    run,
-  };
+  const { run, wave, scope } = selectObservationScopeV1(input);
+  return { scope, memberIds: wave ? new Set(wave.members.map(({ sliceId }) => sliceId)) : null, run };
 }
 
 function matchesDecision(decision, member, kind) {
@@ -228,7 +220,7 @@ async function terminalNextAction(
   join,
   webId,
   queenThreadId,
-  activeRun,
+  activeWave,
   executionStore,
   launchAuthorization,
 ) {
@@ -238,15 +230,15 @@ async function terminalNextAction(
   ) {
     return null;
   }
+  const activeRun = activeWave.run;
   if (activeRun) {
-    const lastVerifiedWave =
-      activeRun.verifiedWaveIndexes.at(-1) ?? 0;
+    const selectedWaveIndex = activeWave.scope.waveIndex;
     const verifiedWave = activeRun.waves.find(
-      ({ waveIndex }) => waveIndex === lastVerifiedWave,
+      ({ waveIndex }) => waveIndex === selectedWaveIndex,
     );
     if (
       verifiedWave?.members.some(({ lifecycle }) => lifecycle === "spinoff") &&
-      !activeRun.cleanedWaveIndexes.includes(lastVerifiedWave)
+      !activeRun.cleanedWaveIndexes.includes(selectedWaveIndex)
     ) {
       return {
         schemaVersion: 1,
@@ -261,17 +253,21 @@ async function terminalNextAction(
         },
       };
     }
-    if (lastVerifiedWave < activeRun.waves.length) {
+    if (selectedWaveIndex < activeRun.waves.length) {
+      const nextWaveIndex = selectedWaveIndex + 1;
+      if (activeRun.verifiedWaveIndexes.includes(nextWaveIndex)) {
+        return { schemaVersion: 1, kind: "advance-orchestration", tool: "nelos_orchestrate_advance",
+          arguments: { webId, queenThreadId, receipt: null } };
+      }
       if (!activeRun.plan) {
         return {
           schemaVersion: 1,
           kind: "attention",
           reason: "remaining-plan-wave-contract-is-unavailable",
           planRunId: activeRun.planRunId,
-          nextWaveIndex: lastVerifiedWave + 1,
+          nextWaveIndex: selectedWaveIndex + 1,
         };
       }
-      const nextWaveIndex = lastVerifiedWave + 1;
       const missingDependencies = missingPersistedDependencyIdsV1(
         activeRun.plan,
         nextWaveIndex,
@@ -472,16 +468,16 @@ export class McpJoinAdapterV1 {
         join,
         webId,
         queenThreadId,
-        activeWave.run,
+        activeWave,
         this.#executionStore,
         launchAuthorization,
       );
       if (nextAction?.kind === "complete") {
-        const resumeRun = selectObservationRunV1({
+        const resumeScope = selectObservationScopeV1({
           runs, checkpoint, decisions,
           workUnits: scan.workUnits.filter((unit) => unit.webId === webId && unit.queenThreadId === queenThreadId),
         });
-        if (resumeRun?.planRunId !== activeWave.run?.planRunId) {
+        if (!sameWaveScope(resumeScope.scope, activeWave.scope)) {
           nextAction = {
             schemaVersion: 1,
             kind: "advance-orchestration",

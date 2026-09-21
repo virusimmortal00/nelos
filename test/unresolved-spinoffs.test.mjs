@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
 import { NelosWebInspectorV1 } from "../src/web-inspection.mjs";
 import { SpinoffLifecycleAdapterV1, SpinoffLifecycleStoreV1 } from "../src/spinoff-lifecycle.mjs";
+import { createPlanRunV1 } from "../src/plan-run-store.mjs";
+import { planWorkSlices } from "../src/slice-planner.mjs";
 import { incident, unresolvedSpinoffsFixture } from "./support/unresolved-spinoffs.mjs";
 
 // Locks also belong to the test, never the installed plugin's state directory.
@@ -152,4 +154,58 @@ test("final spinoff cleanup explicitly resumes the remaining independent plan", 
   assert.equal(resumed.checkpoint.waveScope.planRunId, fixture.runs.unfinished.planRunId);
   assert.deepEqual(resumed.checkpoint.members.map(({ workUnitId }) => workUnitId), ["keys", "telemetry", "template"]);
   assert.notEqual(resumed.nextAction?.kind, "complete");
+});
+
+
+test("an older unresolved wave is recovered even when the latest wave in the same plan is settled", async (t) => {
+  const fixture = await unresolvedSpinoffsFixture(t);
+  await rm(join(fixture.root, "plans"), { recursive: true });
+  const planned = planWorkSlices({
+    schemaVersion: 1, objective: "Recover an earlier wave", maxParallel: 3,
+    slices: incident.members.map(({ id }) => ({
+      id, title: id, objective: "Fixture work", deliverable: "Verified result",
+      acceptanceCriteria: ["Verification passes"],
+      dependsOn: id === "preflight" ? ["template", "telemetry", "keys"] : [],
+      lifecycle: "spinoff", workspaceMode: "isolated-write", taskShape: "everyday",
+    })),
+  });
+  let run = await fixture.planRunStore.create(createPlanRunV1(planned, {
+    queenThreadId: fixture.identity.queenThreadId, sourceId: "earlier-wave-recovery",
+    webIdentity: { schemaVersion: 1, ...fixture.identity, queenTitle: "👑 A1 · Fixture queen" },
+  }));
+  for (const wave of run.waves) {
+    run = await fixture.planRunStore.markWaveVerified({ planRunId: run.planRunId,
+      queenThreadId: fixture.identity.queenThreadId, waveIndex: wave.waveIndex, waveDigest: wave.waveDigest });
+  }
+  // Both waves were cleaned historically, but the first now lacks acceptance
+  // for its current attempts. Historical cleanup cannot settle those attempts.
+  for (const wave of run.waves) {
+    run = await fixture.planRunStore.markWaveCleaned({ planRunId: run.planRunId,
+      queenThreadId: fixture.identity.queenThreadId, waveIndex: wave.waveIndex, waveDigest: wave.waveDigest });
+  }
+  const checkpoint = await fixture.checkpointStore.read(fixture.identity.webId, fixture.identity.queenThreadId);
+  const member = checkpoint.members[0];
+  member.coordination.state = "unjoined";
+  member.result = { state: "absent", sourceTurnId: null, envelope: null, errorCode: null };
+  const pendingCheckpoint = await fixture.checkpointStore.write({ ...checkpoint, checkpointRevision: 2,
+    waveScope: { planRunId: run.planRunId, waveIndex: 2, waveDigest: run.waves[1].waveDigest },
+  }, { expectedRevision: 1 });
+  const { reduceObservationJoinV1 } = await import("../src/orchestration-observation.mjs");
+  const effect = reduceObservationJoinV1(pendingCheckpoint).effects.find(({ type }) => type === "native-read-result");
+  const decision = fixture.decisions.find(({ workUnitId }) => workUnitId === "preflight");
+  const receipt = { schemaVersion: 1, type: "native-result-read", actionId: effect.actionId,
+    workUnitId: member.workUnitId, specRevision: member.specRevision, attempt: member.attempt,
+    bindingGeneration: member.bindingGeneration, memberThreadId: member.memberThreadId,
+    requestedTurnId: decision.sourceTurnId, sourceTurnId: decision.sourceTurnId, resultEnvelope: decision.result };
+  await new McpJoinAdapterV1(fixture).advance({ ...fixture.identity, receipt });
+  const pinned = await new McpJoinAdapterV1(fixture).advance({ ...fixture.identity, receipt });
+  assert.equal(pinned.checkpoint.waveScope.waveIndex, 2);
+  assert.equal(pinned.nextAction.kind, "advance-orchestration", "same plan ID cannot hide a different unresolved wave");
+  const result = await new McpJoinAdapterV1(fixture).advance(pinned.nextAction.arguments);
+  assert.deepEqual(result.checkpoint.waveScope, {
+    planRunId: run.planRunId, waveIndex: 1, waveDigest: run.waves[0].waveDigest,
+  });
+  assert.deepEqual(result.checkpoint.members.map(({ workUnitId }) => workUnitId), ["keys", "telemetry", "template"]);
+  assert.notEqual(result.nextAction?.kind, "complete");
+  assert.deepEqual(await new McpJoinAdapterV1(fixture).advance(fixture.identity), result);
 });

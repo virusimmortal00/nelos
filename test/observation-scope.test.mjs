@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isObservationWaveSettledV1, selectObservationRunV1 } from "../src/observation-scope.mjs";
+import { isObservationWaveSettledV1, selectObservationRunV1, selectObservationScopeV1 } from "../src/observation-scope.mjs";
 
 function scenario() {
   const unit = (workUnitId) => ({
@@ -84,4 +84,22 @@ test("joined-only accepted waves need no archival; verified replans supersede th
   assert.equal(selectObservationRunV1(input).planRunId, "run:replanned");
   input.runs[2].verifiedWaveIndexes = [];
   assert.equal(selectObservationRunV1(input).planRunId, "run:z", "unverified replans cannot hide verified work");
+});
+
+
+test("wave recovery retains exact scopes and permits receipts from an earlier verified wave", () => {
+  const input = scenario();
+  const run = input.runs[0];
+  run.waves.unshift({ ...input.runs[1].waves[0], waveIndex: 1 });
+  run.waves[1] = { ...run.waves[1], waveIndex: 2 };
+  run.verifiedWaveIndexes = [1, 2];
+  run.cleanedWaveIndexes = [2];
+  input.runs = [run];
+  input.checkpoint.waveScope = { planRunId: run.planRunId, waveIndex: 2, waveDigest: run.waves[1].waveDigest };
+  assert.equal(selectObservationScopeV1(input).scope.waveIndex, 1);
+  assert.equal(selectObservationScopeV1({ ...input, receipt: {} }).scope.waveIndex, 2);
+  input.checkpoint.waveScope = { planRunId: run.planRunId, waveIndex: 1, waveDigest: run.waves[0].waveDigest };
+  assert.equal(selectObservationScopeV1({ ...input, receipt: {} }).scope.waveIndex, 1);
+  input.checkpoint.waveScope.waveDigest = "wrong-wave";
+  assert.throws(() => selectObservationScopeV1({ ...input, receipt: {} }), /wave is no longer current/);
 });
