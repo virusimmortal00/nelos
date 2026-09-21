@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpJoinAdapterV1 } from "../src/mcp-observation.mjs";
@@ -69,6 +69,16 @@ test("incident: blocked, unaccepted spinoffs never produce archive effects", asy
   assert.equal(result.state, "not-ready");
   assert.equal(result.pending.length, 3);
   assert.equal(result.effects?.length ?? 0, incident.expected.archiveEffectsForBlocked);
+});
+
+test("recovery refuses a malformed wave member missing from the old checkpoint", async (t) => {
+  const fixture = await unresolvedSpinoffsFixture(t);
+  await writeFile(join(fixture.root, "executions", "template.json"), "{broken\n");
+  const before = await fixture.checkpointStore.read(fixture.identity.webId, fixture.identity.queenThreadId);
+  await assert.rejects(new McpJoinAdapterV1(fixture).advance(fixture.identity),
+    /execution state contains malformed records/);
+  assert.deepEqual(await fixture.checkpointStore.read(fixture.identity.webId, fixture.identity.queenThreadId), before);
+  assert.equal(await readFile(join(fixture.root, "executions", "template.json"), "utf8"), "{broken\n");
 });
 
 test("inspection suppresses settled history, but not missing current acceptance", async (t) => {

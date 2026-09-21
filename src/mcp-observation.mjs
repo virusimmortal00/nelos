@@ -364,6 +364,7 @@ export class McpJoinAdapterV1 {
         activeWave.scope,
       );
       const scopedWorkUnitIds = new Set([
+        ...(activeWave.memberIds ?? []),
         ...workUnits.map(({ workUnitId }) => workUnitId),
         ...(storedMatchesActiveWave ? (stored?.members ?? []) : [])
           .map(({ workUnitId }) => workUnitId),
