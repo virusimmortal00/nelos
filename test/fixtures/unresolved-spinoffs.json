@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "description": "Sanitized structural reproduction of the September 21, 2026 incident: three bound, blocked spinoffs in an uncleaned plan disappear from the checkpoint after an independent accepted plan completes cleanup.",
+  "webId": "A1",
+  "queenThreadId": "fixture-queen",
+  "plans": [
+    { "id": "unfinished", "sourceId": "unfinished-spinoffs", "cleaned": false, "members": ["template", "telemetry", "keys"] },
+    { "id": "finished", "sourceId": "finished-preflight", "cleaned": true, "members": ["preflight"] }
+  ],
+  "members": [
+    { "id": "template", "attempt": 2, "decisionAttempt": 1, "decision": "rejected", "outcome": "blocked", "nativeArchived": false },
+    { "id": "telemetry", "attempt": 3, "decisionAttempt": 1, "decision": "rejected", "outcome": "blocked", "nativeArchived": false },
+    { "id": "keys", "attempt": 2, "decisionAttempt": 1, "decision": "rejected", "outcome": "blocked", "nativeArchived": false },
+    { "id": "preflight", "attempt": 1, "decisionAttempt": 1, "decision": "accepted", "outcome": "succeeded", "nativeArchived": true }
+  ],
+  "checkpointMembers": ["preflight"],
+  "observed": { "untracked": 3, "accepted": 1, "persistedAttentionRequired": 0 },
+  "expected": { "untracked": 3, "persistedAttentionRequired": 3, "resumePlan": "unfinished", "archiveEffectsForBlocked": 0 }
+}

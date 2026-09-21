@@ -8,6 +8,7 @@ import {
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { withObservationCheckpointLock } from "./task-state.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { selectObservationRunV1 } from "./observation-scope.mjs";
 import { derivePlanWaveActionV1 } from "./next-action.mjs";
 import {
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
@@ -86,9 +87,8 @@ function synthesize(current, workUnits, webId, queenThreadId, waveScope = null) 
   };
 }
 
-async function currentWaveScope(planRunStore, webId, queenThreadId) {
-  const runs = await planRunStore.listForWeb({ webId, queenThreadId });
-  const run = runs.find(({ verifiedWaveIndexes }) => verifiedWaveIndexes.length > 0) ?? null;
+function currentWaveScope(input) {
+  const run = selectObservationRunV1(input);
   if (!run) return { scope: null, memberIds: null, run: null };
   const waveIndex = run.verifiedWaveIndexes.at(-1);
   const wave = run.waves.find((candidate) => candidate.waveIndex === waveIndex);
@@ -228,8 +228,7 @@ async function terminalNextAction(
   join,
   webId,
   queenThreadId,
-  workUnits,
-  planRunStore,
+  activeRun,
   executionStore,
   launchAuthorization,
 ) {
@@ -239,25 +238,6 @@ async function terminalNextAction(
   ) {
     return null;
   }
-  const planRuns = await planRunStore.listForWeb({
-    webId,
-    queenThreadId,
-  });
-  const workUnitIds = new Set(
-    workUnits.map(({ workUnitId }) => workUnitId),
-  );
-  const relevantRuns = planRuns.filter((planRun) => {
-    const memberIds = new Set(
-      planRun.waves.flatMap(({ members }) =>
-        members.map(({ sliceId }) => sliceId),
-      ),
-    );
-    return (
-      planRun.verifiedWaveIndexes.length > 0 &&
-      [...workUnitIds].some((workUnitId) => memberIds.has(workUnitId))
-    );
-  });
-  const activeRun = relevantRuns[0] ?? null;
   if (activeRun) {
     const lastVerifiedWave =
       activeRun.verifiedWaveIndexes.at(-1) ?? 0;
@@ -362,12 +342,14 @@ export class McpJoinAdapterV1 {
     }
     const normalizedReceipt = receipt === null ? null : validateObservationReceiptV1(receipt);
     return withObservationCheckpointLock(webId, queenThreadId, async () => {
-      const activeWave = await currentWaveScope(
-        this.#planRunStore,
-        webId,
-        queenThreadId,
-      );
+      const stored = await this.#checkpointStore.read(webId, queenThreadId);
+      const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
+      const runs = await this.#planRunStore.listForWeb({ webId, queenThreadId });
       let scan = await this.#executionStore.scan();
+      const activeWave = currentWaveScope({
+        runs, checkpoint: stored, decisions, receipt: normalizedReceipt,
+        workUnits: scan.workUnits.filter((unit) => unit.webId === webId && unit.queenThreadId === queenThreadId),
+      });
       let workUnits = scan.workUnits.filter(
         (workUnit) =>
           workUnit.webId === webId &&
@@ -377,7 +359,6 @@ export class McpJoinAdapterV1 {
       if (workUnits.length === 0) {
         throw new Error("orchestration advance found no execution work units");
       }
-      const stored = await this.#checkpointStore.read(webId, queenThreadId);
       const storedMatchesActiveWave = sameWaveScope(
         stored?.waveScope ?? null,
         activeWave.scope,
@@ -398,7 +379,6 @@ export class McpJoinAdapterV1 {
       const hasUnboundRequired = workUnits.some(
         (workUnit) => workUnit.required && workUnit.binding.state !== "bound",
       );
-      const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
       const refreshAndSynthesize = async (base) => {
         scan = await this.#executionStore.scan();
         workUnits = scan.workUnits.filter(
@@ -487,15 +467,28 @@ export class McpJoinAdapterV1 {
           reason: "required-members-unbound",
         };
       }
-      const nextAction = await terminalNextAction(
+      let nextAction = await terminalNextAction(
         join,
         webId,
         queenThreadId,
-        workUnits,
-        this.#planRunStore,
+        activeWave.run,
         this.#executionStore,
         launchAuthorization,
       );
+      if (nextAction?.kind === "complete") {
+        const resumeRun = selectObservationRunV1({
+          runs, checkpoint, decisions,
+          workUnits: scan.workUnits.filter((unit) => unit.webId === webId && unit.queenThreadId === queenThreadId),
+        });
+        if (resumeRun?.planRunId !== activeWave.run?.planRunId) {
+          nextAction = {
+            schemaVersion: 1,
+            kind: "advance-orchestration",
+            tool: "nelos_orchestrate_advance",
+            arguments: { webId, queenThreadId, receipt: null },
+          };
+        }
+      }
       return {
         schemaVersion: MCP_OBSERVATION_SCHEMA_VERSION,
         webId,

@@ -77,6 +77,62 @@ than implying continuation. A changed revision, attempt, binding generation, or 
 invalidates old evidence. Observation migration never rewrites an
 `ExecutionStoreV1` file.
 
+## Multiple plans in one web
+
+An observation checkpoint remains bounded to one verified wave. Plan IDs are
+content hashes, not a chronological or readiness ordering. Scope selection
+keeps an unfinished checkpoint's plan stable; after that plan settles, it
+resumes another unfinished verified plan before returning web completion.
+Verified replans supersede their own lineage only. A submitted receipt remains
+bound to the checkpoint that issued it; a changed or superseded wave rejects
+the receipt instead of applying it to another plan. When a settled plan's
+receipt is replayed while other work remains, the returned next action resumes
+orchestration rather than reporting completion.
+
+Settled means every wave is verified, each required current binding has matching
+successful acceptance, and every wave containing spinoffs has a durable cleanup
+completion. Cleanup may record archival or an intentional keep policy. Native
+`notLoaded`, idle, or terminal status alone does not establish acceptance.
+
+Web inspection includes all execution bindings, even outside this checkpoint.
+An untracked required bound member contributes to `persistedAttentionRequired`
+unless its wave has current acceptance and cleanup evidence. Accepted and
+cleaned historical waves therefore do not produce false recovery alarms.
+This count indicates missing coordination evidence, not permission to archive.
+
+## Offline incident verification
+
+The sanitized fixture in `test/fixtures/unresolved-spinoffs.json` records the
+September 21 incident's structural facts: three blocked spinoffs with older
+rejections, a separate accepted and cleaned plan, and a checkpoint containing
+only that finished plan. IDs, titles, and results are synthetic; no transcripts,
+credentials, production paths, or external-service payloads are retained.
+
+| Layer | Real behavior under test | Replaced boundary |
+| --- | --- | --- |
+| `observation-scope.test.mjs` | Plan selection, lineage, settlement, receipt scope | Plain deterministic inputs; no I/O |
+| `unresolved-spinoffs.test.mjs` | Validators, plan/execution/acceptance/checkpoint stores, restart, receipt replay, inspection, cleanup eligibility | Native task metadata and configuration preference |
+| Existing observation and lifecycle tests | Dependency waves, title/wait/result receipts, correction, acceptance, cleanup effects | Host responses and task mutations |
+| Planning lifecycle verifier | MCP process, stdio, persistence, restart, protocol wiring | Separate fake Codex app-server process |
+
+Run the focused incident and boundary tests with networking disabled:
+
+```sh
+NODE_OPTIONS=--require=./scripts/offline-network-blocker.cjs \
+  node --import ./scripts/test-bootstrap.mjs --test \
+  test/observation-scope.test.mjs test/unresolved-spinoffs.test.mjs \
+  test/mcp-observation.test.mjs test/web-inspection.test.mjs \
+  test/spinoff-lifecycle.test.mjs test/mcp-queen-decision.test.mjs \
+  test/orchestration-observation.test.mjs test/plan-run-store.test.mjs
+```
+
+The incident harness uses disposable directories for both stores and locks.
+Assertions establish that blocked members never emit archive effects and that
+recovery never invents acceptance. No models, live task creation, provider
+accounts, or installed-plugin state are involved. These tests do not establish
+that a released plugin was loaded by Desktop or that a real archive succeeded;
+those are separate deployment/host checks.
+
 ## Strict receipts
 
 All receipts use `schemaVersion: 1`, reject unknown or missing fields, and
