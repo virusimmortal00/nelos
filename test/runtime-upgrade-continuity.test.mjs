@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -82,6 +82,21 @@ test("retention is atomic under concurrent launches and rejects changed bytes", 
   assert.ok(await readFile(join(paths[0], "skills/manage-nelos-tasks/SKILL.md"), "utf8"));
   await writeFile(join(paths[0], "src/runtime-compatibility.json"), "{}\n");
   await assert.rejects(retainRuntimeV1({ ...args, moduleRoot: paths[0] }), /digest|contract/);
+});
+
+test("a published runtime remains usable if the cache vanishes before bootstrap returns", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nelos-retention-race-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const moduleRoot = await runtimeDistribution(join(root, "cache"), A);
+  const retained = await retainRuntimeV1({
+    moduleRoot, declaredVersion: A, directory: join(root, "images"),
+    publish: async (temporary, target) => {
+      await rename(temporary, target);
+      await rm(moduleRoot, { recursive: true });
+    },
+  });
+  assert.ok(await readFile(join(retained, "src/mcp-server.mjs"), "utf8"));
+  assert.ok(await readFile(join(retained, "skills/manage-nelos-tasks/SKILL.md"), "utf8"));
 });
 
 test("a pending planner receipt survives upgrade and same-task reconnect with real stores and a fake host", { timeout: 60000 }, async (t) => {

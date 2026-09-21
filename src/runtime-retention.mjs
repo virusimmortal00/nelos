@@ -15,11 +15,17 @@ async function verify(root, identity) {
   if (!await readRuntimeContractV1(root)) throw new Error("distribution has no runtime compatibility contract");
 }
 
+async function verifyProvenance(root, expected) {
+  const actual = JSON.parse(await readFile(join(root, "distribution-provenance.json"), "utf8"));
+  if (!isDeepStrictEqual(actual, expected)) throw new Error("retained runtime provenance disagrees");
+}
+
 // Publish a complete verified image atomically, before importing the server.
 // Images are never updated or automatically collected: closed Desktop tasks
 // can still hold old launch/skill references after their worker lease is gone.
-export async function retainRuntimeV1({ moduleRoot, declaredVersion, directory = runtimeImageDirectory() }) {
+export async function retainRuntimeV1({ moduleRoot, declaredVersion, directory = runtimeImageDirectory(), publish = rename }) {
   const root = resolve(moduleRoot);
+  const sourceProvenance = JSON.parse(await readFile(join(root, "distribution-provenance.json"), "utf8"));
   const identity = await deriveRuntimeIdentityV1({ moduleRoot: root, declaredVersion });
   await verify(root, identity);
   const target = runtimeImagePathV1(identity, directory);
@@ -32,14 +38,15 @@ export async function retainRuntimeV1({ moduleRoot, declaredVersion, directory =
       await copyFile(join(root, path), join(temporary, path));
     }
     await verify(temporary, identity);
-    try { await rename(temporary, target); }
+    // Provenance is not itself covered by the distribution digest. Bind the
+    // copy before publishing it, then stop depending on the replaceable cache.
+    await verifyProvenance(temporary, sourceProvenance);
+    try { await publish(temporary, target); }
     catch (error) {
       if (!["EEXIST", "ENOTEMPTY"].includes(error.code)) throw error;
     }
     await verify(target, identity);
-    // Provenance is not itself covered by the distribution digest.
-    const records = await Promise.all([root, target].map(async (path) => JSON.parse(await readFile(join(path, "distribution-provenance.json"), "utf8"))));
-    if (!isDeepStrictEqual(...records)) throw new Error("retained runtime provenance disagrees");
+    await verifyProvenance(target, sourceProvenance);
     return target;
   } finally {
     await rm(temporary, { recursive: true, force: true });
