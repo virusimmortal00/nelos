@@ -8,6 +8,7 @@ import {
 import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
 import { withObservationCheckpointLock } from "./task-state.mjs";
 import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { selectObservationScopeV1 } from "./observation-scope.mjs";
 import { derivePlanWaveActionV1 } from "./next-action.mjs";
 import {
   LAUNCH_AUTHORIZATION_RECEIPT_SCHEMA,
@@ -86,18 +87,9 @@ function synthesize(current, workUnits, webId, queenThreadId, waveScope = null) 
   };
 }
 
-async function currentWaveScope(planRunStore, webId, queenThreadId) {
-  const runs = await planRunStore.listForWeb({ webId, queenThreadId });
-  const run = runs.find(({ verifiedWaveIndexes }) => verifiedWaveIndexes.length > 0) ?? null;
-  if (!run) return { scope: null, memberIds: null, run: null };
-  const waveIndex = run.verifiedWaveIndexes.at(-1);
-  const wave = run.waves.find((candidate) => candidate.waveIndex === waveIndex);
-  if (!wave) throw new Error("verified observation wave contract is unavailable");
-  return {
-    scope: { planRunId: run.planRunId, waveIndex, waveDigest: wave.waveDigest },
-    memberIds: new Set(wave.members.map(({ sliceId }) => sliceId)),
-    run,
-  };
+function currentWaveScope(input) {
+  const { run, wave, scope } = selectObservationScopeV1(input);
+  return { scope, memberIds: wave ? new Set(wave.members.map(({ sliceId }) => sliceId)) : null, run };
 }
 
 function matchesDecision(decision, member, kind) {
@@ -228,8 +220,7 @@ async function terminalNextAction(
   join,
   webId,
   queenThreadId,
-  workUnits,
-  planRunStore,
+  activeWave,
   executionStore,
   launchAuthorization,
 ) {
@@ -239,34 +230,15 @@ async function terminalNextAction(
   ) {
     return null;
   }
-  const planRuns = await planRunStore.listForWeb({
-    webId,
-    queenThreadId,
-  });
-  const workUnitIds = new Set(
-    workUnits.map(({ workUnitId }) => workUnitId),
-  );
-  const relevantRuns = planRuns.filter((planRun) => {
-    const memberIds = new Set(
-      planRun.waves.flatMap(({ members }) =>
-        members.map(({ sliceId }) => sliceId),
-      ),
-    );
-    return (
-      planRun.verifiedWaveIndexes.length > 0 &&
-      [...workUnitIds].some((workUnitId) => memberIds.has(workUnitId))
-    );
-  });
-  const activeRun = relevantRuns[0] ?? null;
+  const activeRun = activeWave.run;
   if (activeRun) {
-    const lastVerifiedWave =
-      activeRun.verifiedWaveIndexes.at(-1) ?? 0;
+    const selectedWaveIndex = activeWave.scope.waveIndex;
     const verifiedWave = activeRun.waves.find(
-      ({ waveIndex }) => waveIndex === lastVerifiedWave,
+      ({ waveIndex }) => waveIndex === selectedWaveIndex,
     );
     if (
       verifiedWave?.members.some(({ lifecycle }) => lifecycle === "spinoff") &&
-      !activeRun.cleanedWaveIndexes.includes(lastVerifiedWave)
+      !activeRun.cleanedWaveIndexes.includes(selectedWaveIndex)
     ) {
       return {
         schemaVersion: 1,
@@ -281,17 +253,21 @@ async function terminalNextAction(
         },
       };
     }
-    if (lastVerifiedWave < activeRun.waves.length) {
+    if (selectedWaveIndex < activeRun.waves.length) {
+      const nextWaveIndex = selectedWaveIndex + 1;
+      if (activeRun.verifiedWaveIndexes.includes(nextWaveIndex)) {
+        return { schemaVersion: 1, kind: "advance-orchestration", tool: "nelos_orchestrate_advance",
+          arguments: { webId, queenThreadId, receipt: null } };
+      }
       if (!activeRun.plan) {
         return {
           schemaVersion: 1,
           kind: "attention",
           reason: "remaining-plan-wave-contract-is-unavailable",
           planRunId: activeRun.planRunId,
-          nextWaveIndex: lastVerifiedWave + 1,
+          nextWaveIndex: selectedWaveIndex + 1,
         };
       }
-      const nextWaveIndex = lastVerifiedWave + 1;
       const missingDependencies = missingPersistedDependencyIdsV1(
         activeRun.plan,
         nextWaveIndex,
@@ -362,12 +338,14 @@ export class McpJoinAdapterV1 {
     }
     const normalizedReceipt = receipt === null ? null : validateObservationReceiptV1(receipt);
     return withObservationCheckpointLock(webId, queenThreadId, async () => {
-      const activeWave = await currentWaveScope(
-        this.#planRunStore,
-        webId,
-        queenThreadId,
-      );
+      const stored = await this.#checkpointStore.read(webId, queenThreadId);
+      const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
+      const runs = await this.#planRunStore.listForWeb({ webId, queenThreadId });
       let scan = await this.#executionStore.scan();
+      const activeWave = currentWaveScope({
+        runs, checkpoint: stored, decisions, receipt: normalizedReceipt,
+        workUnits: scan.workUnits.filter((unit) => unit.webId === webId && unit.queenThreadId === queenThreadId),
+      });
       let workUnits = scan.workUnits.filter(
         (workUnit) =>
           workUnit.webId === webId &&
@@ -377,12 +355,12 @@ export class McpJoinAdapterV1 {
       if (workUnits.length === 0) {
         throw new Error("orchestration advance found no execution work units");
       }
-      const stored = await this.#checkpointStore.read(webId, queenThreadId);
       const storedMatchesActiveWave = sameWaveScope(
         stored?.waveScope ?? null,
         activeWave.scope,
       );
       const scopedWorkUnitIds = new Set([
+        ...(activeWave.memberIds ?? []),
         ...workUnits.map(({ workUnitId }) => workUnitId),
         ...(storedMatchesActiveWave ? (stored?.members ?? []) : [])
           .map(({ workUnitId }) => workUnitId),
@@ -398,7 +376,6 @@ export class McpJoinAdapterV1 {
       const hasUnboundRequired = workUnits.some(
         (workUnit) => workUnit.required && workUnit.binding.state !== "bound",
       );
-      const decisions = await this.#acceptanceStore.list({ webId, queenThreadId });
       const refreshAndSynthesize = async (base) => {
         scan = await this.#executionStore.scan();
         workUnits = scan.workUnits.filter(
@@ -487,15 +464,28 @@ export class McpJoinAdapterV1 {
           reason: "required-members-unbound",
         };
       }
-      const nextAction = await terminalNextAction(
+      let nextAction = await terminalNextAction(
         join,
         webId,
         queenThreadId,
-        workUnits,
-        this.#planRunStore,
+        activeWave,
         this.#executionStore,
         launchAuthorization,
       );
+      if (nextAction?.kind === "complete") {
+        const resumeScope = selectObservationScopeV1({
+          runs, checkpoint, decisions,
+          workUnits: scan.workUnits.filter((unit) => unit.webId === webId && unit.queenThreadId === queenThreadId),
+        });
+        if (!sameWaveScope(resumeScope.scope, activeWave.scope)) {
+          nextAction = {
+            schemaVersion: 1,
+            kind: "advance-orchestration",
+            tool: "nelos_orchestrate_advance",
+            arguments: { webId, queenThreadId, receipt: null },
+          };
+        }
+      }
       return {
         schemaVersion: MCP_OBSERVATION_SCHEMA_VERSION,
         webId,

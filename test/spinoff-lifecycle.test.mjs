@@ -774,7 +774,7 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
       queenTitle: "👑 A1 · Queen",
     },
   });
-  const record = { ...created, verifiedWaveIndexes: [1, 2] };
+  const record = { ...created, verifiedWaveIndexes: [1] };
   const { planRunId, waves } = record;
   const { adapter } = await fixture(t, {
     units: [workUnit(), second],
@@ -813,6 +813,12 @@ test("wave-scoped cleanup isolates retries and archive effects across waves", as
   assert.equal(authorized.state, "complete");
   assert.equal(authorized.nextAction.kind, "launch-wave");
   assert.equal(authorized.nextAction.waveIndex, 2);
+  record.verifiedWaveIndexes.push(2);
+  const replayAfterLaunch = await adapter.cleanup({
+    webId: "A1", queenThreadId: "queen", planRunId,
+    waveIndex: 1, waveDigest: waves[0].waveDigest,
+  });
+  assert.equal(replayAfterLaunch.nextAction.kind, "advance-orchestration");
   const later = await adapter.cleanup({
     webId: "A1", queenThreadId: "queen", planRunId,
     waveIndex: 2, waveDigest: waves[1].waveDigest, policy: "auto",
@@ -1039,7 +1045,7 @@ test("completed cleanup returns attention when the next wave contract is unavail
   });
   const { plan: ignoredPlan, ...planless } = created;
   void ignoredPlan;
-  const record = { ...planless, verifiedWaveIndexes: [1, 2] };
+  const record = { ...planless, verifiedWaveIndexes: [1] };
   const { adapter } = await fixture(t, {
     units: [workUnit(), second],
     decisions: [acceptance(), acceptance(second)],

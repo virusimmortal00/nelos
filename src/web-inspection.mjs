@@ -1,5 +1,8 @@
 import { ExecutionStoreV1 } from "./execution-store.mjs";
 import { OrchestrationCheckpointStoreV1 } from "./orchestration-checkpoint-store.mjs";
+import { PlanRunStoreV1 } from "./plan-run-store.mjs";
+import { QueenAcceptanceStoreV1 } from "./queen-acceptance.mjs";
+import { currentVerifiedObservationRunsV1, isObservationWaveSettledV1 } from "./observation-scope.mjs";
 import { assertWebId } from "./task-web.mjs";
 
 export const WEB_INSPECTION_SCHEMA_VERSION = 1;
@@ -186,10 +189,14 @@ function publicTopology(topology) {
 export class NelosWebInspectorV1 {
   #executionStore;
   #checkpointStore;
+  #planRunStore;
+  #acceptanceStore;
 
   constructor({
     executionStore = new ExecutionStoreV1(),
     checkpointStore = new OrchestrationCheckpointStoreV1(),
+    planRunStore = new PlanRunStoreV1(),
+    acceptanceStore = new QueenAcceptanceStoreV1(),
   } = {}) {
     if (typeof executionStore?.scan !== "function") {
       throw new Error("web inspector requires executionStore.scan()");
@@ -197,8 +204,14 @@ export class NelosWebInspectorV1 {
     if (typeof checkpointStore?.read !== "function") {
       throw new Error("web inspector requires checkpointStore.read()");
     }
+    if (typeof planRunStore?.listForWeb !== "function" ||
+        typeof acceptanceStore?.list !== "function") {
+      throw new Error("web inspector requires planRunStore.listForWeb() and acceptanceStore.list()");
+    }
     this.#executionStore = executionStore;
     this.#checkpointStore = checkpointStore;
+    this.#planRunStore = planRunStore;
+    this.#acceptanceStore = acceptanceStore;
   }
 
   async inspect(input, { appServerBridge, webRegistry } = {}) {
@@ -218,11 +231,13 @@ export class NelosWebInspectorV1 {
     if (!matchesPersistedWeb(persistedWeb, request)) {
       throw new Error("web inspection identity is not persisted");
     }
-    const [executionScan, checkpoint] = await Promise.all([
+    const [executionScan, checkpoint, runs, decisions] = await Promise.all([
       this.#executionStore.scan({
         maximumRecords: WEB_INSPECTION_MAX_EXECUTION_RECORDS,
       }),
       this.#checkpointStore.read(request.webId, request.queenThreadId),
+      this.#planRunStore.listForWeb(request),
+      this.#acceptanceStore.list(request),
     ]);
     const workUnits = executionScan.workUnits
       .filter(
@@ -270,6 +285,20 @@ export class NelosWebInspectorV1 {
 
     const bindingCounts = {};
     const coordinationCounts = {};
+    const settlementById = new Map();
+    const unsettledOutsideCheckpoint = new Set();
+    for (const run of currentVerifiedObservationRunsV1(runs)) {
+      for (const wave of run.waves) {
+        const settled = isObservationWaveSettledV1(run, wave, workUnits, decisions);
+        const active = checkpoint?.waveScope?.planRunId === run.planRunId &&
+          checkpoint.waveScope.waveIndex === wave.waveIndex &&
+          checkpoint.waveScope.waveDigest === wave.waveDigest;
+        for (const { sliceId } of wave.members) {
+          if (!active && !settled) unsettledOutsideCheckpoint.add(sliceId);
+          settlementById.set(sliceId, (settlementById.get(sliceId) ?? true) && settled);
+        }
+      }
+    }
     let persistedAttentionRequired = 0;
     for (const workUnit of workUnits) {
       increment(bindingCounts, workUnit.binding.state);
@@ -285,6 +314,10 @@ export class NelosWebInspectorV1 {
       );
       if (
         orchestration.state === "stale" ||
+        (workUnit.required && workUnit.binding.state === "bound" &&
+          unsettledOutsideCheckpoint.has(workUnit.workUnitId)) ||
+        (orchestration.state === "untracked" && workUnit.required &&
+          workUnit.binding.state === "bound" && settlementById.get(workUnit.workUnitId) !== true) ||
         orchestration.attentionRequired === true
       ) {
         persistedAttentionRequired += 1;

@@ -112,6 +112,8 @@ test("web inspection composes persisted and native state with bounded paging", a
   const calls = [];
   let scanOptions = null;
   const inspector = new NelosWebInspectorV1({
+    planRunStore: { async listForWeb() { return []; } },
+    acceptanceStore: { async list() { return []; } },
     executionStore: {
       async scan(options) {
         scanOptions = options;
@@ -264,6 +266,8 @@ test("web inspection distinguishes stale checkpoints and failed native reads", a
     memberThreadId: "task-a",
   });
   const inspector = new NelosWebInspectorV1({
+    planRunStore: { async listForWeb() { return []; } },
+    acceptanceStore: { async list() { return []; } },
     executionStore: {
       async scan() {
         return { workUnits: [unit], malformedRecords: [] };
@@ -340,6 +344,8 @@ test("web inspection distinguishes stale checkpoints and failed native reads", a
 test("web inspection validates identity and page bounds before reading state", async () => {
   let scans = 0;
   const inspector = new NelosWebInspectorV1({
+    planRunStore: { async listForWeb() { return []; } },
+    acceptanceStore: { async list() { return []; } },
     executionStore: {
       async scan() {
         scans += 1;

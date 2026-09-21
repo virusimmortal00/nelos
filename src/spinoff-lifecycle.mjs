@@ -1084,7 +1084,8 @@ export class SpinoffLifecycleAdapterV1 {
     if (
       state === "complete" &&
       scopedPlanRun !== null &&
-      waveScope.waveIndex < scopedPlanRun.waves.length
+      waveScope.waveIndex < scopedPlanRun.waves.length &&
+      !scopedPlanRun.verifiedWaveIndexes.includes(waveScope.waveIndex + 1)
     ) {
       try {
         if (!scopedPlanRun.plan) {
@@ -1127,6 +1128,17 @@ export class SpinoffLifecycleAdapterV1 {
           nextWaveIndex: waveScope.waveIndex + 1,
         };
       }
+    }
+    if (state === "complete" && scopedPlanRun !== null && nextAction === null) {
+      // Finishing this run is not proof that the whole web is settled. Re-enter
+      // orchestration so its persisted plan selector can resume independent work
+      // (or report completion), including after a replayed archive receipt.
+      nextAction = {
+        schemaVersion: 1,
+        kind: "advance-orchestration",
+        tool: "nelos_orchestrate_advance",
+        arguments: { ...identity, receipt: null },
+      };
     }
     return {
       schemaVersion: 1,
