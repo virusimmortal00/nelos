@@ -240,7 +240,7 @@ export class RuntimeWorkerRegistryV1 {
       const temporary = `${target}.${randomUUID()}.tmp`;
       try {
         await writeFile(temporary, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o600 });
-        await rename(temporary, target);
+        await commitRuntimeMutationV1(() => rename(temporary, target));
       } finally { await rm(temporary, { force: true }); }
     }
   }

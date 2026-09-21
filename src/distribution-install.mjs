@@ -2666,6 +2666,20 @@ async function reconcileCommittedPluginAfterAppServer({
   }
 }
 
+async function assertRuntimeInstallCompatibility(packageRoot, runtimeWorkers) {
+  if (runtimeWorkers.liveWorkerCount > 0 && !await canInstallRuntimeV1(packageRoot, runtimeWorkers)) {
+    throw new Error(
+      `refusing to replace the Nelos plugin cache while ${runtimeWorkers.liveWorkerCount} live Nelos ` +
+      `${runtimeWorkers.liveWorkerCount === 1 ? "worker is" : "workers are"} registered; quit Codex completely, ` +
+      "run the installation from an external terminal, then relaunch Codex and open a fresh task",
+    );
+  }
+  if (runtimeWorkers.liveWorkerCount === 0 && runtimeWorkers.compatibilityContract &&
+      !await canInstallRuntimeV1(packageRoot, runtimeWorkers)) {
+    throw new Error("upgrade contract is incompatible with persisted Nelos state; restore a compatible release or perform a separately verified drained migration");
+  }
+}
+
 export async function installDistribution(options = {}) {
   const withRuntimeWorkerExclusion = options.withRuntimeWorkerExclusion ?? (
     (callback) => new RuntimeWorkerRegistryV1().withRegistrationExclusion(callback)
@@ -2722,17 +2736,7 @@ async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) 
   ) {
     throw new Error("runtime worker preflight returned an invalid result");
   }
-  if (runtimeWorkers.liveWorkerCount > 0 && !await canInstallRuntimeV1(packageRoot, runtimeWorkers)) {
-    throw new Error(
-      `refusing to replace the Nelos plugin cache while ${runtimeWorkers.liveWorkerCount} live Nelos ` +
-      `${runtimeWorkers.liveWorkerCount === 1 ? "worker is" : "workers are"} registered; quit Codex completely, ` +
-      "run the installation from an external terminal, then relaunch Codex and open a fresh task",
-    );
-  }
-  if (runtimeWorkers.liveWorkerCount === 0 && runtimeWorkers.compatibilityContract &&
-      !await canInstallRuntimeV1(packageRoot, runtimeWorkers)) {
-    throw new Error("upgrade contract is incompatible with persisted Nelos state; restore a compatible release or perform a separately verified drained migration");
-  }
+  await assertRuntimeInstallCompatibility(packageRoot, runtimeWorkers);
   await ensureCanonicalDirectory(home, "home", { create: false });
   await ensureCanonicalDirectory(codexHome, "CODEX_HOME", {
     enforceMode: true,
@@ -2832,6 +2836,7 @@ async function installDistributionWithRuntimeExclusion(options, runtimeWorkers) 
     const statePath = join(installRoot, INSTALL_STATE_FILENAME);
     const previousState = await readInstallState(installRoot);
     const staged = await stageDistribution({ packageRoot, installRoot, env });
+    await assertRuntimeInstallCompatibility(staged.releasePath, runtimeWorkers);
     const journal = {
       schemaVersion: INSTALL_SCHEMA_VERSION,
       id: transactionId,

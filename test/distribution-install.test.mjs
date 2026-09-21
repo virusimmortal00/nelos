@@ -29,6 +29,7 @@ import {
   installDistribution,
   stageDistribution,
 } from "../src/distribution-install.mjs";
+import { runtimeDistribution } from "./support/runtime-distribution.mjs";
 import { retainRuntimeV1 } from "../src/runtime-retention.mjs";
 import { deriveRuntimeIdentityV1 } from "../src/runtime-identity.mjs";
 import { readRuntimeContractV1 } from "../src/runtime-compatibility.mjs";
@@ -2370,6 +2371,52 @@ test("installer permits compatible retained live workers without removing their 
         liveWorkerCount: 0, compatibilityContract: { ...contract, state: "incompatible-state" },
       }),
     }), /incompatible with persisted Nelos state/);
+  } finally {
+    if (originalStateHome === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = originalStateHome;
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+
+test("installer rechecks staged bytes when the candidate changes after preflight", async () => {
+  const fixture = await createFixture();
+  const originalStateHome = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = join(fixture.root, "runtime-state");
+  try {
+    const candidate = await runtimeDistribution(join(fixture.root, "candidate"), candidateVersion);
+    const root = await retainRuntimeV1({ moduleRoot: candidate, declaredVersion: candidateVersion });
+    const identity = await deriveRuntimeIdentityV1({ moduleRoot: root });
+    const contract = await readRuntimeContractV1(root);
+    const wrapper = join(fixture.root, "replace-candidate.mjs");
+    // The first Codex discovery command runs after compatibility preflight and
+    // before staging. Replace the candidate with a coherent incompatible build.
+    await writeFile(wrapper, `#!${process.execPath}
+import { readFile, writeFile } from "node:fs/promises";
+import { computeDistributionIntegrity } from ${JSON.stringify(new URL("../src/distribution-provenance.mjs", import.meta.url).href)};
+const root = ${JSON.stringify(candidate)};
+const contractPath = root + "/src/runtime-compatibility.json";
+const contract = JSON.parse(await readFile(contractPath, "utf8"));
+contract.state = "incompatible-after-preflight";
+await writeFile(contractPath, JSON.stringify(contract));
+const provenancePath = root + "/distribution-provenance.json";
+const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+provenance.integrity = await computeDistributionIntegrity(root);
+await writeFile(provenancePath, JSON.stringify(provenance));
+await import(${JSON.stringify(fixture.codexPath)});
+`);
+    await chmod(wrapper, 0o700);
+    const before = await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8");
+    await assert.rejects(installFixture(fixture, {
+      packageRoot: candidate, codexCommand: wrapper,
+      withRuntimeWorkerExclusion: async (callback) => callback({
+        liveWorkerCount: 2, mutationAllowed: true, compatibilityContract: contract,
+        activeGenerations: [{ identity }],
+      }),
+    }), /refusing to replace the Nelos plugin cache/);
+    assert.equal((await readRuntimeContractV1(candidate)).state, "incompatible-after-preflight");
+    assert.equal(await readFile(join(fixture.codexHome, "fake-plugin-state.json"), "utf8"), before);
+    assert.equal(await readFile(join(fixture.pluginSource, "legacy-marker"), "utf8"), "legacy source\n");
   } finally {
     if (originalStateHome === undefined) delete process.env.XDG_STATE_HOME;
     else process.env.XDG_STATE_HOME = originalStateHome;

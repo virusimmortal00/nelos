@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { RuntimeMutationBoundaryV1 } from "../src/runtime-mutation-fence.mjs";
 import {
   RuntimeWorkerRegistryV1,
   validateRuntimeWorkerLeaseV1,
@@ -236,5 +237,19 @@ test("tampered runtime verification and corrupt cohort state fail closed", async
     await writeFile(join(directory, "compatibility.json"), "{}");
     await assert.rejects(a.inspect(), /contract is invalid/);
     await handle.remove();
+  });
+});
+
+
+test("a failed pre-commit fence cannot leave a pinned cohort behind", async () => {
+  await fixture(async ({ registry, directory }) => {
+    let checks = 0;
+    const boundary = new RuntimeMutationBoundaryV1({ health: async () => ({
+      state: ++checks === 1 ? "healthy" : "integrity-failure", mutationAllowed: checks === 1,
+    }) });
+    const writer = registry(531, 10, { verifyContract: async () => CONTRACT });
+    await assert.rejects(boundary.run({ readOnlyHint: false }, () => writer.register(identity())), { code: "RUNTIME_INTEGRITY_FAILURE" });
+    await assert.rejects(readFile(join(directory, "compatibility.json")), { code: "ENOENT" });
+    assert.equal((await writer.inspect()).liveWorkerCount, 0);
   });
 });
