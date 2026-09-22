@@ -104,7 +104,7 @@ test("plan runs are deterministic, durable, and preserve authoritative wave cont
         sliceId: "research",
         lifecycle: "subagent",
         title: "Research the boundary",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         effort: "medium",
       },
     ]);
@@ -291,7 +291,7 @@ test("plan-run verification rejects unknown or altered wave identity and malform
             members: [
               {
                 ...created.waves[0].members[0],
-                model: "gpt-5.6-luna",
+                model: "gpt-6-luna",
               },
             ],
           },

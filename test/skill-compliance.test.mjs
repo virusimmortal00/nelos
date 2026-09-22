@@ -32,7 +32,7 @@ test("compliance eval rejects a launch whose effective route was not verified", 
         lifecycle: "spinoff",
         title: "Worker",
         workspaceMode: "isolated-write",
-        nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+        nativeTask: { model: "gpt-6-sol", thinking: "low" },
         routeEnforcement: {
           mode: "exact",
           onUnavailable: "stop",
@@ -50,7 +50,7 @@ test("compliance eval rejects a launch whose effective route was not verified", 
     lifecycle: "spinoff",
     title: "Worker",
     workspaceMode: "isolated-write",
-    nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+    nativeTask: { model: "gpt-6-sol", thinking: "low" },
     routeEnforcement: nextAction.members[0].routeEnforcement,
     prompt: "Do bounded work.",
   };
@@ -70,7 +70,7 @@ test("planning bootstrap requires the exact fork, child identity, and verified r
     workspaceMode: "shared-read-only",
     prompt: "bounded planner prompt",
     forkTurns: "none",
-    nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+    nativeTask: { model: "gpt-6-sol", thinking: "medium" },
     routeEnforcement: { verifyAfterLaunch: true },
     threadIdentity: { required: true, onMissing: "attention" },
   };
@@ -90,9 +90,9 @@ test("planning bootstrap requires the exact fork, child identity, and verified r
     type: "native-route-verification",
     threadId: "planner-thread",
     verified: true,
-    expected: { model: "gpt-5.6-sol", effort: "medium" },
+    expected: { model: "gpt-6-sol", effort: "medium" },
     observed: [
-      { model: "gpt-5.6-sol", effort: "medium", matches: true },
+      { model: "gpt-6-sol", effort: "medium", matches: true },
     ],
   };
   assert.deepEqual(

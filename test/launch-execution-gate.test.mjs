@@ -19,7 +19,7 @@ function slice(id, lifecycle) {
     route: {
       launch: {
         nativeTask: {
-          model: subagent ? "gpt-5.6-sol" : "gpt-5.6-terra",
+          model: subagent ? "gpt-6-sol" : "gpt-6-luna",
           thinking: subagent ? "medium" : "low",
         },
       },

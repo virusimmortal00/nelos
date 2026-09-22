@@ -194,7 +194,7 @@ Monitoring options:
 
 Intelligence routing options:
   --task-shape SHAPE  complex/open-ended, everyday, or clear/repeatable
-  --profile PROFILE   Explicit Sol, Terra, or Luna profile override
+  --profile PROFILE   Explicit Sol or Luna profile override
   --model MODEL       Explicit catalog model override
   --effort LEVEL      Explicit supported reasoning-effort override
   --allow-native-fanout  Permit an explicit Ultra effort override

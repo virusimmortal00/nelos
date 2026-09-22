@@ -14,7 +14,7 @@ function baseCatalog(overrides = {}) {
       luna: {
         id: "luna",
         label: "Luna",
-        requestedModel: "gpt-5.6-luna",
+        requestedModel: "gpt-6-luna",
         supportedEfforts: ["low", "medium", "high"],
       },
     },
@@ -27,7 +27,7 @@ test("fresh: recent reviewedAt and guidance corroborating every profile", () => 
     catalog: baseCatalog({ reviewedAt: "2026-01-01" }),
     guidance: {
       observedAt: "2026-01-10T00:00:00.000Z",
-      modelsGuidanceText: "gpt-5.6-luna supports low, medium, and high effort.",
+      modelsGuidanceText: "gpt-6-luna supports low, medium, and high effort.",
       subagentsGuidanceText: "Subagents inherit reasoning effort from the parent.",
     },
     now: "2026-01-10T00:00:00.000Z",
@@ -44,7 +44,7 @@ test(`stale: reviewedAt older than ${STALE_AFTER_DAYS} days with no guidance dri
     catalog: baseCatalog({ reviewedAt: "2026-01-01" }),
     guidance: {
       observedAt: "2026-06-01T00:00:00.000Z",
-      modelsGuidanceText: "gpt-5.6-luna supports low, medium, and high effort.",
+      modelsGuidanceText: "gpt-6-luna supports low, medium, and high effort.",
     },
     now: "2026-06-01T00:00:00.000Z",
   });
@@ -78,7 +78,7 @@ test("changed-guidance: guidance no longer corroborates a profile's model or eff
     catalog: baseCatalog({ reviewedAt: "2026-01-01" }),
     guidance: {
       observedAt: "2026-01-10T00:00:00.000Z",
-      modelsGuidanceText: "gpt-5.6-luna supports low and medium effort only.",
+      modelsGuidanceText: "gpt-6-luna supports low and medium effort only.",
     },
     now: "2026-01-10T00:00:00.000Z",
   });

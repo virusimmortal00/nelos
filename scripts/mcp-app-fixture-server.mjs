@@ -82,7 +82,7 @@ function member({
   task,
   displayName,
   lifecycle = "subagent",
-  model = "gpt-5.6-terra",
+  model = "gpt-6-sol",
   reasoning = "medium",
   status,
   threadId = null,
@@ -170,7 +170,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "planner",
         task: "Plan and classify the work",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         status: "planning",
       }),
@@ -184,14 +184,14 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "api-contract",
         task: "Define the API contract",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "high",
         status: "authorization-required",
       }),
       member({
         id: "ui-smoke",
         task: "Smoke check execution map v7",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "medium",
         status: "authorization-required",
       }),
@@ -205,7 +205,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-launch",
         task: "Smoke check execution map v7",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "launch-pending",
       }),
@@ -219,7 +219,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-unknown",
         task: "Await authoritative current-turn evidence",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "unknown",
         threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
@@ -236,7 +236,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         id: "ui-running",
         task: "Smoke check execution map v7",
         displayName: "Nelos visual smoke check 406a08ee",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "running",
         threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
@@ -251,7 +251,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-complete",
         task: "Smoke check execution map v7",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "complete",
         threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
@@ -266,7 +266,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-accepted",
         task: "Review the completed result",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "accepted",
         threadId: "019fb49b-b447-7840-ace3-187079ef4e58",
@@ -282,7 +282,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         id: "durable-created",
         task: "Verify the durable execution path",
         lifecycle: "spinoff",
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         reasoning: "low",
         status: "created",
         threadId: "019fb4a1-2642-7bc2-a6ed-42de5c541d7c",
@@ -298,7 +298,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         id: "durable-archiving",
         task: "Verify the durable execution path",
         lifecycle: "spinoff",
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         reasoning: "low",
         status: "archiving",
         threadId: "019fb4a1-2642-7bc2-a6ed-42de5c541d7c",
@@ -314,7 +314,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
         id: "durable-archived",
         task: "Verify the durable execution path",
         lifecycle: "spinoff",
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         reasoning: "low",
         status: "archived",
         threadId: "019fb4a1-2642-7bc2-a6ed-42de5c541d7c",
@@ -342,7 +342,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "planning",
         task: "Plan the status-grouped execution map",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         status: "planning",
       }),
       member({
@@ -385,7 +385,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "authorization-required",
         task: "Request launch authorization",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         status: "authorization-required",
       }),
       member({
@@ -403,7 +403,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "attention",
         task: "Review mismatched worker evidence",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         status: "attention",
         threadId: "thread-attention",
       }),
@@ -454,7 +454,7 @@ export const EXECUTION_MAP_FIXTURES = Object.freeze([
       member({
         id: "ui-attention",
         task: "Reconcile unavailable worker evidence",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         status: "attention",
         threadId: "019fb4a9-5cdf-7f7b-8a54-5db52dd4b8e1",
@@ -490,7 +490,7 @@ export const PURPOSEFUL_VISUAL_FIXTURES = Object.freeze([
         member({
           id: "review",
           task: "Review the visual contract",
-          model: "gpt-5.6-sol",
+          model: "gpt-6-sol",
           reasoning: "medium",
           status: "planned",
         }),

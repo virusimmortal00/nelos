@@ -30,7 +30,7 @@ function slice(overrides = {}) {
     acceptanceCriteria: ["The tradeoff is explicit."],
     lifecycle: "subagent",
     workspaceMode: "shared-read-only",
-    route: { launch: { nativeTask: { model: "gpt-5.6-sol", thinking: "medium" } } },
+    route: { launch: { nativeTask: { model: "gpt-6-sol", thinking: "medium" } } },
     ...overrides,
   };
 }
@@ -39,7 +39,7 @@ test("unstructured planning returns one exact planner launch action", () => {
   const planner = {
     bootstrapId: "plan:abc",
     launcher: "spawn-subagent",
-    nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+    nativeTask: { model: "gpt-6-sol", thinking: "medium" },
   };
   assert.deepEqual(
     deriveNextAction({
@@ -125,7 +125,7 @@ test("slice planning returns an executable current-wave launch action", () => {
           nativeTitleControl: false,
         },
         workspaceMode: "shared-read-only",
-        nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+        nativeTask: { model: "gpt-6-sol", thinking: "medium" },
         routeEnforcement: {
           mode: "exact",
           onUnavailable: "stop",
@@ -382,7 +382,7 @@ test("generation-one exception replans give reused joined slices fresh task iden
   });
 });
 
-test("launch-wave derivation rejects a crafted Luna joined subagent", () => {
+test("launch-wave derivation rejects a crafted legacy-model joined subagent", () => {
   const plan = {
     waves: [{
       index: 1,
@@ -434,11 +434,11 @@ test("runtime route verification either completes exactly or stops the wave", ()
     deriveNextAction({
       command: "intelligence verify",
       threadId: "member-1",
-      expected: { model: "gpt-5.6-terra", effort: "low" },
+      expected: { model: "gpt-6-sol", effort: "low" },
       observed: [
         {
           turnId: "turn-1",
-          model: "gpt-5.6-terra",
+          model: "gpt-6-sol",
           effort: "low",
           matches: true,
         },
@@ -457,7 +457,7 @@ test("runtime route verification either completes exactly or stops the wave", ()
   const observed = [
     {
       turnId: "turn-1",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "xhigh",
       matches: false,
     },
@@ -466,7 +466,7 @@ test("runtime route verification either completes exactly or stops the wave", ()
     deriveNextAction({
       command: "intelligence verify",
       threadId: "member-1",
-      expected: { model: "gpt-5.6-luna", effort: "low" },
+      expected: { model: "gpt-6-luna", effort: "low" },
       observed,
       verified: false,
     }),
@@ -475,7 +475,7 @@ test("runtime route verification either completes exactly or stops the wave", ()
       kind: "attention",
       reason: "exact-native-route-mismatch",
       threadId: "member-1",
-      expected: { model: "gpt-5.6-luna", effort: "low" },
+      expected: { model: "gpt-6-luna", effort: "low" },
       observed,
     },
   );
@@ -486,7 +486,7 @@ test("resolved subagent identity leads to exact route verification", () => {
     deriveNextAction({
       command: "intelligence resolve subagent",
       threadId: "child-thread",
-      expected: { model: "gpt-5.6-sol", effort: "medium" },
+      expected: { model: "gpt-6-sol", effort: "medium" },
       turnId: "turn-current",
     }),
     {
@@ -495,7 +495,7 @@ test("resolved subagent identity leads to exact route verification", () => {
       tool: "nelos_intelligence_verify",
       arguments: {
         threadId: "child-thread",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         effort: "medium",
         turnId: "turn-current",
       },

@@ -43,8 +43,7 @@ test("the skill has one native path driven by machine-generated next actions", (
   assert.match(skill, /primary identity is `agentPath`/);
   assert.match(skill, /internal thread ID is verification\s+evidence only/);
   assert.match(skill, /Never call it a spinoff/);
-  assert.match(skill, /Joined subagents support only Sol or Terra/);
-  assert.match(skill, /Luna is\s+valid only for durable spinoffs/);
+  assert.match(skill, /Joined subagents support GPT-6 Sol and Luna/);
   assert.match(skill, /`native-wait-subagent` and `native-read-subagent-result`/);
   assert.match(skill, /never\s+submit a mailbox result directly/i);
   assert.match(skill, /Never construct or guess a result action ID/i);

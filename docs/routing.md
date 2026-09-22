@@ -11,18 +11,17 @@ cheaper or weaker default.
 
 ## The profiles
 
-Nelos ships a small, versioned catalog of GPT-5.6 profiles
+Nelos ships a small, versioned catalog of GPT-6 profiles
 (`src/intelligence-profile-catalog.mjs`, reviewed against OpenAI's model guidance
 and re-dated on each review):
 
 | Profile | Model | Character | Reasoning efforts |
 | --- | --- | --- | --- |
-| **Sol** | `gpt-5.6-sol` | Frontier — deepest judgment | `low` → `max`, plus `ultra` |
-| **Terra** | `gpt-5.6-terra` | Balanced, efficient default | `low` → `max`, plus `ultra` |
-| **Luna** | `gpt-5.6-luna` | Fastest, most efficient | `low` → `max` |
+| **Sol** | `gpt-6-sol` | Complex coding and work needing judgment | `low` → `max`, plus Codex `ultra` |
+| **Luna** | `gpt-6-luna` | Focused, frequent work | `low` → `max` |
 
 The effort ladder is `low` · `medium` · `high` · `xhigh` · `max` · `ultra`. Only
-Sol and Terra are eligible for `ultra` (see [Max and Ultra](#max-and-ultra)).
+Sol is eligible for Codex `ultra` (see [Max and Ultra](#max-and-ultra)).
 
 ## Task shapes pick the starting point
 
@@ -33,8 +32,8 @@ work isn't starved:
 | Task shape | Routes to | Effort | Why |
 | --- | --- | --- | --- |
 | `complex/open-ended` | Sol | `medium` | Sustained judgment needs a frontier model; medium is the lowest reviewed starting point. |
-| `everyday` | Terra | `low` | A capable, efficient default for ordinary implementation work. |
-| `clear/repeatable` | Luna for durable spinoffs; Terra for joined subagents | `low` | Luna is the efficient durable-task choice, while the native collaboration launcher currently supports only Sol and Terra. |
+| `everyday` | Sol | `low` | A capable default for ordinary implementation work. |
+| `clear/repeatable` | Luna | `low` | Focused work with explicit acceptance criteria fits Luna on either launcher. |
 
 ## Overriding the recommendation
 
@@ -48,18 +47,16 @@ The router (`nelos_intelligence_route`) takes any combination of `taskShape`,
 `profile`, `model`, `effort`, and `allowNativeFanout`:
 
 ```jsonc
-{ "taskShape": "everyday" }                 // Terra + low, fully automatic
-{ "profile": "terra" }                      // pin Terra, keep the host's reasoning
+{ "taskShape": "everyday" }                 // Sol + low, fully automatic
+{ "profile": "luna" }                       // pin Luna, keep the host's reasoning
 { "effort": "high" }                        // keep the host's model, raise reasoning
 { "profile": "sol", "effort": "max" }       // pin both
 ```
 
 Conflicts fail loudly rather than resolving silently: a `profile` and `model`
 that name different profiles, or an `effort` a profile doesn't support, are
-errors. Slice routing is also launcher-aware: a joined subagent never receives
-Luna, and an explicit Luna override for a joined subagent is rejected instead
-of substituted. Durable spinoffs retain Luna for clear, repeatable work. (The
-contributor CLI mirrors generic routing as `nelos intelligence route
+errors. Both launchers can request Sol or Luna; the host checks actual
+availability at launch. (The contributor CLI mirrors generic routing as `nelos intelligence route
 --task-shape everyday`, etc.)
 
 ### What comes back
@@ -68,26 +65,26 @@ The route returns launch-ready settings plus its own provenance:
 
 ```jsonc
 {
-  "profile": "terra",
-  "requestedModel": "gpt-5.6-terra",
+  "profile": "sol",
+  "requestedModel": "gpt-6-sol",
   "requestedEffort": "low",
   "modelSelection": "recommended",   // inherit | recommended | override
   "effortSelection": "recommended",
-  "launch": { "nativeTask": { "model": "gpt-5.6-terra", "thinking": "low" } },
-  "rationale": "Everyday work is routed to Terra with low reasoning …"
+  "launch": { "nativeTask": { "model": "gpt-6-sol", "thinking": "low" } },
+  "rationale": "Everyday work is routed to Sol with low reasoning …"
 }
 ```
 
 `launch.nativeTask` is handed straight to the selected Codex launcher — `model`
 and `thinking` already filled in — so the skill never reconstructs launch
-settings by hand. The shared launch-contract validator independently rejects
+settings by hand. The shared launch-contract validator accepts GPT-6 Sol and
 Luna on `spawn-subagent`, including lower-level orchestration calls.
 
 ## Max and Ultra
 
 `max` is the highest **single-task** reasoning tier. `ultra` goes further: it also
 permits native **subagent fan-out**, so it's gated twice — it requires an explicit
-or recommended **Sol or Terra** profile *and* explicit permission
+or recommended **Sol** profile *and* explicit permission
 (`allowNativeFanout: true`). Requesting `ultra` any other way is an error.
 
 ## Verification (fail-closed)
@@ -96,7 +93,7 @@ Routing a task isn't the same as trusting it ran that way. After launch,
 `nelos_intelligence_verify` checks the claim against evidence:
 
 ```jsonc
-{ "threadId": "…", "model": "gpt-5.6-terra", "effort": "low" }
+{ "threadId": "…", "model": "gpt-6-sol", "effort": "low" }
 ```
 
 It locates the task's local Codex rollout under `~/.codex/sessions`, reads the

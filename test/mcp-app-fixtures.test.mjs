@@ -608,7 +608,7 @@ test("purpose-built widgets render results, fallbacks, and resize disclosures", 
       id: "planner",
       task: "Prepare the plan",
       lifecycle: "subagent",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       reasoning: "medium",
       status: "planning",
       threadId: null,
@@ -1007,7 +1007,7 @@ test("the production widget renders valid state from both MCP Apps and OpenAI br
     assert.equal(firstRunningHeading.children[2].className, "tag status");
     assert.equal(firstRunningHeading.children[2].textContent, "Running");
     assert.equal(firstRunningMeta.children.length, 3);
-    assert.equal(firstRunningMeta.children[0].textContent, "gpt-5.6-terra");
+    assert.equal(firstRunningMeta.children[0].textContent, "gpt-6-sol");
     assert.equal(firstRunningMeta.children[1].textContent, "Medium effort");
     const taskIdTag = firstRunningMeta.children[2];
     const fullTaskId = "019fb49b-b447-7840-ace3-187079ef4e58";

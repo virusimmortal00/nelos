@@ -17,6 +17,35 @@ const suite = JSON.parse(
     "utf8",
   ),
 );
+const currentSuite = JSON.parse(
+  readFileSync(
+    new URL("../evals/routing/isolated-queen-scenarios.v2.json", import.meta.url),
+    "utf8",
+  ),
+);
+
+test("current suite covers both GPT-6 models and joined Luna without changing the retained v1 suite", () => {
+  const validated = validateRoutingEvalSuiteV1(currentSuite);
+  const coverage = routingEvalCoverageV1(validated);
+  assert.equal(currentSuite.suiteId, "isolated-queen-routing-v2");
+  assert.deepEqual(coverage.models, ["gpt-6-luna", "gpt-6-sol"]);
+  assert.ok(coverage.routes.includes("subagent:gpt-6-luna/low"));
+  assert.ok(validated.scenarios.every(({ expectation }) =>
+    expectation.catalogVersion === "openai-2026-09-22" && expectation.policyVersion === 4));
+  assert.throws(() => validateRoutingEvalSuiteV1({
+    ...currentSuite,
+    scenarios: [{
+      ...currentSuite.scenarios[0],
+      expectation: {
+        ...currentSuite.scenarios[0].expectation,
+        requiredRoutes: [{
+          ...currentSuite.scenarios[0].expectation.requiredRoutes[0],
+          model: "gpt-5.6-sol",
+        }],
+      },
+    }],
+  }), /legacy model with the current catalog/);
+});
 
 function completedObservation() {
   const observation = createRoutingObservationTemplateV1(suite);

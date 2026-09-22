@@ -50,14 +50,14 @@ function waveContract(members = [
     sliceId: "research",
     lifecycle: "subagent",
     title: "Research the boundary",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     effort: "medium",
   },
   {
     sliceId: "implementation",
     lifecycle: "spinoff",
     title: "Implement the boundary",
-    model: "gpt-5.6-terra",
+    model: "gpt-6-sol",
     effort: "high",
   },
 ]) {
@@ -127,13 +127,13 @@ test("batch verification uses agent path for subagents and native title for spin
   assert.deepEqual(routes, [
     {
       threadId: "child-1",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
       turnId: "turn-research",
     },
     {
       threadId: "spinoff-1",
-      model: "gpt-5.6-terra",
+      model: "gpt-6-sol",
       effort: "high",
       turnId: "turn-implementation",
     },

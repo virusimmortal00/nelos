@@ -5,7 +5,14 @@ All notable user-facing changes to Nelos are recorded here. Versions follow the
 
 ## Unreleased
 
-None.
+### User-facing changes
+
+- Route new Sol and Luna work through GPT-6 model choices. Everyday coding now
+  uses Sol/low; clear, repeatable work uses Luna/low on both durable tasks and
+  joined subagents. The bounded planner remains Sol/medium.
+- Retire Terra as an active profile and reject GPT-5.6 model overrides on new
+  routes. Retained routing evaluation suites and observations remain readable
+  under their original catalog versions.
 
 ## [0.13.0] - 2026-09-02
 

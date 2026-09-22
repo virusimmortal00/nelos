@@ -13,7 +13,7 @@ import {
 } from "../src/routing-evaluation.mjs";
 
 const DEFAULT_SUITE = new URL(
-  "../evals/routing/isolated-queen-scenarios.v1.json",
+  "../evals/routing/isolated-queen-scenarios.v2.json",
   import.meta.url,
 );
 

@@ -602,7 +602,7 @@ function plannerMember(result, { replan = false, status = null } = {}) {
   );
   if (!member && !threadId && !bootstrapId) return null;
   const nativeTask = member?.nativeTask ?? {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     thinking: "medium",
   };
   const displayName = text(result?.thread?.title, null);
@@ -622,7 +622,7 @@ function plannerMap(result, args, { replan = false } = {}) {
     id: replan ? "exception-replan" : "planner",
     task: replan ? "Revise the plan" : "Plan the work",
     lifecycle: "subagent",
-    ...route({ model: "gpt-5.6-sol", thinking: "medium" }),
+    ...route({ model: "gpt-6-sol", thinking: "medium" }),
     status: plannerStatus(result),
     threadId: null,
   };

@@ -61,22 +61,21 @@ test("slice planning composes dependency waves with guidance-backed routes", () 
     spinoffs: 2,
     subagents: 3,
     models: {
-      "gpt-5.6-sol": 2,
-      "gpt-5.6-terra": 2,
-      "gpt-5.6-luna": 1,
+      "gpt-6-sol": 3,
+      "gpt-6-luna": 2,
     },
     efforts: { medium: 2, low: 3 },
   });
   assert.deepEqual(first.waves[0].slices[0].route.launch.nativeTask, {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     thinking: "medium",
   });
   assert.deepEqual(first.waves[0].slices[1].route.launch.nativeTask, {
-    model: "gpt-5.6-terra",
+    model: "gpt-6-luna",
     thinking: "low",
   });
   assert.deepEqual(first.waves[2].slices[0].route.launch.nativeTask, {
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     thinking: "low",
   });
 });
@@ -111,16 +110,16 @@ test("per-slice overrides remain subordinate to the reviewed router", () => {
   });
   const [quality, reasoning] = plan.waves[0].slices;
   assert.deepEqual(quality.route.launch.nativeTask, {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     thinking: "max",
   });
   assert.deepEqual(reasoning.route.launch.nativeTask, {
-    model: "gpt-5.6-terra",
+    model: "gpt-6-sol",
     thinking: "high",
   });
 });
 
-test("slice planning rejects explicit Luna routing for joined subagents", () => {
+test("slice planning accepts explicit Luna routing for joined subagents", () => {
   const joined = {
     lifecycle: "subagent",
     workspaceMode: "shared-read-only",
@@ -128,17 +127,14 @@ test("slice planning rejects explicit Luna routing for joined subagents", () => 
   };
   for (const routing of [
     { profile: "luna" },
-    { model: "gpt-5.6-luna" },
+    { model: "gpt-6-luna" },
   ]) {
-    assert.throws(
-      () =>
-        planWorkSlices({
-          schemaVersion: 1,
-          objective: "Never launch a Luna subagent",
-          slices: [slice("joined", { ...joined, routing })],
-        }),
-      /joined-subagent launches do not support gpt-5\.6-luna/,
-    );
+    const plan = planWorkSlices({
+      schemaVersion: 1,
+      objective: "Launch a Luna subagent",
+      slices: [slice("joined", { ...joined, routing })],
+    });
+    assert.equal(plan.waves[0].slices[0].route.launch.nativeTask.model, "gpt-6-luna");
   }
 });
 

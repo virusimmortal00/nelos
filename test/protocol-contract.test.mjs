@@ -461,7 +461,7 @@ const authorizationOutput = {
       launcher: "create-thread",
       workspaceMode: "isolated-write",
       nativeTask: {
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         thinking: "medium",
       },
       launcherAvailable: true,
@@ -763,10 +763,10 @@ test("compatibility and contract discriminators are correlated to value schemas"
   const routeMismatch = deriveNextAction({
     command: "intelligence verify",
     threadId: "thread-1",
-    expected: { model: "gpt-5.6-terra", effort: "low" },
+    expected: { model: "gpt-6-sol", effort: "low" },
     observed: [{
       turnId: "turn-1",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
       matches: false,
     }],
@@ -811,7 +811,7 @@ test("compatibility and contract discriminators are correlated to value schemas"
     workspaceMode: "shared-read-only",
     route: {
       launch: {
-        nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+        nativeTask: { model: "gpt-6-sol", thinking: "medium" },
       },
     },
     ...overrides,

@@ -551,7 +551,7 @@ test("cleanup archives accepted siblings while unaccepted spin-offs remain pendi
     workUnitId: "member-b",
     title: "Member B",
     launch: {
-      nativeTask: { model: "gpt-5.6-luna", thinking: "high" },
+      nativeTask: { model: "gpt-6-luna", thinking: "high" },
     },
     binding: {
       state: "bound",
@@ -575,7 +575,7 @@ test("cleanup archives accepted siblings while unaccepted spin-offs remain pendi
     workUnitId: "member-b",
     threadId: "member-thread-b",
     title: "Member B",
-    model: "gpt-5.6-luna",
+    model: "gpt-6-luna",
     reasoning: "high",
   }]);
   const settled = await adapter.cleanup({

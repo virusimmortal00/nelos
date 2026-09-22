@@ -26,27 +26,29 @@ baseline can be reviewed and promoted intentionally.
 
 ## Current coverage
 
-The versioned manifest is
-[`evals/routing/isolated-queen-scenarios.v1.json`](../evals/routing/isolated-queen-scenarios.v1.json).
+The current versioned manifest is
+[`evals/routing/isolated-queen-scenarios.v2.json`](../evals/routing/isolated-queen-scenarios.v2.json).
+The [v1 manifest](../evals/routing/isolated-queen-scenarios.v1.json) remains
+available for the GPT-5.6 observations recorded under the earlier policy.
 It covers:
 
-- Sol, Terra, and Luna;
+- GPT-6 Sol and Luna;
 - low, medium, high, and max effort;
 - joined subagents and durable spinoffs;
 - task-shape recommendations and independent explicit overrides;
 - eight natural-language planning situations, including three current-policy
   baselines and five semantic challenges;
 - requested-versus-observed route matching;
-- independent-dimension challenges such as Sol/low and Terra/high;
+- independent-dimension challenges such as Sol/low and Sol/high;
 - critical, irreversible, weak-oracle and cost-pressure challenges that should
   retain a Sol/high safety floor.
 
-Terra/max is opt-in because it is the most expensive mechanical probe. Four
-forward-policy challenges are also opt-in; the default set remains a bounded
-nine scenarios and covers every model plus low, medium, and high effort.
+Sol/max is opt-in because it is an expensive mechanical probe. Four
+forward-policy challenges are also opt-in; the default set remains bounded
+and covers both models, both launch surfaces, and low, medium, and high effort.
 
 This distribution is intentional. The current automatic policy can naturally
-produce only Sol/medium, Terra/low, and Luna/low. High and max are therefore
+produce Sol/medium, Sol/low, and Luna/low. High and max are therefore
 explicit-route probes until adaptive routing is implemented. Pretending those
 were automatic recommendations would hide the exact limitation the suite is
 meant to measure.
@@ -191,7 +193,7 @@ The completed default recommendation comparison is retained as the
 packet and its schema-checked
 [`live-shape-recommendation-diversity-2026-08-12.json`](../evals/routing/observations/live-shape-recommendation-diversity-2026-08-12.json)
 bundle. Two additional fresh isolated queens recommended and independently
-observed Terra/low and Luna/low. Their current terminal-turn result receipts,
+observed GPT-5.6 Terra/low and Luna/low. Their recorded terminal-turn result receipts,
 resolver correlation, acceptance, and archival dispositions are recorded
 separately from their recommendation and route-verification outcomes. Together
 with the fresh Sol/medium result, the three distinct route-verified defaults

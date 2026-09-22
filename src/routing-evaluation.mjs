@@ -93,11 +93,20 @@ const EFFORTS = Object.freeze([
     ),
   ),
 ]);
-const MODELS = Object.freeze(
-  Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).map(
-    ({ requestedModel }) => requestedModel,
-  ),
-);
+// Retained v1 suites and observations must remain readable after a catalog migration.
+const LEGACY_PROFILES = Object.freeze({
+  "gpt-5.6-sol": Object.freeze({ id: "sol", supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }),
+  "gpt-5.6-terra": Object.freeze({ id: "terra", supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }),
+  "gpt-5.6-luna": Object.freeze({ id: "luna", supportedEfforts: ["low", "medium", "high", "xhigh", "max"] }),
+});
+const ACTIVE_PROFILES = Object.freeze(Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles));
+const MODELS = Object.freeze([
+  ...ACTIVE_PROFILES.map(({ requestedModel }) => requestedModel),
+  ...Object.keys(LEGACY_PROFILES),
+]);
+function profileForModel(model) {
+  return ACTIVE_PROFILES.find(({ requestedModel }) => requestedModel === model) ?? LEGACY_PROFILES[model];
+}
 const LIVE_PROMPT_PROTOCOL = `Live evaluation protocol:
 - This current task is the fresh queen. Use its own native task/thread ID as both the scenario queen and the Nelos orchestration queen; a delegation source_thread_id is provenance only and must not replace the current queen identity.
 - Use the Nelos task-management skill and its machine-generated actions exactly. If installed plugin tools are lazy, use available tool discovery to load the Nelos MCP tools before declaring them unavailable. Listing MCP resources is not plugin-tool discovery.
@@ -144,9 +153,7 @@ function boundedInteger(value, label, minimum, maximum) {
 function modelEffort(modelValue, effortValue, label) {
   const model = enumeration(modelValue, MODELS, `${label}.model`);
   const effort = enumeration(effortValue, EFFORTS, `${label}.effort`);
-  const profile = Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).find(
-    ({ requestedModel }) => requestedModel === model,
-  );
+  const profile = profileForModel(model);
   if (!profile.supportedEfforts.includes(effort)) {
     throw new Error(`${label} selects an unsupported route`);
   }
@@ -249,6 +256,14 @@ function validateScenario(value, index) {
   const forbiddenRoutes = value.expectation.forbiddenRoutes.map((route, routeIndex) =>
     validateRouteExpectation(route, `${expectationLabel}.forbiddenRoutes[${routeIndex}]`),
   );
+  if (catalogVersion === INTELLIGENCE_PROFILE_CATALOG.catalogVersion) {
+    const legacyRoute = [...requiredRoutes, ...forbiddenRoutes].find(
+      ({ model }) => LEGACY_PROFILES[model],
+    );
+    if (legacyRoute) {
+      throw new Error(`${expectationLabel} uses a legacy model with the current catalog`);
+    }
+  }
   const requiredKeys = requiredRoutes.map(decisionKey);
   if (new Set(requiredKeys).size !== requiredKeys.length) {
     throw new Error(`${expectationLabel}.requiredRoutes contains duplicate routes`);
@@ -339,9 +354,7 @@ function validateMember(value, label) {
         value.observedEffort,
         `${label}.observed`,
       );
-  const profile = Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).find(
-    ({ requestedModel }) => requestedModel === requested.model,
-  );
+  const profile = profileForModel(requested.model);
   if (value.profile !== profile.id) {
     throw new Error(`${label}.profile does not match requestedModel`);
   }
@@ -656,9 +669,7 @@ export function createRoutingObservationTemplateV1(suiteValue, scenarioIds = nul
           policyVersion: scenario.expectation.policyVersion,
           catalogVersion: scenario.expectation.catalogVersion,
           taskShape: route.taskShape,
-          profile: Object.values(INTELLIGENCE_PROFILE_CATALOG.profiles).find(
-            ({ requestedModel }) => requestedModel === route.model,
-          ).id,
+          profile: profileForModel(route.model).id,
           modelSelection: route.modelSelection,
           effortSelection: route.effortSelection,
           decisionEvidenceSource: "nelos-route-decision",

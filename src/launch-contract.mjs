@@ -12,8 +12,8 @@ const LIFECYCLE_MEMBER_KINDS = Object.freeze({
 
 const WORKSPACE_MODES = new Set(["shared-read-only", "isolated-write"]);
 const JOINED_SUBAGENT_MODELS = new Set([
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
+  "gpt-6-sol",
+  "gpt-6-luna",
 ]);
 const NATIVE_TASK_FIELDS = new Set(["model", "thinking"]);
 const LAUNCH_FIELDS = new Set([
@@ -139,7 +139,7 @@ export function normalizeNativeLaunchV1(value, memberKind) {
     !JOINED_SUBAGENT_MODELS.has(model)
   ) {
     throw new Error(
-      `joined-subagent launches do not support ${model}; use Sol or Terra`,
+      `joined-subagent launches do not support ${model}; use GPT-6 Sol or Luna`,
     );
   }
   if (model !== undefined) normalizedNativeTask.model = model;

@@ -84,14 +84,14 @@ test("planned task webs project exact task, route, lifecycle, and count data", (
       {
         id: "inspect",
         lifecycle: "subagent",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         status: "planned",
       },
       {
         id: "implement",
         lifecycle: "spinoff",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         status: "planned",
       },
@@ -137,7 +137,7 @@ test("planning, launch pending, and running remain visibly distinct", () => {
     id: "plan:123",
     task: "Plan the work",
     lifecycle: "subagent",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     reasoning: "medium",
     status: "planning",
     threadId: null,
@@ -149,7 +149,7 @@ test("planning, launch pending, and running remain visibly distinct", () => {
     title: "Implement history",
     objectiveSummary: "Ship the history implementation.",
     launch: {
-      nativeTask: { model: "gpt-5.6-luna", thinking: "high" },
+      nativeTask: { model: "gpt-6-luna", thinking: "high" },
     },
   };
   const pending = executionMapForToolResultV1(
@@ -173,7 +173,7 @@ test("planning, launch pending, and running remain visibly distinct", () => {
   assert.equal(running.summary.created, 0);
   assert.equal(running.summary.running, 1);
   assert.equal(running.members[0].threadId, "thread-history");
-  assert.equal(running.members[0].model, "gpt-5.6-luna");
+  assert.equal(running.members[0].model, "gpt-6-luna");
   assert.equal(running.members[0].reasoning, "high");
 });
 
@@ -187,7 +187,7 @@ test("planner projection follows native subagent status and preserves its host n
     planner: {
       bootstrapId: "plan:b8",
       title: "Plan and classify the work",
-      nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+      nativeTask: { model: "gpt-6-sol", thinking: "medium" },
     },
   };
   const active = await projectExecutionMapForToolResultV1(
@@ -477,7 +477,7 @@ test("ordinary receipts hide archived spin-offs without losing the protocol rece
         workUnitId: "inspect-next-action",
         threadId: "thread-archive",
         title: "Inspect nextAction protocol visibility",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         state: "archived",
         replayed: false,
@@ -611,14 +611,14 @@ test("not-ready cleanup preserves each pending spin-off route", () => {
         workUnitId: "pending-route",
         threadId: "thread-pending",
         title: "Pending routed spin-off",
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         reasoning: "high",
       }],
     },
   );
 
   assert.equal(notReady.phase, "attention");
-  assert.equal(notReady.members[0].model, "gpt-5.6-luna");
+  assert.equal(notReady.members[0].model, "gpt-6-luna");
   assert.equal(notReady.members[0].reasoning, "high");
 });
 
@@ -631,7 +631,7 @@ test("native turn refresh replaces launch-pending with current worker state", as
         id: "finished",
         task: "Finished worker",
         lifecycle: "subagent",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         reasoning: "low",
         threadId: "thread-finished",
         turnId: "turn-finished",
@@ -640,7 +640,7 @@ test("native turn refresh replaces launch-pending with current worker state", as
         id: "active",
         task: "Active worker",
         lifecycle: "spinoff",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         threadId: "thread-active",
         turnId: "turn-active",
@@ -690,7 +690,7 @@ test("native turn refresh validates every member before app-server reads", async
     id: "worker",
     task: "Validate refresh input",
     lifecycle: "subagent",
-    model: "gpt-5.6-terra",
+    model: "gpt-6-sol",
     reasoning: "low",
     threadId: "thread-worker",
     turnId: "turn-worker",
@@ -745,7 +745,7 @@ test("explicit execution-map history returns archived members", async () => {
           id: "current",
           task: "🕷️C7.1 · Current worker",
           lifecycle: "spinoff",
-          model: "gpt-5.6-terra",
+          model: "gpt-6-sol",
           reasoning: "low",
           status: "running",
           threadId: "thread-current",
@@ -754,7 +754,7 @@ test("explicit execution-map history returns archived members", async () => {
           id: "old",
           task: "🕷️C7.2 · Old worker",
           lifecycle: "spinoff",
-          model: "gpt-5.6-terra",
+          model: "gpt-6-sol",
           reasoning: "low",
           status: "archived",
           threadId: "thread-old",
@@ -813,7 +813,7 @@ test("web-wide projection survives restart and rejects stale member regressions"
         id: "alpha",
         task: "Alpha",
         lifecycle: "spinoff",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         threadId: "thread-alpha",
         turnId: "turn-alpha",
@@ -837,7 +837,7 @@ test("web-wide projection survives restart and rejects stale member regressions"
         id: "alpha",
         task: "Alpha",
         lifecycle: "spinoff",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoning: "medium",
         threadId: "thread-alpha",
         turnId: "turn-alpha",

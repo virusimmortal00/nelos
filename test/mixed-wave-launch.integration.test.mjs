@@ -131,13 +131,13 @@ test("a mixed wave dispatches both native launchers concurrently and verifies ro
     {
       threadId: "spinoff-thread",
       turnId: "turn-1",
-      model: "gpt-5.6-terra",
+      model: "gpt-6-sol",
       effort: "low",
     },
     {
       threadId: "subagent-thread",
       turnId: "turn-2",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
     },
   ]);
@@ -296,14 +296,14 @@ test("launch members bridge into durable lifecycle-specific work units", () => {
         capabilities: ["observe", "read-result", "follow-up", "archive"],
         launcher: "create-thread",
         workspaceMode: "isolated-write",
-        nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+        nativeTask: { model: "gpt-6-sol", thinking: "low" },
       },
       {
         memberKind: "joined-subagent",
         capabilities: ["observe", "read-result", "follow-up"],
         launcher: "spawn-subagent",
         workspaceMode: "shared-read-only",
-        nativeTask: { model: "gpt-5.6-sol", thinking: "medium" },
+        nativeTask: { model: "gpt-6-sol", thinking: "medium" },
       },
     ],
   );

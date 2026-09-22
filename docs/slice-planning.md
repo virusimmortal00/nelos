@@ -21,7 +21,7 @@ high-level work:
 An explicit user-supplied structured plan skips the Sol bootstrap and enters
 step 3 directly. A plan authored by the starting queen does not qualify for this
 fast path. This makes decomposition quality independent of whether the user's
-task began on Luna, Terra, or Sol while avoiding an extra model turn when no
+task began on Luna or Sol while avoiding an extra model turn when no
 decomposition is needed.
 
 The MCP server deliberately does not pretend to understand arbitrary natural
@@ -224,8 +224,8 @@ The result has three waves:
 
 | Wave | Concurrent slices | Default route |
 | --- | --- | --- |
-| 1 | `architecture`, `inventory` | Sol/Medium, Terra/Low |
-| 2 | `implementation`, `documentation` | Terra/Low, Luna/Low |
+| 1 | `architecture`, `inventory` | Sol/Medium, Luna/Low |
+| 2 | `implementation`, `documentation` | Sol/Low, Luna/Low |
 | 3 | `verification` | Sol/Medium |
 
 Every launch member now carries an explicit `memberKind` and `launcher`.
@@ -254,8 +254,8 @@ handle.
 Each slice may include a `routing` object with `profile`, `model`, or `effort`.
 Model and reasoning are independent, so omitting either dimension preserves its
 task-shape recommendation. Explicit values still pass the same reviewed
-catalog. Ultra additionally requires `nativeFanoutAllowed: true` and a Sol or
-Terra route.
+catalog. Ultra additionally requires `nativeFanoutAllowed: true` and a Sol
+route.
 
 The planner rejects unknown fields, duplicate or cyclic dependencies, unsafe
 shared concurrent writers, unsupported task shapes, plans larger than 32

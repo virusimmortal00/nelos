@@ -47,7 +47,7 @@ Codex app-server child process for native task control.
    one fresh, bounded, read-only **Sol / medium** planning subagent. That route
    is fixed and verified regardless of the model or reasoning level selected
    in the original task, so planning never silently inherits a cheaper starting
-   configuration. A task started on Luna or Terra still gets Sol for
+   configuration. A task started on Luna still gets Sol for
    decomposition.
 3. **Your original task becomes the queen.** It stays right where it is as the
    coordinator. When the plan uses durable spinoffs, its title receives the 👑
@@ -66,19 +66,19 @@ more — reducing time and credit use without weakening the decomposition.
 
 #### Example: mixed intelligence, on purpose
 
-Suppose `Add Codex functionality checker` starts on **Terra / max**. The fixed
+Suppose `Add Codex functionality checker` starts on **Luna / max**. The fixed
 Sol / medium planner returns an execution plan with one joined subagent and four
 durable spinoffs. Nelos does not copy one setting to every worker:
 
 | Task | Kind | Model / reasoning | Example state |
 | --- | --- | --- | --- |
-| 👑`B8 · Add Codex functionality checker` | Original task → queen | **Terra / max** | Coordinating Wave 1 |
+| 👑`B8 · Add Codex functionality checker` | Original task → queen | **Luna / max** | Coordinating Wave 1 |
 | `Plan and classify the work` | Dedicated planning subagent | **Sol / medium** | Complete — plan accepted |
-| `Inspect the existing plugin surface` | Joined subagent — not shown in the sidebar | **Terra / low** | Running in Wave 1 |
+| `Inspect the existing plugin surface` | Joined subagent — not shown in the sidebar | **Sol / low** | Running in Wave 1 |
 | 🕷️`B8.1 · Collect exact open source evidence` | Durable spinoff | **Luna / low** | Running in Wave 1 |
-| 🕷️`B8.2 · Collect bounded documentation evidence` | Durable spinoff | **Terra / medium** | Running in Wave 1 |
+| 🕷️`B8.2 · Collect bounded documentation evidence` | Durable spinoff | **Luna / medium** | Running in Wave 1 |
 | 🕷️`B8.3 · Build the offline deterministic gate` | Durable spinoff | **Sol / high** | Running in Wave 1 |
-| 🕷️`B8.4 · Define compatibility contracts` | Durable spinoff | **Terra / high** | Running in Wave 1 |
+| 🕷️`B8.4 · Define compatibility contracts` | Durable spinoff | **Sol / max** | Running in Wave 1 |
 
 One objective now uses seven different model/reasoning combinations. Nelos puts
 deeper intelligence where judgment matters, uses faster profiles for bounded or

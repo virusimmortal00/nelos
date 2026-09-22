@@ -67,7 +67,7 @@ complete -c nelos -n '__fish_seen_subcommand_from web; and __fish_seen_subcomman
 complete -c nelos -n '__fish_seen_subcommand_from web; and __fish_seen_subcommand_from accept' -l summary -r
 complete -c nelos -n '__fish_seen_subcommand_from plan' -l spec-file -r
 complete -c nelos -n '__fish_seen_subcommand_from intelligence' -l task-shape -xa 'complex/open-ended everyday clear/repeatable'
-complete -c nelos -n '__fish_seen_subcommand_from intelligence' -l profile -xa 'sol terra luna'
+complete -c nelos -n '__fish_seen_subcommand_from intelligence' -l profile -xa 'sol luna'
 complete -c nelos -n '__fish_seen_subcommand_from intelligence' -l allow-native-fanout
 complete -c nelos -n '__fish_seen_subcommand_from intelligence; and __fish_seen_subcommand_from verify' -l turn-id -r
 complete -c nelos -n '__fish_seen_subcommand_from worktree; and __fish_seen_subcommand_from plan' -l web-id -r
