@@ -2,19 +2,13 @@ const profiles = Object.freeze({
   sol: Object.freeze({
     id: "sol",
     label: "Sol",
-    requestedModel: "gpt-5.6-sol",
-    supportedEfforts: Object.freeze(["low", "medium", "high", "xhigh", "max", "ultra"]),
-  }),
-  terra: Object.freeze({
-    id: "terra",
-    label: "Terra",
-    requestedModel: "gpt-5.6-terra",
+    requestedModel: "gpt-6-sol",
     supportedEfforts: Object.freeze(["low", "medium", "high", "xhigh", "max", "ultra"]),
   }),
   luna: Object.freeze({
     id: "luna",
     label: "Luna",
-    requestedModel: "gpt-5.6-luna",
+    requestedModel: "gpt-6-luna",
     supportedEfforts: Object.freeze(["low", "medium", "high", "xhigh", "max"]),
   }),
 });
@@ -23,35 +17,30 @@ const profiles = Object.freeze({
  * Reviewed release data, not a live entitlement or availability assertion.
  * The host remains authoritative for whether a requested model can launch.
  *
- * The "xhigh" effort string is unverified against a live `model/list` response.
- * https://learn.chatgpt.com/docs/models lists an "Extra high" tier alongside
- * Low/Medium/High/Max/Ultra, but https://learn.chatgpt.com/docs/app-server's
- * own model/list documentation does not enumerate a full reasoningEffort value
- * set to confirm "xhigh" (vs. e.g. "extra_high" or "extraHigh") is the literal
- * wire string. A wrong value would surface as a loud launch-time error rather
- * than silently misbehaving, so this is flagged rather than guessed at.
+ * The API model pages confirm low through max, including the literal "xhigh".
+ * "ultra" is a Codex launch choice for Sol and remains host-gated.
  */
 export const INTELLIGENCE_PROFILE_CATALOG = Object.freeze({
   schemaVersion: 1,
-  catalogVersion: "openai-2026-07-21",
-  reviewedAt: "2026-07-21",
-  sourceUrl: "https://developers.openai.com/api/docs/guides/latest-model",
+  catalogVersion: "openai-2026-09-22",
+  reviewedAt: "2026-09-22",
+  sourceUrl: "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
   evidence: Object.freeze({
     kind: "verified-openai-docs",
     summary:
-      "Current OpenAI model guidance identifies Sol, Terra, and Luna as the frontier, balanced, and efficient GPT-5.6 choices and recommends deliberate reasoning selection.",
+      "OpenAI's GPT-6 Sol and Luna model pages confirm their model IDs and supported reasoning efforts; the Codex launch surfaces determine availability at launch.",
   }),
   hostCapabilityEvidence: Object.freeze({
     kind: "current-codex-desktop-capability",
-    observedAt: "2026-07-25",
+    observedAt: "2026-09-22",
     summary:
-      "The current Desktop durable-task API exposes Sol, Terra, and Luna, while the joined-subagent collaboration launcher exposes only Sol and Terra; routing must respect the selected launcher.",
+      "Current Codex durable-task and joined-subagent launch tools list GPT-6 Sol and Luna; the host remains authoritative for each launch.",
   }),
   policy: Object.freeze({
     kind: "local-reviewed-policy",
-    version: 3,
+    version: 4,
     summary:
-      "Nelos independently routes model and reasoning choices through launcher-specific capabilities, keeping Luna on durable tasks and Sol or Terra on joined subagents.",
+      "Nelos routes complex and everyday work to Sol and clear, repeatable work to Luna on either launch surface.",
   }),
   profiles,
 });

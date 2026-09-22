@@ -18,10 +18,10 @@ test("reviewed catalog records evidence and local-policy provenance", () => {
     },
     {
       schemaVersion: 1,
-      catalogVersion: "openai-2026-07-21",
-      reviewedAt: "2026-07-21",
-      sourceUrl: "https://developers.openai.com/api/docs/guides/latest-model",
-      policyVersion: 3,
+      catalogVersion: "openai-2026-09-22",
+      reviewedAt: "2026-09-22",
+      sourceUrl: "https://developers.openai.com/api/docs/models/gpt-6-sol.md",
+      policyVersion: 4,
       evidenceKind: "verified-openai-docs",
       policyKind: "local-reviewed-policy",
       hostEvidenceKind: "current-codex-desktop-capability",
@@ -31,9 +31,9 @@ test("reviewed catalog records evidence and local-policy provenance", () => {
 
 test("task shapes deterministically select reviewed profiles at lowest sufficient effort", async (t) => {
   const scenarios = [
-    ["complex/open-ended", "sol", "gpt-5.6-sol", "medium"],
-    ["everyday", "terra", "gpt-5.6-terra", "low"],
-    ["clear/repeatable", "luna", "gpt-5.6-luna", "low"],
+    ["complex/open-ended", "sol", "gpt-6-sol", "medium"],
+    ["everyday", "sol", "gpt-6-sol", "low"],
+    ["clear/repeatable", "luna", "gpt-6-luna", "low"],
   ];
   for (const [taskShape, profile, requestedModel, requestedEffort] of scenarios) {
     await t.test(taskShape, () => {
@@ -58,47 +58,43 @@ test("task shapes deterministically select reviewed profiles at lowest sufficien
   }
 });
 
-test("joined-subagent routing never selects Luna", () => {
+test("joined-subagent routing selects Luna for clear repeatable work", () => {
   const recommended = routeIntelligenceProfile({
     taskShape: "clear/repeatable",
     launchSurface: "joined-subagent",
   });
-  assert.equal(recommended.profile, "terra");
-  assert.equal(recommended.requestedModel, "gpt-5.6-terra");
+  assert.equal(recommended.profile, "luna");
+  assert.equal(recommended.requestedModel, "gpt-6-luna");
   assert.equal(recommended.modelSelection, "recommended");
-  assert.match(recommended.rationale, /joined-subagent work uses Terra/);
+  assert.match(recommended.rationale, /Clear, repeatable work is routed to Luna/);
 
   for (const override of [
     { profileOverride: "luna" },
-    { modelOverride: "gpt-5.6-luna" },
+    { modelOverride: "gpt-6-luna" },
   ]) {
-    assert.throws(
-      () =>
-        routeIntelligenceProfile({
-          taskShape: "clear/repeatable",
-          launchSurface: "joined-subagent",
-          ...override,
-        }),
-      /joined-subagent launches do not support gpt-5\.6-luna/,
-    );
+    assert.equal(routeIntelligenceProfile({
+      taskShape: "clear/repeatable",
+      launchSurface: "joined-subagent",
+      ...override,
+    }).requestedModel, "gpt-6-luna");
   }
 
   const durable = routeIntelligenceProfile({
     taskShape: "clear/repeatable",
     launchSurface: "durable-task",
   });
-  assert.equal(durable.requestedModel, "gpt-5.6-luna");
+  assert.equal(durable.requestedModel, "gpt-6-luna");
 });
 
 test("explicit validated model and effort overrides win", () => {
   const route = routeIntelligenceProfile({
     taskShape: "complex/open-ended",
-    modelOverride: "gpt-5.6-luna",
+    modelOverride: "gpt-6-luna",
     effortOverride: "low",
     launchSurface: "durable-task",
   });
   assert.equal(route.profile, "luna");
-  assert.equal(route.requestedModel, "gpt-5.6-luna");
+  assert.equal(route.requestedModel, "gpt-6-luna");
   assert.equal(route.requestedEffort, "low");
   assert.equal(route.modelSelection, "override");
   assert.equal(route.effortSelection, "override");
@@ -120,11 +116,11 @@ test("model and reasoning can be selected independently of task-shape routing", 
     {
       taskShape: null,
       profile: "sol",
-      requestedModel: "gpt-5.6-sol",
+      requestedModel: "gpt-6-sol",
       requestedEffort: null,
       modelSelection: "override",
       effortSelection: "inherit",
-      nativeTask: { model: "gpt-5.6-sol" },
+      nativeTask: { model: "gpt-6-sol" },
     },
   );
 
@@ -151,12 +147,12 @@ test("model and reasoning can be selected independently of task-shape routing", 
   );
 
   const explicit = routeIntelligenceProfile({
-    modelOverride: "gpt-5.6-terra",
+    modelOverride: "gpt-6-sol",
     effortOverride: "max",
     launchSurface: "durable-task",
   });
   assert.deepEqual(explicit.launch.nativeTask, {
-    model: "gpt-5.6-terra",
+    model: "gpt-6-sol",
     thinking: "max",
   });
 });
@@ -169,14 +165,14 @@ test("explicit profile overrides win and conflicting explicit overrides fail", (
     launchSurface: "durable-task",
   });
   assert.equal(route.profile, "sol");
-  assert.equal(route.requestedModel, "gpt-5.6-sol");
+  assert.equal(route.requestedModel, "gpt-6-sol");
   assert.equal(route.requestedEffort, "high");
   assert.throws(
     () =>
       routeIntelligenceProfile({
         taskShape: "everyday",
         profileOverride: "sol",
-        modelOverride: "gpt-5.6-terra",
+        modelOverride: "gpt-6-luna",
         launchSurface: "durable-task",
       }),
     /explicit intelligence profile and model overrides conflict/,
@@ -221,7 +217,7 @@ test("unsupported task shapes, models, and efforts fail without fallback", () =>
         effortOverride: "extreme",
         launchSurface: "durable-task",
       }),
-    /unsupported reasoning effort for terra: extreme/,
+    /unsupported reasoning effort for sol: extreme/,
   );
   for (const effortOverride of ["high", "xhigh", "max"]) {
     assert.equal(
@@ -274,6 +270,6 @@ test("Ultra requires explicit native fan-out permission", () => {
         nativeFanoutAllowed: true,
         launchSurface: "durable-task",
       }),
-    /Ultra requires an explicit or recommended Sol or Terra profile/,
+    /Ultra requires an explicit or recommended Sol profile/,
   );
 });

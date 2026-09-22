@@ -6,7 +6,7 @@ import {
   normalizeNativeLaunchV1,
 } from "../src/launch-contract.mjs";
 
-test("joined-subagent launch contracts reject Luna at the shared boundary", () => {
+test("joined-subagent launch contracts reject legacy model IDs at the shared boundary", () => {
   const launch = {
     workspaceMode: "shared-read-only",
     nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
@@ -26,8 +26,8 @@ test("joined-subagent launch contracts reject Luna at the shared boundary", () =
   );
 });
 
-test("joined subagents accept Sol and Terra while durable tasks retain Luna", () => {
-  for (const model of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
+test("joined subagents and durable tasks accept GPT-6 Sol and Luna", () => {
+  for (const model of ["gpt-6-sol", "gpt-6-luna"]) {
     assert.equal(
       normalizeNativeLaunchV1(
         {
@@ -43,10 +43,10 @@ test("joined subagents accept Sol and Terra while durable tasks retain Luna", ()
     normalizeNativeLaunchV1(
       {
         workspaceMode: "isolated-write",
-        nativeTask: { model: "gpt-5.6-luna", thinking: "low" },
+        nativeTask: { model: "gpt-6-luna", thinking: "low" },
       },
       "spinoff",
     ).nativeTask.model,
-    "gpt-5.6-luna",
+    "gpt-6-luna",
   );
 });

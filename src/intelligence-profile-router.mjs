@@ -11,22 +11,15 @@ const ROUTES = Object.freeze({
     rationale: "Complex or open-ended work benefits from Sol with medium reasoning as the lowest reviewed starting point for sustained judgment.",
   }),
   everyday: Object.freeze({
-    profileId: "terra",
+    profileId: "sol",
     effort: "low",
-    rationale: "Everyday work is routed to Terra with low reasoning for a capable, efficient default.",
+    rationale: "Everyday work is routed to Sol with low reasoning as a capable coding default.",
   }),
   "clear/repeatable": Object.freeze({
     profileId: "luna",
     effort: "low",
     rationale: "Clear, repeatable work is routed to Luna with low reasoning because the task and acceptance criteria are explicit.",
   }),
-});
-
-const JOINED_SUBAGENT_ROUTE = Object.freeze({
-  profileId: "terra",
-  effort: "low",
-  rationale:
-    "Clear, repeatable joined-subagent work uses Terra with low reasoning because the current native collaboration launcher supports Sol and Terra, not Luna.",
 });
 
 const INDEPENDENT_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -51,13 +44,7 @@ export function routeIntelligenceProfile(input) {
     throw new Error(`unsupported intelligence launch surface: ${input.launchSurface}`);
   }
 
-  const baseRecommendation =
-    input.taskShape === undefined ? null : ROUTES[input.taskShape];
-  const recommendation =
-    input.launchSurface === "joined-subagent" &&
-    baseRecommendation?.profileId === "luna"
-      ? JOINED_SUBAGENT_ROUTE
-      : baseRecommendation;
+  const recommendation = input.taskShape === undefined ? null : ROUTES[input.taskShape];
   if (input.taskShape !== undefined && !recommendation) {
     throw new Error(`unsupported intelligence task shape: ${input.taskShape}`);
   }
@@ -80,15 +67,6 @@ export function routeIntelligenceProfile(input) {
   const requestedModel = selectedProfile?.requestedModel ?? null;
   const requestedEffort = input.effortOverride ?? recommendation?.effort ?? null;
   if (
-    input.launchSurface === "joined-subagent" &&
-    requestedModel === "gpt-5.6-luna"
-  ) {
-    throw new Error(
-      "joined-subagent launches do not support gpt-5.6-luna; use Sol or Terra",
-    );
-  }
-
-  if (
     requestedEffort !== null &&
     selectedProfile &&
     !selectedProfile.supportedEfforts.includes(requestedEffort)
@@ -106,8 +84,8 @@ export function routeIntelligenceProfile(input) {
     throw new Error(`unsupported independent reasoning effort: ${requestedEffort}`);
   }
   if (requestedEffort === "ultra") {
-    if (!selectedProfile || !["sol", "terra"].includes(selectedProfile.id)) {
-      throw new Error("Ultra requires an explicit or recommended Sol or Terra profile");
+    if (!selectedProfile || selectedProfile.id !== "sol") {
+      throw new Error("Ultra requires an explicit or recommended Sol profile");
     }
     if (input.nativeFanoutAllowed !== true) {
       throw new Error("Ultra requires explicit native-fan-out permission");

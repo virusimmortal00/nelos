@@ -914,7 +914,7 @@ test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {
   assert.equal(isError, false);
   assert.equal(body.command, "plan bootstrap");
   assert.deepEqual(body.bootstrap.planner.nativeTask, {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     thinking: "medium",
   });
   assert.equal(body.nextAction.kind, "launch-planner");
@@ -936,7 +936,7 @@ test("nelos_plan_bootstrap returns an exact Sol planning launch", async () => {
   assert.equal(response.result.structuredContent.phase, "planning");
   assert.equal(
     response.result.structuredContent.members[0].model,
-    "gpt-5.6-sol",
+    "gpt-6-sol",
   );
   assert.equal(
     response.result.structuredContent.members[0].reasoning,
@@ -1294,7 +1294,7 @@ test("nelos_launch_verify_batch is an all-or-nothing wave gate", async () => {
         sliceId: "explore",
         lifecycle: "spinoff",
         title: "Explore",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         effort: "low",
       },
     ],
@@ -1773,7 +1773,7 @@ test("nelos_launch_verify_batch returns one replay-stable post-bind title synchr
         sliceId: "explore",
         lifecycle: "spinoff",
         title: "🕷️ A1 · Explore",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         effort: "low",
       },
     ],
@@ -2471,7 +2471,7 @@ test("spin-off lifecycle tools forward exact bounded arguments", async () => {
               workUnitId: "member-a",
               threadId: "member",
               title: "Member A",
-              model: "gpt-5.6-sol",
+              model: "gpt-6-sol",
               reasoning: "medium",
               state: "archived",
               replayed: false,
@@ -2694,7 +2694,7 @@ test("stdio orchestration advertises the maximum direct WorkUnitSpec launch prom
   );
 });
 
-test("stdio orchestration rejects Luna before returning a joined-subagent effect", async (t) => {
+test("stdio orchestration rejects a legacy model before returning a joined-subagent effect", async (t) => {
   const fixture = await orchestrationFixture(t);
   const workUnit = workUnitInput({
     memberKind: "joined-subagent",
@@ -3323,7 +3323,7 @@ test("nelos_execution_map_refresh projects current native turn status", async ()
       id: "worker-a",
       task: "Inspect the widget",
       lifecycle: "subagent",
-      model: "gpt-5.6-terra",
+      model: "gpt-6-sol",
       reasoning: "low",
       threadId: "thread-a",
       turnId: "turn-a",
@@ -3431,7 +3431,7 @@ test("post-negotiation execution maps retain a web across restart and stale upda
     id,
     task: `Member ${id}`,
     lifecycle: "spinoff",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     reasoning: "medium",
     threadId: `thread-${id}`,
     turnId: `turn-${id}`,
@@ -3627,7 +3627,7 @@ test("nelos_execution_map_history exposes the persisted full roster explicitly",
                 id: "old-worker",
                 task: "🕷️A1.1 · Old worker",
                 lifecycle: "spinoff",
-                model: "gpt-5.6-terra",
+                model: "gpt-6-sol",
                 reasoning: "low",
                 status: "archived",
                 threadId: "thread-old",
@@ -3645,7 +3645,7 @@ test("nelos_execution_map_history exposes the persisted full roster explicitly",
     id: "old-worker",
     task: "🕷️A1.1 · Old worker",
     lifecycle: "spinoff",
-    model: "gpt-5.6-terra",
+    model: "gpt-6-sol",
     reasoning: "low",
     status: "archived",
     threadId: "thread-old",
@@ -3877,10 +3877,10 @@ test("nelos_plan_slices reports invalid plans as tool errors", async () => {
   assert.equal(synchronizationCalls, 0);
 });
 
-test("nelos_plan_slices never emits a Luna joined-subagent launch", async () => {
+test("nelos_plan_slices emits Luna for joined clear repeatable work", async () => {
   const plan = validPlan();
   plan.slices[0].taskShape = "clear/repeatable";
-  const [, recommended, rejected] = await roundTrip([
+  const [, recommended, overridden] = await roundTrip([
     INITIALIZE,
     {
       jsonrpc: "2.0",
@@ -3902,7 +3902,7 @@ test("nelos_plan_slices never emits a Luna joined-subagent launch", async () => 
             ...plan,
             slices: [{
               ...plan.slices[0],
-              routing: { model: "gpt-5.6-luna" },
+              routing: { model: "gpt-6-luna" },
             }],
           },
           queenThreadId: "queen-1",
@@ -3914,14 +3914,11 @@ test("nelos_plan_slices never emits a Luna joined-subagent launch", async () => 
   assert.equal(recommendedBody.isError, false);
   assert.equal(
     recommendedBody.body.nextAction.members[0].nativeTask.model,
-    "gpt-5.6-terra",
+    "gpt-6-luna",
   );
-  const rejectedBody = toolBody(rejected);
-  assert.equal(rejectedBody.isError, true);
-  assert.match(
-    rejectedBody.body.error,
-    /joined-subagent launches do not support gpt-5\.6-luna/,
-  );
+  const overriddenBody = toolBody(overridden);
+  assert.equal(overriddenBody.isError, false);
+  assert.equal(overriddenBody.body.nextAction.members[0].nativeTask.model, "gpt-6-luna");
 });
 
 test("nelos_intelligence_route mirrors the CLI mapping", async () => {
@@ -3992,7 +3989,7 @@ async function withCodexHome(root, run) {
 
 test("nelos_intelligence_verify confirms an exact route", async () => {
   const root = await sessionsFixture([
-    turnContext("turn-1", "gpt-5.6-terra", "low"),
+    turnContext("turn-1", "gpt-6-sol", "low"),
   ]);
   await withCodexHome(root, async () => {
     const [, response] = await roundTrip([
@@ -4003,7 +4000,7 @@ test("nelos_intelligence_verify confirms an exact route", async () => {
         method: "tools/call",
         params: {
           name: "nelos_intelligence_verify",
-          arguments: { threadId: "thread-1", model: "gpt-5.6-terra", effort: "low" },
+          arguments: { threadId: "thread-1", model: "gpt-6-sol", effort: "low" },
         },
       },
     ]);
@@ -4036,7 +4033,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           },
         },
       },
-    })}\n${JSON.stringify(turnContext("turn-older", "gpt-5.6-sol", "medium"))}\n${JSON.stringify(turnContext("turn-current", "gpt-5.6-terra", "high"))}\n`,
+    })}\n${JSON.stringify(turnContext("turn-older", "gpt-6-sol", "medium"))}\n${JSON.stringify(turnContext("turn-current", "gpt-6-sol", "high"))}\n`,
   );
   await withCodexHome(root, async () => {
     const [, response] = await roundTrip([
@@ -4050,7 +4047,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           arguments: {
             parentThreadId: "parent-thread",
             agentPath: "/root/nelos_planner_abc123",
-            model: "gpt-5.6-terra",
+            model: "gpt-6-sol",
             effort: "high",
           },
         },
@@ -4065,7 +4062,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
       tool: "nelos_intelligence_verify",
       arguments: {
         threadId: childThreadId,
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         effort: "high",
         turnId: "turn-current",
       },
@@ -4093,7 +4090,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
           arguments: {
             parentThreadId: "different-parent",
             agentPath: "/root/nelos_planner_abc123",
-            model: "gpt-5.6-sol",
+            model: "gpt-6-sol",
             effort: "medium",
           },
         },
@@ -4105,7 +4102,7 @@ test("nelos_intelligence_resolve_subagent returns exact verification arguments",
 
 test("nelos_intelligence_verify fails closed on any mismatch", async () => {
   const root = await sessionsFixture([
-    turnContext("turn-1", "gpt-5.6-terra", "high"),
+    turnContext("turn-1", "gpt-6-sol", "high"),
   ]);
   await withCodexHome(root, async () => {
     const [, mismatch, missing] = await roundTrip([
@@ -4116,7 +4113,7 @@ test("nelos_intelligence_verify fails closed on any mismatch", async () => {
         method: "tools/call",
         params: {
           name: "nelos_intelligence_verify",
-          arguments: { threadId: "thread-1", model: "gpt-5.6-terra", effort: "low" },
+          arguments: { threadId: "thread-1", model: "gpt-6-sol", effort: "low" },
         },
       },
       {
@@ -4125,7 +4122,7 @@ test("nelos_intelligence_verify fails closed on any mismatch", async () => {
         method: "tools/call",
         params: {
           name: "nelos_intelligence_verify",
-          arguments: { threadId: "no-such-thread", model: "gpt-5.6-terra", effort: "low" },
+          arguments: { threadId: "no-such-thread", model: "gpt-6-sol", effort: "low" },
         },
       },
     ]);

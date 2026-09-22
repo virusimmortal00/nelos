@@ -341,7 +341,7 @@ export async function runPlanningLifecycleScenario() {
     const prepared = preparedCall.body;
     assert.equal(prepared.nextAction.kind, "launch-planner");
     assert.deepEqual(prepared.nextAction.member.nativeTask, {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       thinking: "medium",
     });
     assert.deepEqual(
@@ -368,7 +368,7 @@ export async function runPlanningLifecycleScenario() {
       parentThreadId: "queen-1",
       agentPath: plannerAgentPath,
       turnId: "planner-turn",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
     });
     await mutateState(appStatePath, (value) => {
@@ -508,12 +508,12 @@ export async function runPlanningLifecycleScenario() {
         parentThreadId: "queen-1",
         agentPath: "/root/research",
         turnId: "research-turn",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-luna",
         effort: "low",
       }),
       writeRollout(codexHome, "implementation-1", {
         turnId: "implementation-turn",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         effort: "low",
       }),
     ]);
@@ -645,7 +645,7 @@ export async function runPlanningLifecycleScenario() {
       parentThreadId: "queen-1",
       agentPath: "/root/replanner",
       turnId: "replanner-turn",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       effort: "medium",
     });
     await mutateState(appStatePath, (value) => {

@@ -27,7 +27,7 @@ test("model guidance uses only declared collector contracts and local fixture re
       return new Response(
         url.includes("subagents")
           ? "Subagents inherit reasoning effort."
-          : "gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna low medium high xhigh max ultra",
+          : "gpt-6-sol gpt-6-luna low medium high xhigh max",
         { headers: { "content-type": "text/plain" } },
       );
     },
@@ -37,10 +37,10 @@ test("model guidance uses only declared collector contracts and local fixture re
     requested,
     MODEL_CATALOG_DOCUMENTATION_CONTRACTS_V1.map(({ requestedUrl }) => requestedUrl),
   );
-  assert.match(guidance.modelsGuidanceText, /gpt-5\.6-sol/u);
+  assert.match(guidance.modelsGuidanceText, /gpt-6-sol/u);
   assert.match(guidance.subagentsGuidanceText, /Subagents/u);
   assert.equal(guidance.upstreamDocumentation.status, "available");
-  assert.equal(guidance.upstreamDocumentation.records.length, 2);
+  assert.equal(guidance.upstreamDocumentation.records.length, 3);
 });
 
 test("model guidance infrastructure failures remain reports, not drift text", async () => {

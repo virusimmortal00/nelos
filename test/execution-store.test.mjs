@@ -121,7 +121,7 @@ test("work-unit validation rejects incompatible, ambiguous, and unbounded record
     capabilities: ["observe", "read-result", "follow-up"],
     launch: {
       workspaceMode: "shared-read-only",
-      nativeTask: { model: "gpt-5.6-terra", thinking: "low" },
+      nativeTask: { model: "gpt-6-sol", thinking: "low" },
     },
   });
   assert.equal(joined.launch.launcher, "spawn-subagent");

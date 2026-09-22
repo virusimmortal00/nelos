@@ -101,11 +101,11 @@ const NATIVE_TASK = closed({
   thinking: { type: "string", minLength: 1, maxLength: 32 },
 });
 const PLANNER_NATIVE_TASK = closed({
-  model: { const: "gpt-5.6-sol" },
+  model: { const: "gpt-6-sol" },
   thinking: { const: "medium" },
 });
 const JOINED_SUBAGENT_NATIVE_TASK = closed({
-  model: { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] },
+  model: { enum: ["gpt-6-sol", "gpt-6-luna"] },
   thinking: { type: "string", minLength: 1, maxLength: 32 },
 });
 const ROUTE_ENFORCEMENT = closed({
@@ -777,7 +777,7 @@ function reconcilePolicy(onFound) {
 function nativeLaunchSchema(memberKind, launcher, workspaceMode) {
   const nativeTask = closed({
     model: memberKind === "joined-subagent"
-      ? { enum: ["gpt-5.6-sol", "gpt-5.6-terra"] }
+      ? { enum: ["gpt-6-sol", "gpt-6-luna"] }
       : { type: "string", minLength: 1, maxLength: 128 },
     thinking: { type: "string", minLength: 1, maxLength: 32 },
   }, []);

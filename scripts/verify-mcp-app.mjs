@@ -340,7 +340,7 @@ function verifyRepresentativeCall() {
   assert.equal(envelope.result?.structuredContent?.summary?.total, 1);
   assert.equal(
     envelope.result?.structuredContent?.members?.[0]?.model,
-    "gpt-5.6-sol",
+    "gpt-6-sol",
   );
   assert.equal(
     envelope.result?.structuredContent?.members?.[0]?.reasoning,

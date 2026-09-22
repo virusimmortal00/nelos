@@ -34,13 +34,13 @@ function turnContext(turnId, model, effort) {
 test("runtime verification confirms the exact model and effort", async () => {
   const { root } = await fixture([
     { type: "response_item", payload: { transcript: "private" } },
-    turnContext("turn-1", "gpt-5.6-terra", "low"),
+    turnContext("turn-1", "gpt-6-sol", "low"),
   ]);
   try {
     assert.deepEqual(
       await verifyRuntimeIntelligenceV1({
         threadId: "thread-1",
-        model: "gpt-5.6-terra",
+        model: "gpt-6-sol",
         effort: "low",
         sessionsRoot: root,
       }),
@@ -48,11 +48,11 @@ test("runtime verification confirms the exact model and effort", async () => {
         schemaVersion: 1,
         threadId: "thread-1",
         turnId: null,
-        expected: { model: "gpt-5.6-terra", effort: "low" },
+        expected: { model: "gpt-6-sol", effort: "low" },
         observed: [
           {
             turnId: "turn-1",
-            model: "gpt-5.6-terra",
+            model: "gpt-6-sol",
             effort: "low",
             matches: true,
           },
@@ -67,13 +67,13 @@ test("runtime verification confirms the exact model and effort", async () => {
 
 test("runtime verification reports a loud exact-route mismatch", async () => {
   const { root } = await fixture([
-    turnContext("turn-1", "gpt-5.6-sol", "xhigh"),
+    turnContext("turn-1", "gpt-6-sol", "xhigh"),
   ]);
   try {
     const result = await verifyRuntimeIntelligenceV1({
       threadId: "thread-1",
       turnId: "turn-1",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       effort: "low",
       sessionsRoot: root,
     });
@@ -81,7 +81,7 @@ test("runtime verification reports a loud exact-route mismatch", async () => {
     assert.deepEqual(result.observed, [
       {
         turnId: "turn-1",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         effort: "xhigh",
         matches: false,
       },
@@ -93,14 +93,14 @@ test("runtime verification reports a loud exact-route mismatch", async () => {
 
 test("runtime verification fails closed without exact turn evidence", async () => {
   const { root } = await fixture([
-    turnContext("turn-1", "gpt-5.6-sol", "medium"),
+    turnContext("turn-1", "gpt-6-sol", "medium"),
   ]);
   try {
     await assert.rejects(
       verifyRuntimeIntelligenceV1({
         threadId: "thread-1",
         turnId: "turn-missing",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         effort: "medium",
         sessionsRoot: root,
       }),
@@ -113,14 +113,14 @@ test("runtime verification fails closed without exact turn evidence", async () =
 
 test("runtime verification scopes joined-subagent route evidence to the current launch turn", async () => {
   const { root } = await fixture([
-    turnContext("turn-older", "gpt-5.6-sol", "medium"),
-    turnContext("turn-current", "gpt-5.6-terra", "high"),
+    turnContext("turn-older", "gpt-6-sol", "medium"),
+    turnContext("turn-current", "gpt-6-sol", "high"),
   ]);
   try {
     const current = await verifyRuntimeIntelligenceV1({
       threadId: "thread-1",
       turnId: "turn-current",
-      model: "gpt-5.6-terra",
+      model: "gpt-6-sol",
       effort: "high",
       sessionsRoot: root,
     });
@@ -128,8 +128,8 @@ test("runtime verification scopes joined-subagent route evidence to the current 
     assert.deepEqual(current.observed.map(({ turnId }) => turnId), ["turn-current"]);
 
     for (const expected of [
-      { model: "gpt-5.6-sol", effort: "medium" },
-      { model: "gpt-5.6-terra", effort: "medium" },
+      { model: "gpt-6-sol", effort: "medium" },
+      { model: "gpt-6-sol", effort: "medium" },
     ]) {
       const mismatch = await verifyRuntimeIntelligenceV1({
         threadId: "thread-1",
@@ -145,7 +145,7 @@ test("runtime verification scopes joined-subagent route evidence to the current 
       verifyRuntimeIntelligenceV1({
         threadId: "thread-1",
         turnId: "turn-missing",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         effort: "medium",
         sessionsRoot: root,
       }),
@@ -177,7 +177,7 @@ test("subagent resolution uses only exact parent and canonical agent identity", 
           },
         },
       },
-    })}\n${JSON.stringify(turnContext("turn-current", "gpt-5.6-terra", "high"))}\n`,
+    })}\n${JSON.stringify(turnContext("turn-current", "gpt-6-sol", "high"))}\n`,
   );
   await writeFile(
     join(directory, "rollout-2026-07-24T11-00-00-unrelated.jsonl"),
@@ -229,8 +229,8 @@ test("subagent resolution derives the final current turn and fails closed on mis
   );
   try {
     await writeRollout("current-child", "/root/current", [
-      turnContext("turn-older", "gpt-5.6-sol", "medium"),
-      turnContext("turn-current", "gpt-5.6-terra", "high"),
+      turnContext("turn-older", "gpt-6-sol", "medium"),
+      turnContext("turn-current", "gpt-6-sol", "high"),
     ]);
     assert.equal(
       (await resolveNativeSubagentThreadV1({ parentThreadId: "parent-thread", agentPath: "/root/current", sessionsRoot: root })).turnId,
@@ -242,8 +242,8 @@ test("subagent resolution derives the final current turn and fails closed on mis
       /has no current turn context/,
     );
     await writeRollout("ambiguous-child", "/root/ambiguous", [
-      turnContext("turn-current", "gpt-5.6-terra", "high"),
-      turnContext("turn-current", "gpt-5.6-terra", "high"),
+      turnContext("turn-current", "gpt-6-sol", "high"),
+      turnContext("turn-current", "gpt-6-sol", "high"),
     ]);
     await assert.rejects(
       resolveNativeSubagentThreadV1({ parentThreadId: "parent-thread", agentPath: "/root/ambiguous", sessionsRoot: root }),

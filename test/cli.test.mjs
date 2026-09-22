@@ -379,11 +379,11 @@ test("packaged launcher plans dependency waves and per-slice routes offline", as
       [["research"], ["implement"]],
     );
     assert.deepEqual(output.plan.waves[0].slices[0].route.launch.nativeTask, {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       thinking: "medium",
     });
     assert.deepEqual(output.plan.waves[1].slices[0].route.launch.nativeTask, {
-      model: "gpt-5.6-terra",
+      model: "gpt-6-sol",
       thinking: "low",
     });
   } finally {
@@ -529,17 +529,17 @@ test("packaged launcher routes intelligence from an unrelated working directory"
       command: "intelligence route",
       route: {
         schemaVersion: 2,
-        policyVersion: 3,
-        catalogVersion: "openai-2026-07-21",
+        policyVersion: 4,
+        catalogVersion: "openai-2026-09-22",
         taskShape: "clear/repeatable",
         profile: "luna",
-        requestedModel: "gpt-5.6-luna",
+        requestedModel: "gpt-6-luna",
         requestedEffort: "max",
         modelSelection: "recommended",
         effortSelection: "override",
         launch: {
-          nativeTask: { model: "gpt-5.6-luna", thinking: "max" },
-          standaloneTask: { model: "gpt-5.6-luna", effort: "max" },
+          nativeTask: { model: "gpt-6-luna", thinking: "max" },
+          standaloneTask: { model: "gpt-6-luna", effort: "max" },
         },
         rationale:
           "Explicit validated model or reasoning choices take precedence over the Luna recommendation; any unselected dimension uses that recommendation.",
@@ -548,7 +548,7 @@ test("packaged launcher routes intelligence from an unrelated working directory"
       nextAction: {
         schemaVersion: 1,
         kind: "attach-native-task-options",
-        nativeTask: { model: "gpt-5.6-luna", thinking: "max" },
+        nativeTask: { model: "gpt-6-luna", thinking: "max" },
         routeEnforcement: {
           mode: "exact",
           onUnavailable: "stop",
@@ -566,11 +566,11 @@ test("intelligence routing emits directly consumable independent native launch o
     "intelligence",
     "route",
     "--model",
-    "gpt-5.6-sol",
+    "gpt-6-sol",
   ]);
   assert.equal(modelOnly.status, 0, modelOnly.stderr);
   assert.deepEqual(JSON.parse(modelOnly.stdout).route.launch.nativeTask, {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
   });
 
   const effortOnly = run(cli, ["intelligence", "route", "--effort", "high"]);
@@ -606,7 +606,7 @@ test("intelligence verification exits nonzero on an effective route mismatch", a
         type: "turn_context",
         payload: {
           turn_id: "turn-1",
-          model: "gpt-5.6-sol",
+          model: "gpt-6-sol",
           effort: "xhigh",
           summary: "private",
         },
@@ -621,7 +621,7 @@ test("intelligence verification exits nonzero on an effective route mismatch", a
         "--thread-id",
         threadId,
         "--model",
-        "gpt-5.6-terra",
+        "gpt-6-sol",
         "--effort",
         "low",
       ],
@@ -638,11 +638,11 @@ test("intelligence verification exits nonzero on an effective route mismatch", a
       kind: "attention",
       reason: "exact-native-route-mismatch",
       threadId,
-      expected: { model: "gpt-5.6-terra", effort: "low" },
+      expected: { model: "gpt-6-sol", effort: "low" },
       observed: [
         {
           turnId: "turn-1",
-          model: "gpt-5.6-sol",
+          model: "gpt-6-sol",
           effort: "xhigh",
           matches: false,
         },

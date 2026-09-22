@@ -40,10 +40,11 @@ export async function collectGuidance({
   );
   const byId = new Map(observations.map((item) => [item.contractId, item]));
   const models = byId.get("model-catalog.models-guidance");
+  const luna = byId.get("model-catalog.luna-guidance");
   const subagents = byId.get("model-catalog.subagents-guidance");
   return {
-    ...(models?.status === "available"
-      ? { modelsGuidanceText: models.selectedText }
+    ...(models?.status === "available" && luna?.status === "available"
+      ? { modelsGuidanceText: `${models.selectedText}\n${luna.selectedText}` }
       : {}),
     ...(subagents?.status === "available"
       ? { subagentsGuidanceText: subagents.selectedText }

@@ -83,6 +83,8 @@ export function checkModelCatalogFreshness({
       });
     }
     for (const effort of profile.supportedEfforts ?? []) {
+      // Codex's ultra launch mode is checked by the host, not the API model pages.
+      if (effort === "ultra") continue;
       if (guidance.modelsGuidanceText != null && !modelsText.includes(effort)) {
         differences.push({
           profile: profile.id,

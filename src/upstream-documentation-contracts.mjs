@@ -53,11 +53,16 @@ export const MODEL_CATALOG_DOCUMENTATION_CONTRACTS_V1 = Object.freeze([
   artifactContract(
     "model-catalog.models-guidance",
     INTELLIGENCE_PROFILE_CATALOG.sourceUrl,
-    "current-model-guidance",
+    "current-sol-model-guidance",
+  ),
+  artifactContract(
+    "model-catalog.luna-guidance",
+    "https://developers.openai.com/api/docs/models/gpt-6-luna.md",
+    "current-luna-model-guidance",
   ),
   artifactContract(
     "model-catalog.subagents-guidance",
-    "https://developers.openai.com/codex/subagents",
+    "https://learn.chatgpt.com/docs/agent-configuration/subagents",
     "current-subagent-guidance",
   ),
 ]);

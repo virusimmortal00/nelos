@@ -26,7 +26,7 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
   assert.equal(first.planner.workspaceMode, "shared-read-only");
   assert.equal(first.planner.forkTurns, "none");
   assert.deepEqual(first.planner.nativeTask, {
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     thinking: "medium",
   });
   assert.deepEqual(first.planner.routeEnforcement, {
@@ -70,7 +70,7 @@ test("planning bootstrap creates one uniquely identified exact Sol planning suba
   assert.match(first.planner.agentTaskName, /^nelos_planner_[a-f0-9]{12}$/u);
   assert.deepEqual(first.planner.continuation.verify, {
     tool: "nelos_intelligence_verify",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     effort: "medium",
     beforeRead: true,
   });
@@ -130,7 +130,7 @@ test("planning bootstrap deterministically finalizes a matching confident plan",
   );
   assert.deepEqual(
     finalized.plan.waves[0].slices[0].route.launch.nativeTask,
-    { model: "gpt-5.6-sol", thinking: "medium" },
+    { model: "gpt-6-sol", thinking: "medium" },
   );
 });
 

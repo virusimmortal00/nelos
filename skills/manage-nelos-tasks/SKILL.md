@@ -70,8 +70,8 @@ After the fast path or bootstrap, execute only the returned
 - `launch-wave`: its `executionGate` is authoritative. Dispatch only listed
   members with exact fields. Never omit, substitute, or inherit a decided `nativeTask`.
   `create-thread` makes spinoffs; `spawn-subagent` uses
-  `agentTaskName`. Joined subagents support only Sol or Terra; Luna is
-  valid only for durable spinoffs. Never bind an agent name as a thread ID.
+  `agentTaskName`. Joined subagents support GPT-6 Sol and Luna.
+  Never bind an agent name as a thread ID.
   For each `orchestration`, call its exact tool/arguments, execute
   `native-create`, and submit the unchanged work unit plus exact task-ID receipt.
   For a subagent, resolve its agent path to the verification-only thread ID.

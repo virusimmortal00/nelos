@@ -180,7 +180,7 @@ test("planning lifecycle is idempotent, restart-safe, and completes from exact r
     assert.equal(initial.lifecycle.phase, "launch-pending");
     assert.equal(initial.nextAction.kind, "launch-planner");
     assert.deepEqual(initial.nextAction.member.nativeTask, {
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       thinking: "medium",
     });
     assert.equal(
